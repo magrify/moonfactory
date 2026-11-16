@@ -380,6 +380,14 @@ def _validate_image_b64(value, field: str):
 # in), enforced server-side in create_job and the settings endpoints
 # below, not just in the UI. See is_paid().
 CUSTOM_AUDIO_MAX_CHARS = 300
+# Speech script (Jack's correction, 2026-11-16): "audio" means
+# voiceover/speech too, not just music. A job may carry a spoken
+# script; on lanes that cannot generate speech natively the
+# platform's Kokoro voiceover stage speaks it in post. Paid-only,
+# like the custom music prompt.
+SPEECH_SCRIPT_MAX_CHARS = 1000
+SPEECH_VOICES = ("af_heart", "af_bella", "am_michael", "am_adam",
+                 "bf_emma", "bm_george")
 HANDLE_RE = re.compile(r"[A-Za-z0-9_-]{3,20}")
 
 BED_PATH = Path("/worker-models/audio/music_bed_first.wav")
@@ -428,6 +436,17 @@ MODELS = [
     {"id": "happyhorse", "label": "HappyHorse 1.1", "paid_only": True},
     {"id": "pika22", "label": "Pika 2.2", "paid_only": True},
     {"id": "vidu_q2", "label": "Vidu Q2", "paid_only": True},
+    # Follow-up wiring pass (2026-11-16): Vidu Q3 opens on its
+    # first published per-second route; Runway Gen-4.5 wires
+    # direct. Vidu Q4, Seedance 2.5 Flash and PixVerse V6 are
+    # wired but price-paused (their supplier publishes only
+    # per-run "from" prices, never a per-second rate), exactly
+    # like Vidu Q2.
+    {"id": "vidu_q3", "label": "Vidu Q3", "paid_only": True},
+    {"id": "vidu_q4", "label": "Vidu Q4", "paid_only": True},
+    {"id": "seedance25_flash", "label": "Seedance 2.5 Flash", "paid_only": True},
+    {"id": "pixverse_v6", "label": "PixVerse V6", "paid_only": True},
+    {"id": "runway_gen45", "label": "Runway Gen-4.5", "paid_only": True},
 ]
 MODEL_LABELS = {m["id"]: m["label"] for m in MODELS}
 DEFAULT_MODEL = "wan2.2"
@@ -436,7 +455,8 @@ PER_SECOND_MODELS = (
     "kling4", "kling3_omni", "seedance2", "seedance2_fast",
     "seedance2_mini", "veo3_lite", "omni12", "omni11", "hailuo23",
     "minimax_h3", "grok", "luma_ray32", "ltx25", "ltx25_fast",
-    "happyhorse", "pika22", "vidu_q2",
+    "happyhorse", "pika22", "vidu_q2", "vidu_q3", "vidu_q4",
+    "seedance25_flash", "pixverse_v6", "runway_gen45",
 )
 # Which supplier serves each per-second model. Internal only: the
 # picker, the pricing page, and every error show model names, never
@@ -453,29 +473,163 @@ PER_SECOND_MODELS = (
 # rate and offers no 1080p tier for this model.
 MODEL_PROVIDER = {
     "wan3": "beatapi",
-    "wan3_prime": "beatapi",
+    "wan3_prime": "cometapi",
     "seedance": "beatapi",
-    "kling3": "beatapi",
-    "kling4": "beatapi",
+    "kling3": "kie",
+    "kling4": "kie",
     "seedance2": "beatapi",
-    "seedance2_fast": "beatapi",
-    "seedance2_mini": "beatapi",
-    "omni12": "beatapi",
+    "seedance2_fast": "kie",
+    "seedance2_mini": "kie",
+    "omni12": "kie",
     "omni11": "beatapi",
-    "grok": "beatapi",
-    "happyhorse": "beatapi",
+    "grok": "kie",
+    "happyhorse": "openrouter",
     "minimax_h3": "beatapi",
-    "veo3": "fal",
+    "veo3": "piapi",
     "veo3_fast": "fal",
-    "kling3_omni": "fal",
-    "veo3_lite": "fal",
-    "hailuo23": "fal",
+    "kling3_omni": "kie",
+    "veo3_lite": "eachlabs",
+    "hailuo23": "kie",
     "luma_ray32": "fal",
     "ltx25": "fal",
     "ltx25_fast": "fal",
     "pika22": "fal",
     "vidu_q2": "fal",
+    "vidu_q3": "novita",
+    "vidu_q4": "wavespeed",
+    "seedance25_flash": "wavespeed",
+    "pixverse_v6": "wavespeed",
+    "runway_gen45": "runway",
 }
+# The secret env var each supplier's key lives under in the
+# moonfactory-providers Modal secret. Lane state checks the
+# PRIMARY supplier's key; the per-resolution override below is
+# checked again at quote and dispatch time.
+PROVIDER_KEY_ENV = {
+    "fal": "FAL_KEY",
+    "beatapi": "BEATAPI_KEY",
+    "kie": "KIE_API_KEY",
+    "cometapi": "COMETAPI_API_KEY",
+    "piapi": "PIAPI_API_KEY",
+    "openrouter": "OPENROUTER_API_KEY",
+    "novita": "NOVITA_API_KEY",
+    "wavespeed": "WAVESPEED_API_KEY",
+    "eachlabs": "EACHLABS_API_KEY",
+    "runway": "RUNWAY_API_KEY",
+    "vidu": "VIDU_API_KEY",
+    "minimax": "MINIMAX_API_KEY",
+    "replicate": "REPLICATE_API_TOKEN",
+}
+# Per-resolution route overrides: Seedance 2.5's cheapest 720p
+# route is a different supplier than its 480p/1080p route, so the
+# provider is a function of (model, resolution), not model alone.
+MODEL_PROVIDER_OVERRIDES = {
+    "seedance": {"720p": "cometapi"},
+}
+
+
+def provider_for(model: str, resolution: str = None) -> str:
+    """The supplier that serves this model at this resolution."""
+    if resolution:
+        override = MODEL_PROVIDER_OVERRIDES.get(model, {}).get(resolution)
+        if override:
+            return override
+    return MODEL_PROVIDER.get(model, "fal")
+
+
+# ---------------------------------------------------------------------------
+# Lane audio capability (Jack's correction, 2026-11-16): "audio" is
+# not one thing. A lane can generate speech/dialogue natively, can
+# generate music/ambient/SFX audio only, or can be silent. The
+# record is per LANE (the model on its wired route), because the
+# cheapest route can strip a capability the model itself has: Veo
+# 3.1 the model speaks, but its wired PiAPI route is the published
+# no-audio rate, so the lane records silent. Where a lane has a
+# native-audio mode, the submit wiring selects it by default.
+# Talking content on a non-speech lane is served by the platform's
+# Kokoro voiceover stage (the job's speech_script), never by
+# treating a music bed as if it were speech.
+# ---------------------------------------------------------------------------
+LANE_AUDIO = {
+    "wan2.2": {"native_speech": False, "native_audio": False,
+               "note": "house model is silent; music bed and the voiceover path run in post"},
+    "wan3": {"native_speech": False, "native_audio": True,
+             "note": "native audio is music/SFX-led; speech is not reliable"},
+    "wan3_prime": {"native_speech": False, "native_audio": True,
+                   "note": "native audio is music/SFX-led; speech is not reliable"},
+    "seedance": {"native_speech": True, "native_audio": True,
+                 "note": "Seedance native audio incl. dialogue; audio on for the BeatAPI tiers; the CometAPI 720p tier's audio basis is unconfirmed"},
+    "veo3": {"native_speech": False, "native_audio": False,
+             "note": "the model generates dialogue natively, but the wired route is the published no-audio rate; with-audio routes are recorded as fallbacks in pricing.py"},
+    "veo3_fast": {"native_speech": True, "native_audio": True,
+                  "note": "wired route is the with-audio rate; dialogue native"},
+    "kling3": {"native_speech": True, "native_audio": True,
+               "note": "Kling sound on by default on the wired route; dialogue native"},
+    "kling4": {"native_speech": True, "native_audio": True,
+               "note": "Kling native audio incl. dialogue"},
+    "kling3_omni": {"native_speech": True, "native_audio": True,
+                    "note": "Kling native audio incl. dialogue"},
+    "seedance2": {"native_speech": True, "native_audio": True,
+                  "note": "Seedance native audio incl. dialogue; generate_audio on"},
+    "seedance2_fast": {"native_speech": True, "native_audio": True,
+                       "note": "Seedance native audio incl. dialogue; generate_audio on"},
+    "seedance2_mini": {"native_speech": False, "native_audio": False,
+                       "note": "silent model on every route"},
+    "veo3_lite": {"native_speech": False, "native_audio": False,
+                  "note": "the model generates dialogue natively, but the wired route is the published no-audio tier; the with-audio tier is recorded in pricing.py"},
+    "omni12": {"native_speech": True, "native_audio": True,
+               "note": "Gemini Omni native audio incl. speech; the wired route's audio basis is unconfirmed"},
+    "omni11": {"native_speech": True, "native_audio": True,
+               "note": "Gemini Omni native audio incl. speech"},
+    "hailuo23": {"native_speech": False, "native_audio": False,
+                 "note": "silent on every route; no native audio mode exists"},
+    "minimax_h3": {"native_speech": True, "native_audio": True,
+                   "note": "H3 native audio incl. speech"},
+    "grok": {"native_speech": True, "native_audio": True,
+             "note": "Grok Imagine native audio incl. dialogue"},
+    "luma_ray32": {"native_speech": False, "native_audio": False,
+                   "note": "no published native-audio mode on the wired route"},
+    "ltx25": {"native_speech": False, "native_audio": True,
+              "note": "LTX native audio is music/SFX-led; speech is not reliable"},
+    "ltx25_fast": {"native_speech": False, "native_audio": True,
+                   "note": "LTX native audio is music/SFX-led; speech is not reliable"},
+    "happyhorse": {"native_speech": False, "native_audio": False,
+                   "note": "no published native-audio mode on the wired route"},
+    "pika22": {"native_speech": False, "native_audio": False,
+               "note": "silent"},
+    "vidu_q2": {"native_speech": False, "native_audio": True,
+                "note": "Vidu native audio; speech unconfirmed; lane price-paused"},
+    "vidu_q3": {"native_speech": True, "native_audio": True,
+                "note": "Vidu Q3 native audio incl. speech; audio on in the wired payload"},
+    "vidu_q4": {"native_speech": True, "native_audio": True,
+                "note": "Vidu Q4 native audio incl. speech; generate_audio on; lane price-paused"},
+    "seedance25_flash": {"native_speech": True, "native_audio": True,
+                         "note": "Seedance native audio incl. dialogue; generate_audio on; lane price-paused"},
+    "pixverse_v6": {"native_speech": False, "native_audio": True,
+                    "note": "PixVerse native audio is music/SFX-led; lane price-paused"},
+    "runway_gen45": {"native_speech": False, "native_audio": False,
+                     "note": "Gen-4.5 is silent; its maker sells audio as separate models"},
+}
+
+
+def lane_audio(model: str) -> dict:
+    return LANE_AUDIO.get(model, {
+        "native_speech": False, "native_audio": False, "note": "",
+    })
+
+
+# Suppliers whose finished files arrive as a result URL for the
+# platform to download (the house worker is the only other source).
+URL_RESULT_PROVIDERS = (
+    "fal", "beatapi", "kie", "cometapi", "piapi", "openrouter",
+    "novita", "wavespeed", "eachlabs", "runway", "vidu", "minimax",
+)
+# Suppliers polled through mirror_api_status (fal and BeatAPI keep
+# their original mirror functions).
+API_POLL_PROVIDERS = (
+    "kie", "cometapi", "piapi", "openrouter", "novita",
+    "wavespeed", "eachlabs", "runway", "vidu", "minimax",
+)
 # Per-model duration bounds in seconds (the global form range is
 # 3-30; these narrow it to what each model actually accepts).
 MODEL_DURATION_BOUNDS = {
@@ -496,6 +650,11 @@ MODEL_DURATION_BOUNDS = {
     "happyhorse": (3, 15),
     "ltx25": (6, 20),
     "ltx25_fast": (6, 20),
+    "vidu_q3": (3, 16),
+    "vidu_q4": (3, 16),
+    "seedance25_flash": (4, 30),
+    "pixverse_v6": (3, 15),
+    "runway_gen45": (3, 10),
 }
 # Veo generates only these clip lengths; anything else is refused
 # at validation instead of being silently rounded by the provider.
@@ -513,7 +672,7 @@ MODEL_DURATION_STEPS = {
 # refuses reference inputs for them with a clean 422.
 TEXT_IMAGE_ONLY_MODELS = (
     "veo3_lite", "hailuo23", "luma_ray32", "ltx25", "ltx25_fast",
-    "pika22", "vidu_q2",
+    "pika22", "vidu_q2", "vidu_q3", "runway_gen45", "pixverse_v6",
 )
 # Models that accept references but only still images: their
 # supplier schemas have no reference video or audio inputs.
@@ -1165,8 +1324,8 @@ def api():
         table = rate_table()
         age = _now() - float(table.get("updated_at") or 0)
         provider = MODEL_PROVIDER.get(model, "fal")
-        key_env = "BEATAPI_KEY" if provider == "beatapi" else "FAL_KEY"
-        configured = bool(os.environ.get(key_env))
+        configured = bool(os.environ.get(
+            PROVIDER_KEY_ENV.get(provider, "FAL_KEY")))
         rates = (table.get("rates") or {}).get(model) or {}
         paused = (
             not configured
@@ -1278,6 +1437,10 @@ def api():
                     "id": m["id"],
                     "label": m["label"],
                     "paid_only": m["paid_only"],
+                    "audio": {
+                        "native_speech": lane_audio(m["id"])["native_speech"],
+                        "native_audio": lane_audio(m["id"])["native_audio"],
+                    },
                     "available": (
                         True if m["id"] == DEFAULT_MODEL
                         else not api_lane_state(m["id"])["paused"]
@@ -1317,6 +1480,8 @@ def api():
                     res: frontier[res]["can_undercut"]
                     for res in frontier
                 },
+                "native_speech": lane_audio(model)["native_speech"],
+                "native_audio": lane_audio(model)["native_audio"],
                 "paused": state["paused"],
                 "rates_updated_at": state["rates_updated_at"],
             }
@@ -1794,6 +1959,8 @@ def api():
             return mirror_fal_status(job)
         if job.get("provider") == "beatapi":
             return mirror_beatapi_status(job)
+        if job.get("provider") in API_POLL_PROVIDERS:
+            return mirror_api_status(job)
         if job["status"] in ("queued", "running") and _now() - job.get("last_poll", 0) > 8:
             try:
                 resp = requests.get(
@@ -1915,6 +2082,10 @@ def api():
             "free_tier": bool(job.get("free_tier")),
             "has_file": job["status"] == "done",
             "has_custom_audio": bool(job.get("music_prompt")),
+            "has_speech_script": bool(job.get("speech_script")),
+            "voiceover_status": job.get("voiceover_status"),
+            "native_speech": lane_audio(
+                job.get("model") or DEFAULT_MODEL)["native_speech"],
             "kind": job.get("kind") or "generation",
             "stage": job.get("stage"),
             "hook": job.get("hook"),
@@ -1998,16 +2169,18 @@ def api():
                 detail="this model takes image references only",
             )
         if model == "kling3" and (ref_images or ref_videos or ref_audios):
-            # Kling 3.0's primary supplier has no reference mode;
-            # reference media belongs to the Omni lane. Refused
-            # here rather than silently dropped.
+            # Kling 3.0's primary route has no confirmed reference
+            # mode; reference media belongs to the Omni lane.
+            # Refused here rather than silently dropped.
             raise HTTPException(
                 status_code=422,
                 detail="this model takes a prompt or a start image only",
             )
         if model == "omni12" and ref_videos and not ref_images:
-            # This supplier rejects reference videos submitted
-            # without at least one reference image.
+            # The previous route rejected reference videos
+            # submitted without at least one reference image; the
+            # current route's behavior is unconfirmed, so the
+            # refusal stays rather than risk a silent drop.
             raise HTTPException(
                 status_code=422,
                 detail="reference videos on this model need a reference image too",
@@ -2018,6 +2191,13 @@ def api():
             mode = "image"
         else:
             mode = "text"
+        if model == "vidu_q4" and mode == "text":
+            # Vidu Q4 has no text-to-video mode on any published
+            # route; it animates a start image or references.
+            raise HTTPException(
+                status_code=422,
+                detail="this model needs a start image or reference images",
+            )
         return {
             "duration": duration,
             "resolution": resolution,
@@ -2037,6 +2217,12 @@ def api():
         runs. The ceiling is reported too, so a refusal is never a
         surprise at create time."""
         state = api_lane_state(model)
+        prov = provider_for(model, params["resolution"])
+        if not os.environ.get(PROVIDER_KEY_ENV.get(prov, "FAL_KEY")):
+            # The supplier serving this resolution has no key in
+            # the secret store: the lane cannot dispatch, so the
+            # quote reports the pause instead of a price.
+            state = {**state, "paused": True}
         if state["paused"]:
             # A paused lane has no live quote (a price-paused model
             # has no rates at all, and estimating one would raise
@@ -2052,6 +2238,7 @@ def api():
                 "cap_cents": 0.0,
                 "lane_paused": True,
                 "ceiling_ok": False,
+                "audio": lane_audio(model),
                 "payment": {"method": "unavailable"},
             }
         est = pricing.per_second_estimate(
@@ -2091,6 +2278,7 @@ def api():
             "cap_cents": round(est["cap_raw_cents"], 2),
             "lane_paused": state["paused"],
             "ceiling_ok": ceiling_ok,
+            "audio": lane_audio(model),
             "payment": payment,
         }
 
@@ -2337,8 +2525,903 @@ def api():
         job["provider_task_id"] = data["id"]
         jobs[job["id"]] = job
 
+    # ------------------------------------------------------------------
+    # Follow-up wiring pass (2026-11-16): the poll-based suppliers.
+    # Every lane below is DARK-SAFE: the supplier accounts are
+    # unfunded, so a submit either succeeds in being accepted (and
+    # then cannot be paid for) or fails clean through _submit_failed
+    # with the hold released. Payloads follow each supplier's own
+    # published API docs as of 2026-11-16; anything not confirmed
+    # against a live account is marked PAYLOAD-UNVERIFIED in its
+    # docstring and gets the funded verification pass before the
+    # lane lights. Kie prices in pricing.py are published "from"
+    # prices pending console confirmation.
+    # ------------------------------------------------------------------
+    KIE_BASE = "https://api.kie.ai"
+    COMETAPI_BASE = "https://api.cometapi.com"
+    PIAPI_BASE = "https://api.piapi.ai"
+    OPENROUTER_BASE = "https://openrouter.ai"
+    NOVITA_BASE = "https://api.novita.ai"
+    WAVESPEED_BASE = "https://api.wavespeed.ai"
+    EACHLABS_BASE = "https://api.eachlabs.ai"
+    RUNWAY_BASE = "https://api.dev.runwayml.com"
+    VIDU_BASE = "https://api.vidu.com"
+    MINIMAX_BASE = "https://api.minimax.io"
+
+    def _api_headers(provider: str) -> dict:
+        key = os.environ.get(PROVIDER_KEY_ENV.get(provider, ""), "")
+        if provider == "piapi":
+            return {"X-API-Key": key, "Content-Type": "application/json"}
+        if provider == "vidu":
+            # Vidu's published auth scheme is a Token header.
+            return {"Authorization": f"Token {key}",
+                    "Content-Type": "application/json"}
+        if provider == "eachlabs":
+            return {"X-API-Key": key, "Authorization": f"Bearer {key}",
+                    "Content-Type": "application/json"}
+        return {"Authorization": f"Bearer {key}",
+                "Content-Type": "application/json"}
+
+    def _submit_post(job: dict, url: str, headers: dict, payload: dict):
+        """The shared submit POST for the poll-based suppliers: any
+        refusal fails the job cleanly through _submit_failed."""
+        try:
+            resp = requests.post(url, headers=headers, json=payload,
+                                 timeout=30)
+        except Exception as exc:
+            _submit_failed(job, f"submit unreachable: {exc}")
+        if resp.status_code not in (200, 201, 202):
+            _submit_failed(
+                job, f"submit http {resp.status_code}: {resp.text[:150]}")
+        try:
+            return resp.json() or {}
+        except Exception:
+            _submit_failed(job, "submit returned non-json")
+
+    def _data_uri(value: str) -> str:
+        if value.startswith("data:"):
+            return value
+        return f"data:image/png;base64,{value}"
+
+    def _poll_gate(job: dict) -> bool:
+        """The shared 8-second poll throttle for the poll-based
+        supplier lanes (fal and BeatAPI keep their own mirrors)."""
+        if job["status"] in ("queued", "running") and \
+                _now() - job.get("last_poll", 0) > 8:
+            job["last_poll"] = _now()
+            jobs[job["id"]] = job
+            return True
+        return False
+
+    def _poll_done(job: dict, result_url: str, cost_cents=None,
+                   duration=None):
+        job["result_url"] = result_url
+        if cost_cents is not None:
+            job["provider_cost_cents"] = round(float(cost_cents), 2)
+        if duration:
+            job["result_duration"] = float(duration)
+        job["status"] = "done"
+        jobs[job["id"]] = job
+        settle_fal_job(job)
+
+    def _poll_fail(job: dict, detail: str):
+        job["provider_error"] = detail[:200]
+        fail_fal_job(job)
+
+    def _poll_retry_or_fail(job: dict):
+        job["poll_errors"] = int(job.get("poll_errors") or 0) + 1
+        if job["poll_errors"] > 30:
+            fail_fal_job(job)
+        else:
+            jobs[job["id"]] = job
+
+    # -- Kie ------------------------------------------------------------
+    def submit_kie_job(job: dict, body: dict, params: dict, prompt: str):
+        """Kie task API: POST /api/v1/jobs/createTask {model, input},
+        poll GET /api/v1/jobs/recordInfo?taskId=. PAYLOAD-UNVERIFIED:
+        only the Kling 4.0 slug pair is confirmed on Kie's own
+        pages; the rest follow the same naming pattern. Where the
+        lane has a native audio mode it is selected by default
+        (sound for the Kling family, generate_audio for Seedance
+        Fast); Seedance Mini and Hailuo are silent models and Grok /
+        Omni audio fields are unconfirmed, so nothing is sent for
+        them."""
+        model = job["model"]
+        mode = params["mode"]
+        slugs = {
+            ("kling4", "text"): "kling-4.0/reference-to-video",
+            ("kling4", "reference"): "kling-4.0/reference-to-video",
+            ("kling4", "image"): "kling-4.0/keyframe-to-video",
+            ("kling3", "text"): "kling-3.0/reference-to-video",
+            ("kling3", "reference"): "kling-3.0/reference-to-video",
+            ("kling3", "image"): "kling-3.0/keyframe-to-video",
+            ("kling3_omni", "text"): "kling-3.0-omni/reference-to-video",
+            ("kling3_omni", "reference"): "kling-3.0-omni/reference-to-video",
+            ("kling3_omni", "image"): "kling-3.0-omni/keyframe-to-video",
+            ("seedance2_fast", "text"): "bytedance/seedance-2.0-fast/text-to-video",
+            ("seedance2_fast", "image"): "bytedance/seedance-2.0-fast/image-to-video",
+            ("seedance2_fast", "reference"): "bytedance/seedance-2.0-fast/reference-to-video",
+            ("seedance2_mini", "text"): "bytedance/seedance-2.0-mini/text-to-video",
+            ("seedance2_mini", "image"): "bytedance/seedance-2.0-mini/image-to-video",
+            ("seedance2_mini", "reference"): "bytedance/seedance-2.0-mini/reference-to-video",
+            ("omni12", "text"): "gemini-omni-1.2-flash/text-to-video",
+            ("omni12", "image"): "gemini-omni-1.2-flash/image-to-video",
+            ("omni12", "reference"): "gemini-omni-1.2-flash/reference-to-video",
+            ("grok", "text"): "grok-imagine/text-to-video",
+            ("grok", "image"): "grok-imagine/image-to-video",
+            ("hailuo23", "text"): "hailuo-2.3/text-to-video",
+            ("hailuo23", "image"): "hailuo-2.3/image-to-video",
+        }
+        slug = slugs.get((model, mode))
+        if not slug:
+            _submit_failed(job, f"no kie slug for {model}/{mode}")
+        inp = {"prompt": prompt, "duration": params["duration"],
+               "aspect_ratio": "9:16"}
+        if model in ("kling3", "kling4", "kling3_omni"):
+            inp["sound"] = True
+        elif model == "seedance2_fast":
+            inp["generate_audio"] = True
+        try:
+            if mode == "image":
+                inp["first_frame"] = _beatapi_media_url(
+                    params["start_image"], "first-frame")
+                if params["end_image"]:
+                    inp["last_frame"] = _beatapi_media_url(
+                        params["end_image"], "last-frame")
+            elif mode == "reference":
+                if params["reference_image_urls"]:
+                    inp["image_urls"] = [
+                        _beatapi_media_url(u, "reference-image")
+                        for u in params["reference_image_urls"]]
+                if params["reference_video_urls"]:
+                    inp["video_urls"] = [
+                        _beatapi_media_url(u, "reference-video")
+                        for u in params["reference_video_urls"]]
+                if params["reference_audio_urls"]:
+                    inp["audio_urls"] = [
+                        _beatapi_media_url(u, "reference-audio")
+                        for u in params["reference_audio_urls"]]
+        except Exception as exc:
+            _submit_failed(job, f"media upload failed: {exc}")
+        data = _submit_post(
+            job, f"{KIE_BASE}/api/v1/jobs/createTask",
+            _api_headers("kie"), {"model": slug, "input": inp})
+        payload = data.get("data") or {}
+        task_id = (payload.get("taskId") or payload.get("task_id")
+                   or payload.get("id"))
+        if not task_id:
+            _submit_failed(job, "submit returned no task id")
+        job["provider_task_id"] = task_id
+        jobs[job["id"]] = job
+
+    def mirror_kie_status(job: dict) -> dict:
+        if not _poll_gate(job):
+            return job
+        try:
+            resp = requests.get(
+                f"{KIE_BASE}/api/v1/jobs/recordInfo",
+                params={"taskId": job["provider_task_id"]},
+                headers=_api_headers("kie"), timeout=15)
+            if resp.status_code == 200:
+                data = (resp.json() or {}).get("data") or {}
+                state = data.get("state")
+                if state == "success":
+                    urls = []
+                    raw = data.get("resultJson")
+                    if raw:
+                        try:
+                            urls = (json.loads(raw) or {}).get(
+                                "resultUrls") or []
+                        except Exception:
+                            urls = []
+                    if urls:
+                        cost = None
+                        credits = data.get("consumeCredits")
+                        if credits is not None:
+                            # Kie: 1 credit is $0.005 = 0.5 cents.
+                            cost = float(credits) * 0.5
+                        _poll_done(job, urls[0], cost_cents=cost)
+                    else:
+                        _poll_retry_or_fail(job)
+                elif state == "fail":
+                    _poll_fail(
+                        job, f"{data.get('failCode')}: {data.get('failMsg')}")
+                else:
+                    job["status"] = "running"
+                    jobs[job["id"]] = job
+        except Exception:
+            pass
+        return job
+
+    # -- CometAPI ---------------------------------------------------------
+    def submit_cometapi_job(job: dict, body: dict, params: dict,
+                            prompt: str):
+        """CometAPI videos API (OpenAI-videos shape): POST
+        /v1/videos, poll GET /v1/videos/{id}. PAYLOAD-UNVERIFIED:
+        the Seedance 2.5 model id is confirmed on CometAPI's own
+        model page (seedance-2-5-260628); the Wan 3.0 Prime slug
+        follows its naming and is unconfirmed. No audio switch is
+        sent: none is published for these endpoints."""
+        ids = {"seedance": "seedance-2-5-260628",
+               "wan3_prime": "wan-3-0-prime"}
+        payload = {"model": ids[job["model"]], "prompt": prompt,
+                   "duration": params["duration"], "size": "720x1280"}
+        try:
+            ref = None
+            if params["mode"] == "image":
+                ref = params["start_image"]
+            elif params["mode"] == "reference" and \
+                    params["reference_image_urls"]:
+                ref = params["reference_image_urls"][0]
+            if ref:
+                payload["input_reference"] = _beatapi_media_url(
+                    ref, "reference-image")
+        except Exception as exc:
+            _submit_failed(job, f"media upload failed: {exc}")
+        data = _submit_post(job, f"{COMETAPI_BASE}/v1/videos",
+                            _api_headers("cometapi"), payload)
+        task_id = data.get("id") or (data.get("data") or {}).get("id")
+        if not task_id:
+            _submit_failed(job, "submit returned no task id")
+        job["provider_task_id"] = task_id
+        jobs[job["id"]] = job
+
+    def mirror_cometapi_status(job: dict) -> dict:
+        if not _poll_gate(job):
+            return job
+        try:
+            resp = requests.get(
+                f"{COMETAPI_BASE}/v1/videos/{job['provider_task_id']}",
+                headers=_api_headers("cometapi"), timeout=15)
+            if resp.status_code == 200:
+                data = resp.json() or {}
+                status = str(data.get("status") or "").lower()
+                if status in ("completed", "succeeded", "success"):
+                    url = (data.get("video_url") or data.get("url")
+                           or (data.get("output") or {}).get("url")
+                           if isinstance(data.get("output"), dict)
+                           else data.get("output"))
+                    if url:
+                        _poll_done(job, url)
+                    else:
+                        _poll_retry_or_fail(job)
+                elif status in ("failed", "error", "cancelled"):
+                    _poll_fail(job, str(data.get("error"))[:200])
+                else:
+                    job["status"] = "running"
+                    jobs[job["id"]] = job
+        except Exception:
+            pass
+        return job
+
+    # -- PiAPI ------------------------------------------------------------
+    def submit_piapi_job(job: dict, body: dict, params: dict,
+                         prompt: str):
+        """PiAPI task API: POST /api/v1/task (X-API-Key), poll GET
+        /api/v1/task/{id}. PAYLOAD-UNVERIFIED beyond the documented
+        task envelope. Veo 3.1 only, and the priced route is the
+        NO-AUDIO one: generate_audio stays off on purpose, because
+        the with-audio rate is a different published price recorded
+        in pricing.py. Talking content on this lane is served by
+        the voiceover stage, never by silently switching the price
+        basis."""
+        inp = {"prompt": prompt, "duration": params["duration"],
+               "aspect_ratio": "9:16", "generate_audio": False}
+        try:
+            if params["mode"] == "image":
+                inp["image_url"] = _beatapi_media_url(
+                    params["start_image"], "first-frame")
+            elif params["mode"] == "reference" and \
+                    params["reference_image_urls"]:
+                inp["image_urls"] = params["reference_image_urls"]
+        except Exception as exc:
+            _submit_failed(job, f"media upload failed: {exc}")
+        data = _submit_post(
+            job, f"{PIAPI_BASE}/api/v1/task", _api_headers("piapi"),
+            {"model": "veo3.1", "task_type": "veo3.1-video",
+             "input": inp})
+        payload = data.get("data") or {}
+        task_id = payload.get("task_id") or payload.get("id")
+        if not task_id:
+            _submit_failed(job, "submit returned no task id")
+        job["provider_task_id"] = task_id
+        jobs[job["id"]] = job
+
+    def mirror_piapi_status(job: dict) -> dict:
+        if not _poll_gate(job):
+            return job
+        try:
+            resp = requests.get(
+                f"{PIAPI_BASE}/api/v1/task/{job['provider_task_id']}",
+                headers=_api_headers("piapi"), timeout=15)
+            if resp.status_code == 200:
+                data = (resp.json() or {}).get("data") or {}
+                status = str(data.get("status") or "").lower()
+                if status in ("completed", "success", "succeeded"):
+                    output = data.get("output") or {}
+                    url = output.get("video") if isinstance(
+                        output, dict) else output
+                    if isinstance(url, dict):
+                        url = url.get("url")
+                    if url:
+                        _poll_done(job, url)
+                    else:
+                        _poll_retry_or_fail(job)
+                elif status in ("failed", "error", "cancelled"):
+                    _poll_fail(
+                        job, str(data.get("error")
+                                 or data.get("message"))[:200])
+                else:
+                    job["status"] = "running"
+                    jobs[job["id"]] = job
+        except Exception:
+            pass
+        return job
+
+    # -- OpenRouter ---------------------------------------------------------
+    def submit_openrouter_job(job: dict, body: dict, params: dict,
+                              prompt: str):
+        """OpenRouter videos API: POST /api/v1/videos -> 202 {id,
+        polling_url}; poll GET /api/v1/videos/{id}. Documented
+        contract; payload details PAYLOAD-UNVERIFIED. HappyHorse
+        1.1 only in this pass."""
+        payload = {"model": "alibaba/happyhorse-1.1", "prompt": prompt,
+                   "duration": params["duration"],
+                   "aspect_ratio": "9:16"}
+        if params["mode"] == "image":
+            payload["image_url"] = _data_uri(params["start_image"])
+        elif params["mode"] == "reference" and \
+                params["reference_image_urls"]:
+            payload["image_url"] = params["reference_image_urls"][0]
+        data = _submit_post(job, f"{OPENROUTER_BASE}/api/v1/videos",
+                            _api_headers("openrouter"), payload)
+        task_id = data.get("id")
+        if not task_id:
+            _submit_failed(job, "submit returned no task id")
+        job["provider_task_id"] = task_id
+        if data.get("polling_url"):
+            job["provider_status_url"] = data["polling_url"]
+        jobs[job["id"]] = job
+
+    def mirror_openrouter_status(job: dict) -> dict:
+        if not _poll_gate(job):
+            return job
+        try:
+            url = job.get("provider_status_url") or \
+                f"{OPENROUTER_BASE}/api/v1/videos/{job['provider_task_id']}"
+            resp = requests.get(url, headers=_api_headers("openrouter"),
+                                timeout=15)
+            if resp.status_code == 200:
+                data = resp.json() or {}
+                status = str(data.get("status") or "").lower()
+                if status == "completed":
+                    urls = data.get("urls") or data.get(
+                        "unsigned_urls") or []
+                    if urls:
+                        _poll_done(job, urls[0])
+                    else:
+                        # No public URL in the payload: the content
+                        # endpoint needs the key, so fetch the file
+                        # now and let delivery read the raw cache.
+                        content = requests.get(
+                            f"{OPENROUTER_BASE}/api/v1/videos/"
+                            f"{job['provider_task_id']}/content",
+                            params={"index": 0},
+                            headers=_api_headers("openrouter"),
+                            timeout=300)
+                        if content.status_code == 200 and content.content:
+                            FILES_DIR.mkdir(parents=True, exist_ok=True)
+                            (FILES_DIR / f"{job['id']}.raw.mp4"
+                             ).write_bytes(content.content)
+                            data_volume.commit()
+                            _poll_done(job, "stored://raw")
+                        else:
+                            _poll_retry_or_fail(job)
+                elif status in ("failed", "cancelled", "expired"):
+                    _poll_fail(job, str(data.get("error"))[:200])
+                else:
+                    job["status"] = "running"
+                    jobs[job["id"]] = job
+        except Exception:
+            pass
+        return job
+
+    # -- Novita -------------------------------------------------------------
+    def submit_novita_job(job: dict, body: dict, params: dict,
+                          prompt: str):
+        """Novita async Vidu Q3 Turbo endpoints (t2v / i2v / f2v).
+        PAYLOAD-UNVERIFIED beyond Novita's published endpoint
+        names and rate card. The priced route is off-peak, so
+        off_peak is sent true; audio is on (Q3 generates speech
+        natively). The platform's 480p tier maps to Novita's 540p
+        tier."""
+        mode = params["mode"]
+        if mode == "image" and params["end_image"]:
+            suffix = "f2v"
+        elif mode == "image":
+            suffix = "i2v"
+        else:
+            suffix = "t2v"
+        payload = {
+            "prompt": prompt,
+            "duration": params["duration"],
+            "resolution": "540p" if params["resolution"] == "480p"
+            else "720p",
+            "aspect_ratio": "9:16",
+            "audio": True,
+            "off_peak": True,
+        }
+        try:
+            if mode == "image":
+                start_url = _beatapi_media_url(
+                    params["start_image"], "first-frame")
+                if suffix == "f2v":
+                    payload["images"] = [
+                        start_url,
+                        _beatapi_media_url(params["end_image"],
+                                           "last-frame")]
+                else:
+                    payload["image_url"] = start_url
+        except Exception as exc:
+            _submit_failed(job, f"media upload failed: {exc}")
+        data = _submit_post(
+            job, f"{NOVITA_BASE}/v3/async/vidu-q3-turbo-{suffix}",
+            _api_headers("novita"), payload)
+        task_id = (data.get("task_id")
+                   or (data.get("data") or {}).get("task_id"))
+        if not task_id:
+            _submit_failed(job, "submit returned no task id")
+        job["provider_task_id"] = task_id
+        jobs[job["id"]] = job
+
+    def mirror_novita_status(job: dict) -> dict:
+        if not _poll_gate(job):
+            return job
+        try:
+            resp = requests.get(
+                f"{NOVITA_BASE}/v3/async/task-result",
+                params={"task_id": job["provider_task_id"]},
+                headers=_api_headers("novita"), timeout=15)
+            if resp.status_code == 200:
+                data = resp.json() or {}
+                task = data.get("task") or {}
+                status = str(task.get("status")
+                             or data.get("status") or "")
+                videos = data.get("videos") or task.get("videos") or []
+                if status in ("TASK_STATUS_SUCCEED", "SUCCEED",
+                              "succeeded", "success"):
+                    url = None
+                    if videos:
+                        first = videos[0]
+                        url = first.get("video_url") or first.get(
+                            "url") if isinstance(first, dict) else first
+                    if url:
+                        _poll_done(job, url)
+                    else:
+                        _poll_retry_or_fail(job)
+                elif "FAIL" in status or status in ("failed", "error"):
+                    _poll_fail(job, str(task.get("reason")
+                                        or status)[:200])
+                else:
+                    job["status"] = "running"
+                    jobs[job["id"]] = job
+        except Exception:
+            pass
+        return job
+
+    # -- WaveSpeed ------------------------------------------------------------
+    def submit_wavespeed_job(job: dict, body: dict, params: dict,
+                             prompt: str):
+        """WaveSpeed v3 predictions: POST /api/v3/{model-path},
+        poll GET /api/v3/predictions/{id}/result. Endpoint shapes
+        are documented on WaveSpeed's own model pages. The three
+        models wired here are PRICE-PAUSED (no per-second rate is
+        published for them), so this path is unreachable until a
+        rate lands in pricing.py; it is wired now so unpausing is
+        a rate entry, not a rebuild. Where the model generates
+        audio natively, generate_audio is on by default."""
+        model = job["model"]
+        mode = params["mode"]
+        paths = {
+            ("seedance25_flash", "text"):
+                "bytedance/seedance-2.5-flash/text-to-video",
+            ("seedance25_flash", "image"):
+                "bytedance/seedance-2.5-flash/image-to-video",
+            ("seedance25_flash", "reference"):
+                "bytedance/seedance-2.5-flash/reference-to-video",
+            ("vidu_q4", "image"): "vidu/q4/image-to-video",
+            ("vidu_q4", "reference"): "vidu/q4/reference-to-video",
+            ("pixverse_v6", "text"): "pixverse/pixverse-v6/text-to-video",
+            ("pixverse_v6", "image"):
+                "pixverse/pixverse-v6/image-to-video",
+        }
+        path = paths.get((model, mode))
+        if not path:
+            _submit_failed(job, f"no wavespeed path for {model}/{mode}")
+        payload = {"prompt": prompt, "duration": params["duration"],
+                   "resolution": params["resolution"],
+                   "aspect_ratio": "9:16"}
+        if model in ("seedance25_flash", "vidu_q4"):
+            payload["generate_audio"] = True
+        try:
+            if mode == "image":
+                payload["image"] = _beatapi_media_url(
+                    params["start_image"], "first-frame")
+            elif mode == "reference":
+                if model == "vidu_q4":
+                    payload["images"] = [
+                        _beatapi_media_url(u, "reference-image")
+                        for u in params["reference_image_urls"]]
+                else:
+                    if params["reference_image_urls"]:
+                        payload["reference_images"] = [
+                            _beatapi_media_url(u, "reference-image")
+                            for u in params["reference_image_urls"]]
+                    if params["reference_video_urls"]:
+                        payload["reference_videos"] = [
+                            _beatapi_media_url(u, "reference-video")
+                            for u in params["reference_video_urls"]]
+                    if params["reference_audio_urls"]:
+                        payload["reference_audios"] = [
+                            _beatapi_media_url(u, "reference-audio")
+                            for u in params["reference_audio_urls"]]
+        except Exception as exc:
+            _submit_failed(job, f"media upload failed: {exc}")
+        data = _submit_post(job, f"{WAVESPEED_BASE}/api/v3/{path}",
+                            _api_headers("wavespeed"), payload)
+        task_id = (data.get("data") or {}).get("id") or data.get("id")
+        if not task_id:
+            _submit_failed(job, "submit returned no task id")
+        job["provider_task_id"] = task_id
+        jobs[job["id"]] = job
+
+    def mirror_wavespeed_status(job: dict) -> dict:
+        if not _poll_gate(job):
+            return job
+        try:
+            resp = requests.get(
+                f"{WAVESPEED_BASE}/api/v3/predictions/"
+                f"{job['provider_task_id']}/result",
+                headers=_api_headers("wavespeed"), timeout=15)
+            if resp.status_code == 200:
+                data = (resp.json() or {}).get("data") or {}
+                status = str(data.get("status") or "").lower()
+                if status == "completed":
+                    outputs = data.get("outputs") or []
+                    url = outputs[0] if outputs else None
+                    if isinstance(url, dict):
+                        url = url.get("url")
+                    if url:
+                        _poll_done(job, url)
+                    else:
+                        _poll_retry_or_fail(job)
+                elif status in ("failed", "cancelled", "timeout",
+                                "deleted"):
+                    _poll_fail(job, str(data.get("error"))[:200])
+                else:
+                    job["status"] = "running"
+                    jobs[job["id"]] = job
+        except Exception:
+            pass
+        return job
+
+    # -- Eachlabs -------------------------------------------------------------
+    def submit_eachlabs_job(job: dict, body: dict, params: dict,
+                            prompt: str):
+        """Eachlabs predictions API: POST /v1/prediction {model,
+        version, input}, poll GET /v1/prediction/{id}.
+        PAYLOAD-UNVERIFIED: the envelope is documented; the Veo
+        3.1 Lite slugs follow Eachlabs' naming pattern and are
+        unconfirmed. The priced tier is the no-audio one; no audio
+        field is sent, and talking content rides the voiceover
+        stage."""
+        slug = ("veo-3-1-lite-image-to-video" if params["mode"] == "image"
+                else "veo-3-1-lite-text-to-video")
+        inp = {"prompt": prompt, "duration": params["duration"],
+               "aspect_ratio": "9:16"}
+        try:
+            if params["mode"] == "image":
+                inp["image_url"] = _beatapi_media_url(
+                    params["start_image"], "first-frame")
+        except Exception as exc:
+            _submit_failed(job, f"media upload failed: {exc}")
+        data = _submit_post(
+            job, f"{EACHLABS_BASE}/v1/prediction",
+            _api_headers("eachlabs"),
+            {"model": slug, "version": "0.0.1", "input": inp})
+        task_id = (data.get("id") or data.get("prediction_id")
+                   or (data.get("data") or {}).get("id"))
+        if not task_id:
+            _submit_failed(job, "submit returned no task id")
+        job["provider_task_id"] = task_id
+        jobs[job["id"]] = job
+
+    def mirror_eachlabs_status(job: dict) -> dict:
+        if not _poll_gate(job):
+            return job
+        try:
+            resp = requests.get(
+                f"{EACHLABS_BASE}/v1/prediction/{job['provider_task_id']}",
+                headers=_api_headers("eachlabs"), timeout=15)
+            if resp.status_code == 200:
+                data = resp.json() or {}
+                payload = data.get("data") or data
+                status = str(payload.get("status") or "").lower()
+                if status == "success":
+                    output = payload.get("output")
+                    url = output[0] if isinstance(output, list) \
+                        and output else output
+                    if isinstance(url, dict):
+                        url = url.get("url")
+                    if url:
+                        _poll_done(job, url)
+                    else:
+                        _poll_retry_or_fail(job)
+                elif status in ("failed", "error", "cancelled"):
+                    _poll_fail(job, str(payload.get("error"))[:200])
+                else:
+                    job["status"] = "running"
+                    jobs[job["id"]] = job
+        except Exception:
+            pass
+        return job
+
+    # -- Runway ---------------------------------------------------------------
+    def submit_runway_job(job: dict, body: dict, params: dict,
+                          prompt: str):
+        """Runway API (api.dev.runwayml.com), version header
+        2024-11-06: POST /v1/text_to_video or /v1/image_to_video,
+        poll GET /v1/tasks/{id}. Documented contract; payload
+        PAYLOAD-UNVERIFIED against the live account. Gen-4.5 is
+        silent: there is no audio mode to select."""
+        headers = dict(_api_headers("runway"))
+        headers["X-Runway-Version"] = "2024-11-06"
+        if params["mode"] == "image":
+            payload = {"model": "gen4.5",
+                       "promptImage": _data_uri(params["start_image"]),
+                       "promptText": prompt, "ratio": "720:1280",
+                       "duration": params["duration"]}
+            url = f"{RUNWAY_BASE}/v1/image_to_video"
+        else:
+            payload = {"model": "gen4.5", "promptText": prompt,
+                       "ratio": "720:1280",
+                       "duration": params["duration"]}
+            url = f"{RUNWAY_BASE}/v1/text_to_video"
+        data = _submit_post(job, url, headers, payload)
+        task_id = data.get("id") or (data.get("data") or {}).get("id")
+        if not task_id:
+            _submit_failed(job, "submit returned no task id")
+        job["provider_task_id"] = task_id
+        jobs[job["id"]] = job
+
+    def mirror_runway_status(job: dict) -> dict:
+        if not _poll_gate(job):
+            return job
+        try:
+            headers = dict(_api_headers("runway"))
+            headers["X-Runway-Version"] = "2024-11-06"
+            resp = requests.get(
+                f"{RUNWAY_BASE}/v1/tasks/{job['provider_task_id']}",
+                headers=headers, timeout=15)
+            if resp.status_code == 200:
+                data = resp.json() or {}
+                status = str(data.get("status") or "")
+                if status == "SUCCEEDED":
+                    outputs = data.get("output") or []
+                    if outputs:
+                        _poll_done(job, outputs[0])
+                    else:
+                        _poll_retry_or_fail(job)
+                elif status in ("FAILED", "ABORTED", "CANCELLED"):
+                    _poll_fail(job, str(data.get("error"))[:200])
+                else:
+                    job["status"] = "running"
+                    jobs[job["id"]] = job
+        except Exception:
+            pass
+        return job
+
+    # -- Vidu direct (spare route) ---------------------------------------------
+    def submit_vidu_job(job: dict, body: dict, params: dict,
+                        prompt: str):
+        """SPARE route: Vidu's own API for Q3 (Novita is primary).
+        Wired so flipping MODEL_PROVIDER is one line; the direct
+        route stays unpriced (Vidu sells credits and publishes no
+        per-second price), so it must not become primary until a
+        price exists. Endpoints per Vidu's published API docs;
+        PAYLOAD-UNVERIFIED. Audio is on: Q3 speaks natively."""
+        mode = params["mode"]
+        endpoints = {"text": "text2video", "image": "img2video",
+                     "reference": "reference2video"}
+        if mode == "image" and params["end_image"]:
+            endpoint = "start-end2video"
+        else:
+            endpoint = endpoints[mode]
+        payload = {
+            "model": "viduq3-turbo",
+            "prompt": prompt,
+            "duration": params["duration"],
+            "resolution": "540p" if params["resolution"] == "480p"
+            else params["resolution"],
+            "aspect_ratio": "9:16",
+            "audio": True,
+            "off_peak": True,
+        }
+        try:
+            if mode == "image":
+                images = [_beatapi_media_url(params["start_image"],
+                                             "first-frame")]
+                if params["end_image"]:
+                    images.append(_beatapi_media_url(
+                        params["end_image"], "last-frame"))
+                payload["images"] = images
+            elif mode == "reference" and params["reference_image_urls"]:
+                payload["images"] = [
+                    _beatapi_media_url(u, "reference-image")
+                    for u in params["reference_image_urls"]]
+        except Exception as exc:
+            _submit_failed(job, f"media upload failed: {exc}")
+        data = _submit_post(job, f"{VIDU_BASE}/ent/v2/{endpoint}",
+                            _api_headers("vidu"), payload)
+        task_id = data.get("task_id") or (data.get("data") or {}).get(
+            "task_id")
+        if not task_id:
+            _submit_failed(job, "submit returned no task id")
+        job["provider_task_id"] = task_id
+        jobs[job["id"]] = job
+
+    def mirror_vidu_status(job: dict) -> dict:
+        if not _poll_gate(job):
+            return job
+        try:
+            resp = requests.get(
+                f"{VIDU_BASE}/ent/v2/tasks/{job['provider_task_id']}"
+                "/creations",
+                headers=_api_headers("vidu"), timeout=15)
+            if resp.status_code == 200:
+                data = resp.json() or {}
+                state = str(data.get("state") or "")
+                if state == "success":
+                    creations = data.get("creations") or []
+                    url = creations[0].get("url") if creations else None
+                    if url:
+                        _poll_done(job, url)
+                    else:
+                        _poll_retry_or_fail(job)
+                elif state in ("failed", "error"):
+                    _poll_fail(job, str(data.get("err_code"))[:200])
+                else:
+                    job["status"] = "running"
+                    jobs[job["id"]] = job
+        except Exception:
+            pass
+        return job
+
+    # -- MiniMax direct (spare route) --------------------------------------------
+    def submit_minimax_job(job: dict, body: dict, params: dict,
+                           prompt: str):
+        """SPARE route: MiniMax direct for H3 (BeatAPI is primary;
+        the published direct rate is recorded in pricing.py's
+        DISPLACED_RATES). H3 generation runs on the v2 endpoint
+        with a multimodal content array per MiniMax's H3 guide;
+        PAYLOAD-UNVERIFIED. H3 generates speech natively; there is
+        no audio switch to send."""
+        content = [{"type": "text", "text": prompt}]
+        if params["mode"] in ("image", "reference"):
+            first = params["start_image"] or (
+                params["reference_image_urls"] or [None])[0]
+            if first:
+                content.append({
+                    "type": "image_url",
+                    "image_url": {"url": _data_uri(first)},
+                    "role": "first_frame",
+                })
+            if params["end_image"]:
+                content.append({
+                    "type": "image_url",
+                    "image_url": {"url": _data_uri(params["end_image"])},
+                    "role": "last_frame",
+                })
+        payload = {"model": "MiniMax-H3", "content": content,
+                   "duration": params["duration"],
+                   "resolution": "768P"}
+        data = _submit_post(job, f"{MINIMAX_BASE}/v2/video_generation",
+                            _api_headers("minimax"), payload)
+        task_id = (data.get("task_id")
+                   or (data.get("data") or {}).get("task_id")
+                   or data.get("id"))
+        if not task_id:
+            _submit_failed(job, "submit returned no task id")
+        job["provider_task_id"] = task_id
+        jobs[job["id"]] = job
+
+    def mirror_minimax_status(job: dict) -> dict:
+        if not _poll_gate(job):
+            return job
+        try:
+            resp = requests.get(
+                f"{MINIMAX_BASE}/v2/query/video_generation",
+                params={"task_id": job["provider_task_id"]},
+                headers=_api_headers("minimax"), timeout=15)
+            if resp.status_code == 200:
+                data = resp.json() or {}
+                payload = data.get("data") or data
+                status = str(payload.get("status") or "")
+                task = payload.get("task") or {}
+                url = ((task.get("content") or {}).get("url")
+                       or payload.get("video_url"))
+                if status in ("Success", "succeeded", "success") and url:
+                    _poll_done(job, url)
+                elif status in ("Fail", "Failed", "failed", "error"):
+                    _poll_fail(job, str(payload.get("error"))[:200])
+                else:
+                    job["status"] = "running"
+                    jobs[job["id"]] = job
+        except Exception:
+            pass
+        return job
+
+    # -- dispatchers -------------------------------------------------------------
+    def submit_api_job(job: dict, body: dict, params: dict, prompt: str,
+                       base: str):
+        """Dispatch one per-second job to the supplier recorded on
+        it. fal and BeatAPI keep their original submit functions;
+        every supplier added by the follow-up pass routes here."""
+        provider = job["provider"]
+        if provider == "beatapi":
+            submit_beatapi_job(job, body, params, prompt)
+        elif provider == "kie":
+            submit_kie_job(job, body, params, prompt)
+        elif provider == "cometapi":
+            submit_cometapi_job(job, body, params, prompt)
+        elif provider == "piapi":
+            submit_piapi_job(job, body, params, prompt)
+        elif provider == "openrouter":
+            submit_openrouter_job(job, body, params, prompt)
+        elif provider == "novita":
+            submit_novita_job(job, body, params, prompt)
+        elif provider == "wavespeed":
+            submit_wavespeed_job(job, body, params, prompt)
+        elif provider == "eachlabs":
+            submit_eachlabs_job(job, body, params, prompt)
+        elif provider == "runway":
+            submit_runway_job(job, body, params, prompt)
+        elif provider == "vidu":
+            submit_vidu_job(job, body, params, prompt)
+        elif provider == "minimax":
+            submit_minimax_job(job, body, params, prompt)
+        else:
+            submit_fal_job(job, body, params, prompt, base)
+
+    def mirror_api_status(job: dict) -> dict:
+        """Poll dispatcher for the follow-up-pass suppliers."""
+        provider = job.get("provider")
+        if provider == "kie":
+            return mirror_kie_status(job)
+        if provider == "cometapi":
+            return mirror_cometapi_status(job)
+        if provider == "piapi":
+            return mirror_piapi_status(job)
+        if provider == "openrouter":
+            return mirror_openrouter_status(job)
+        if provider == "novita":
+            return mirror_novita_status(job)
+        if provider == "wavespeed":
+            return mirror_wavespeed_status(job)
+        if provider == "eachlabs":
+            return mirror_eachlabs_status(job)
+        if provider == "runway":
+            return mirror_runway_status(job)
+        if provider == "vidu":
+            return mirror_vidu_status(job)
+        if provider == "minimax":
+            return mirror_minimax_status(job)
+        return job
+
+
     def create_api_job(user: dict, body: dict, model: str, base: str,
-                       prompt: str, music_prompt: str, camera: dict = None):
+                       prompt: str, music_prompt: str, camera: dict = None,
+                       speech_script: str = "", speech_voice: str = ""):
         """Quote -> hold -> submit, per design s.3. Any failure at or
         before submission leaves an error job with the clean public
         message and the hold fully released: no charge, nothing
@@ -2346,6 +3429,9 @@ def api():
         params = _api_job_params(body, model)
         state = api_lane_state(model)
         if state["paused"]:
+            raise HTTPException(status_code=503, detail=MODEL_UNAVAILABLE)
+        prov = provider_for(model, params["resolution"])
+        if not os.environ.get(PROVIDER_KEY_ENV.get(prov, "FAL_KEY")):
             raise HTTPException(status_code=503, detail=MODEL_UNAVAILABLE)
         est = pricing.per_second_estimate(
             model, params["resolution"], params["duration"],
@@ -2379,7 +3465,7 @@ def api():
             "id": pysecrets.token_hex(8),
             "user_id": user["id"],
             "worker_job_id": None,
-            "provider": MODEL_PROVIDER.get(model, "fal"),
+            "provider": provider_for(model, params["resolution"]),
             "provider_request_id": None,
             "provider_task_id": None,
             "provider_cost_cents": None,
@@ -2401,6 +3487,9 @@ def api():
             "budget_cost_cents": 0.0,
             "raw_cost_cents": 0.0,
             "music_prompt": music_prompt or None,
+            "speech_script": speech_script or None,
+            "speech_voice": speech_voice or None,
+            "voiceover_status": None,
             "plan_at_job": user["plan"],
             "retry_of": body.get("retry_of"),
             "last_poll": 0,
@@ -2415,10 +3504,7 @@ def api():
             "cap_raw_cents": est["cap_raw_cents"],
         }
         jobs[job["id"]] = job
-        if job["provider"] == "beatapi":
-            submit_beatapi_job(job, body, params, prompt)
-        else:
-            submit_fal_job(job, body, params, prompt, base)
+        submit_api_job(job, body, params, prompt, base)
         return JSONResponse(public_job(job), status_code=202)
 
     @web.post("/api/jobs")
@@ -2461,6 +3547,23 @@ def api():
         if music_prompt and not is_paid(user):
             raise HTTPException(
                 status_code=403, detail="custom audio is a paid feature"
+            )
+        # Speech script (Jack's correction, 2026-11-16): a spoken
+        # line for the voiceover stage, or the dialogue the user
+        # wants a speech-native lane to perform. Paid custom audio,
+        # same gate as the music prompt.
+        speech_script = (body.get("speech_script") or "").strip()
+        if len(speech_script) > SPEECH_SCRIPT_MAX_CHARS:
+            raise HTTPException(
+                status_code=422,
+                detail=f"speech script must be {SPEECH_SCRIPT_MAX_CHARS} characters or fewer",
+            )
+        speech_voice = (body.get("speech_voice") or "").strip()
+        if speech_voice and speech_voice not in SPEECH_VOICES:
+            raise HTTPException(status_code=422, detail="unknown speech voice")
+        if speech_script and not is_paid(user):
+            raise HTTPException(
+                status_code=403, detail="voiceover is a paid feature"
             )
         # Camera presets (available to every plan; model switching
         # stays the paid gate, presets are not one). The final
@@ -2648,7 +3751,8 @@ def api():
                 )
             return create_api_job(
                 user, body, model, base_url(request), prompt, music_prompt,
-                camera=camera,
+                camera=camera, speech_script=speech_script,
+                speech_voice=speech_voice,
             )
         u = usage(user)
         charged = 0
@@ -2780,6 +3884,9 @@ def api():
             "included_cost_cents": used_budget,
             "cost_cents": job_cost_cents,
             "music_prompt": music_prompt or None,
+            "speech_script": speech_script or None,
+            "speech_voice": speech_voice or None,
+            "voiceover_status": None,
             "plan_at_job": user["plan"],
             "retry_of": body.get("retry_of"),
             "last_poll": 0,
@@ -3022,6 +4129,8 @@ def api():
             "camera_look": parent.get("camera_look") or {},
             "camera_speed": parent.get("camera_speed"),
             "music_prompt": parent.get("music_prompt"),
+            "speech_script": parent.get("speech_script"),
+            "speech_voice": parent.get("speech_voice"),
             "model": parent.get("model") or DEFAULT_MODEL,
             "duration_seconds": parent.get("duration_seconds"),
             "resolution": parent.get("resolution"),
@@ -3054,6 +4163,44 @@ def api():
                 jobs[child["id"]] = child
                 created["charged_cents"] = 0
         return created
+
+    def _voiceover_for_job(job: dict):
+        """The Kokoro voiceover stage (Jack's correction,
+        2026-11-16): speak the job's speech_script with Kokoro
+        (Apache-2.0, the shippable TTS) and cache the wav per job
+        on the data Volume. The synthesis callable lives in the
+        sinclip-audio app (generate_voiceover in
+        modal-worker/audio_app.py). Until that app is redeployed
+        with the function, the lookup fails cleanly here: the job
+        is flagged voiceover_status "unavailable", delivery
+        proceeds with the lane's own audio and any music bed, and
+        nothing is charged or blocked. A music bed is never
+        silently passed off as speech: the flag on the job record
+        says exactly what happened."""
+        script = (job.get("speech_script") or "").strip()
+        if not script:
+            return None
+        voice_file = FILES_DIR / "voice" / f"{job['id']}.wav"
+        if voice_file.exists():
+            if job.get("voiceover_status") != "ready":
+                job["voiceover_status"] = "ready"
+                jobs[job["id"]] = job
+            return voice_file
+        try:
+            generate_voiceover = modal.Function.from_name(
+                "sinclip-audio", "generate_voiceover")
+            data = generate_voiceover.remote(
+                script, job.get("speech_voice") or "af_heart")
+            voice_file.parent.mkdir(parents=True, exist_ok=True)
+            voice_file.write_bytes(data)
+            job["voiceover_status"] = "ready"
+            jobs[job["id"]] = job
+            return voice_file
+        except Exception:
+            job["voiceover_status"] = "unavailable"
+            job["audio_fallback"] = True
+            jobs[job["id"]] = job
+            return None
 
     def _bed_for_job(job: dict):
         """The music bed for a job's delivery. Jobs without a music
@@ -3101,7 +4248,7 @@ def api():
         if not out_path.exists():
             raw_path = FILES_DIR / f"{job_id}.raw.mp4"
             if not raw_path.exists():
-                if job.get("provider") in ("fal", "beatapi"):
+                if job.get("provider") in URL_RESULT_PROVIDERS:
                     if not job.get("result_url"):
                         raise HTTPException(status_code=502, detail="finished file is not available yet")
                     resp = requests.get(job["result_url"], timeout=300)
@@ -3116,17 +4263,32 @@ def api():
                     if resp.status_code != 200:
                         raise HTTPException(status_code=502, detail="finished file is not available yet")
                     raw_path.write_bytes(resp.content)
-            if job.get("provider") in ("fal", "beatapi"):
+            # Voiceover resolution (Jack's correction, 2026-11-16):
+            # a speech script on a speech-native lane is performed
+            # by the model itself; on any other lane the Kokoro
+            # voiceover stage speaks it in post. No script, no
+            # voiceover: a music bed is never passed off as speech.
+            voice = None
+            if job.get("speech_script"):
+                if lane_audio(job.get("model") or DEFAULT_MODEL)["native_speech"]:
+                    if job.get("voiceover_status") != "native":
+                        job["voiceover_status"] = "native"
+                        jobs[job["id"]] = job
+                else:
+                    voice = _voiceover_for_job(job)
+            if job.get("provider") in URL_RESULT_PROVIDERS:
                 bed = _bed_for_job(job) if job.get("music_prompt") else None
                 try:
-                    _process_api_file(raw_path, out_path, bed_path=bed)
+                    _process_api_file(raw_path, out_path, bed_path=bed,
+                                      voice_path=voice)
                 except Exception:
                     # Delivery never breaks on the finishing stage:
                     # fall back to the standard mux with a bed.
                     job["audio_fallback"] = True
                     jobs[job["id"]] = job
                     _process_file(raw_path, out_path, watermark=False,
-                                  bed_path=_bed_for_job(job))
+                                  bed_path=_bed_for_job(job),
+                                  voice_path=voice)
             else:
                 # Watermark marks free-tier work, not a plan name:
                 # a pay-per-video job on a free-plan account was
@@ -3137,7 +4299,8 @@ def api():
                               watermark=bool(job.get(
                                   "free_tier",
                                   job.get("plan_at_job") == "free")),
-                              bed_path=_bed_for_job(job))
+                              bed_path=_bed_for_job(job),
+                              voice_path=voice)
             data_volume.commit()
         return out_path
 
@@ -3820,13 +4983,54 @@ def api():
     return web
 
 
-def _process_file(raw_path: Path, out_path: Path, watermark: bool, bed_path=None):
+def _process_file(raw_path: Path, out_path: Path, watermark: bool, bed_path=None,
+                  voice_path=None):
     """Mux a music bed onto the video (CPU): the job's custom bed
     when one is passed, else the house bed. Free-tier files also get
-    the watermark burned in, which needs a re-encode."""
+    the watermark burned in, which needs a re-encode. When the job
+    carries a voiceover track, the voice sits on top and the bed
+    ducks underneath: speech is speech, never just a bed."""
     if bed_path is None:
         bed_path = BED_PATH
     bed = bed_path if bed_path and Path(bed_path).exists() else None
+    voice = voice_path if voice_path and Path(voice_path).exists() else None
+    if voice:
+        vf = (
+            f"drawtext=fontfile={FONT_PATH}:text='Moonfactory':"
+            "fontcolor=white@0.55:fontsize=h/26:borderw=2:bordercolor=black@0.3:"
+            "x=w-tw-24:y=h-th-24"
+        ) if watermark else None
+        inputs = ["-i", str(raw_path)]
+        filters = []
+        mix = []
+        idx = 1
+        if bed:
+            inputs += ["-stream_loop", "-1", "-i", str(bed)]
+            filters.append(f"[{idx}:a]volume=0.22[bed]")
+            mix.append("[bed]")
+            idx += 1
+        inputs += ["-i", str(voice)]
+        filters.append(f"[{idx}:a]volume=1.0,apad[vox]")
+        mix.append("[vox]")
+        filters.append(
+            "".join(mix)
+            + f"amix=inputs={len(mix)}:duration=first:dropout_transition=0,"
+              "loudnorm=I=-14:TP=-1.5:LRA=11[aout]"
+        )
+        cmd = ["ffmpeg", "-y", *inputs,
+               "-filter_complex", ";".join(filters),
+               "-map", "0:v:0", "-map", "[aout]",
+               "-c:a", "aac", "-b:a", "160k"]
+        if watermark:
+            cmd += ["-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+                    "-vf", vf]
+        else:
+            cmd += ["-c:v", "copy"]
+        cmd += ["-shortest", str(out_path)]
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
+        if proc.returncode != 0 or not out_path.exists():
+            raise RuntimeError(f"ffmpeg failed: {proc.stderr[-400:]}")
+        return
     # The bed loops: a chained video is longer than one bed pass,
     # and -shortest must trim to the video, never to the bed.
     audio_in = ["-stream_loop", "-1", "-i", str(bed)] if bed else []
@@ -3850,34 +5054,72 @@ def _process_file(raw_path: Path, out_path: Path, watermark: bool, bed_path=None
         raise RuntimeError(f"ffmpeg failed: {proc.stderr[-400:]}")
 
 
-def _process_api_file(raw_path: Path, out_path: Path, bed_path=None):
+def _has_audio_stream(path: Path) -> bool:
+    """Whether a media file carries an audio stream at all. The
+    no-audio routes (Veo 3.1 and Veo 3.1 Lite on their cheapest
+    published rates) deliver silent files, and the finishing stage
+    must know that instead of failing on a missing stream."""
+    try:
+        proc = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "a",
+             "-show_entries", "stream=index", "-of", "csv=p=0",
+             str(path)],
+            capture_output=True, text=True, timeout=60)
+        return proc.returncode == 0 and bool(proc.stdout.strip())
+    except Exception:
+        return False
+
+
+def _process_api_file(raw_path: Path, out_path: Path, bed_path=None,
+                      voice_path=None):
     """Finishing for per-second-lane outputs (CPU). The model's own
     sound is the delivered audio, loudness-normalized to the house
     standard (about -14 LUFS / -1 dBTP); nothing replaces it. When
     the job ordered a custom bed, the bed is mixed under the model's
-    sound. Paid lanes are never watermarked. The optional GPU
-    upscale pass is not part of this lane yet (design s.3 step 6
-    lists it as optional); the file ships at the resolution the
-    user picked."""
-    if bed_path and Path(bed_path).exists():
-        cmd = [
-            "ffmpeg", "-y", "-i", str(raw_path), "-i", str(bed_path),
-            "-filter_complex",
-            "[0:a]loudnorm=I=-14:TP=-1:LRA=11[na];"
-            "[1:a]volume=0.35[bed];"
-            "[na][bed]amix=inputs=2:duration=first:dropout_transition=0[aout]",
-            "-map", "0:v:0", "-map", "[aout]",
-            "-c:v", "copy", "-c:a", "aac", "-b:a", "160k",
-            "-shortest", str(out_path),
-        ]
+    sound. When the job carries a voiceover track (a speech script
+    on a lane that cannot speak natively), the voice sits on top
+    and everything else ducks under it. A silent output with
+    nothing to mix ships with a silent track rather than failing.
+    Paid lanes are never watermarked. The optional GPU upscale
+    pass is not part of this lane yet (design s.3 step 6 lists it
+    as optional); the file ships at the resolution the user
+    picked."""
+    bed = bed_path if bed_path and Path(bed_path).exists() else None
+    voice = voice_path if voice_path and Path(voice_path).exists() else None
+    inputs = ["-i", str(raw_path)]
+    filters = []
+    mix = []
+    idx = 1
+    if _has_audio_stream(raw_path):
+        filters.append("[0:a]loudnorm=I=-14:TP=-1:LRA=11[na]")
+        mix.append("[na]")
+    if bed:
+        inputs += ["-stream_loop", "-1", "-i", str(bed)]
+        filters.append(f"[{idx}:a]volume={'0.18' if voice else '0.35'}[bed]")
+        mix.append("[bed]")
+        idx += 1
+    if voice:
+        inputs += ["-i", str(voice)]
+        filters.append(f"[{idx}:a]volume=1.0,apad[vox]")
+        mix.append("[vox]")
+        idx += 1
+    if mix:
+        filters.append(
+            "".join(mix)
+            + f"amix=inputs={len(mix)}:duration=first:dropout_transition=0[aout]"
+        )
+        cmd = ["ffmpeg", "-y", *inputs,
+               "-filter_complex", ";".join(filters),
+               "-map", "0:v:0", "-map", "[aout]",
+               "-c:v", "copy", "-c:a", "aac", "-b:a", "160k",
+               "-shortest", str(out_path)]
     else:
-        cmd = [
-            "ffmpeg", "-y", "-i", str(raw_path),
-            "-map", "0:v:0", "-map", "0:a:0",
-            "-c:v", "copy", "-c:a", "aac", "-b:a", "160k",
-            "-af", "loudnorm=I=-14:TP=-1:LRA=11",
-            "-shortest", str(out_path),
-        ]
+        cmd = ["ffmpeg", "-y", "-i", str(raw_path),
+               "-f", "lavfi", "-i",
+               "anullsrc=channel_layout=stereo:sample_rate=44100",
+               "-map", "0:v:0", "-map", "1:a:0",
+               "-c:v", "copy", "-c:a", "aac", "-b:a", "160k",
+               "-shortest", str(out_path)]
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
     if proc.returncode != 0 or not out_path.exists():
         raise RuntimeError(f"ffmpeg failed: {proc.stderr[-400:]}")
@@ -3890,8 +5132,10 @@ def refresh_provider_rates():
     only when every required model's full price set was re-read, so
     a partial or failed read leaves the staleness pause armed
     instead of quietly extending stale prices. Required reads: the
-    Seedance and two Wan pages on the BeatAPI supplier's site (the
-    route rule made that supplier primary for all three). The fal
+    Seedance and Wan 3.0 pages on the BeatAPI supplier's site.
+    (Wan 3.0 Prime's page was a required read until the follow-up
+    pass moved that lane to CometAPI; its rate is seeded-only
+    now.) The fal
     pages are read opportunistically (their prices update when the
     pages parse, and the weekly margin report is the backstop
     until they do). Runs on CPU; no key needed, the pages are
@@ -3914,18 +5158,15 @@ def refresh_provider_rates():
                 pairs[res] = round(float(price) * 100, 3)
         return pairs
 
+    # Only models whose primary route is still fal are read here
+    # (follow-up pass, 2026-11-16): a fal page read for a re-routed
+    # lane would shadow its seeded primary rate in the stored
+    # table while dispatch goes elsewhere. The re-routed lanes'
+    # rates are seeded-only until a parseable page on their own
+    # supplier is wired; that coverage gap is recorded in
+    # BUILD-LOG.
     fal_pages = {
-        "veo3": [("fal-ai/veo3.1", ("720p", "1080p"))],
         "veo3_fast": [("fal-ai/veo3.1/fast", ("720p", "1080p"))],
-        "veo3_lite": [("fal-ai/veo3.1/lite", ("720p", "1080p"))],
-        "kling3_omni": [
-            ("fal-ai/kling-video/o3/standard/text-to-video", ("720p",)),
-            ("fal-ai/kling-video/o3/pro/text-to-video", ("1080p",)),
-        ],
-        "hailuo23": [
-            ("minimax/hailuo-2.3/standard/text-to-video", ("720p",)),
-            ("minimax/hailuo-2.3/pro/text-to-video", ("1080p",)),
-        ],
         "ltx25": [("lightricks/ltx-2.5/text-to-video", ("720p", "1080p"))],
         "ltx25_fast": [("lightricks/ltx-2.5/text-to-video/fast", ("720p", "1080p"))],
     }
@@ -3963,7 +5204,6 @@ def refresh_provider_rates():
     beatapi_pages = {
         "seedance": ("https://beatapi.io/seedance-2.5-api", " · no video input"),
         "wan3": ("https://beatapi.io/wan-3-0-api", ""),
-        "wan3_prime": ("https://beatapi.io/wan-3-0-prime-api", ""),
     }
     for beat_model, (beat_url, qualifier) in beatapi_pages.items():
         try:
@@ -3998,16 +5238,29 @@ def refresh_provider_rates():
         except Exception:
             continue
 
-    required = {"wan3", "wan3_prime", "seedance"}
+    required = {"wan3", "seedance"}
     if not required.issubset(found):
         return {"verified": sorted(found), "updated": False}
+    # Seedance's 720p tier rides CometAPI since the follow-up
+    # pass; the BeatAPI page read covers only the tiers BeatAPI
+    # still serves, so the seeded CometAPI rate is never shadowed.
+    if "seedance" in found:
+        found["seedance"] = {
+            res: cents for res, cents in found["seedance"].items()
+            if res != "720p"
+        }
     table = meta.get("provider_rates") or {
         "rates": pricing.PROVIDER_RATES_CENTS_PER_SECOND,
         "updated_at": _now(),
     }
     rates = dict(table.get("rates") or {})
-    changed = [m for m, r in found.items() if rates.get(m) != r]
-    rates.update(found)
+    changed = []
+    for m, r in found.items():
+        merged = dict(rates.get(m) or {})
+        merged.update(r)
+        if merged != rates.get(m):
+            changed.append(m)
+        rates[m] = merged
     meta["provider_rates"] = {"rates": rates, "updated_at": _now()}
     return {"verified": sorted(found), "updated": True, "changed": changed}
 
@@ -4379,6 +5632,9 @@ APP_HTML = (
     <label>Music prompt (optional)</label>
     <textarea id="music" rows="2" maxlength="300" placeholder="lo-fi piano with soft rain, slow and dreamy"></textarea>
     <p class="muted" id="music-note"></p>
+    <label>Spoken line (optional)</label>
+    <textarea id="speech" rows="2" maxlength="1000" placeholder="the words a voice should say in this video"></textarea>
+    <p class="muted" id="speech-note"></p>
     <div id="house-opts">
     <p class="group-label" style="margin-top:4px">Length and shape</p>
     <label>Aspect ratio</label>
@@ -4745,6 +6001,8 @@ function showStudio(u) {
     $('model-note').textContent = '';
     $('music').disabled = false;
     $('music-note').textContent = 'Describe the music and it is generated for this video.';
+    $('speech').disabled = false;
+    $('speech-note').textContent = 'On models that talk, the model performs the line. On the rest, a voice speaks it over the video.';
     applyEffectGate();
   } else {
     opt.disabled = true; opt.checked = false;
@@ -4756,6 +6014,8 @@ function showStudio(u) {
     $('model-note').textContent = 'Model switching unlocks with any payment. Accounts that have never paid render on Wan 2.2 Draft.';
     $('music').disabled = true; $('music').value = '';
     $('music-note').textContent = 'Custom audio unlocks with any payment. Free clips get the house music track.';
+    $('speech').disabled = true; $('speech').value = '';
+    $('speech-note').textContent = 'Voiceover unlocks with any payment.';
     selectedEffect = null;
     applyEffectGate();
   }
@@ -4809,15 +6069,20 @@ const MODEL_OPTS = {
   veo3_lite: { durations: [4, 6, 8], resolutions: ['720p', '1080p'] },
   omni12: { durations: [5, 10, 15], resolutions: ['720p', '1080p'] },
   omni11: { durations: [5, 10], resolutions: ['720p', '1080p'] },
-  hailuo23: { durations: [6, 10], resolutions: ['720p', '1080p'] },
+  hailuo23: { durations: [6, 10], resolutions: ['720p'] },
   minimax_h3: { durations: [5, 10, 15], resolutions: ['480p', '720p', '1080p'] },
-  grok: { durations: [5, 10, 15], resolutions: ['480p', '720p', '1080p'] },
+  grok: { durations: [5, 10, 15], resolutions: ['480p', '720p'] },
   luma_ray32: { durations: [5, 10], resolutions: ['480p', '720p', '1080p'] },
   ltx25: { durations: [6, 10, 15, 20], resolutions: ['720p', '1080p'] },
   ltx25_fast: { durations: [6, 10, 15, 20], resolutions: ['720p', '1080p'] },
   happyhorse: { durations: [5, 10, 15], resolutions: ['720p', '1080p'] },
   pika22: { durations: [5, 10], resolutions: ['720p', '1080p'] },
-  vidu_q2: { durations: [4, 6, 8], resolutions: ['720p', '1080p'] }
+  vidu_q2: { durations: [4, 6, 8], resolutions: ['720p', '1080p'] },
+  vidu_q3: { durations: [5, 10, 15], resolutions: ['480p', '720p'] },
+  vidu_q4: { durations: [5, 10, 15], resolutions: ['720p', '1080p'] },
+  seedance25_flash: { durations: [5, 10, 15, 20, 30], resolutions: ['480p', '720p'] },
+  pixverse_v6: { durations: [5, 10, 15], resolutions: ['720p', '1080p'] },
+  runway_gen45: { durations: [5, 10], resolutions: ['720p', '1080p'] }
 };
 function fillSelect(sel, values, label) {
   const keep = sel.value;
@@ -4967,12 +6232,14 @@ $('create').onclick = async () => {
     const jobBody = model === 'wan2.2'
       ? { model: model, lane: selectedEffect ? 'effects' : $('lane').value, prompt: $('prompt').value,
           music_prompt: $('music').disabled ? '' : $('music').value,
+          speech_script: $('speech').disabled ? '' : $('speech').value,
           effect: selectedEffect || undefined,
           ...startFields, end_image_png_b64: selectedEffect ? null : endImageB64,
           aspect_ratio: $('aspect').value, segments: selectedEffect ? 1 : Number($('segments').value),
           ...(selectedEffect ? {} : camera), ...bot }
       : { model: model, prompt: $('prompt').value,
           music_prompt: $('music').disabled ? '' : $('music').value,
+          speech_script: $('speech').disabled ? '' : $('speech').value,
           duration_seconds: Number($('duration').value), resolution: $('resolution').value,
           ...startFields, ...camera, ...bot };
     const r = await api('/api/jobs', { method: 'POST', headers: {'Content-Type': 'application/json'},

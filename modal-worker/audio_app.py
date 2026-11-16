@@ -16,6 +16,13 @@ description, get back wav bytes. Called with no arguments it produces
 the house bed, exactly as before. Every (caption, seed) pair is cached
 in the Volume, so a repeat call costs a container start, not a render.
 
+generate_voiceover(text, voice) is the platform's speech stage
+(Jack's correction, 2026-11-16: "audio" means voiceover/speech too,
+not just music): Kokoro TTS (Apache-2.0), cached per (text, voice)
+pair in the Volume exactly like beds. The platform calls it for a
+job's speech_script on lanes that cannot generate speech natively,
+and mixes the wav over the bed/native audio at delivery.
+
 Usage:
   modal run audio_app.py             # generate the house bed, save locally
   modal run audio_app.py --caption "lofi piano, soft rain" --seed 42
@@ -24,6 +31,7 @@ Usage:
 import hashlib
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 import modal
@@ -144,6 +152,86 @@ def generate_bed(caption: str = HOUSE_CAPTION, seed: int = HOUSE_SEED) -> bytes:
         raise RuntimeError(f"no wav produced; /tmp/ace_out contains: {list(out_dir.rglob('*'))}")
     data = wavs[0].read_bytes()
     dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(data)
+    volume.commit()
+    print(f"persisted {dest} ({len(data)} bytes)", flush=True)
+    return data
+
+
+# ---------------------------------------------------------------------------
+# Voiceover stage (Kokoro TTS, Apache-2.0). Kokoro-82M runs fine on
+# the same A10G image; its weights and voices download from the
+# public Kokoro HF repo on first use and cache with the container.
+# ---------------------------------------------------------------------------
+
+tts_image = ace_image.apt_install("espeak-ng").pip_install(
+    "kokoro>=0.9.2", "soundfile", "numpy",
+)
+
+VOICEOVER_SCRIPT = r'''
+import json, sys
+import numpy as np
+import soundfile as sf
+from kokoro import KPipeline
+
+with open("/tmp/vo_params.json") as fh:
+    spec = json.load(fh)
+text = spec["text"]
+voice = spec["voice"] or "af_heart"
+lang = "b" if voice.startswith("b") else "a"
+pipeline = KPipeline(lang_code=lang)
+chunks = []
+for _graphemes, _phonemes, audio in pipeline(text, voice=voice):
+    if audio is not None:
+        chunks.append(np.asarray(audio, dtype=np.float32))
+if not chunks:
+    raise RuntimeError("Kokoro produced no audio")
+data = np.concatenate(chunks) if len(chunks) > 1 else chunks[0]
+sf.write("/tmp/voiceover.wav", data, 24000)
+print(f"VOICEOVER {len(data)} samples", flush=True)
+'''
+
+
+def _voice_key(text: str, voice: str) -> str:
+    return hashlib.sha256(f"{voice}|{text}".encode()).hexdigest()[:16]
+
+
+@app.function(
+    image=tts_image,
+    gpu="A10G",
+    volumes={"/sinclip-models": volume},
+    timeout=900,
+)
+def generate_voiceover(text: str, voice: str = "af_heart") -> bytes:
+    """Speak one script with Kokoro and return wav bytes (24 kHz
+    mono). Cached in the Volume under audio/voice/ by (voice, text)
+    hash, so a repeat call costs a container start, not a render."""
+    text = (text or "").strip()
+    if not text:
+        raise ValueError("voiceover text is empty")
+    dest_dir = Path("/sinclip-models/audio/voice")
+    dest = dest_dir / f"{_voice_key(text, voice)}.wav"
+    if dest.exists():
+        print(f"cache hit {dest}", flush=True)
+        return dest.read_bytes()
+    Path("/tmp/vo_params.json").write_text(
+        json.dumps({"text": text, "voice": voice})
+    )
+    script_path = Path("/tmp/gen_voiceover.py")
+    script_path.write_text(VOICEOVER_SCRIPT)
+    proc = subprocess.run(
+        [sys.executable, str(script_path)],
+        capture_output=True, text=True, timeout=600,
+    )
+    print(proc.stdout[-3000:], flush=True)
+    if proc.returncode != 0:
+        print(proc.stderr[-3000:], flush=True)
+        raise RuntimeError(f"Kokoro subprocess failed rc={proc.returncode}")
+    out = Path("/tmp/voiceover.wav")
+    if not out.exists():
+        raise RuntimeError("Kokoro produced no wav")
+    data = out.read_bytes()
+    dest_dir.mkdir(parents=True, exist_ok=True)
     dest.write_bytes(data)
     volume.commit()
     print(f"persisted {dest} ({len(data)} bytes)", flush=True)
