@@ -698,3 +698,49 @@ clean; the free-account gate logic (locked models, locked
 opt-out, lock notes) is present in the served studio unchanged.
 No jobs were created and no provider calls were made; spend
 was deploy CPU only.
+
+## Update, 2026-11-16 (run 21): Fun Camera stock-recipe test (loop-back L4)
+
+Run 18's open item is settled. One stock-recipe Fun Camera render
+(20 steps, cfg 3.5, the workflow's LightX2V LoRA pair at strength
+0.0, the 10 + 10 sampler split) ran on the same benchmark as the
+run-18 proofs: Pan Left, balloon scene, seed 12345, same start
+image. It took 1439.8 seconds of worker wall (about 24 minutes,
+$0.78 at the L40S list rate) and delivered a coherent 720x1280
+clip. Measured with the run-18 method (red-blob subject
+centroid/scale first vs last frame, phase-correlation drift, all
+three clips re-measured in one pass):
+
+- Distilled fun (run 18): centroid x 0.4866 -> 0.4873 (+0.0007),
+  scale 0.98x, drift (0, 0).
+- Prompt-recipe Pan left (run 18): centroid x 0.4874 -> 0.4994
+  (+0.012, the correct direction), scale 1.03x, drift (-2, 41),
+  the subject rising through the clip.
+- Stock fun (this run): centroid x 0.4866 -> 0.4872 (+0.0006),
+  scale 0.93x, drift (0, 0), and the per-second drift series is
+  (0, 0) at every second.
+
+The stock recipe shows no move either, indistinguishable from
+the distilled clip on this measurement. A debug pass over the
+ported workflow found no defect: the WanCameraEmbedding output
+feeds WanCameraImageToVideo's camera_conditions exactly as in
+the Freefield source app (outputs 1 to 3 carry width, height,
+length the same way), the submitted pose string "Pan Left" is
+an exact member of the node's pose enum, the speed was fed at
+1.0 (the node's own default working value, range 0 to 10), the
+sampler graph matches the source app's stock recipe field for
+field, and ComfyUI accepted and executed the graph with no node
+errors under both recipes. The embedding demonstrably reaches
+the model; it just does not move the frame measurably.
+
+Decision: the shipped distilled wiring stays exactly as it is.
+The stock recipe costs about $0.78 a segment (about 24 minutes
+a render, against about 3 minutes distilled) and buys no
+measurable move, so there is no recipe change and no pricing
+change: a Fun Camera segment still prices as a Production
+segment. The exact open blocker, stated plainly: Fun Camera
+conditioning strength is unproven on this stack after both
+recipes. The presets remain live and honestly described as
+steering the render; whether a different model build, a higher
+speed value, or a different benchmark scene would show the move
+is future work, not a claim made here.

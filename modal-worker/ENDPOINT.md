@@ -74,11 +74,17 @@ Honest verification note: that proof render completed and
 delivered a coherent clip, but frame measurement showed no
 measurable pan (subject centroid and phase-correlation drift at
 the first frame's values), weaker than the prompt-recipe Pan left
-rendered alongside it. Whether the distilled LoRA pair washes
-out the camera conditioning, or the conditioning needs the stock
-recipe's guidance, is an open loop-back item: judging it takes
-one stock-recipe render (about $0.77), which sat outside the
-Pass 4 run's spend cap.
+rendered alongside it. The loop-back test has since run
+(2026-11-16, run 21): one stock-recipe render (20 steps, cfg
+3.5, LoRA pair at strength 0.0, 1439.8 s of worker wall, about
+$0.78) on the same benchmark measured the same way came out
+indistinguishable from the distilled clip (centroid delta
++0.0006 of frame width, drift (0, 0)), and a debug pass over
+the ported workflow found no wiring, pose-mapping, or speed
+defect. Fun Camera conditioning strength is unproven on this
+stack after both recipes; the distilled recipe above stays
+shipped, because the stock recipe costs about $0.78 a segment
+(about 24 minutes) and buys no measurable move.
 
 ### Effects path (one-tap effects, live 2026-11-16)
 
