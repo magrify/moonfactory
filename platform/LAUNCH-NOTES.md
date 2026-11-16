@@ -32,29 +32,34 @@ reports the configured mode, and checkout can pin configured Stripe
 price IDs (STRIPE_PRICE_CREATOR, STRIPE_PRICE_TOPUP_500/1000/2000)
 or create prices inline from pricing.py.
 
-State found on 2026-11-16: the Secure Vault holds NO stripe.com
-login (the full saved-login list was checked), and the Stripe
-connector is not connected. A secret key (sk_live_) exists only
-inside the Stripe dashboard; no API or connector can export one.
-The remaining account-side step, in one pass:
+State as of 2026-11-16 (run 8): the account side is done except
+one value. The Stripe connector was connected (OAuth consent), and
+through it: the Magrify account (acct_1Q16NdAQThnByJFL) is fully
+activated for live charges; the products and prices were created
+live (Creator $20/mo; Credit Top-Up $5 / $10 / $20 one-time); and
+the live webhook endpoint for
+https://magrify--moonfactory-api.us-east.modal.run/api/stripe/webhook
+was created with events checkout.session.completed, invoice.paid,
+invoice.payment_failed, customer.subscription.deleted.
 
-1. Sign in to the Stripe dashboard (or connect the account through
-   the Stripe connector link the main agent can send: an OAuth
-   consent, not a key hand-over).
-2. Create the products/prices: Creator $20/mo, top-ups $5/$10/$20.
-3. Add the live webhook endpoint for
-   https://magrify--moonfactory-api.us-east.modal.run/api/stripe/webhook
-   with events checkout.session.completed, invoice.paid,
-   invoice.payment_failed, customer.subscription.deleted.
-4. Reveal the live secret key and the webhook signing secret.
-5. Those two values go straight into the Modal Secret
-   moonfactory-secrets (STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET)
-   plus the price IDs, and the platform redeploys. No code change.
+The webhook signing secret and the four price IDs are stored in
+the second Modal secret, moonfactory-integrations (alongside the
+Resend entries), and the platform was redeployed on them. Verified
+live: a fresh signup still returns email_mode "resend" (the
+integrations secret is reaching the app), and an unsigned POST to
+the webhook is refused (503) because the handler builds its Stripe
+client first and that needs the one missing value below; the
+400 bad-signature path opens once it lands.
 
-If the account is not yet activated for live payments, activation
-in the dashboard (business details, bank account) is the step that
-has to happen first; everything above is ready to land the moment
-it is done.
+The ONE outstanding value: STRIPE_SECRET_KEY (sk_live_). A secret
+key cannot be created or exported through the API or the
+connector; it exists only inside the Stripe dashboard, and that
+sign-in is gated by a passkey Muse's browser cannot complete.
+When Jack supplies it (dashboard reveal, entered through the
+Secure Vault), it goes into moonfactory-integrations the same way,
+the platform redeploys, /api/config flips payments_mode to
+"live", and checkout opens. No code change. Until then checkout
+stays off, deliberately, rather than half-configured.
 
 ### 2. Transactional email (Resend) — DONE 2026-11-16
 
