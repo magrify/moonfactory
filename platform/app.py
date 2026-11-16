@@ -316,6 +316,11 @@ def process_clip_job(job_id: str):
     except Exception as exc:  # noqa: BLE001
         job["status"] = "error"
         job["error"] = "clipping failed, nothing was charged"
+        if clipping.LINK_DEAD_MESSAGE.split(";")[0] in str(exc):
+            # A dead link is the one failure the user can act on:
+            # surface the working alternative, not the generic line.
+            job["error"] = (clipping.LINK_DEAD_MESSAGE
+                            + "; nothing was charged")
         job["internal_error"] = str(exc)[:300]
         jobs[job_id] = job
         _clip_release_hold(job)
@@ -1218,6 +1223,14 @@ def api():
     from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 
     web = FastAPI(title="Moonfactory")
+
+    @web.exception_handler(404)
+    async def not_found(request: Request, exc):
+        # API callers keep the JSON contract; browsers get the
+        # on-brand dark page (finish-run polish, 2026-11-16).
+        if request.url.path.startswith("/api/"):
+            return JSONResponse({"detail": "Not Found"}, status_code=404)
+        return HTMLResponse(NOT_FOUND_HTML, status_code=404)
 
     # -- helpers -----------------------------------------------------------
 
@@ -4469,7 +4482,8 @@ def api():
             except ValueError as exc:
                 raise HTTPException(status_code=422, detail=str(exc))
             except Exception:
-                raise HTTPException(status_code=502, detail="that link could not be read")
+                raise HTTPException(status_code=502,
+                                    detail=clipping.LINK_DEAD_MESSAGE)
             duration = float(info.get("duration") or 0)
             if duration <= 0:
                 raise HTTPException(status_code=422, detail="that link has no readable duration")
@@ -4591,7 +4605,8 @@ def api():
             except ValueError as exc:
                 raise HTTPException(status_code=422, detail=str(exc))
             except Exception:
-                raise HTTPException(status_code=502, detail="that link could not be read")
+                raise HTTPException(status_code=502,
+                                    detail=clipping.LINK_DEAD_MESSAGE)
             duration = float(info.get("duration") or 0)
             source_title = info.get("title") or ""
             if duration <= 0:
@@ -5489,8 +5504,29 @@ _LANDING_TOP_MEMBER = """<header>
     <button class="btn" id="hero-go" type="button">Open Create</button>
   </div>
   <p class="under" style="margin-top:12px">Members open straight into Create.
-  Try It is for people who have not paid yet, so it is not in your way.</p>
+  The free trial is for people who have not paid yet, so it is not in your way.</p>
 </div>"""
+
+NOT_FOUND_HTML = """<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Not found — Moonfactory</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Cpath fill='%23818cf8' d='M23.3 8A16 16 0 1 0 32.6 37.5A16.5 16.5 0 0 1 23.3 8Z'/%3E%3Cpath fill='%23f5d67a' stroke='%23f5d67a' stroke-width='1.6' stroke-linejoin='round' d='M24 18.5L24 27.5L31.5 23Z'/%3E%3C/svg%3E">
+<style>
+  body{background:#0c0c0f;color:#f4f4f1;font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center}
+  .box{text-align:center;padding:24px;max-width:420px}
+  h1{font-size:26px;margin:18px 0 8px}
+  p{color:#b8b8c0;line-height:1.6;margin:0 0 22px}
+  a{display:inline-block;background:#6366f1;color:#fff;text-decoration:none;font-weight:700;padding:11px 22px;border-radius:999px;margin:0 4px}
+  a.ghost{background:none;border:1px solid #26262e;color:#f4f4f1}
+</style></head><body>
+<div class="box">
+  <svg width="54" height="54" viewBox="0 0 48 48"><path fill="#818cf8" d="M23.3 8A16 16 0 1 0 32.6 37.5A16.5 16.5 0 0 1 23.3 8Z"/><path fill="#f5d67a" stroke="#f5d67a" stroke-width="1.6" stroke-linejoin="round" d="M24 18.5L24 27.5L31.5 23Z"/></svg>
+  <h1>That page is not here</h1>
+  <p>The link may be old, or the page may have moved. The studio and the gallery are right where they should be.</p>
+  <a href="/app">Open the studio</a><a class="ghost" href="/gallery">Gallery</a>
+</div>
+</body></html>"""
 
 INDEX_HTML = (
     """<!doctype html><html lang="en"><head><meta charset="utf-8">
@@ -5749,7 +5785,7 @@ APP_HTML = (
       <h2>Clip</h2>
       <span class="badge">Members · Creator</span>
     </div>
-    <p class="muted">Paste a YouTube, Twitch or Kick link, or upload a file. You get vertical clips with captions and a hook on each one.</p>
+    <p class="muted">Paste a YouTube, Twitch or Kick link, or upload a file. You get vertical clips with captions and a hook on each one. If a link ever refuses to read, upload the file instead: uploads always work.</p>
     <label>Video link</label>
     <input id="clip-url" type="url" placeholder="https://www.youtube.com/watch?v=...">
     <label>Or upload a video file</label>

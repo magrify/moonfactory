@@ -173,9 +173,150 @@ def loud_zscore(db) -> list:
 
 # --- fetch (ported from media.py: yt-dlp, audio first) -------------------
 
+# --- YouTube resolution via public Invidious instances -----------------
+# YouTube bot-walls Modal's datacenter egress, so yt-dlp against
+# youtube.com is dead from the platform (verified repeatedly; the
+# finish run of 2026-11-16 replaced the route). Public Invidious
+# instances answer from their own servers: their JSON API gives the
+# metadata and signed stream URLs (direct googlevideo links, or
+# instance-proxied with ?local=true when a direct link refuses the
+# egress IP). Instances are tried in order with short timeouts and
+# any failure moves to the next; a dead instance costs seconds,
+# never the job. Twitch and Kick keep the yt-dlp path below, and
+# yt-dlp stays the last-resort fallback for YouTube too.
+INVIDIOUS_INSTANCES = (
+    "https://inv.nadeko.net",
+    "https://invidious.nerdvpn.de",
+    "https://yewtu.be",
+    "https://invidious.f5.si",
+    "https://invidious.0011.lt",
+    "https://invidious.privacyredirect.com",
+    "https://invidious.perennialte.ch",
+    "https://iv.melmac.space",
+    "https://invidious.einfachzocken.eu",
+    "https://invidious.adminforge.de",
+)
+_INVIDIOUS_UA = {"User-Agent": "Mozilla/5.0 (Moonfactory clip fetch)"}
+LINK_DEAD_MESSAGE = (
+    "that link could not be read from our servers right now; "
+    "upload the video file instead, uploads always work"
+)
+
+
+def _youtube_video_id(url: str):
+    u = urllib.parse.urlparse(str(url or "").strip())
+    host = (u.hostname or "").lower()
+    if host == "youtu.be" or host.endswith(".youtu.be"):
+        vid = (u.path or "").strip("/").split("/")[0]
+        return vid or None
+    if "youtube.com" in host:
+        vid = (urllib.parse.parse_qs(u.query).get("v") or [None])[0]
+        if vid:
+            return vid
+        parts = [p for p in (u.path or "").split("/") if p]
+        if len(parts) >= 2 and parts[0] in ("shorts", "embed", "live", "v"):
+            return parts[1]
+    return None
+
+
+def _invidious_metadata(video_id: str, local: bool = False) -> dict:
+    """First answering instance's metadata for the video, or raise
+    the user-facing dead-link error after every instance failed."""
+    import requests
+
+    last = None
+    for inst in INVIDIOUS_INSTANCES:
+        try:
+            r = requests.get(
+                f"{inst}/api/v1/videos/{video_id}",
+                params={"local": "true"} if local else None,
+                headers=_INVIDIOUS_UA, timeout=15)
+            if r.status_code != 200:
+                last = f"{inst} -> {r.status_code}"
+                continue
+            data = r.json()
+            if data.get("error"):
+                last = f"{inst} -> {data['error']}"
+                continue
+            data["_instance"] = inst
+            return data
+        except Exception as exc:  # noqa: BLE001 - next instance
+            last = f"{inst} -> {type(exc).__name__}"
+            continue
+    # The per-instance detail stays out of the user-facing error
+    # (it is diagnosable from the resolver code + a probe run);
+    # the user gets the one actionable sentence.
+    raise ValueError(LINK_DEAD_MESSAGE)
+
+
+def _invidious_info(video_id: str) -> dict:
+    data = _invidious_metadata(video_id)
+    return {
+        "title": data.get("title") or "",
+        "uploader": data.get("author") or "",
+        "duration": float(data.get("lengthSeconds") or 0),
+    }
+
+
+def _invidious_download(video_id: str, job_dir: Path) -> Path:
+    """Download a muxed stream (best up to 720p) via Invidious:
+    direct signed URL first, then the instance-proxied URL."""
+    import requests
+
+    job_dir.mkdir(parents=True, exist_ok=True)
+    dest = job_dir / "source.mp4"
+    errors = []
+    for local in (False, True):
+        try:
+            data = _invidious_metadata(video_id, local=local)
+        except ValueError as exc:
+            errors.append(str(exc))
+            continue
+        streams = [
+            s for s in (data.get("formatStreams") or [])
+            if (s.get("container") or "mp4") == "mp4" and s.get("url")
+        ]
+        if not streams:
+            errors.append(f"{data.get('_instance')}: no muxed mp4 stream")
+            continue
+
+        def height(s):
+            try:
+                return int(str(s.get("resolution") or "0p").rstrip("p"))
+            except ValueError:
+                return 0
+
+        streams.sort(key=height)
+        pick = None
+        for s in streams:
+            if height(s) <= 720:
+                pick = s
+        pick = pick or streams[0]
+        try:
+            with requests.get(pick["url"], headers=_INVIDIOUS_UA,
+                              timeout=120, stream=True) as r:
+                r.raise_for_status()
+                with dest.open("wb") as fh:
+                    for chunk in r.iter_content(1024 * 1024):
+                        fh.write(chunk)
+            if dest.stat().st_size < 100_000:
+                raise RuntimeError("stream too small to be the video")
+            probe(dest)  # refuse a file ffmpeg cannot read
+            return dest
+        except Exception as exc:  # noqa: BLE001 - next route
+            errors.append(f"{data.get('_instance')} local={local}: "
+                          f"{type(exc).__name__} {str(exc)[:120]}")
+            dest.unlink(missing_ok=True)
+    raise RuntimeError(
+        f"{LINK_DEAD_MESSAGE} (download detail: {'; '.join(errors)[:300]})")
+
+
 def fetch_info(url: str) -> dict:
     """Metadata for a link job, through the same allowlist guard."""
     validate_fetch_url(url)
+    video_id = _youtube_video_id(url)
+    if video_id:
+        return _invidious_info(video_id)
     import yt_dlp
 
     opts = {"quiet": True, "no_warnings": True, "noplaylist": True}
@@ -196,6 +337,9 @@ def download_video(url: str, job_dir: Path) -> Path:
     keeps the same format choice but takes the whole file, which the
     3 hour source cap bounds."""
     validate_fetch_url(url)
+    video_id = _youtube_video_id(url)
+    if video_id:
+        return _invidious_download(video_id, job_dir)
     import yt_dlp
 
     job_dir.mkdir(parents=True, exist_ok=True)
@@ -499,28 +643,53 @@ def fallback_by_loudness(db, words, n, max_len, duration, min_len=15):
     return picks
 
 
+# The picking model chain (finish run, 2026-11-16): the platform
+# key was created 2026-11-16, and Google has retired the 2.x
+# Flash models for new users (404 "no longer available to new
+# users" — verified live). Its named successors are these two;
+# 3.8-flash is first choice, 3.5-flash-lite the fallback when
+# 3.8 is demand-throttled (503) or unavailable.
+GEMINI_PICK_MODELS = ("gemini-3.8-flash", "gemini-3.5-flash-lite")
+
+
 def _gemini_pick(prompt: str, api_key: str):
     """One windowed picking call to the platform's own hosted chat
     model. Returns a list of candidate dicts."""
-    url = (
-        "https://generativelanguage.googleapis.com/v1beta/models/"
-        "gemini-2.5-flash:generateContent?key=" + urllib.parse.quote(api_key)
-    )
+    import time as _time
+
     body = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {"responseMimeType": "application/json", "temperature": 0.4},
     }
-    req = urllib.request.Request(
-        url, data=json.dumps(body).encode(),
-        headers={"Content-Type": "application/json"}, method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=120) as resp:
-        data = json.loads(resp.read())
-    text = data["candidates"][0]["content"]["parts"][0]["text"]
-    parsed = json.loads(text)
-    if isinstance(parsed, dict):
-        parsed = parsed.get("clips") or parsed.get("moments") or []
-    return parsed if isinstance(parsed, list) else []
+    last_exc = None
+    for model in GEMINI_PICK_MODELS:
+        url = (
+            "https://generativelanguage.googleapis.com/v1beta/models/"
+            f"{model}:generateContent?key=" + urllib.parse.quote(api_key)
+        )
+        for attempt in range(2):
+            req = urllib.request.Request(
+                url, data=json.dumps(body).encode(),
+                headers={"Content-Type": "application/json"}, method="POST",
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=120) as resp:
+                    data = json.loads(resp.read())
+                text = data["candidates"][0]["content"]["parts"][0]["text"]
+                parsed = json.loads(text)
+                if isinstance(parsed, dict):
+                    parsed = parsed.get("clips") or parsed.get("moments") or []
+                return parsed if isinstance(parsed, list) else []
+            except urllib.error.HTTPError as exc:
+                last_exc = exc
+                if exc.code == 503 and attempt == 0:
+                    _time.sleep(5)
+                    continue
+                break  # 404/4xx: this model is not for this key; next
+            except Exception as exc:  # noqa: BLE001 - next model
+                last_exc = exc
+                break
+    raise RuntimeError(f"gemini picking unavailable: {last_exc}")
 
 
 def find_clips(words, db, duration, title="", uploader="", max_clips=6,

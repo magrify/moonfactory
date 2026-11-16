@@ -234,7 +234,14 @@ PROVIDER_RATES_CENTS_PER_SECOND = {
     # own published page, and the lane has no Higgsfield figure
     # to enforce against. It stays flagged for a Kie console
     # confirmation, the same status as before this round.
-    "kling3_omni": {"720p": 7.55, "1080p": 7.55},
+    # FINISH-RUN CORRECTION (2026-11-16): the console confirmation
+    # arrived via Kie's own authenticated catalog API
+    # (api.kie.ai/api/v1/models, pricingDesc for
+    # kling-3.0-omni/*): with native audio 720p is 20.2 credits
+    # ($0.101/s) and 1080p is 25.2 credits ($0.126/s). The submit
+    # sends sound=true, so those are this lane's rates; the old
+    # flat 7.55 seed priced the lane BELOW its true cost.
+    "kling3_omni": {"720p": 10.1, "1080p": 12.6},
     # Seedance 2.0 via BeatAPI (seedance-2): carried at the
     # WITH-video-input rates ($0.618 / $1.247 / $3.107 per
     # 8-second clip; no-input $0.509 / $1.027 / $2.563).
@@ -243,12 +250,25 @@ PROVIDER_RATES_CENTS_PER_SECOND = {
     # from $0.034/s, carried flat (the from-price publishes no
     # resolution split; pending console confirmation). BeatAPI's
     # with-input rates are in DISPLACED_RATES below.
-    "seedance2_fast": {"480p": 3.4, "720p": 3.4},
+    # FINISH-RUN CORRECTION (2026-11-16): Kie's catalog API
+    # (bytedance/seedance-2-fast pricingDesc) splits the rate by
+    # video input: 480p $0.034 with-video / $0.059 no-video;
+    # 720p $0.075 with-video / $0.124 no-video. Text and image
+    # modes (the common jobs) carry no video input, so the lane
+    # is seeded at the no-video rates. Reference mode WITH a
+    # video bills the with-video rate over input+output seconds;
+    # that shape is not separately seeded (flagged, audit doc).
+    "seedance2_fast": {"480p": 5.9, "720p": 12.4},
     # Seedance 2.0 Mini via Kie (follow-up pass, 2026-11-16):
     # from $0.012/s, carried flat on the same basis. Silent model
     # on every route. BeatAPI's with-input rates are in
     # DISPLACED_RATES below.
-    "seedance2_mini": {"480p": 1.2, "720p": 1.2},
+    # FINISH-RUN CORRECTION (2026-11-16): same catalog read
+    # (bytedance/seedance-2-mini pricingDesc): 480p $0.012
+    # with-video / $0.019 no-video; 720p $0.025 with-video /
+    # $0.041 no-video. Seeded at the no-video rates, same basis
+    # and same reference-mode flag as Fast above.
+    "seedance2_mini": {"480p": 1.9, "720p": 4.1},
     # Veo 3.1 Lite via Eachlabs (follow-up pass, 2026-11-16):
     # Eachlabs publishes $0.03-0.08/s on the no-audio basis (three
     # suppliers tie at $0.03/s); carried at the bottom of the
@@ -265,7 +285,13 @@ PROVIDER_RATES_CENTS_PER_SECOND = {
     # This is also the pinned successor lane for the Veo 3.1
     # family, whose fal endpoints carry a 2026-11-17 deprecation
     # date.
-    "omni12": {"720p": 2.0, "1080p": 2.0},
+    # FINISH-RUN CORRECTION (2026-11-16): Kie's catalog API
+    # (google/gemini-omni-flash-1-2 pricingDesc) resolves the
+    # basis: $0.02/s is the 360P rate; 720P is $0.045/s and
+    # 1080P is $0.05/s. The lane sells 720p/1080p, so it is
+    # seeded at those rates (Kie stays cheapest: BeatAPI's
+    # displaced rates are 4.9 / 7.28).
+    "omni12": {"720p": 4.5, "1080p": 5.0},
     # Gemini Omni 1.1 Flash via BeatAPI: $0.48 / $0.72 per
     # 8-second clip.
     "omni11": {"720p": 6.0, "1080p": 9.0},

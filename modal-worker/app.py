@@ -758,21 +758,32 @@ FUN_CAMERA_POSES = (
 )
 
 
+FUN_CAMERA_RECIPES = ("distilled", "stock", "mid")
+
+
 def _build_fun_camera_workflow(prompt: str, negative: str, seed: int,
                                camera_pose: str, camera_speed: float = 1.0,
-                               aspect: str = "9:16", prefix: str = ""):
+                               aspect: str = "9:16", prefix: str = "",
+                               camera_recipe: str = "distilled"):
     """One Fun Camera segment: workflows/fun_camera_i2v.json with the
     chosen pose and speed patched into WanCameraEmbedding.
 
-    Recipe: the lane runs the LightX2V distilled patch, the same one
-    Worker C applied to the firstlast workflow. The stock workflow
-    is 20 steps at cfg 3.5 (the long recipe, ~$0.77 a segment
-    measured on the production model set), which prices a Fun
-    Camera segment far beyond a normal Production segment. The
-    workflow already carries the LightX2V LoRA pair as loader nodes
-    at strength 0.0; the patch raises them to 1.0 and sets the
-    4-step split (2 high-noise + 2 low-noise) at cfg 1.0, so a Fun
-    Camera segment costs what a Production segment costs."""
+    Recipes (finish run, 2026-11-16 — the run-18 measurement showed
+    the distilled recipe washing the camera conditioning out, so
+    the recipe is now a job parameter while the lane's recipe is
+    re-decided on evidence):
+      distilled: the LightX2V patch — LoRA pair at strength 1.0,
+        4-step split (2 + 2) at cfg 1.0. Cheap (~$0.10) but the
+        run-18 proof render showed NO measurable camera move.
+      stock: the workflow exactly as authored — LoRA pair left at
+        strength 0.0, 20 steps at cfg 3.5, split 0-10 / 10-end.
+        The reference recipe the Fun Camera UNETs were built for
+        (~$0.77 a segment at the long recipe's measured rate).
+      mid: LoRA pair at 0.5, 10 steps (5 + 5) at cfg 2.0 — the
+        compromise candidate: some guidance headroom and some
+        distill speed."""
+    if camera_recipe not in FUN_CAMERA_RECIPES:
+        raise ValueError(f"unknown camera_recipe: {camera_recipe}")
     workflow = json.loads(
         (Path("/workflows") / "fun_camera_i2v.json").read_text()
     )
@@ -791,16 +802,30 @@ def _build_fun_camera_workflow(prompt: str, negative: str, seed: int,
             inputs["width"] = width
             inputs["height"] = height
         elif ct == "LoraLoaderModelOnly":
-            inputs["strength_model"] = 1.0
+            if camera_recipe == "distilled":
+                inputs["strength_model"] = 1.0
+            elif camera_recipe == "mid":
+                inputs["strength_model"] = 0.5
+            # stock: leave the workflow's authored 0.0 in place
         elif ct == "KSamplerAdvanced":
             inputs["noise_seed"] = seed
-            inputs["cfg"] = 1.0
-            inputs["steps"] = 4
-            if inputs.get("start_at_step") == 0:
-                inputs["end_at_step"] = 2
-            else:
-                inputs["start_at_step"] = 2
-                inputs["end_at_step"] = 4
+            if camera_recipe == "distilled":
+                inputs["cfg"] = 1.0
+                inputs["steps"] = 4
+                if inputs.get("start_at_step") == 0:
+                    inputs["end_at_step"] = 2
+                else:
+                    inputs["start_at_step"] = 2
+                    inputs["end_at_step"] = 4
+            elif camera_recipe == "mid":
+                inputs["cfg"] = 2.0
+                inputs["steps"] = 10
+                if inputs.get("start_at_step") == 0:
+                    inputs["end_at_step"] = 5
+                else:
+                    inputs["start_at_step"] = 5
+                    inputs["end_at_step"] = 10
+            # stock: leave steps/cfg/split exactly as authored
         elif ct == "VHS_VideoCombine":
             inputs["filename_prefix"] = prefix or "sinclip/api_funcamera"
     return workflow
@@ -928,7 +953,7 @@ def run_job(job_id: str, lane: str, prompt: str, negative: str, seed: int,
             start_image_b64: str = "", end_image_b64: str = "",
             aspect: str = "9:16", segments: int = 1,
             camera_pose: str = "", camera_speed: float = 1.0,
-            effect: str = ""):
+            effect: str = "", camera_recipe: str = "distilled"):
     """Dispatcher: build the lane workflow, run it on the ComfyUI class,
     persist the result into the Volume, and record the outcome in the
     jobs Dict. Spawned by the web endpoint; never called synchronously.
@@ -981,7 +1006,7 @@ def run_job(job_id: str, lane: str, prompt: str, negative: str, seed: int,
                 elif camera_pose:
                     workflow = _build_fun_camera_workflow(
                         prompt, negative, seg_seed, camera_pose,
-                        camera_speed, aspect, prefix)
+                        camera_speed, aspect, prefix, camera_recipe)
                     image_name = f"job_{job_id}_seg{i + 1}.png"
                     for node in workflow.values():
                         if node.get("class_type") == "LoadImage":
@@ -1256,6 +1281,15 @@ def api():
             if not 0.1 <= camera_speed <= 3.0:
                 raise HTTPException(
                     status_code=422, detail="camera_speed must be between 0.1 and 3.0")
+        camera_recipe = body.get("camera_recipe") or "distilled"
+        if camera_recipe not in FUN_CAMERA_RECIPES:
+            raise HTTPException(
+                status_code=422,
+                detail=f"camera_recipe must be one of {list(FUN_CAMERA_RECIPES)}")
+        if camera_recipe != "distilled" and not camera_pose:
+            raise HTTPException(
+                status_code=422,
+                detail="camera_recipe applies to camera-conditioned jobs only")
         # Effects: an effect id switches the render to the Wan 2.1
         # effects workflow, whatever lane label the caller sent (the
         # record's lane becomes "effects"). One effect per job, a
@@ -1296,6 +1330,7 @@ def api():
             "segments_done": 0,
             "camera_pose": camera_pose or None,
             "camera_speed": camera_speed if camera_pose else None,
+            "camera_recipe": camera_recipe if camera_pose else None,
             "effect": effect or None,
         }
         jobs[job_id] = record
@@ -1312,6 +1347,7 @@ def api():
             camera_pose,
             camera_speed,
             effect,
+            camera_recipe,
         )
         return JSONResponse({"job_id": job_id, "status": "queued"}, status_code=202)
 
@@ -1325,7 +1361,8 @@ def api():
                 ("job_id", "lane", "prompt", "status", "error", "bytes",
                  "created_at", "aspect_ratio", "segments_total",
                  "segments_done", "partial", "partial_error",
-                 "camera_pose", "camera_speed", "render_seconds",
+                 "camera_pose", "camera_speed", "camera_recipe",
+                 "render_seconds",
                  "effect", "effect_prompt")}
 
     @web.get("/jobs/{job_id}/file")
