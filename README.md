@@ -1,8 +1,7 @@
 # Moonfactory
 
-Moonfactory is a web app that turns a start image and a prompt into a
-short vertical video with a music track. It is built for TikTok, Reels,
-and X: 9:16 output, sound on every video.
+Moonfactory is a web app that turns a start image or a prompt into a
+short vertical video with a music track. It is built for TikTok, Reels, Shorts, etc: 9:16 output, sound on every video.
 
 Live app: https://magrify--moonfactory-api.us-east.modal.run
 
