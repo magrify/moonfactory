@@ -1,0 +1,1351 @@
+{
+  "library": "Moonfactory camera presets",
+  "version": 1,
+  "generated": "2026-11-16",
+  "about": "Camera-move and look presets for the Moonfactory studio picker. Prompt presets run today on both Wan 2.2 lanes. Fun Camera presets are true camera conditioning and wait on a model download (see each entry's requires). Look vocabulary composes into the same prompt.",
+  "composition": {
+    "motion_prompt_template": "{moves}{scene}.{tempo} The look of a film{genre}{era}: {camera_body}; {lens}. Lighting: {lighting}. Color: {palette}.",
+    "moves_join": {
+      "prefix": "The camera ",
+      "join": ", then ",
+      "suffix": ". ",
+      "max": 3,
+      "ordered": true,
+      "note": "From Freefield's Cinema Studio: one move holds best; the model does not always keep the order with two or more."
+    },
+    "still_prompt_template": "A cinematic film still{genre}{era}: {scene}. The look: {camera_body}; {lens}; {focal}; {aperture}. Lighting: {lighting}. Color: {palette}. High dynamic range, ultra-detailed",
+    "still_note": "For the future start-image generation feature: Freefield's Cinema Studio draws the first frame with this template, then animates it. Moonfactory has no image model yet (parity gap P0).",
+    "defaults": {
+      "moves": [
+        "dolly-in"
+      ],
+      "tempo": "",
+      "genre": "",
+      "era": "",
+      "camera_body": "Full-Frame Cine Digital",
+      "lens": "Classic Anamorphic",
+      "focal": "35 mm",
+      "aperture": "f/1.4",
+      "lighting": "Auto",
+      "palette": "Auto"
+    }
+  },
+  "looks": {
+    "tempo": {
+      "Calm": " Calm pacing: slow, unhurried movement in one long take.",
+      "Dynamic": " Dynamic pacing: brisk movement and a quick cut to a closer angle halfway through.",
+      "Chaotic": " Chaotic pacing: frantic energy, fast action and several rapid cuts between angles.",
+      "Single shot": " One continuous shot, no cuts."
+    },
+    "genre": {
+      "Drama": " from a drama",
+      "Noir": " from a film noir",
+      "Comedy": " from a comedy",
+      "Horror": " from a horror film",
+      "Action": " from an action film",
+      "Epic": " from an epic",
+      "Sci-fi": " from a science-fiction film",
+      "Western": " from a western"
+    },
+    "era": {
+      "1920s": " set in the 1920s",
+      "1950s": " set in the 1950s",
+      "1960s": " set in the 1960s",
+      "1970s": " set in the 1970s",
+      "1980s": " set in the 1980s",
+      "1990s": " set in the 1990s",
+      "2000s": " set in the 2000s",
+      "Present day": " set in the present day",
+      "Future": " set in the near future"
+    },
+    "camera_body": {
+      "Modular 8K Digital": "the crisp, clean detail of 8K digital cinema",
+      "Full-Frame Cine Digital": "the full-frame digital cinema look, natural and smooth",
+      "Grand Format 70mm Film": "the rich detail and fine grain of large-format 70mm film",
+      "Studio Digital S35": "the polished Super 35 digital studio look",
+      "Classic 16mm Film": "the soft, grainy texture of 16mm film",
+      "Premium Large Format Digital": "the smooth, wide-latitude large-format digital look"
+    },
+    "lens": {
+      "Creative Tilt Lens": "tilt-shift selective focus",
+      "Compact Anamorphic": "subtle anamorphic oval bokeh and horizontal flares",
+      "Extreme Macro": "extreme macro detail",
+      "70s Cinema Prime": "the warm, slightly soft rendering of 1970s cinema glass",
+      "Classic Anamorphic": "a classic anamorphic widescreen look with oval bokeh and blue streak flares",
+      "Premium Modern Prime": "clean, sharp modern rendering",
+      "Warm Cinema Prime": "warm-toned cinematic rendering",
+      "Swirl Bokeh Portrait": "swirling vintage bokeh",
+      "Vintage Prime": "soft vintage rendering with gentle flare",
+      "Halation Diffusion": "a halation glow around the highlights",
+      "Clinical Sharp Prime": "ultra-sharp clinical detail"
+    },
+    "focal": {
+      "8 mm": "an ultra-wide 8mm perspective",
+      "14 mm": "a wide-angle 14mm perspective",
+      "24 mm": "a dynamic wide 24mm perspective",
+      "35 mm": "a natural 35mm perspective",
+      "50 mm": "a standard 50mm perspective",
+      "85 mm": "a classic 85mm portrait perspective"
+    },
+    "aperture": {
+      "f/1.4": "aperture f/1.4, shallow depth of field, creamy bokeh",
+      "f/4": "aperture f/4, balanced depth of field",
+      "f/11": "aperture f/11, deep focus clarity, sharp foreground to background"
+    },
+    "lighting": {
+      "Auto": "cinematic lighting",
+      "Silhouette": "the subject in silhouette against a bright background",
+      "Practicals": "lit only by practical lamps visible in the scene",
+      "Window": "soft daylight from a single window at the side",
+      "Overhead": "a hard light falling from straight above, deep shadows under the brow",
+      "Backlight": "a strong light behind the subject, a glowing rim and flare",
+      "Soft cross": "two soft lights crossing from opposite sides",
+      "Low key": "low-key lighting, mostly shadow, one small key light",
+      "Neon": "colored light from neon signs, magenta and cyan"
+    },
+    "palette": {
+      "Auto": "natural color science",
+      "Teal and orange": "teal shadows and warm orange skin tones",
+      "Bleach bypass": "desaturated, high-contrast bleach-bypass color",
+      "Warm amber": "warm amber and brown tones",
+      "Cold blue": "cold blue and steel-gray tones",
+      "Emerald and gold": "deep emerald greens with gold highlights",
+      "Pastel": "soft pastel colors, low contrast",
+      "Neon night": "saturated magenta, cyan and violet",
+      "Faded film": "faded film colors with lifted blacks",
+      "Monochrome": "black and white",
+      "Sepia": "sepia-toned",
+      "Crimson": "deep crimson reds against black",
+      "Earth tones": "earthy ochre, olive and rust tones"
+    }
+  },
+  "presets": [
+    {
+      "id": "static-shot",
+      "name": "Static shot",
+      "group": "camera-moves",
+      "source": "Freefield (neuregex/freefield, MIT), adapted to Moonfactory's Wan 2.2 worker",
+      "description": "Locked-off tripod frame. Only the subject and scene move.",
+      "mechanism": "prompt",
+      "lanes": [
+        "draft",
+        "production"
+      ],
+      "prompt": {
+        "fragment": "stays locked off on a tripod, perfectly still",
+        "compose": "The camera {fragment}. prepended to the scene prompt; up to 3 moves joined with ', then ' in picked order (see composition grammar in presets-index.json)."
+      },
+      "fidelity": "approximate: prompt-guided camera work on Wan 2.2, not a baked-in camera control. Freefield's lab note applies here too: one move holds best; with two or more the model does not always keep the order.",
+      "status": "ported, unverified"
+    },
+    {
+      "id": "dolly-in",
+      "name": "Dolly in",
+      "group": "camera-moves",
+      "source": "Freefield (neuregex/freefield, MIT), adapted to Moonfactory's Wan 2.2 worker",
+      "description": "The camera physically moves toward the subject, slowly. Framing tightens with real parallax.",
+      "mechanism": "prompt",
+      "lanes": [
+        "draft",
+        "production"
+      ],
+      "prompt": {
+        "fragment": "slowly dollies in toward the subject",
+        "compose": "The camera {fragment}. prepended to the scene prompt; up to 3 moves joined with ', then ' in picked order (see composition grammar in presets-index.json)."
+      },
+      "fidelity": "approximate: prompt-guided camera work on Wan 2.2, not a baked-in camera control. Freefield's lab note applies here too: one move holds best; with two or more the model does not always keep the order.",
+      "status": "ported, render-verified 2026-11-16 (production lane)",
+      "keyframe_enhancement": {
+        "mechanism": "firstlast",
+        "workflow": "workflows/firstlast_chain.json",
+        "end_keyframe": {
+          "op": "crop_window",
+          "params": {
+            "w_frac": 0.62,
+            "h_frac": 0.62,
+            "cx": 0.5,
+            "cy": 0.5
+          },
+          "detail": "End keyframe = this crop window of the start frame, scaled back to full frame, made locally (ffmpeg) before the chain segment renders. Steers the move harder than prompt text alone."
+        },
+        "fidelity": "approximate: the end keyframe is an upscale of a crop, so the end of the move trades some sharpness for steering strength. Recipe spec only: the API dispatcher does not expose the firstlast lane yet; wiring is platform-pass work.",
+        "status": "recipe spec, not wired"
+      },
+      "verification": "Worker job 7cd20fb98a0545c2, production distilled lane, benchmark balloon scene, seed 12345, same start image and scene text as the no-preset benchmark; only delta was this preset's composed prefix. Subject scale grew ~1.67x first-to-last frame (red-blob measure) vs 1.02x for the benchmark, and the framing visibly advances. Output: outputs/camera-preset-dolly-in-test.mp4 (720x1280, 16 fps, 5.06 s)."
+    },
+    {
+      "id": "dolly-out",
+      "name": "Dolly out",
+      "group": "camera-moves",
+      "source": "Freefield (neuregex/freefield, MIT), adapted to Moonfactory's Wan 2.2 worker",
+      "description": "The camera physically pulls back, revealing more of the scene.",
+      "mechanism": "prompt",
+      "lanes": [
+        "draft",
+        "production"
+      ],
+      "prompt": {
+        "fragment": "slowly dollies back away from the subject",
+        "compose": "The camera {fragment}. prepended to the scene prompt; up to 3 moves joined with ', then ' in picked order (see composition grammar in presets-index.json)."
+      },
+      "fidelity": "approximate: prompt-guided camera work on Wan 2.2, not a baked-in camera control. Freefield's lab note applies here too: one move holds best; with two or more the model does not always keep the order.",
+      "status": "ported, unverified"
+    },
+    {
+      "id": "slow-zoom-in",
+      "name": "Slow zoom in",
+      "group": "camera-moves",
+      "source": "Freefield (neuregex/freefield, MIT), adapted to Moonfactory's Wan 2.2 worker",
+      "description": "Lens zoom toward the subject. The camera itself does not move, so no parallax.",
+      "mechanism": "prompt",
+      "lanes": [
+        "draft",
+        "production"
+      ],
+      "prompt": {
+        "fragment": "zooms in slowly",
+        "compose": "The camera {fragment}. prepended to the scene prompt; up to 3 moves joined with ', then ' in picked order (see composition grammar in presets-index.json)."
+      },
+      "fidelity": "approximate: prompt-guided camera work on Wan 2.2, not a baked-in camera control. Freefield's lab note applies here too: one move holds best; with two or more the model does not always keep the order.",
+      "status": "ported, unverified",
+      "keyframe_enhancement": {
+        "mechanism": "firstlast",
+        "workflow": "workflows/firstlast_chain.json",
+        "end_keyframe": {
+          "op": "crop_window",
+          "params": {
+            "w_frac": 0.74,
+            "h_frac": 0.74,
+            "cx": 0.5,
+            "cy": 0.5
+          },
+          "detail": "End keyframe = this crop window of the start frame, scaled back to full frame, made locally (ffmpeg) before the chain segment renders. Steers the move harder than prompt text alone."
+        },
+        "fidelity": "approximate: the end keyframe is an upscale of a crop, so the end of the move trades some sharpness for steering strength. Recipe spec only: the API dispatcher does not expose the firstlast lane yet; wiring is platform-pass work.",
+        "status": "recipe spec, not wired"
+      }
+    },
+    {
+      "id": "slow-zoom-out",
+      "name": "Slow zoom out",
+      "group": "camera-moves",
+      "source": "Freefield (neuregex/freefield, MIT), adapted to Moonfactory's Wan 2.2 worker",
+      "description": "Lens zoom out, widening the field of view in place.",
+      "mechanism": "prompt",
+      "lanes": [
+        "draft",
+        "production"
+      ],
+      "prompt": {
+        "fragment": "zooms out slowly",
+        "compose": "The camera {fragment}. prepended to the scene prompt; up to 3 moves joined with ', then ' in picked order (see composition grammar in presets-index.json)."
+      },
+      "fidelity": "approximate: prompt-guided camera work on Wan 2.2, not a baked-in camera control. Freefield's lab note applies here too: one move holds best; with two or more the model does not always keep the order.",
+      "status": "ported, unverified"
+    },
+    {
+      "id": "crash-zoom",
+      "name": "Crash zoom",
+      "group": "camera-moves",
+      "source": "Freefield (neuregex/freefield, MIT), adapted to Moonfactory's Wan 2.2 worker",
+      "description": "A sudden, fast punch-in on the subject. Comic or shock emphasis.",
+      "mechanism": "prompt",
+      "lanes": [
+        "draft",
+        "production"
+      ],
+      "prompt": {
+        "fragment": "crash-zooms in fast on the subject",
+        "compose": "The camera {fragment}. prepended to the scene prompt; up to 3 moves joined with ', then ' in picked order (see composition grammar in presets-index.json)."
+      },
+      "fidelity": "approximate: prompt-guided camera work on Wan 2.2, not a baked-in camera control. Freefield's lab note applies here too: one move holds best; with two or more the model does not always keep the order.",
+      "status": "ported, render-checked 2026-11-16 (draft lane): weak fidelity",
+      "keyframe_enhancement": {
+        "mechanism": "firstlast",
+        "workflow": "workflows/firstlast_chain.json",
+        "end_keyframe": {
+          "op": "crop_window",
+          "params": {
+            "w_frac": 0.4,
+            "h_frac": 0.4,
+            "cx": 0.5,
+            "cy": 0.5
+          },
+          "detail": "End keyframe = this crop window of the start frame, scaled back to full frame, made locally (ffmpeg) before the chain segment renders. Steers the move harder than prompt text alone."
+        },
+        "fidelity": "approximate: the end keyframe is an upscale of a crop, so the end of the move trades some sharpness for steering strength. Recipe spec only: the API dispatcher does not expose the firstlast lane yet; wiring is platform-pass work.",
+        "status": "recipe spec, not wired"
+      },
+      "verification": "Draft lane (Wan 2.2 TI2V-5B), benchmark balloon scene, seed 12345, preset prefix the only delta. Result: a gentle push only, subject scale +24% first-to-last frame spread evenly, no fast punch-in; the crash speed was not honored on this lane. Output: outputs/camera-preset-crash-zoom-draft-test.mp4 (960x1664, 16 fps, 5.06 s). For this move prefer the keyframe enhancement (0.40 crop window end keyframe) or Fun Camera conditioning over prompt text alone."
+    },
+    {
+      "id": "dolly-zoom",
+      "name": "Dolly zoom",
+      "group": "camera-moves",
+      "source": "Freefield (neuregex/freefield, MIT), adapted to Moonfactory's Wan 2.2 worker",
+      "description": "The vertigo effect: dolly in while zooming out, subject holds size while the background warps.",
+      "mechanism": "prompt",
+      "lanes": [
+        "draft",
+        "production"
+      ],
+      "prompt": {
+        "fragment": "dolly-zooms, moving in while zooming out so the background stretches behind the subject",
+        "compose": "The camera {fragment}. prepended to the scene prompt; up to 3 moves joined with ', then ' in picked order (see composition grammar in presets-index.json)."
+      },
+      "fidelity": "approximate: prompt-guided camera work on Wan 2.2, not a baked-in camera control. Freefield's lab note applies here too: one move holds best; with two or more the model does not always keep the order.",
+      "status": "ported, unverified"
+    },
+    {
+      "id": "pan-left",
+      "name": "Pan left",
+      "group": "camera-moves",
+      "source": "Freefield (neuregex/freefield, MIT), adapted to Moonfactory's Wan 2.2 worker",
+      "description": "The camera rotates left from a fixed position.",
+      "mechanism": "prompt",
+      "lanes": [
+        "draft",
+        "production"
+      ],
+      "prompt": {
+        "fragment": "pans left",
+        "compose": "The camera {fragment}. prepended to the scene prompt; up to 3 moves joined with ', then ' in picked order (see composition grammar in presets-index.json)."
+      },
+      "fidelity": "approximate: prompt-guided camera work on Wan 2.2, not a baked-in camera control. Freefield's lab note applies here too: one move holds best; with two or more the model does not always keep the order.",
+      "status": "ported, unverified",
+      "keyframe_enhancement": {
+        "mechanism": "firstlast",
+        "workflow": "workflows/firstlast_chain.json",
+        "end_keyframe": {
+          "op": "crop_window",
+          "params": {
+            "w_frac": 0.8,
+            "h_frac": 0.8,
+            "cx": 0.38,
+            "cy": 0.5
+          },
+          "detail": "End keyframe = this crop window of the start frame, scaled back to full frame, made locally (ffmpeg) before the chain segment renders. Steers the move harder than prompt text alone."
+        },
+        "fidelity": "approximate: the end keyframe is an upscale of a crop, so the end of the move trades some sharpness for steering strength. Recipe spec only: the API dispatcher does not expose the firstlast lane yet; wiring is platform-pass work.",
+        "status": "recipe spec, not wired"
+      }
+    },
+    {
+      "id": "pan-right",
+      "name": "Pan right",
+      "group": "camera-moves",
+      "source": "Freefield (neuregex/freefield, MIT), adapted to Moonfactory's Wan 2.2 worker",
+      "description": "The camera rotates right from a fixed position.",
+      "mechanism": "prompt",
+      "lanes": [
+        "draft",
+        "production"
+      ],
+      "prompt": {
+        "fragment": "pans right",
+        "compose": "The camera {fragment}. prepended to the scene prompt; up to 3 moves joined with ', then ' in picked order (see composition grammar in presets-index.json)."
+      },
+      "fidelity": "approximate: prompt-guided camera work on Wan 2.2, not a baked-in camera control. Freefield's lab note applies here too: one move holds best; with two or more the model does not always keep the order.",
+      "status": "ported, unverified",
+      "keyframe_enhancement": {
+        "mechanism": "firstlast",
+        "workflow": "workflows/firstlast_chain.json",
+        "end_keyframe": {
+          "op": "crop_window",
+          "params": {
+            "w_frac": 0.8,
+            "h_frac": 0.8,
+            "cx": 0.62,
+            "cy": 0.5
+          },
+          "detail": "End keyframe = this crop window of the start frame, scaled back to full frame, made locally (ffmpeg) before the chain segment renders. Steers the move harder than prompt text alone."
+        },
+        "fidelity": "approximate: the end keyframe is an upscale of a crop, so the end of the move trades some sharpness for steering strength. Recipe spec only: the API dispatcher does not expose the firstlast lane yet; wiring is platform-pass work.",
+        "status": "recipe spec, not wired"
+      }
+    },
+    {
+      "id": "whip-pan",
+      "name": "Whip pan",
+      "group": "camera-moves",
+      "source": "Freefield (neuregex/freefield, MIT), adapted to Moonfactory's Wan 2.2 worker",
+      "description": "A very fast pan that blurs through the swing. Energy and transitions.",
+      "mechanism": "prompt",
+      "lanes": [
+        "draft",
+        "production"
+      ],
+      "prompt": {
+        "fragment": "whip-pans fast to the side with motion blur",
+        "compose": "The camera {fragment}. prepended to the scene prompt; up to 3 moves joined with ', then ' in picked order (see composition grammar in presets-index.json)."
+      },
+      "fidelity": "approximate: prompt-guided camera work on Wan 2.2, not a baked-in camera control. Freefield's lab note applies here too: one move holds best; with two or more the model does not always keep the order.",
+      "status": "ported, unverified"
+    },
+    {
+      "id": "tilt-up",
+      "name": "Tilt up",
+      "group": "camera-moves",
+      "source": "Freefield (neuregex/freefield, MIT), adapted to Moonfactory's Wan 2.2 worker",
+      "description": "The camera tilts upward from a fixed position.",
+      "mechanism": "prompt",
+      "lanes": [
+        "draft",
+        "production"
+      ],
+      "prompt": {
+        "fragment": "tilts up",
+        "compose": "The camera {fragment}. prepended to the scene prompt; up to 3 moves joined with ', then ' in picked order (see composition grammar in presets-index.json)."
+      },
+      "fidelity": "approximate: prompt-guided camera work on Wan 2.2, not a baked-in camera control. Freefield's lab note applies here too: one move holds best; with two or more the model does not always keep the order.",
+      "status": "ported, unverified",
+      "keyframe_enhancement": {
+        "mechanism": "firstlast",
+        "workflow": "workflows/firstlast_chain.json",
+        "end_keyframe": {
+          "op": "crop_window",
+          "params": {
+            "w_frac": 0.8,
+            "h_frac": 0.8,
+            "cx": 0.5,
+            "cy": 0.38
+          },
+          "detail": "End keyframe = this crop window of the start frame, scaled back to full frame, made locally (ffmpeg) before the chain segment renders. Steers the move harder than prompt text alone."
+        },
+        "fidelity": "approximate: the end keyframe is an upscale of a crop, so the end of the move trades some sharpness for steering strength. Recipe spec only: the API dispatcher does not expose the firstlast lane yet; wiring is platform-pass work.",
+        "status": "recipe spec, not wired"
+      }
+    },
+    {
+      "id": "tilt-down",
+      "name": "Tilt down",
+      "group": "camera-moves",
+      "source": "Freefield (neuregex/freefield, MIT), adapted to Moonfactory's Wan 2.2 worker",
+      "description": "The camera tilts downward from a fixed position.",
+      "mechanism": "prompt",
+      "lanes": [
+        "draft",
+        "production"
+      ],
+      "prompt": {
+        "fragment": "tilts down",
+        "compose": "The camera {fragment}. prepended to the scene prompt; up to 3 moves joined with ', then ' in picked order (see composition grammar in presets-index.json)."
+      },
+      "fidelity": "approximate: prompt-guided camera work on Wan 2.2, not a baked-in camera control. Freefield's lab note applies here too: one move holds best; with two or more the model does not always keep the order.",
+      "status": "ported, unverified",
+      "keyframe_enhancement": {
+        "mechanism": "firstlast",
+        "workflow": "workflows/firstlast_chain.json",
+        "end_keyframe": {
+          "op": "crop_window",
+          "params": {
+            "w_frac": 0.8,
+            "h_frac": 0.8,
+            "cx": 0.5,
+            "cy": 0.62
+          },
+          "detail": "End keyframe = this crop window of the start frame, scaled back to full frame, made locally (ffmpeg) before the chain segment renders. Steers the move harder than prompt text alone."
+        },
+        "fidelity": "approximate: the end keyframe is an upscale of a crop, so the end of the move trades some sharpness for steering strength. Recipe spec only: the API dispatcher does not expose the firstlast lane yet; wiring is platform-pass work.",
+        "status": "recipe spec, not wired"
+      }
+    },
+    {
+      "id": "truck-left",
+      "name": "Truck left",
+      "group": "camera-moves",
+      "source": "Freefield (neuregex/freefield, MIT), adapted to Moonfactory's Wan 2.2 worker",
+      "description": "The camera slides laterally left, keeping its orientation.",
+      "mechanism": "prompt",
+      "lanes": [
+        "draft",
+        "production"
+      ],
+      "prompt": {
+        "fragment": "trucks left, sliding sideways",
+        "compose": "The camera {fragment}. prepended to the scene prompt; up to 3 moves joined with ', then ' in picked order (see composition grammar in presets-index.json)."
+      },
+      "fidelity": "approximate: prompt-guided camera work on Wan 2.2, not a baked-in camera control. Freefield's lab note applies here too: one move holds best; with two or more the model does not always keep the order.",
+      "status": "ported, unverified",
+      "keyframe_enhancement": {
+        "mechanism": "firstlast",
+        "workflow": "workflows/firstlast_chain.json",
+        "end_keyframe": {
+          "op": "crop_window",
+          "params": {
+            "w_frac": 0.85,
+            "h_frac": 0.85,
+            "cx": 0.42,
+            "cy": 0.5
+          },
+          "detail": "End keyframe = this crop window of the start frame, scaled back to full frame, made locally (ffmpeg) before the chain segment renders. Steers the move harder than prompt text alone."
+        },
+        "fidelity": "approximate: the end keyframe is an upscale of a crop, so the end of the move trades some sharpness for steering strength. Recipe spec only: the API dispatcher does not expose the firstlast lane yet; wiring is platform-pass work.",
+        "status": "recipe spec, not wired"
+      }
+    },
+    {
+      "id": "truck-right",
+      "name": "Truck right",
+      "group": "camera-moves",
+      "source": "Freefield (neuregex/freefield, MIT), adapted to Moonfactory's Wan 2.2 worker",
+      "description": "The camera slides laterally right, keeping its orientation.",
+      "mechanism": "prompt",
+      "lanes": [
+        "draft",
+        "production"
+      ],
+      "prompt": {
+        "fragment": "trucks right, sliding sideways",
+        "compose": "The camera {fragment}. prepended to the scene prompt; up to 3 moves joined with ', then ' in picked order (see composition grammar in presets-index.json)."
+      },
+      "fidelity": "approximate: prompt-guided camera work on Wan 2.2, not a baked-in camera control. Freefield's lab note applies here too: one move holds best; with two or more the model does not always keep the order.",
+      "status": "ported, unverified",
+      "keyframe_enhancement": {
+        "mechanism": "firstlast",
+        "workflow": "workflows/firstlast_chain.json",
+        "end_keyframe": {
+          "op": "crop_window",
+          "params": {
+            "w_frac": 0.85,
+            "h_frac": 0.85,
+            "cx": 0.58,
+            "cy": 0.5
+          },
+          "detail": "End keyframe = this crop window of the start frame, scaled back to full frame, made locally (ffmpeg) before the chain segment renders. Steers the move harder than prompt text alone."
+        },
+        "fidelity": "approximate: the end keyframe is an upscale of a crop, so the end of the move trades some sharpness for steering strength. Recipe spec only: the API dispatcher does not expose the firstlast lane yet; wiring is platform-pass work.",
+        "status": "recipe spec, not wired"
+      }
+    },
+    {
+      "id": "slider-left",
+      "name": "Slider left",
+      "group": "camera-moves",
+      "source": "Freefield (neuregex/freefield, MIT), adapted to Moonfactory's Wan 2.2 worker",
+      "description": "A short, smooth lateral glide close to the subject. Subtle parallax.",
+      "mechanism": "prompt",
+      "lanes": [
+        "draft",
+        "production"
+      ],
+      "prompt": {
+        "fragment": "glides left on a slider, close to the subject",
+        "compose": "The camera {fragment}. prepended to the scene prompt; up to 3 moves joined with ', then ' in picked order (see composition grammar in presets-index.json)."
+      },
+      "fidelity": "approximate: prompt-guided camera work on Wan 2.2, not a baked-in camera control. Freefield's lab note applies here too: one move holds best; with two or more the model does not always keep the order.",
+      "status": "ported, unverified",
+      "keyframe_enhancement": {
+        "mechanism": "firstlast",
+        "workflow": "workflows/firstlast_chain.json",
+        "end_keyframe": {
+          "op": "crop_window",
+          "params": {
+            "w_frac": 0.88,
+            "h_frac": 0.88,
+            "cx": 0.44,
+            "cy": 0.5
+          },
+          "detail": "End keyframe = this crop window of the start frame, scaled back to full frame, made locally (ffmpeg) before the chain segment renders. Steers the move harder than prompt text alone."
+        },
+        "fidelity": "approximate: the end keyframe is an upscale of a crop, so the end of the move trades some sharpness for steering strength. Recipe spec only: the API dispatcher does not expose the firstlast lane yet; wiring is platform-pass work.",
+        "status": "recipe spec, not wired"
+      }
+    },
+    {
+      "id": "slider-right",
+      "name": "Slider right",
+      "group": "camera-moves",
+      "source": "Freefield (neuregex/freefield, MIT), adapted to Moonfactory's Wan 2.2 worker",
+      "description": "A short, smooth lateral glide close to the subject. Subtle parallax.",
+      "mechanism": "prompt",
+      "lanes": [
+        "draft",
+        "production"
+      ],
+      "prompt": {
+        "fragment": "glides right on a slider, close to the subject",
+        "compose": "The camera {fragment}. prepended to the scene prompt; up to 3 moves joined with ', then ' in picked order (see composition grammar in presets-index.json)."
+      },
+      "fidelity": "approximate: prompt-guided camera work on Wan 2.2, not a baked-in camera control. Freefield's lab note applies here too: one move holds best; with two or more the model does not always keep the order.",
+      "status": "ported, unverified",
+      "keyframe_enhancement": {
+        "mechanism": "firstlast",
+        "workflow": "workflows/firstlast_chain.json",
+        "end_keyframe": {
+          "op": "crop_window",
+          "params": {
+            "w_frac": 0.88,
+            "h_frac": 0.88,
+            "cx": 0.56,
+            "cy": 0.5
+          },
+          "detail": "End keyframe = this crop window of the start frame, scaled back to full frame, made locally (ffmpeg) before the chain segment renders. Steers the move harder than prompt text alone."
+        },
+        "fidelity": "approximate: the end keyframe is an upscale of a crop, so the end of the move trades some sharpness for steering strength. Recipe spec only: the API dispatcher does not expose the firstlast lane yet; wiring is platform-pass work.",
+        "status": "recipe spec, not wired"
+      }
+    },
+    {
+      "id": "arc-left",
+      "name": "Arc left",
+      "group": "camera-moves",
+      "source": "Freefield (neuregex/freefield, MIT), adapted to Moonfactory's Wan 2.2 worker",
+      "description": "The camera swings in an arc around the subject toward the left.",
+      "mechanism": "prompt",
+      "lanes": [
+        "draft",
+        "production"
+      ],
+      "prompt": {
+        "fragment": "arcs left around the subject",
+        "compose": "The camera {fragment}. prepended to the scene prompt; up to 3 moves joined with ', then ' in picked order (see composition grammar in presets-index.json)."
+      },
+      "fidelity": "approximate: prompt-guided camera work on Wan 2.2, not a baked-in camera control. Freefield's lab note applies here too: one move holds best; with two or more the model does not always keep the order.",
+      "status": "ported, unverified"
+    },
+    {
+      "id": "arc-right",
+      "name": "Arc right",
+      "group": "camera-moves",
+      "source": "Freefield (neuregex/freefield, MIT), adapted to Moonfactory's Wan 2.2 worker",
+      "description": "The camera swings in an arc around the subject toward the right.",
+      "mechanism": "prompt",
+      "lanes": [
+        "draft",
+        "production"
+      ],
+      "prompt": {
+        "fragment": "arcs right around the subject",
+        "compose": "The camera {fragment}. prepended to the scene prompt; up to 3 moves joined with ', then ' in picked order (see composition grammar in presets-index.json)."
+      },
+      "fidelity": "approximate: prompt-guided camera work on Wan 2.2, not a baked-in camera control. Freefield's lab note applies here too: one move holds best; with two or more the model does not always keep the order.",
+      "status": "ported, unverified"
+    },
+    {
+      "id": "pedestal-up",
+      "name": "Pedestal up",
+      "group": "camera-moves",
+      "source": "Freefield (neuregex/freefield, MIT), adapted to Moonfactory's Wan 2.2 worker",
+      "description": "The whole camera rises vertically, frame staying level.",
+      "mechanism": "prompt",
+      "lanes": [
+        "draft",
+        "production"
+      ],
+      "prompt": {
+        "fragment": "rises straight up, staying level",
+        "compose": "The camera {fragment}. prepended to the scene prompt; up to 3 moves joined with ', then ' in picked order (see composition grammar in presets-index.json)."
+      },
+      "fidelity": "approximate: prompt-guided camera work on Wan 2.2, not a baked-in camera control. Freefield's lab note applies here too: one move holds best; with two or more the model does not always keep the order.",
+      "status": "ported, unverified",
+      "keyframe_enhancement": {
+        "mechanism": "firstlast",
+        "workflow": "workflows/firstlast_chain.json",
+        "end_keyframe": {
+          "op": "crop_window",
+          "params": {
+            "w_frac": 0.85,
+            "h_frac": 0.85,
+            "cx": 0.5,
+            "cy": 0.42
+          },
+          "detail": "End keyframe = this crop window of the start frame, scaled back to full frame, made locally (ffmpeg) before the chain segment renders. Steers the move harder than prompt text alone."
+        },
+        "fidelity": "approximate: the end keyframe is an upscale of a crop, so the end of the move trades some sharpness for steering strength. Recipe spec only: the API dispatcher does not expose the firstlast lane yet; wiring is platform-pass work.",
+        "status": "recipe spec, not wired"
+      }
+    },
+    {
+      "id": "pedestal-down",
+      "name": "Pedestal down",
+      "group": "camera-moves",
+      "source": "Freefield (neuregex/freefield, MIT), adapted to Moonfactory's Wan 2.2 worker",
+      "description": "The whole camera lowers vertically, frame staying level.",
+      "mechanism": "prompt",
+      "lanes": [
+        "draft",
+        "production"
+      ],
+      "prompt": {
+        "fragment": "lowers straight down, staying level",
+        "compose": "The camera {fragment}. prepended to the scene prompt; up to 3 moves joined with ', then ' in picked order (see composition grammar in presets-index.json)."
+      },
+      "fidelity": "approximate: prompt-guided camera work on Wan 2.2, not a baked-in camera control. Freefield's lab note applies here too: one move holds best; with two or more the model does not always keep the order.",
+      "status": "ported, unverified",
+      "keyframe_enhancement": {
+        "mechanism": "firstlast",
+        "workflow": "workflows/firstlast_chain.json",
+        "end_keyframe": {
+          "op": "crop_window",
+          "params": {
+            "w_frac": 0.85,
+            "h_frac": 0.85,
+            "cx": 0.5,
+            "cy": 0.58
+          },
+          "detail": "End keyframe = this crop window of the start frame, scaled back to full frame, made locally (ffmpeg) before the chain segment renders. Steers the move harder than prompt text alone."
+        },
+        "fidelity": "approximate: the end keyframe is an upscale of a crop, so the end of the move trades some sharpness for steering strength. Recipe spec only: the API dispatcher does not expose the firstlast lane yet; wiring is platform-pass work.",
+        "status": "recipe spec, not wired"
+      }
+    },
+    {
+      "id": "crane-up",
+      "name": "Crane up",
+      "group": "camera-moves",
+      "source": "Freefield (neuregex/freefield, MIT), adapted to Moonfactory's Wan 2.2 worker",
+      "description": "A crane move up and back, ending looking over the scene.",
+      "mechanism": "prompt",
+      "lanes": [
+        "draft",
+        "production"
+      ],
+      "prompt": {
+        "fragment": "cranes up and back, rising over the scene",
+        "compose": "The camera {fragment}. prepended to the scene prompt; up to 3 moves joined with ', then ' in picked order (see composition grammar in presets-index.json)."
+      },
+      "fidelity": "approximate: prompt-guided camera work on Wan 2.2, not a baked-in camera control. Freefield's lab note applies here too: one move holds best; with two or more the model does not always keep the order.",
+      "status": "ported, unverified"
+    },
+    {
+      "id": "crane-down",
+      "name": "Crane down",
+      "group": "camera-moves",
+      "source": "Freefield (neuregex/freefield, MIT), adapted to Moonfactory's Wan 2.2 worker",
+      "description": "A crane descent from a high angle down toward the subject.",
+      "mechanism": "prompt",
+      "lanes": [
+        "draft",
+        "production"
+      ],
+      "prompt": {
+        "fragment": "cranes down from above toward the subject",
+        "compose": "The camera {fragment}. prepended to the scene prompt; up to 3 moves joined with ', then ' in picked order (see composition grammar in presets-index.json)."
+      },
+      "fidelity": "approximate: prompt-guided camera work on Wan 2.2, not a baked-in camera control. Freefield's lab note applies here too: one move holds best; with two or more the model does not always keep the order.",
+      "status": "ported, unverified"
+    },
+    {
+      "id": "tracking",
+      "name": "Tracking",
+      "group": "camera-moves",
+      "source": "Freefield (neuregex/freefield, MIT), adapted to Moonfactory's Wan 2.2 worker",
+      "description": "The camera follows behind a moving subject.",
+      "mechanism": "prompt",
+      "lanes": [
+        "draft",
+        "production"
+      ],
+      "prompt": {
+        "fragment": "tracks behind the subject as they move",
+        "compose": "The camera {fragment}. prepended to the scene prompt; up to 3 moves joined with ', then ' in picked order (see composition grammar in presets-index.json)."
+      },
+      "fidelity": "approximate: prompt-guided camera work on Wan 2.2, not a baked-in camera control. Freefield's lab note applies here too: one move holds best; with two or more the model does not always keep the order.",
+      "status": "ported, unverified"
+    },
+    {
+      "id": "side-tracking",
+      "name": "Side tracking",
+      "group": "camera-moves",
+      "source": "Freefield (neuregex/freefield, MIT), adapted to Moonfactory's Wan 2.2 worker",
+      "description": "The camera travels beside a moving subject, keeping pace.",
+      "mechanism": "prompt",
+      "lanes": [
+        "draft",
+        "production"
+      ],
+      "prompt": {
+        "fragment": "tracks alongside the subject, moving sideways with them",
+        "compose": "The camera {fragment}. prepended to the scene prompt; up to 3 moves joined with ', then ' in picked order (see composition grammar in presets-index.json)."
+      },
+      "fidelity": "approximate: prompt-guided camera work on Wan 2.2, not a baked-in camera control. Freefield's lab note applies here too: one move holds best; with two or more the model does not always keep the order.",
+      "status": "ported, unverified"
+    },
+    {
+      "id": "handheld",
+      "name": "Handheld",
+      "group": "camera-moves",
+      "source": "Freefield (neuregex/freefield, MIT), adapted to Moonfactory's Wan 2.2 worker",
+      "description": "Handheld feel with slight natural shake. Documentary energy.",
+      "mechanism": "prompt",
+      "lanes": [
+        "draft",
+        "production"
+      ],
+      "prompt": {
+        "fragment": "is handheld, with a slight natural shake",
+        "compose": "The camera {fragment}. prepended to the scene prompt; up to 3 moves joined with ', then ' in picked order (see composition grammar in presets-index.json)."
+      },
+      "fidelity": "approximate: prompt-guided camera work on Wan 2.2, not a baked-in camera control. Freefield's lab note applies here too: one move holds best; with two or more the model does not always keep the order.",
+      "status": "ported, unverified"
+    },
+    {
+      "id": "pov",
+      "name": "POV",
+      "group": "camera-moves",
+      "source": "Freefield (neuregex/freefield, MIT), adapted to Moonfactory's Wan 2.2 worker",
+      "description": "The character's own point of view.",
+      "mechanism": "prompt",
+      "lanes": [
+        "draft",
+        "production"
+      ],
+      "prompt": {
+        "fragment": "shows the character's point of view, moving as their eyes would",
+        "compose": "The camera {fragment}. prepended to the scene prompt; up to 3 moves joined with ', then ' in picked order (see composition grammar in presets-index.json)."
+      },
+      "fidelity": "approximate: prompt-guided camera work on Wan 2.2, not a baked-in camera control. Freefield's lab note applies here too: one move holds best; with two or more the model does not always keep the order.",
+      "status": "ported, unverified"
+    },
+    {
+      "id": "snorricam",
+      "name": "Snorricam",
+      "group": "camera-moves",
+      "source": "Freefield (neuregex/freefield, MIT), adapted to Moonfactory's Wan 2.2 worker",
+      "description": "Body-mounted rig: the face stays locked in frame while the world sways behind it.",
+      "mechanism": "prompt",
+      "lanes": [
+        "draft",
+        "production"
+      ],
+      "prompt": {
+        "fragment": "is rigged to the actor's body, so their face stays fixed in the frame while the world sways behind them",
+        "compose": "The camera {fragment}. prepended to the scene prompt; up to 3 moves joined with ', then ' in picked order (see composition grammar in presets-index.json)."
+      },
+      "fidelity": "approximate: prompt-guided camera work on Wan 2.2, not a baked-in camera control. Freefield's lab note applies here too: one move holds best; with two or more the model does not always keep the order.",
+      "status": "ported, unverified"
+    },
+    {
+      "id": "robot-arm",
+      "name": "Robot arm",
+      "group": "camera-moves",
+      "source": "Freefield (neuregex/freefield, MIT), adapted to Moonfactory's Wan 2.2 worker",
+      "description": "One fast, precise robotic-arm sweep around the subject. Product-shot energy.",
+      "mechanism": "prompt",
+      "lanes": [
+        "draft",
+        "production"
+      ],
+      "prompt": {
+        "fragment": "sweeps around the subject in one fast, precise robotic-arm move",
+        "compose": "The camera {fragment}. prepended to the scene prompt; up to 3 moves joined with ', then ' in picked order (see composition grammar in presets-index.json)."
+      },
+      "fidelity": "approximate: prompt-guided camera work on Wan 2.2, not a baked-in camera control. Freefield's lab note applies here too: one move holds best; with two or more the model does not always keep the order.",
+      "status": "ported, unverified"
+    },
+    {
+      "id": "rack-focus",
+      "name": "Rack focus",
+      "group": "camera-moves",
+      "source": "Freefield (neuregex/freefield, MIT), adapted to Moonfactory's Wan 2.2 worker",
+      "description": "Focus pulls from foreground to background. The camera does not move.",
+      "mechanism": "prompt",
+      "lanes": [
+        "draft",
+        "production"
+      ],
+      "prompt": {
+        "fragment": "racks focus from the foreground to the background",
+        "compose": "The camera {fragment}. prepended to the scene prompt; up to 3 moves joined with ', then ' in picked order (see composition grammar in presets-index.json)."
+      },
+      "fidelity": "approximate: prompt-guided camera work on Wan 2.2, not a baked-in camera control. Freefield's lab note applies here too: one move holds best; with two or more the model does not always keep the order.",
+      "status": "ported, unverified"
+    },
+    {
+      "id": "drone-orbit",
+      "name": "Drone orbit",
+      "group": "camera-moves",
+      "source": "Freefield (neuregex/freefield, MIT), adapted to Moonfactory's Wan 2.2 worker",
+      "description": "A drone-style orbit above the scene.",
+      "mechanism": "prompt",
+      "lanes": [
+        "draft",
+        "production"
+      ],
+      "prompt": {
+        "fragment": "orbits the scene from above like a drone",
+        "compose": "The camera {fragment}. prepended to the scene prompt; up to 3 moves joined with ', then ' in picked order (see composition grammar in presets-index.json)."
+      },
+      "fidelity": "approximate: prompt-guided camera work on Wan 2.2, not a baked-in camera control. Freefield's lab note applies here too: one move holds best; with two or more the model does not always keep the order.",
+      "status": "ported, unverified"
+    },
+    {
+      "id": "aerial-pullback",
+      "name": "Aerial pullback",
+      "group": "camera-moves",
+      "source": "Freefield (neuregex/freefield, MIT), adapted to Moonfactory's Wan 2.2 worker",
+      "description": "Pulls back and climbs into a high aerial reveal.",
+      "mechanism": "prompt",
+      "lanes": [
+        "draft",
+        "production"
+      ],
+      "prompt": {
+        "fragment": "pulls back and up into a high aerial view",
+        "compose": "The camera {fragment}. prepended to the scene prompt; up to 3 moves joined with ', then ' in picked order (see composition grammar in presets-index.json)."
+      },
+      "fidelity": "approximate: prompt-guided camera work on Wan 2.2, not a baked-in camera control. Freefield's lab note applies here too: one move holds best; with two or more the model does not always keep the order.",
+      "status": "ported, unverified"
+    },
+    {
+      "id": "helicopter-shot",
+      "name": "Helicopter shot",
+      "group": "camera-moves",
+      "source": "Freefield (neuregex/freefield, MIT), adapted to Moonfactory's Wan 2.2 worker",
+      "description": "A high flyover, helicopter style.",
+      "mechanism": "prompt",
+      "lanes": [
+        "draft",
+        "production"
+      ],
+      "prompt": {
+        "fragment": "flies over the scene from high above like a helicopter",
+        "compose": "The camera {fragment}. prepended to the scene prompt; up to 3 moves joined with ', then ' in picked order (see composition grammar in presets-index.json)."
+      },
+      "fidelity": "approximate: prompt-guided camera work on Wan 2.2, not a baked-in camera control. Freefield's lab note applies here too: one move holds best; with two or more the model does not always keep the order.",
+      "status": "ported, unverified"
+    },
+    {
+      "id": "bullet-time",
+      "name": "Bullet time",
+      "group": "camera-moves",
+      "source": "Freefield (neuregex/freefield, MIT), adapted to Moonfactory's Wan 2.2 worker",
+      "description": "The camera circles a near-frozen moment in slow motion. Prompt approximation on Wan 2.2; the true version is a dedicated LoRA route (see inventory).",
+      "mechanism": "prompt",
+      "lanes": [
+        "draft",
+        "production"
+      ],
+      "prompt": {
+        "fragment": "circles around a frozen moment in slow motion, bullet-time style",
+        "compose": "The camera {fragment}. prepended to the scene prompt; up to 3 moves joined with ', then ' in picked order (see composition grammar in presets-index.json)."
+      },
+      "fidelity": "approximate: prompt-guided camera work on Wan 2.2, not a baked-in camera control. Freefield's lab note applies here too: one move holds best; with two or more the model does not always keep the order.",
+      "status": "ported, unverified"
+    },
+    {
+      "id": "fun-static",
+      "name": "Static (Fun Camera)",
+      "group": "camera-moves-fun-camera",
+      "source": "Freefield camera-moves app (neuregex/freefield, MIT), workflow adapted to Moonfactory conventions",
+      "description": "No camera move. The conditioning holds the frame still.",
+      "mechanism": "workflow_patch",
+      "lanes": [
+        "production"
+      ],
+      "workflow": "workflows/fun_camera_i2v.json",
+      "patch": {
+        "node_class": "WanCameraEmbedding",
+        "field": "camera_pose",
+        "value": "Static"
+      },
+      "speed": {
+        "node_class": "WanCameraEmbedding",
+        "field": "speed",
+        "default": 1.0,
+        "note": "Freefield exposes speed as a slider; higher = faster move."
+      },
+      "fidelity": "true camera conditioning: the Fun Camera model takes the move as an embedding, not prompt text. This is the closest open-weights route to Higgsfield's Camera Controls.",
+      "status": "needs_model",
+      "requires": {
+        "missing_models": [
+          {
+            "file": "wan2.2_fun_camera_high_noise_14B_fp8_scaled.safetensors",
+            "dir": "diffusion_models",
+            "gb": 15.3,
+            "repo": "Comfy-Org/Wan_2.2_ComfyUI_Repackaged"
+          },
+          {
+            "file": "wan2.2_fun_camera_low_noise_14B_fp8_scaled.safetensors",
+            "dir": "diffusion_models",
+            "gb": 15.3,
+            "repo": "Comfy-Org/Wan_2.2_ComfyUI_Repackaged"
+          }
+        ],
+        "already_in_volume": [
+          "umt5_xxl_fp8_e4m3fn_scaled.safetensors (text encoder)",
+          "wan_2.1_vae.safetensors (VAE)",
+          "wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors (LoRA, for the fast variant)",
+          "wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors (LoRA, for the fast variant)"
+        ]
+      }
+    },
+    {
+      "id": "fun-pan-up",
+      "name": "Pan up (Fun Camera)",
+      "group": "camera-moves-fun-camera",
+      "source": "Freefield camera-moves app (neuregex/freefield, MIT), workflow adapted to Moonfactory conventions",
+      "description": "Conditioned upward pan at the chosen speed.",
+      "mechanism": "workflow_patch",
+      "lanes": [
+        "production"
+      ],
+      "workflow": "workflows/fun_camera_i2v.json",
+      "patch": {
+        "node_class": "WanCameraEmbedding",
+        "field": "camera_pose",
+        "value": "Pan Up"
+      },
+      "speed": {
+        "node_class": "WanCameraEmbedding",
+        "field": "speed",
+        "default": 1.0,
+        "note": "Freefield exposes speed as a slider; higher = faster move."
+      },
+      "fidelity": "true camera conditioning: the Fun Camera model takes the move as an embedding, not prompt text. This is the closest open-weights route to Higgsfield's Camera Controls.",
+      "status": "needs_model",
+      "requires": {
+        "missing_models": [
+          {
+            "file": "wan2.2_fun_camera_high_noise_14B_fp8_scaled.safetensors",
+            "dir": "diffusion_models",
+            "gb": 15.3,
+            "repo": "Comfy-Org/Wan_2.2_ComfyUI_Repackaged"
+          },
+          {
+            "file": "wan2.2_fun_camera_low_noise_14B_fp8_scaled.safetensors",
+            "dir": "diffusion_models",
+            "gb": 15.3,
+            "repo": "Comfy-Org/Wan_2.2_ComfyUI_Repackaged"
+          }
+        ],
+        "already_in_volume": [
+          "umt5_xxl_fp8_e4m3fn_scaled.safetensors (text encoder)",
+          "wan_2.1_vae.safetensors (VAE)",
+          "wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors (LoRA, for the fast variant)",
+          "wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors (LoRA, for the fast variant)"
+        ]
+      }
+    },
+    {
+      "id": "fun-pan-down",
+      "name": "Pan down (Fun Camera)",
+      "group": "camera-moves-fun-camera",
+      "source": "Freefield camera-moves app (neuregex/freefield, MIT), workflow adapted to Moonfactory conventions",
+      "description": "Conditioned downward pan at the chosen speed.",
+      "mechanism": "workflow_patch",
+      "lanes": [
+        "production"
+      ],
+      "workflow": "workflows/fun_camera_i2v.json",
+      "patch": {
+        "node_class": "WanCameraEmbedding",
+        "field": "camera_pose",
+        "value": "Pan Down"
+      },
+      "speed": {
+        "node_class": "WanCameraEmbedding",
+        "field": "speed",
+        "default": 1.0,
+        "note": "Freefield exposes speed as a slider; higher = faster move."
+      },
+      "fidelity": "true camera conditioning: the Fun Camera model takes the move as an embedding, not prompt text. This is the closest open-weights route to Higgsfield's Camera Controls.",
+      "status": "needs_model",
+      "requires": {
+        "missing_models": [
+          {
+            "file": "wan2.2_fun_camera_high_noise_14B_fp8_scaled.safetensors",
+            "dir": "diffusion_models",
+            "gb": 15.3,
+            "repo": "Comfy-Org/Wan_2.2_ComfyUI_Repackaged"
+          },
+          {
+            "file": "wan2.2_fun_camera_low_noise_14B_fp8_scaled.safetensors",
+            "dir": "diffusion_models",
+            "gb": 15.3,
+            "repo": "Comfy-Org/Wan_2.2_ComfyUI_Repackaged"
+          }
+        ],
+        "already_in_volume": [
+          "umt5_xxl_fp8_e4m3fn_scaled.safetensors (text encoder)",
+          "wan_2.1_vae.safetensors (VAE)",
+          "wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors (LoRA, for the fast variant)",
+          "wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors (LoRA, for the fast variant)"
+        ]
+      }
+    },
+    {
+      "id": "fun-pan-left",
+      "name": "Pan left (Fun Camera)",
+      "group": "camera-moves-fun-camera",
+      "source": "Freefield camera-moves app (neuregex/freefield, MIT), workflow adapted to Moonfactory conventions",
+      "description": "Conditioned leftward pan at the chosen speed.",
+      "mechanism": "workflow_patch",
+      "lanes": [
+        "production"
+      ],
+      "workflow": "workflows/fun_camera_i2v.json",
+      "patch": {
+        "node_class": "WanCameraEmbedding",
+        "field": "camera_pose",
+        "value": "Pan Left"
+      },
+      "speed": {
+        "node_class": "WanCameraEmbedding",
+        "field": "speed",
+        "default": 1.0,
+        "note": "Freefield exposes speed as a slider; higher = faster move."
+      },
+      "fidelity": "true camera conditioning: the Fun Camera model takes the move as an embedding, not prompt text. This is the closest open-weights route to Higgsfield's Camera Controls.",
+      "status": "needs_model",
+      "requires": {
+        "missing_models": [
+          {
+            "file": "wan2.2_fun_camera_high_noise_14B_fp8_scaled.safetensors",
+            "dir": "diffusion_models",
+            "gb": 15.3,
+            "repo": "Comfy-Org/Wan_2.2_ComfyUI_Repackaged"
+          },
+          {
+            "file": "wan2.2_fun_camera_low_noise_14B_fp8_scaled.safetensors",
+            "dir": "diffusion_models",
+            "gb": 15.3,
+            "repo": "Comfy-Org/Wan_2.2_ComfyUI_Repackaged"
+          }
+        ],
+        "already_in_volume": [
+          "umt5_xxl_fp8_e4m3fn_scaled.safetensors (text encoder)",
+          "wan_2.1_vae.safetensors (VAE)",
+          "wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors (LoRA, for the fast variant)",
+          "wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors (LoRA, for the fast variant)"
+        ]
+      }
+    },
+    {
+      "id": "fun-pan-right",
+      "name": "Pan right (Fun Camera)",
+      "group": "camera-moves-fun-camera",
+      "source": "Freefield camera-moves app (neuregex/freefield, MIT), workflow adapted to Moonfactory conventions",
+      "description": "Conditioned rightward pan at the chosen speed.",
+      "mechanism": "workflow_patch",
+      "lanes": [
+        "production"
+      ],
+      "workflow": "workflows/fun_camera_i2v.json",
+      "patch": {
+        "node_class": "WanCameraEmbedding",
+        "field": "camera_pose",
+        "value": "Pan Right"
+      },
+      "speed": {
+        "node_class": "WanCameraEmbedding",
+        "field": "speed",
+        "default": 1.0,
+        "note": "Freefield exposes speed as a slider; higher = faster move."
+      },
+      "fidelity": "true camera conditioning: the Fun Camera model takes the move as an embedding, not prompt text. This is the closest open-weights route to Higgsfield's Camera Controls.",
+      "status": "needs_model",
+      "requires": {
+        "missing_models": [
+          {
+            "file": "wan2.2_fun_camera_high_noise_14B_fp8_scaled.safetensors",
+            "dir": "diffusion_models",
+            "gb": 15.3,
+            "repo": "Comfy-Org/Wan_2.2_ComfyUI_Repackaged"
+          },
+          {
+            "file": "wan2.2_fun_camera_low_noise_14B_fp8_scaled.safetensors",
+            "dir": "diffusion_models",
+            "gb": 15.3,
+            "repo": "Comfy-Org/Wan_2.2_ComfyUI_Repackaged"
+          }
+        ],
+        "already_in_volume": [
+          "umt5_xxl_fp8_e4m3fn_scaled.safetensors (text encoder)",
+          "wan_2.1_vae.safetensors (VAE)",
+          "wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors (LoRA, for the fast variant)",
+          "wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors (LoRA, for the fast variant)"
+        ]
+      }
+    },
+    {
+      "id": "fun-zoom-in",
+      "name": "Zoom in (Fun Camera)",
+      "group": "camera-moves-fun-camera",
+      "source": "Freefield camera-moves app (neuregex/freefield, MIT), workflow adapted to Moonfactory conventions",
+      "description": "Conditioned zoom in at the chosen speed.",
+      "mechanism": "workflow_patch",
+      "lanes": [
+        "production"
+      ],
+      "workflow": "workflows/fun_camera_i2v.json",
+      "patch": {
+        "node_class": "WanCameraEmbedding",
+        "field": "camera_pose",
+        "value": "Zoom In"
+      },
+      "speed": {
+        "node_class": "WanCameraEmbedding",
+        "field": "speed",
+        "default": 1.0,
+        "note": "Freefield exposes speed as a slider; higher = faster move."
+      },
+      "fidelity": "true camera conditioning: the Fun Camera model takes the move as an embedding, not prompt text. This is the closest open-weights route to Higgsfield's Camera Controls.",
+      "status": "needs_model",
+      "requires": {
+        "missing_models": [
+          {
+            "file": "wan2.2_fun_camera_high_noise_14B_fp8_scaled.safetensors",
+            "dir": "diffusion_models",
+            "gb": 15.3,
+            "repo": "Comfy-Org/Wan_2.2_ComfyUI_Repackaged"
+          },
+          {
+            "file": "wan2.2_fun_camera_low_noise_14B_fp8_scaled.safetensors",
+            "dir": "diffusion_models",
+            "gb": 15.3,
+            "repo": "Comfy-Org/Wan_2.2_ComfyUI_Repackaged"
+          }
+        ],
+        "already_in_volume": [
+          "umt5_xxl_fp8_e4m3fn_scaled.safetensors (text encoder)",
+          "wan_2.1_vae.safetensors (VAE)",
+          "wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors (LoRA, for the fast variant)",
+          "wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors (LoRA, for the fast variant)"
+        ]
+      }
+    },
+    {
+      "id": "fun-zoom-out",
+      "name": "Zoom out (Fun Camera)",
+      "group": "camera-moves-fun-camera",
+      "source": "Freefield camera-moves app (neuregex/freefield, MIT), workflow adapted to Moonfactory conventions",
+      "description": "Conditioned zoom out at the chosen speed.",
+      "mechanism": "workflow_patch",
+      "lanes": [
+        "production"
+      ],
+      "workflow": "workflows/fun_camera_i2v.json",
+      "patch": {
+        "node_class": "WanCameraEmbedding",
+        "field": "camera_pose",
+        "value": "Zoom Out"
+      },
+      "speed": {
+        "node_class": "WanCameraEmbedding",
+        "field": "speed",
+        "default": 1.0,
+        "note": "Freefield exposes speed as a slider; higher = faster move."
+      },
+      "fidelity": "true camera conditioning: the Fun Camera model takes the move as an embedding, not prompt text. This is the closest open-weights route to Higgsfield's Camera Controls.",
+      "status": "needs_model",
+      "requires": {
+        "missing_models": [
+          {
+            "file": "wan2.2_fun_camera_high_noise_14B_fp8_scaled.safetensors",
+            "dir": "diffusion_models",
+            "gb": 15.3,
+            "repo": "Comfy-Org/Wan_2.2_ComfyUI_Repackaged"
+          },
+          {
+            "file": "wan2.2_fun_camera_low_noise_14B_fp8_scaled.safetensors",
+            "dir": "diffusion_models",
+            "gb": 15.3,
+            "repo": "Comfy-Org/Wan_2.2_ComfyUI_Repackaged"
+          }
+        ],
+        "already_in_volume": [
+          "umt5_xxl_fp8_e4m3fn_scaled.safetensors (text encoder)",
+          "wan_2.1_vae.safetensors (VAE)",
+          "wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors (LoRA, for the fast variant)",
+          "wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors (LoRA, for the fast variant)"
+        ]
+      }
+    },
+    {
+      "id": "fun-rotate-acw",
+      "name": "Rotate counter-clockwise (Fun Camera)",
+      "group": "camera-moves-fun-camera",
+      "source": "Freefield camera-moves app (neuregex/freefield, MIT), workflow adapted to Moonfactory conventions",
+      "description": "Conditioned counter-clockwise roll.",
+      "mechanism": "workflow_patch",
+      "lanes": [
+        "production"
+      ],
+      "workflow": "workflows/fun_camera_i2v.json",
+      "patch": {
+        "node_class": "WanCameraEmbedding",
+        "field": "camera_pose",
+        "value": "Anti Clockwise (ACW)"
+      },
+      "speed": {
+        "node_class": "WanCameraEmbedding",
+        "field": "speed",
+        "default": 1.0,
+        "note": "Freefield exposes speed as a slider; higher = faster move."
+      },
+      "fidelity": "true camera conditioning: the Fun Camera model takes the move as an embedding, not prompt text. This is the closest open-weights route to Higgsfield's Camera Controls.",
+      "status": "needs_model",
+      "requires": {
+        "missing_models": [
+          {
+            "file": "wan2.2_fun_camera_high_noise_14B_fp8_scaled.safetensors",
+            "dir": "diffusion_models",
+            "gb": 15.3,
+            "repo": "Comfy-Org/Wan_2.2_ComfyUI_Repackaged"
+          },
+          {
+            "file": "wan2.2_fun_camera_low_noise_14B_fp8_scaled.safetensors",
+            "dir": "diffusion_models",
+            "gb": 15.3,
+            "repo": "Comfy-Org/Wan_2.2_ComfyUI_Repackaged"
+          }
+        ],
+        "already_in_volume": [
+          "umt5_xxl_fp8_e4m3fn_scaled.safetensors (text encoder)",
+          "wan_2.1_vae.safetensors (VAE)",
+          "wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors (LoRA, for the fast variant)",
+          "wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors (LoRA, for the fast variant)"
+        ]
+      }
+    },
+    {
+      "id": "fun-rotate-cw",
+      "name": "Rotate clockwise (Fun Camera)",
+      "group": "camera-moves-fun-camera",
+      "source": "Freefield camera-moves app (neuregex/freefield, MIT), workflow adapted to Moonfactory conventions",
+      "description": "Conditioned clockwise roll.",
+      "mechanism": "workflow_patch",
+      "lanes": [
+        "production"
+      ],
+      "workflow": "workflows/fun_camera_i2v.json",
+      "patch": {
+        "node_class": "WanCameraEmbedding",
+        "field": "camera_pose",
+        "value": "ClockWise (CW)"
+      },
+      "speed": {
+        "node_class": "WanCameraEmbedding",
+        "field": "speed",
+        "default": 1.0,
+        "note": "Freefield exposes speed as a slider; higher = faster move."
+      },
+      "fidelity": "true camera conditioning: the Fun Camera model takes the move as an embedding, not prompt text. This is the closest open-weights route to Higgsfield's Camera Controls.",
+      "status": "needs_model",
+      "requires": {
+        "missing_models": [
+          {
+            "file": "wan2.2_fun_camera_high_noise_14B_fp8_scaled.safetensors",
+            "dir": "diffusion_models",
+            "gb": 15.3,
+            "repo": "Comfy-Org/Wan_2.2_ComfyUI_Repackaged"
+          },
+          {
+            "file": "wan2.2_fun_camera_low_noise_14B_fp8_scaled.safetensors",
+            "dir": "diffusion_models",
+            "gb": 15.3,
+            "repo": "Comfy-Org/Wan_2.2_ComfyUI_Repackaged"
+          }
+        ],
+        "already_in_volume": [
+          "umt5_xxl_fp8_e4m3fn_scaled.safetensors (text encoder)",
+          "wan_2.1_vae.safetensors (VAE)",
+          "wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors (LoRA, for the fast variant)",
+          "wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors (LoRA, for the fast variant)"
+        ]
+      }
+    }
+  ]
+}

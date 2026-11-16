@@ -4,6 +4,29 @@ Task: stand up the generation worker on Modal and produce the first real
 vertical draft clip (Wan 2.2 TI2V-5B, 480x832, 81 frames, 16 fps).
 Spend ceiling: stay inside the $30 Modal credit; abort and report near $3.
 
+## RUN 11 (2026-11-16): CAMERA PRESET LIBRARY PORTED FROM FREEFIELD (Higgsfield parity)
+
+- [x] Camera preset library shipped in workflows/camera-presets/:
+      42 presets (33 Cinema Studio prompt-recipe moves + look
+      vocabulary and composition grammar in presets-index.json,
+      13 moves with crop-window end-keyframe recipes for the chain
+      lane, 9 Fun Camera conditioning presets). Full detail in
+      BUILD-LOG run 11 and workflows/camera-presets/INDEX.md.
+- [x] workflows/fun_camera_i2v.json: Wan 2.2 Fun Camera workflow
+      ported and structurally validated. NOT live: its 2 UNET files
+      (15.3 GB each) are not in the Volume yet; all other inputs are.
+- [x] Render-verified: preset dolly-in on the production distilled
+      lane (job 7cd20fb98a0545c2; subject scale about 1.67x
+      first-to-last vs 1.02x for the no-preset benchmark; outputs/
+      camera-preset-dolly-in-test.mp4). Preset crash-zoom on the
+      draft lane checked: weak fidelity (gentle push, no crash
+      speed; outputs/camera-preset-crash-zoom-draft-test.mp4).
+      Other presets remain ported, unverified.
+- [x] vendor/FREEFIELD-INVENTORY.md: all 120 Freefield apps mapped
+      (models, sizes, measured VRAM, in-Volume flags, verdicts).
+      Top queue: Fun Camera UNETs, Wan 2.1 effects base + LoRAs,
+      z-image for start-image generation.
+
 ## RUN 7 (2026-11-16): RENDER-COST OPTIMIZATION — DISTILLED PRODUCTION LANE ADOPTED
 
 - [x] Production lane switched to the LightX2V 4-step distilled

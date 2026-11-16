@@ -1,0 +1,47 @@
+{
+  "id": "fun-pan-right",
+  "name": "Pan right (Fun Camera)",
+  "group": "camera-moves-fun-camera",
+  "source": "Freefield camera-moves app (neuregex/freefield, MIT), workflow adapted to Moonfactory conventions",
+  "description": "Conditioned rightward pan at the chosen speed.",
+  "mechanism": "workflow_patch",
+  "lanes": [
+    "production"
+  ],
+  "workflow": "workflows/fun_camera_i2v.json",
+  "patch": {
+    "node_class": "WanCameraEmbedding",
+    "field": "camera_pose",
+    "value": "Pan Right"
+  },
+  "speed": {
+    "node_class": "WanCameraEmbedding",
+    "field": "speed",
+    "default": 1.0,
+    "note": "Freefield exposes speed as a slider; higher = faster move."
+  },
+  "fidelity": "true camera conditioning: the Fun Camera model takes the move as an embedding, not prompt text. This is the closest open-weights route to Higgsfield's Camera Controls.",
+  "status": "needs_model",
+  "requires": {
+    "missing_models": [
+      {
+        "file": "wan2.2_fun_camera_high_noise_14B_fp8_scaled.safetensors",
+        "dir": "diffusion_models",
+        "gb": 15.3,
+        "repo": "Comfy-Org/Wan_2.2_ComfyUI_Repackaged"
+      },
+      {
+        "file": "wan2.2_fun_camera_low_noise_14B_fp8_scaled.safetensors",
+        "dir": "diffusion_models",
+        "gb": 15.3,
+        "repo": "Comfy-Org/Wan_2.2_ComfyUI_Repackaged"
+      }
+    ],
+    "already_in_volume": [
+      "umt5_xxl_fp8_e4m3fn_scaled.safetensors (text encoder)",
+      "wan_2.1_vae.safetensors (VAE)",
+      "wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors (LoRA, for the fast variant)",
+      "wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors (LoRA, for the fast variant)"
+    ]
+  }
+}

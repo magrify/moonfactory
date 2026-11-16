@@ -1,0 +1,34 @@
+{
+  "id": "truck-right",
+  "name": "Truck right",
+  "group": "camera-moves",
+  "source": "Freefield (neuregex/freefield, MIT), adapted to Moonfactory's Wan 2.2 worker",
+  "description": "The camera slides laterally right, keeping its orientation.",
+  "mechanism": "prompt",
+  "lanes": [
+    "draft",
+    "production"
+  ],
+  "prompt": {
+    "fragment": "trucks right, sliding sideways",
+    "compose": "The camera {fragment}. prepended to the scene prompt; up to 3 moves joined with ', then ' in picked order (see composition grammar in presets-index.json)."
+  },
+  "fidelity": "approximate: prompt-guided camera work on Wan 2.2, not a baked-in camera control. Freefield's lab note applies here too: one move holds best; with two or more the model does not always keep the order.",
+  "status": "ported, unverified",
+  "keyframe_enhancement": {
+    "mechanism": "firstlast",
+    "workflow": "workflows/firstlast_chain.json",
+    "end_keyframe": {
+      "op": "crop_window",
+      "params": {
+        "w_frac": 0.85,
+        "h_frac": 0.85,
+        "cx": 0.58,
+        "cy": 0.5
+      },
+      "detail": "End keyframe = this crop window of the start frame, scaled back to full frame, made locally (ffmpeg) before the chain segment renders. Steers the move harder than prompt text alone."
+    },
+    "fidelity": "approximate: the end keyframe is an upscale of a crop, so the end of the move trades some sharpness for steering strength. Recipe spec only: the API dispatcher does not expose the firstlast lane yet; wiring is platform-pass work.",
+    "status": "recipe spec, not wired"
+  }
+}

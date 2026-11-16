@@ -1,0 +1,18 @@
+{
+  "id": "static-shot",
+  "name": "Static shot",
+  "group": "camera-moves",
+  "source": "Freefield (neuregex/freefield, MIT), adapted to Moonfactory's Wan 2.2 worker",
+  "description": "Locked-off tripod frame. Only the subject and scene move.",
+  "mechanism": "prompt",
+  "lanes": [
+    "draft",
+    "production"
+  ],
+  "prompt": {
+    "fragment": "stays locked off on a tripod, perfectly still",
+    "compose": "The camera {fragment}. prepended to the scene prompt; up to 3 moves joined with ', then ' in picked order (see composition grammar in presets-index.json)."
+  },
+  "fidelity": "approximate: prompt-guided camera work on Wan 2.2, not a baked-in camera control. Freefield's lab note applies here too: one move holds best; with two or more the model does not always keep the order.",
+  "status": "ported, unverified"
+}

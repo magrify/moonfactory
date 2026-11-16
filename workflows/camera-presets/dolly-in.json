@@ -1,0 +1,35 @@
+{
+  "id": "dolly-in",
+  "name": "Dolly in",
+  "group": "camera-moves",
+  "source": "Freefield (neuregex/freefield, MIT), adapted to Moonfactory's Wan 2.2 worker",
+  "description": "The camera physically moves toward the subject, slowly. Framing tightens with real parallax.",
+  "mechanism": "prompt",
+  "lanes": [
+    "draft",
+    "production"
+  ],
+  "prompt": {
+    "fragment": "slowly dollies in toward the subject",
+    "compose": "The camera {fragment}. prepended to the scene prompt; up to 3 moves joined with ', then ' in picked order (see composition grammar in presets-index.json)."
+  },
+  "fidelity": "approximate: prompt-guided camera work on Wan 2.2, not a baked-in camera control. Freefield's lab note applies here too: one move holds best; with two or more the model does not always keep the order.",
+  "status": "ported, render-verified 2026-11-16 (production lane)",
+  "keyframe_enhancement": {
+    "mechanism": "firstlast",
+    "workflow": "workflows/firstlast_chain.json",
+    "end_keyframe": {
+      "op": "crop_window",
+      "params": {
+        "w_frac": 0.62,
+        "h_frac": 0.62,
+        "cx": 0.5,
+        "cy": 0.5
+      },
+      "detail": "End keyframe = this crop window of the start frame, scaled back to full frame, made locally (ffmpeg) before the chain segment renders. Steers the move harder than prompt text alone."
+    },
+    "fidelity": "approximate: the end keyframe is an upscale of a crop, so the end of the move trades some sharpness for steering strength. Recipe spec only: the API dispatcher does not expose the firstlast lane yet; wiring is platform-pass work.",
+    "status": "recipe spec, not wired"
+  },
+  "verification": "Worker job 7cd20fb98a0545c2, production distilled lane, benchmark balloon scene, seed 12345, same start image and scene text as the no-preset benchmark; only delta was this preset's composed prefix. Subject scale grew ~1.67x first-to-last frame (red-blob measure) vs 1.02x for the benchmark, and the framing visibly advances. Output: outputs/camera-preset-dolly-in-test.mp4 (720x1280, 16 fps, 5.06 s)."
+}
