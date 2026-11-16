@@ -33,6 +33,11 @@ SEGMENT_SECONDS = 5.06
 MEASURED_COST_CENTS = {
     "draft": 50,
     "production": 15,
+    # Effects (Pass 9): priced as a Production segment. The proof
+    # render's measured cost is recorded in the effects section at
+    # the bottom of this file; the entry lands at the Production
+    # worst case when the distilled recipe measures inside it.
+    "effects": 15,
 }
 
 CREATOR_PRICE_CENTS = 2000  # $20/mo
@@ -414,6 +419,29 @@ def clip_quote(duration_seconds: float) -> dict:
 
 IMAGE_MEASURED_COST_CENTS = 5.0
 IMAGE_PRICE_CENTS = gross_up(IMAGE_MEASURED_COST_CENTS * MARGIN_MULTIPLIER)
+
+
+# ---------------------------------------------------------------------------
+# Effects (PARITY-PROGRAM Pass 9, pulled forward). A self-hosted
+# lane (Wan 2.1 I2V 480p base plus one effect LoRA per job), so
+# Rule 2 applies in full. The lane renders with the effects app's
+# fast preset: the LightX2V 2.1 step-distill LoRA at strength 1.0,
+# 6 steps, euler, cfg 1.0 (the stock recipe is 20 steps at cfg 6).
+# Measured 2026-11-16 (two proof renders through the platform,
+# Inflate on the balloon benchmark, 480x832, seed 12345): 101.5 s
+# and 93.6 s of worker wall on L40S; the worse of the two is
+# EFFECTS_MEASURED_SECONDS, which is $0.055 at the L40S list rate
+# of $0.000542/s. That measure sits inside the Production lane's
+# 15 cent worst case, so effects price exactly as Production
+# segments: MEASURED_COST_CENTS["effects"] = 15, the balance price
+# is JOB_PRICE_CENTS["effects"] (the same 99 cents the formula
+# gives Production), and a Creator's included budget debits at the
+# raw carried cost, 15 cents per effect. If a later measure ever
+# pushes the lane past 15 cents, this entry must rise before the
+# lane sells another job (Rule 2).
+# ---------------------------------------------------------------------------
+
+EFFECTS_MEASURED_SECONDS = 101.5
 
 
 def image_quote() -> dict:

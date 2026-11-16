@@ -657,6 +657,47 @@ def compose_camera_prompt(scene: str, preset_ids, look: dict) -> str:
     return " ".join(sentences).strip()
 
 
+# ---------------------------------------------------------------------------
+# Effects (PARITY-PROGRAM Pass 9, pulled forward): one-tap effects
+# on the worker's Wan 2.1 effects lane. The picker is data: this
+# table's ids and plain display names, served at /api/effects and
+# rendered by the studio, never hand-built per effect in the form.
+# The worker owns the per-effect render details; the platform owns
+# the gates: effects are paid-only (Production-class pricing, see
+# pricing.py), require a start image, take exactly one effect per
+# job, and do not combine with chaining, an end image, camera
+# presets or looks, or the per-second models. Unknown effects and
+# bad combinations are clean 422s before anything is dispatched.
+# ---------------------------------------------------------------------------
+
+EFFECTS = {
+    "cakeify": "Cakeify",
+    "explode": "Explode",
+    "inflate": "Inflate",
+    "deflate": "Deflate",
+    "squish": "Squish",
+    "crush": "Hydraulic press",
+    "electrify": "Electrify",
+    "angry": "Angry face",
+    "crying": "Crying",
+    "laughing": "Laughing",
+    "puppies": "Surrounded by puppies",
+    "steam": "Steam from nose and ears",
+    "money-rain": "Money rain",
+    "rotate": "Rotate 360",
+    "orbit-360": "360 orbit",
+    "arc-shot": "Arc shot",
+    "bullet-time": "Bullet Time",
+    "car-chase": "Car chase",
+    "crane-down": "Crane down",
+    "crane-over-head": "Crane over the head",
+    "crane-up": "Crane up",
+    "crash-zoom-in": "Crash zoom in",
+    "dolly-zoom": "Dolly zoom",
+    "hero-run": "Hero run",
+}
+
+
 def _now() -> float:
     return time.time()
 
@@ -1073,6 +1114,16 @@ def api():
                 "measured_cost_cents": pricing.IMAGE_MEASURED_COST_CENTS,
                 "aspects": list(HOUSE_ASPECTS),
             },
+            "effects": {
+                "paid_only": True,
+                "requires_start_image": True,
+                "price_cents": pricing.JOB_PRICE_CENTS["effects"],
+                "measured_cost_cents": pricing.MEASURED_COST_CENTS["effects"],
+                "items": [
+                    {"id": eid, "name": name}
+                    for eid, name in EFFECTS.items()
+                ],
+            },
             "models": [
                 {
                     "id": m["id"],
@@ -1136,6 +1187,20 @@ def api():
         ]
         data["default_model"] = DEFAULT_MODEL
         return data
+
+    @web.get("/api/effects")
+    def effects_list():
+        """The studio's effects picker, rendered from the EFFECTS
+        table, never hand-built per effect. Effects are a paid
+        feature and price as a Production segment."""
+        return {
+            "paid_only": True,
+            "requires_start_image": True,
+            "price_cents": pricing.JOB_PRICE_CENTS["effects"],
+            "effects": [
+                {"id": eid, "name": name} for eid, name in EFFECTS.items()
+            ],
+        }
 
     @web.get("/api/camera-presets")
     def camera_presets():
@@ -1677,6 +1742,7 @@ def api():
             "model": (
                 "First frame" if job.get("kind") == "image"
                 else "Clip" if job.get("kind") in ("clip_job", "clip_output")
+                else "Effects" if job.get("effect")
                 else MODEL_LABELS.get(job.get("model") or DEFAULT_MODEL, "Wan 2.2")
             ),
             "model_id": job.get("model") or DEFAULT_MODEL,
@@ -1687,6 +1753,8 @@ def api():
             "camera_presets": job.get("camera_preset_names") or [],
             "camera_preset_ids": job.get("camera_presets") or [],
             "camera_look": job.get("camera_look") or {},
+            "effect": job.get("effect_name"),
+            "effect_id": job.get("effect"),
             "status": job["status"],
             "error": job.get("error"),
             "created_at": job["created_at"],
@@ -2167,6 +2235,14 @@ def api():
             camera_ids, camera_look = validate_camera_selection(body)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc))
+        # Effects: an unknown effect id is a clean 422 for every
+        # account, checked here before any gate, hold, or dispatch.
+        effect_id = body.get("effect") or None
+        if effect_id is not None and not isinstance(effect_id, str):
+            raise HTTPException(status_code=422, detail="effect must be an effect id")
+        if effect_id and effect_id not in EFFECTS:
+            raise HTTPException(
+                status_code=422, detail=f"unknown effect: {effect_id}")
         camera = {
             "user_prompt": prompt,
             "camera_presets": camera_ids,
@@ -2249,6 +2325,40 @@ def api():
                 raise HTTPException(
                     status_code=422,
                     detail="camera speed must be between 0.1 and 3.0")
+        # Effects routing (Pass 9): an effect job runs on its own
+        # lane in the worker, priced as a Production segment. The
+        # prompt the user wrote is the subject the effect acts on;
+        # the worker builds the effect's full prompt from it. The
+        # shapes an effect cannot take are clean 422s here, before
+        # any quote, hold, or dispatch. Paid-only is enforced by
+        # the paid path below: the lane is not Draft, so a
+        # never-paid free account gets the usual 403 there.
+        if effect_id:
+            if model in PER_SECOND_MODELS:
+                raise HTTPException(
+                    status_code=422,
+                    detail="effects run on Wan 2.2")
+            if lane == "draft":
+                raise HTTPException(
+                    status_code=422,
+                    detail="effects are a paid feature and do not run on the Draft lane")
+            if not start_image:
+                raise HTTPException(
+                    status_code=422,
+                    detail="effects need a start image: pick an effect and upload the photo it acts on")
+            if segments > 1:
+                raise HTTPException(
+                    status_code=422,
+                    detail="effects render one segment at a time")
+            if end_image:
+                raise HTTPException(
+                    status_code=422,
+                    detail="effects do not take an end image")
+            if camera_ids or camera_look:
+                raise HTTPException(
+                    status_code=422,
+                    detail="effects do not combine with camera presets")
+            lane = "effects"
         if model in PER_SECOND_MODELS:
             # The per-second lanes take single-pass clips at 9:16 in
             # this form; chaining and other aspects are house-lane
@@ -2340,9 +2450,16 @@ def api():
             # everyone else pays the lane's fixed job price from
             # prepaid balance. Pay-per-video accounts have no
             # included budget, so balance is their only rail.
-            if user["plan"] == "creator" and included_budget_remaining(user) >= pricing.MEASURED_COST_CENTS["production"] * segments:
+            # Effects debit the included budget at their own raw
+            # carried cost; the other house lanes keep the
+            # production-segment accounting they have always used.
+            included_unit = (
+                pricing.MEASURED_COST_CENTS[lane] if lane == "effects"
+                else pricing.MEASURED_COST_CENTS["production"]
+            )
+            if user["plan"] == "creator" and included_budget_remaining(user) >= included_unit * segments:
                 used_included = SEGMENT_SECONDS * segments
-                used_budget = float(pricing.MEASURED_COST_CENTS["production"]) * segments
+                used_budget = float(included_unit) * segments
             else:
                 price = pricing.JOB_PRICE_CENTS[lane] * segments
                 if user.get("balance_cents", 0) < price:
@@ -2372,6 +2489,7 @@ def api():
                         if fun_preset else None
                     ),
                     "camera_speed": camera_speed if fun_preset else None,
+                    "effect": effect_id,
                 },
                 timeout=30,
             )
@@ -2415,6 +2533,8 @@ def api():
                 if fun_preset else None
             ),
             "camera_speed": camera_speed if fun_preset else None,
+            "effect": effect_id,
+            "effect_name": EFFECTS.get(effect_id) if effect_id else None,
             "status": "queued",
             "error": None,
             "bytes": None,
@@ -2675,6 +2795,7 @@ def api():
             "reference_video_urls": parent.get("reference_video_urls"),
             "reference_audio_urls": parent.get("reference_audio_urls"),
             "segments": parent.get("segments_total") or 1,
+            "effect": parent.get("effect"),
             "aspect_ratio": parent.get("aspect_ratio") or "9:16",
             "start_image_png_b64": parent.get("start_image_png_b64"),
             "end_image_png_b64": parent.get("end_image_png_b64"),
@@ -3125,10 +3246,12 @@ def api():
             "lane": job["lane"],
             "model": (
                 "Clip" if job.get("kind") in ("clip_job", "clip_output")
+                else "Effects" if job.get("effect")
                 else MODEL_LABELS.get(job.get("model") or DEFAULT_MODEL, "Wan 2.2")
             ),
             "prompt": (job.get("prompt") or "")[:200],
             "camera_presets": job.get("camera_preset_names") or [],
+            "effect": job.get("effect_name"),
             "created_at": job["created_at"],
             "file_url": f"/gallery/{job['id']}/file",
         }
@@ -3692,6 +3815,13 @@ Creator members can pay from their included monthly budget;
 everyone else pays per video from prepaid balance. Nothing ever
 runs at a price you have not seen first.</p>
 
+<h2>Effects</h2>
+<p>Paying customers can pick one of 24 one-tap effects for a start
+image instead of a plain render: Cakeify, Explode, Inflate, Squish,
+Bullet Time, a hydraulic press, money rain, a 360 orbit, and more.
+Each effect renders about 5 seconds at 480p class and is delivered
+with the usual music bed, priced like a Production segment.</p>
+
 <h2>Pricing</h2>
 <p>Two ways to pay, side by side. <strong>Pay per video:</strong>
 top up a prepaid balance and pay per clip, no subscription.
@@ -3874,6 +4004,9 @@ APP_HTML = (
     <p class="muted" id="preset-chain"></p>
     <label>Film look (optional)</label>
     <div id="looks"></div>
+    <label>Effect (optional, one per video)</label>
+    <div id="effects"><p class="muted">Loading effects...</p></div>
+    <p class="muted" id="effect-note"></p>
     <label>Music prompt (optional)</label>
     <textarea id="music" rows="2" maxlength="300" placeholder="lo-fi piano with soft rain, slow and dreamy"></textarea>
     <p class="muted" id="music-note"></p>
@@ -4154,6 +4287,55 @@ function renderChain() {
     : 'No camera move picked: the camera follows your prompt.';
   $('preset-chain').className = 'muted';
 }
+// Effects: the picker is rendered from /api/effects, never
+// hand-built per effect. One effect per video; picking the active
+// chip again clears it. An effect acts on a start image, so the
+// note under the picker says so, and the server refuses an effect
+// job without one.
+let effectData = null;
+let selectedEffect = null;
+async function loadEffects() {
+  try {
+    effectData = await api('/api/effects');
+    const box = $('effects'); box.innerHTML = '';
+    for (const fx of effectData.effects) {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'chip';
+      b.dataset.fxid = fx.id; b.dataset.name = fx.name;
+      b.textContent = fx.name;
+      b.onclick = () => toggleEffect(fx.id);
+      box.appendChild(b);
+    }
+    renderEffects();
+    applyEffectGate();
+  } catch (e) {
+    $('effects').innerHTML = '<p class="muted">Effects could not load. Your video still works without one.</p>';
+  }
+}
+function toggleEffect(fxid) {
+  selectedEffect = selectedEffect === fxid ? null : fxid;
+  renderEffects();
+}
+function applyEffectGate() {
+  const paid = !!(currentUser && currentUser.paid_customer);
+  document.querySelectorAll('#effects .chip').forEach(b => { b.disabled = !paid; });
+  if (!paid) {
+    $('effect-note').textContent = 'Effects unlock with any payment. Accounts that have never paid render on Wan 2.2 Draft.';
+  } else {
+    renderEffects();
+  }
+}
+function renderEffects() {
+  document.querySelectorAll('#effects .chip').forEach(b => {
+    const on = b.dataset.fxid === selectedEffect;
+    b.classList.toggle('on', on);
+    b.textContent = (on ? '✓ ' : '') + b.dataset.name;
+  });
+  if (!currentUser || !currentUser.paid_customer) return;
+  $('effect-note').textContent = selectedEffect
+    ? 'This effect acts on your start image: upload one below (or make the first frame and attach it). Your prompt above is who or what is in the photo. Effects price as a Production segment and render at 480p class, delivered with the usual music bed.'
+    : 'Pick one effect and it transforms your start image into a short clip. Effects are a paid feature and price as a Production segment.';
+}
 function selectedLook() {
   const look = {};
   if (presetData) for (const slot of Object.keys(presetData.looks)) {
@@ -4207,6 +4389,7 @@ function showStudio(u) {
     $('model-note').textContent = '';
     $('music').disabled = false;
     $('music-note').textContent = 'Describe the music and it is generated for this video.';
+    applyEffectGate();
   } else {
     opt.disabled = true; opt.checked = false;
     $('gallery-note').textContent = 'Clips from accounts that have never paid always show in the gallery. Hiding them unlocks with any payment.';
@@ -4217,6 +4400,8 @@ function showStudio(u) {
     $('model-note').textContent = 'Model switching unlocks with any payment. Accounts that have never paid render on Wan 2.2 Draft.';
     $('music').disabled = true; $('music').value = '';
     $('music-note').textContent = 'Custom audio unlocks with any payment. Free clips get the house music track.';
+    selectedEffect = null;
+    applyEffectGate();
   }
   const segSel = $('segments');
   if (u.paid_customer) {
@@ -4327,11 +4512,12 @@ $('create').onclick = async () => {
       ? { start_image_job_id: generatedImageJobId }
       : { start_image_png_b64: startImageB64 };
     const jobBody = model === 'wan2.2'
-      ? { model: model, lane: $('lane').value, prompt: $('prompt').value,
+      ? { model: model, lane: selectedEffect ? 'effects' : $('lane').value, prompt: $('prompt').value,
           music_prompt: $('music').disabled ? '' : $('music').value,
-          ...startFields, end_image_png_b64: endImageB64,
-          aspect_ratio: $('aspect').value, segments: Number($('segments').value),
-          ...camera, ...bot }
+          effect: selectedEffect || undefined,
+          ...startFields, end_image_png_b64: selectedEffect ? null : endImageB64,
+          aspect_ratio: $('aspect').value, segments: selectedEffect ? 1 : Number($('segments').value),
+          ...(selectedEffect ? {} : camera), ...bot }
       : { model: model, prompt: $('prompt').value,
           music_prompt: $('music').disabled ? '' : $('music').value,
           duration_seconds: Number($('duration').value), resolution: $('resolution').value,
@@ -4368,6 +4554,8 @@ async function loadJobs() {
       if (isClipJob && j.stage && (j.status === 'queued' || j.status === 'running')) html += '<br><span class="muted">' + j.stage + '</span>';
       if (j.camera_presets && j.camera_presets.length) html +=
         '<br><span class="muted">Camera: ' + j.camera_presets.join(' \\u2192 ') + '</span>';
+      if (j.effect) html +=
+        '<br><span class="muted">Effect: ' + j.effect + '</span>';
       if (j.status === 'done' && j.kind === 'image') html += '<br><img src="/api/jobs/' + j.id + '/file" style="width:160px;border-radius:8px" alt="">';
       if (j.status === 'done' && j.kind !== 'image') html += '<br><video controls src="/api/jobs/' + j.id + '/file"></video>' +
         '<br><a href="/api/jobs/' + j.id + '/file" download>Download</a>';
@@ -4478,6 +4666,7 @@ $('make-clips').onclick = async () => {
 };
 fetch('/api/config').then(r => r.json()).then(c => { cfg = c; renderBotChecks(); });
 loadPresets();
+loadEffects();
 if (new URLSearchParams(location.search).get('verified')) {
   msg('auth-msg', 'Email verified. You can sign in now.', 'ok');
 }
@@ -4523,6 +4712,11 @@ async function loadGallery() {
         const cam = document.createElement('span'); cam.className = 'muted';
         cam.textContent = ' · Camera: ' + item.camera_presets.join(', ');
         head.appendChild(cam);
+      }
+      if (item.effect) {
+        const fx = document.createElement('span'); fx.className = 'muted';
+        fx.textContent = ' · Effect: ' + item.effect;
+        head.appendChild(fx);
       }
       const desc = document.createElement('p'); desc.className = 'muted';
       desc.textContent = item.prompt;

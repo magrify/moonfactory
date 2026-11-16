@@ -488,6 +488,51 @@ def download_seedvr2():
     return results
 
 
+EFFECTS_DISTILL_FILE = (
+    "loras/lightx2v_I2V_14B_480p_cfg_step_distill_rank64_bf16.safetensors"
+)
+EFFECTS_DISTILL_SIZE = 738005744
+EFFECTS_DISTILL_SHA256 = (
+    "85c4a61c30e0497aa44b91d93a893b624708461a56fe5485183b28fa07e2dfb3"
+)
+
+
+@app.function(image=download_image, volumes={"/models": volume}, timeout=1800)
+def download_effects_distill():
+    """Stage the LightX2V 2.1 step-distill LoRA for the effects lane
+    (Kijai/WanVideo_comfy, the effects app's optional fast preset).
+    Byte-verified against the repo listing: exact size and sha256."""
+    import hashlib
+    import shutil
+
+    from huggingface_hub import hf_hub_download
+
+    final = Path("/models") / EFFECTS_DISTILL_FILE
+    if final.exists() and final.stat().st_size == EFFECTS_DISTILL_SIZE:
+        digest = hashlib.sha256(final.read_bytes()).hexdigest()
+        if digest == EFFECTS_DISTILL_SHA256:
+            print(f"already present and verified: {EFFECTS_DISTILL_FILE}")
+            return {EFFECTS_DISTILL_FILE: final.stat().st_size}
+    print("downloading Kijai/WanVideo_comfy distill LoRA ...", flush=True)
+    staged = hf_hub_download(
+        repo_id="Kijai/WanVideo_comfy",
+        filename="Lightx2v/lightx2v_I2V_14B_480p_cfg_step_distill_rank64_bf16.safetensors",
+        local_dir="/models/_stage_fx",
+    )
+    final.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(staged, final)
+    size = final.stat().st_size
+    digest = hashlib.sha256(final.read_bytes()).hexdigest()
+    print(f"stored {EFFECTS_DISTILL_FILE}: {size} bytes "
+          f"(expected {EFFECTS_DISTILL_SIZE}, match={size == EFFECTS_DISTILL_SIZE}); "
+          f"sha256 match={digest == EFFECTS_DISTILL_SHA256}", flush=True)
+    if size != EFFECTS_DISTILL_SIZE or digest != EFFECTS_DISTILL_SHA256:
+        raise RuntimeError("distill LoRA byte verification failed")
+    shutil.rmtree("/models/_stage_fx", ignore_errors=True)
+    volume.commit()
+    return {EFFECTS_DISTILL_FILE: size}
+
+
 @app.function(image=download_image, volumes={"/models": volume}, timeout=600)
 def fetch_output(filename: str):
     """Fallback retrieval path: read a persisted output from the Volume."""
@@ -555,6 +600,10 @@ api_image = (
     .add_local_file(
         str(Path(__file__).parent.parent / "workflows" / "fun_camera_i2v.json"),
         "/workflows/fun_camera_i2v.json",
+    )
+    .add_local_file(
+        str(Path(__file__).parent.parent / "workflows" / "effects_i2v.json"),
+        "/workflows/effects_i2v.json",
     )
     .add_local_file(
         str(Path(__file__).parent / "test_start.png"),
@@ -757,11 +806,129 @@ def _build_fun_camera_workflow(prompt: str, negative: str, seed: int,
     return workflow
 
 
+# ---------------------------------------------------------------------------
+# Effects (PARITY-PROGRAM Pass 9, pulled forward): one-tap effect
+# LoRAs on the Wan 2.1 I2V 480p 14B base, ported from the Freefield
+# effects app (MIT; vendor/freefield/apps/effects). The LoRAs are
+# Wan 2.1-only, so this lane has its own base model; it cannot ride
+# the Wan 2.2 lanes. Each entry: the LoRA file staged in the Volume
+# and the prompt template from the LoRA's model card (trigger words
+# included), with {subject} filled from the job's prompt.
+#
+# Recipe: the app's own fast preset, the distilled precedent from
+# the production and Fun Camera lanes. The stock recipe is 20 steps
+# at cfg 6 (the app's sampler default); the fast preset raises the
+# LightX2V 2.1 step-distill LoRA from strength 0.0 to 1.0 and runs
+# 6 steps of euler at cfg 1.0. The app's own manifest warns the
+# effect can come out weaker on the fast preset; that is measured
+# and reported, not hidden.
+# ---------------------------------------------------------------------------
+
+EFFECTS = {
+    "angry": ("angry_face_5_epochs.safetensors",
+              "The video shows {subject} with a neutral expression. The expression changes to 4ngr23 angry face, and they start yelling, then throw their arms up while making the 4ngr23 angry face."),
+    "crying": ("crying_20_epochs.safetensors",
+               "The video starts with {subject}, appearing with a sad expression. Then a tear rolls down their cheek, as they are cr471ng crying."),
+    "laughing": ("laughing_15_epochs.safetensors",
+                 "The video shows {subject}, who starts by looking into the camera and smiling, and then starts l4a6ing laughing, still l4a6ing laughing at the end."),
+    "puppies": ("puppy_50_epochs.safetensors",
+                "The video begins with a close-up portrait of {subject}. The background changes and then the pu11y puppy effect begins. They are now surrounded by many puppies and pet the puppies."),
+    "steam": ("wan21_penqi_000003500.safetensors",
+              "p3n91\uff0c\u9f3b\u5b54\u548c\u8033\u6735\u5192\u51fa\u767d\u70df\u3002The video shows {subject}, who gets angry as white steam shoots out of their nostrils and ears."),
+    "money-rain": ("money_000003000.safetensors",
+                   "\u98d8\u843d\u7684\u7f8e\u949e\u3002The video shows {subject}, smiling as US dollar bills fall from above all around them."),
+    "cakeify": ("cakeify_16_epochs.safetensors",
+                "The video opens on {subject}. A knife, held by a hand, is coming into frame and hovering over it. The knife then begins cutting into it to c4k3 cakeify it. As the knife slices it open, the inside is revealed to be cake with chocolate layers. The knife cuts through and the contents are revealed."),
+    "crush": ("crush_20_epochs.safetensors",
+              "The video begins with {subject}. A hydraulic press positioned above slowly descends towards it. Upon contact, the hydraulic press c5us4 crushes it, deforming and flattening it, causing it to collapse inward until it is no longer recognizable."),
+    "deflate": ("deflate_20_epochs.safetensors",
+                "The video opens with {subject}. As the video progresses, it begins to d3d1at3 deflate it, gradually shrinking and losing shape, eventually flattening completely into a lifeless, deflated mass on the ground."),
+    "electrify": ("electrify_50_epochs.safetensors",
+                  "The video shows {subject}. The e13c7r1c electricity effect streaks through the scene: bright electric arcs crackle around it, each strike lighting it up for a brief moment."),
+    "explode": ("explode_30_epochs.safetensors",
+                "The video opens with {subject}. Then it 3xp105ion huge explosion that engulfs the entire screen with a bright light. The light is so bright that it obscures everything around."),
+    "inflate": ("inflate_20_epochs.safetensors",
+                "The video shows {subject}, then infl4t3 inflates it, expanding into a giant, round, inflated figure."),
+    "rotate": ("rotate_20_epochs.safetensors",
+               "The video shows {subject}. It performs a r0t4tion 360 degrees rotation."),
+    "squish": ("squish_18.safetensors",
+               "In the video, {subject} is presented, held in a person's hands. The person then presses on it, causing a sq41sh squish effect. The person keeps pressing down on it, further showing the sq41sh squish effect."),
+    "orbit-360": ("360_Orbit.safetensors",
+                  "The video shows {subject}. The camera performs an 0rb4it 360 degree orbit, circling around and showing the surroundings, before returning to the front view. Throughout the 0rb4it 360 degree orbit, the main subject stays in place."),
+    "arc-shot": ("Arc_shot.safetensors",
+                 "The video shows {subject}. The 34Ar2c arc the camera moves in a smooth curve around the main subject, shifting the perspective around it."),
+    "bullet-time": ("Wan21_I2V_rotation_000003750.safetensors",
+                    "rw360xz\uff0c\u4eba\u7269\u5b9a\u5728\u7a7a\u4e2d\uff0c\u76f8\u673a\u89c6\u89d2\u56f4\u7ed5\u4eba\u7269\u5411\u4e00\u4e2a\u65b9\u5411\u65cb\u8f6c\u3002The video shows {subject}, frozen in mid-air while the camera circles around them in one direction."),
+    "car-chase": ("car_chase.safetensors",
+                  "The video depicts a dramatic c4r ch4s3 car chase. {subject} speeds along the road, followed closely by a pursuing car, while a helicopter shines a spotlight from above. The camera tracks the pursuit, panning as the car drifts into a turn, emphasizing the ongoing c4r ch4s3 car chase."),
+    "crane-down": ("crane_down.safetensors",
+                   "The video shows {subject}. The cr4n3 crane down camera motion begins high above the scene, slowly lowering the view. The camera continues to move downwards, getting closer."),
+    "crane-over-head": ("crane_overhead.safetensors",
+                        "The video shows {subject}. The camera begins a cr4n3 crane over the head movement, rising smoothly upwards. As the cr4n3 crane over the head movement progresses, the camera passes overhead. The cr4n3 crane over the head movement concludes with a high-angle shot looking down."),
+    "crane-up": ("crane_up.safetensors",
+                 "The video shows {subject}. The cr4n3 crane up effect is applied, smoothly lifting the camera's viewpoint higher, revealing more of the surrounding landscape."),
+    "crash-zoom-in": ("crash_zoom_in.safetensors",
+                      "The video shows {subject}. The camera performs a cr34sh crash zoom in effect, rapidly zooming closer to the face."),
+    "dolly-zoom": ("wan_21_i2v_dolly_zoom.safetensors",
+                   "dolly zoom. The video shows {subject}. The camera moves toward them while zooming out: they stay the same size and the background behind them stretches away."),
+    "hero-run": ("Hero_run.safetensors",
+                 "The video shows {subject}, poised in a starting position and facing the camera. Then they explode from the starting position, beginning the 4ct3ion Action Run directly towards the camera, pumping their arms."),
+}
+
+# Native render dimensions for the effects lane, from the effects
+# app's own format options (480p class in every aspect).
+EFFECTS_DIMS = {"9:16": (480, 832), "16:9": (832, 480), "1:1": (624, 624)}
+
+
+def _build_effects_workflow(subject: str, negative: str, seed: int,
+                            effect: str, aspect: str = "9:16",
+                            prefix: str = ""):
+    """One effects segment: workflows/effects_i2v.json (built from
+    the Freefield effects app definition) with the chosen effect's
+    LoRA and prompt template patched in, running the app's fast
+    preset (LightX2V step-distill LoRA at strength 1.0, 6 steps,
+    euler, cfg 1.0). The terminal node is the house VHS combine the
+    other lanes use, so output handling is identical."""
+    lora_name, template = EFFECTS[effect]
+    workflow = json.loads(
+        (Path("/workflows") / "effects_i2v.json").read_text()
+    )
+    width, height = EFFECTS_DIMS[aspect]
+    prompt = template.replace("{subject}", subject)
+    for node in workflow.values():
+        ct = node.get("class_type")
+        inputs = node.get("inputs", {})
+        if ct == "CLIPTextEncode":
+            if inputs.get("text") == "PLACEHOLDER_POSITIVE_PROMPT":
+                inputs["text"] = prompt
+            elif inputs.get("text") == "PLACEHOLDER_NEGATIVE_PROMPT":
+                inputs["text"] = negative
+        elif ct == "LoraLoaderModelOnly":
+            if inputs.get("lora_name") == "PLACEHOLDER_EFFECT_LORA":
+                inputs["lora_name"] = lora_name
+            else:
+                # The step-distill LoRA: the fast preset raises it
+                # from the template's no-op 0.0 to 1.0.
+                inputs["strength_model"] = 1.0
+        elif ct == "KSampler":
+            inputs["seed"] = seed
+            inputs["steps"] = 6
+            inputs["cfg"] = 1.0
+            inputs["sampler_name"] = "euler"
+        elif ct == "WanImageToVideo":
+            inputs["width"] = width
+            inputs["height"] = height
+        elif ct == "VHS_VideoCombine":
+            inputs["filename_prefix"] = prefix or "sinclip/api_effects"
+    return workflow
+
+
 @app.function(image=api_image, timeout=3600)
 def run_job(job_id: str, lane: str, prompt: str, negative: str, seed: int,
             start_image_b64: str = "", end_image_b64: str = "",
             aspect: str = "9:16", segments: int = 1,
-            camera_pose: str = "", camera_speed: float = 1.0):
+            camera_pose: str = "", camera_speed: float = 1.0,
+            effect: str = ""):
     """Dispatcher: build the lane workflow, run it on the ComfyUI class,
     persist the result into the Volume, and record the outcome in the
     jobs Dict. Spawned by the web endpoint; never called synchronously.
@@ -796,7 +963,22 @@ def run_job(job_id: str, lane: str, prompt: str, negative: str, seed: int,
             prefix = f"sinclip/api_{lane}_{job_id}_seg{i + 1}"
             seg_seed = seed + i
             try:
-                if camera_pose:
+                if effect:
+                    workflow = _build_effects_workflow(
+                        prompt, negative, seg_seed, effect, aspect, prefix)
+                    jobs[job_id] = {
+                        **(jobs.get(job_id) or {}),
+                        "effect_prompt": EFFECTS[effect][1].replace(
+                            "{subject}", prompt),
+                    }
+                    image_name = f"job_{job_id}_seg{i + 1}.png"
+                    for node in workflow.values():
+                        if node.get("class_type") == "LoadImage":
+                            node["inputs"]["image"] = image_name
+                    video = ComfyUI().run_workflow.remote(
+                        workflow, image_bytes=start_bytes,
+                        image_name=image_name)
+                elif camera_pose:
                     workflow = _build_fun_camera_workflow(
                         prompt, negative, seg_seed, camera_pose,
                         camera_speed, aspect, prefix)
@@ -1012,7 +1194,10 @@ def api():
         _auth(x_api_key)
         body = await request.json()
         lane = body.get("lane", "draft")
-        if lane not in LANE_WORKFLOWS:
+        # An effects job carries lane "effects" (or a house lane
+        # label) plus its effect id; the effect block below validates
+        # the id and rewrites the record's lane to "effects".
+        if lane not in LANE_WORKFLOWS and not (body.get("effect") and lane == "effects"):
             raise HTTPException(status_code=422,
                                 detail=f"lane must be one of {sorted(LANE_WORKFLOWS)}")
         prompt = (body.get("prompt") or "").strip()
@@ -1071,6 +1256,34 @@ def api():
             if not 0.1 <= camera_speed <= 3.0:
                 raise HTTPException(
                     status_code=422, detail="camera_speed must be between 0.1 and 3.0")
+        # Effects: an effect id switches the render to the Wan 2.1
+        # effects workflow, whatever lane label the caller sent (the
+        # record's lane becomes "effects"). One effect per job, a
+        # start image is required, one segment, and it does not
+        # combine with camera conditioning or an end image.
+        effect = body.get("effect") or ""
+        if effect:
+            if effect not in EFFECTS:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"effect must be one of {sorted(EFFECTS)}")
+            if not start_image:
+                raise HTTPException(
+                    status_code=422,
+                    detail="effects need a start image")
+            if segments != 1:
+                raise HTTPException(
+                    status_code=422,
+                    detail="effects render one segment at a time")
+            if end_image:
+                raise HTTPException(
+                    status_code=422,
+                    detail="effects do not take an end image")
+            if camera_pose:
+                raise HTTPException(
+                    status_code=422,
+                    detail="effects do not combine with camera conditioning")
+            lane = "effects"
         job_id = uuid.uuid4().hex[:16]
         record = {
             "job_id": job_id,
@@ -1083,6 +1296,7 @@ def api():
             "segments_done": 0,
             "camera_pose": camera_pose or None,
             "camera_speed": camera_speed if camera_pose else None,
+            "effect": effect or None,
         }
         jobs[job_id] = record
         run_job.spawn(
@@ -1097,6 +1311,7 @@ def api():
             segments,
             camera_pose,
             camera_speed,
+            effect,
         )
         return JSONResponse({"job_id": job_id, "status": "queued"}, status_code=202)
 
@@ -1110,7 +1325,8 @@ def api():
                 ("job_id", "lane", "prompt", "status", "error", "bytes",
                  "created_at", "aspect_ratio", "segments_total",
                  "segments_done", "partial", "partial_error",
-                 "camera_pose", "camera_speed", "render_seconds")}
+                 "camera_pose", "camera_speed", "render_seconds",
+                 "effect", "effect_prompt")}
 
     @web.get("/jobs/{job_id}/file")
     def get_job_file(job_id: str, x_api_key: str = Header(default="")):
@@ -1240,6 +1456,13 @@ def main(mode: str = "render"):
         PROD_OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
         PROD_OUTPUT_PATH.write_bytes(video_bytes)
         print(f"saved {PROD_OUTPUT_PATH} ({len(video_bytes)} bytes) via volume fetch")
+        return
+
+    if mode == "download-effects-distill":
+        sizes = download_effects_distill.remote()
+        for name, size in sizes.items():
+            print(f"{name}: {size} bytes (expected {EFFECTS_DISTILL_SIZE}, "
+                  f"match={size == EFFECTS_DISTILL_SIZE})")
         return
 
     if mode == "download-seedvr2":

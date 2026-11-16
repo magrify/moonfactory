@@ -46,6 +46,7 @@ Request JSON:
 | `segments` | int | no | 1 (default) to 12. Above 1 the job chains: each segment after the first starts from the previous segment's last frame, the final segment steers to the end image when one was given, and the segments are stitched (shared boundary frame dropped) into one file. If a segment fails after at least one completed, the completed segments deliver as one file with `partial: true` and `segments_done` set; segment 1 failing is a plain error. |
 | `camera_pose` | string | no | One of `Static`, `Pan Up`, `Pan Down`, `Pan Left`, `Pan Right`, `Zoom In`, `Zoom Out`, `Anti Clockwise (ACW)`, `ClockWise (CW)`. Switches the render to the Fun Camera path (below). Production lane only, exactly 1 segment, no end image (422 otherwise). |
 | `camera_speed` | number | no | Fun Camera move speed, 0.1 to 3.0, default 1.0 (422 outside). Only meaningful with `camera_pose`. |
+| `effect` | string | no | One effect id from the effects table (below). Switches the render to the effects path: the record's lane becomes `"effects"`, a start image is required, exactly 1 segment, no end image, no `camera_pose` (422 otherwise). |
 
 ### Fun Camera path (camera conditioning, live 2026-11-16)
 
@@ -78,6 +79,46 @@ out the camera conditioning, or the conditioning needs the stock
 recipe's guidance, is an open loop-back item: judging it takes
 one stock-recipe render (about $0.77), which sat outside the
 Pass 4 run's spend cap.
+
+### Effects path (one-tap effects, live 2026-11-16)
+
+A job with `effect` set renders through `workflows/effects_i2v.json`
+(built from the Freefield effects app definition, MIT) on the
+Wan 2.1 I2V 480p 14B base
+(`diffusion_models/wan2.1_i2v_480p_14B_fp8_scaled.safetensors`,
+16,401,356,938 bytes in the Volume) plus ONE effect LoRA. The
+job's prompt is the subject the effect acts on; the worker builds
+the full prompt from the effect's model-card template (trigger
+words included) and stores it on the record as `effect_prompt`.
+The record also carries `effect` and the measured
+`render_seconds`. Native render dimensions: 480x832 (9:16),
+832x480 (16:9), 624x624 (1:1), 81 frames at 16 fps. The terminal
+node is the house VHS combine the other lanes use, so output
+handling is identical; the app's own CreateVideo/SaveVideo pair
+was not carried over.
+
+Effect ids (LoRA file in the Volume under `loras/`): angry,
+crying, laughing, puppies, steam, money-rain, cakeify, crush,
+deflate, electrify, explode, inflate, rotate, squish, orbit-360,
+arc-shot, bullet-time, car-chase, crane-down, crane-over-head,
+crane-up, crash-zoom-in, dolly-zoom, hero-run. The exact
+id-to-LoRA mapping and prompt templates live in the `EFFECTS`
+table in modal-worker/app.py.
+
+Recipe: the effects app's fast preset. The stock recipe is
+20 steps at cfg 6 (uni_pc); the fast preset raises the LightX2V
+2.1 step-distill LoRA
+(`loras/lightx2v_I2V_14B_480p_cfg_step_distill_rank64_bf16.safetensors`,
+738,005,744 bytes, sha256-verified against the Kijai/WanVideo_comfy
+repo listing when staged) from strength 0.0 to 1.0 and runs
+6 steps of euler at cfg 1.0. Measured proof renders
+(2026-11-16, Inflate, balloon benchmark, seed 12345): 101.5 s
+and 93.6 s of worker wall, about $0.05 at the L40S list rate,
+inside the Production lane's 15c worst case, so the platform
+prices an effect as a Production segment. The app's manifest
+warns the fast preset can weaken an effect; on the proof render
+the measured action was strong (subject area grew about 9.4x
+first frame to last, centroid steady).
 
 Response `202`:
 

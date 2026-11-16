@@ -589,3 +589,57 @@ width, with a rise). The wiring, gates, and cost are proven; the
 strength of the conditioned move under the fast recipe is the
 open item, and judging it needs one render on the stock recipe
 (about $0.77), outside this run's spend cap.
+
+## Update, 2026-11-16 (run 19): effects pack live (Pass 9, pulled forward)
+
+The Create form has an Effects picker: 24 one-tap effects rendered
+from the served list at /api/effects, never hand-built in the form.
+Cakeify, Explode, Inflate, Deflate, Squish, Hydraulic press,
+Electrify, Angry face, Crying, Laughing, Surrounded by puppies,
+Steam from nose and ears, Money rain, Rotate 360, 360 orbit, Arc
+shot, Bullet Time, Car chase, Crane down, Crane over the head,
+Crane up, Crash zoom in, Dolly zoom, and Hero run. One effect per
+job. An effect acts on a start image (upload one, or make the
+first frame and attach it), and the prompt you write is who or
+what is in the photo. Effects are a paid feature, stated in the
+form the same way custom audio and model switching are stated,
+and enforced on the server: a never-paid account gets a 403.
+
+An effect job renders about 5 seconds at 480p class native
+(480x832 in 9:16; 832x480 wide; 624x624 square) and is delivered
+through the existing post chain like a house-lane clip: the music
+bed is muxed on and the delivered file is the native size, not
+upscaled. Server validation, all before anything is charged or
+dispatched: an unknown effect, an effect without a start image,
+an effect with more than one segment, an end image, any camera
+preset or look, or a per-second model are clean 422s.
+
+Pricing: the lane renders with a fast recipe (see the worker
+notes). Two proof renders measured 101.5 and 93.6 seconds of
+worker wall, about $0.05 each, inside the Production lane's
+15 cent worst case already carried in pricing.py, so effects
+price exactly as Production segments: 99 cents from balance, or
+15 cents of a Creator's included budget, with the Amendment 2
+cost ceiling checked before dispatch as always. A failed effect
+job restores its balance charge and settled cost in full.
+
+Verification, 2026-11-16, against the public URL
+(scratch/verify_effects.py plus its follow-up harness, in-Modal):
+the picker serves all 24 effects at 99 cents; a free account got
+403 on a valid effect and 422 on an unknown effect and on an
+effect with no start image; a paying account's eight bad
+combinations each returned 422 with the worker's job count
+unchanged; a topped-out account was refused 402 before dispatch;
+the worker refuses an unknown effect, a missing start image, two
+segments, an end image, and a camera pose with an effect, all
+422, and a missing key with 401. A deliberately corrupt start
+image failed in the worker and restored its 99 cent charge and
+15 cents of settled cost in full. The proof render (Creator
+account, Inflate, the balloon benchmark scene, seed 12345)
+finished and delivered a 480x832 h264 clip with AAC audio at
+5.06 seconds, listed in the gallery as "Effect: Inflate",
+debiting exactly 15 cents of included budget. The frame
+measurement found the effect's action plainly: the subject's
+area grew from 5.1% of the frame to 47.6% (about 9.4x) first
+frame to last, with its center steady, which is what inflating
+looks like.
