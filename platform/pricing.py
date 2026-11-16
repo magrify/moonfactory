@@ -109,6 +109,40 @@ RESOLUTIONS = ("480p", "720p", "1080p")
 PROVIDER_RATES_CENTS_PER_SECOND = {
     "wan3": {"480p": 5.0, "720p": 10.0, "1080p": 20.0},
     "wan3_prime": {"480p": 6.8, "720p": 14.0, "1080p": 28.0},
+    # Seedance 2.5 via BeatAPI (Pass 2 supplier change, 2026-11-16):
+    # $0.096 / $0.194 / $0.481 per second, no reference video, audio
+    # included at no extra cost. With reference videos BeatAPI bills
+    # a LOWER per-second rate over output + reference seconds, so
+    # estimating every billed second at the no-reference rate is the
+    # conservative direction, and settlement uses the provider's own
+    # reported charge, never this estimate.
+    "seedance": {"480p": 9.6, "720p": 19.4, "1080p": 48.1},
+    # Veo 3.1 via fal, with audio (fal lists silent at half):
+    # $0.40/s at 720p and 1080p; no 480p tier exists.
+    "veo3": {"720p": 40.0, "1080p": 40.0},
+    # Veo 3.1 Fast via fal, with audio: $0.15/s at 720p and 1080p.
+    "veo3_fast": {"720p": 15.0, "1080p": 15.0},
+    # Kling 3.0 via fal, with native audio: Standard (720p) $0.126/s,
+    # Pro (1080p) $0.168/s. Resolution selects the tier.
+    "kling3": {"720p": 12.6, "1080p": 16.8},
+}
+
+# Fallback supplier data, kept for the record and never shown to
+# users: Seedance 2.5 via fal costs $0.215/s (480p) and $0.462/s
+# (720p) with no 1080p tier, which is why the lane's primary
+# supplier is BeatAPI (Pass 2). If the primary supplier ever goes
+# away, this row is the starting point for a fallback wiring.
+FALLBACK_PROVIDER_RATES_CENTS_PER_SECOND = {
+    "seedance": {"480p": 21.5, "720p": 46.2},
+}
+
+# Resolutions each per-second model can actually be ordered at.
+# Models absent here accept every entry in RESOLUTIONS.
+MODEL_RESOLUTIONS = {
+    "seedance": ("480p", "720p", "1080p"),
+    "veo3": ("720p", "1080p"),
+    "veo3_fast": ("720p", "1080p"),
+    "kling3": ("720p", "1080p"),
 }
 PROVIDER_RATE_STALE_SECONDS = 24 * 3600
 
@@ -143,6 +177,14 @@ CLIP_BASIS_SECONDS = 5.0
 HIGGSFIELD_EFFECTIVE_CENTS_PER_CLIP = {
     "wan3": 44.0,
     "wan3_prime": 74.0,
+    # Seedance 2.5 is Higgsfield's flagship lane: about $1.72 per
+    # 5 s 720p clip on the same credit math (PARITY-PROGRAM.md).
+    "seedance": 172.0,
+    # Veo 3.1, Veo 3.1 Fast and Kling 3.0 deliberately carry no
+    # effective figure: the parity research supplies none for them,
+    # and an invented one would poison the undercut test. Their
+    # lanes price at the 1.25x minimum until a measured Higgsfield
+    # effective exists.
 }
 
 
@@ -157,6 +199,18 @@ def frontier_lane(model: str, resolution: str, rates=None) -> dict:
     table = rates if rates is not None else PROVIDER_RATES_CENTS_PER_SECOND
     cost = per_second_lane_cost_cents(model, resolution, table)
     minimum = cost * FRONTIER_MIN_MARKUP
+    if model not in HIGGSFIELD_EFFECTIVE_CENTS_PER_CLIP:
+        # No measured Higgsfield effective for this lane (see the
+        # note on the table): the lane sells at the hard minimum and
+        # the undercut question stays honestly unanswered, rather
+        # than pricing against an invented competitor figure.
+        return {
+            "cost_cents_per_second": round(cost, 3),
+            "higgsfield_effective_cents_per_second": None,
+            "minimum_cents_per_second": round(minimum, 3),
+            "sell_cents_per_second": round(minimum, 3),
+            "can_undercut": None,
+        }
     eff_720 = (
         HIGGSFIELD_EFFECTIVE_CENTS_PER_CLIP[model] / CLIP_BASIS_SECONDS
     )
@@ -200,9 +254,18 @@ def included_budget_cents() -> float:
 
 
 def per_second_lane_cost_cents(model: str, resolution: str, rates=None) -> float:
-    """Worst-case cost per billed second for a per-second lane."""
+    """Worst-case cost per billed second for a per-second lane.
+    Raises ValueError for a model or resolution the rate table does
+    not carry, so an unorderable combination fails as a validation
+    error instead of a KeyError."""
     table = rates if rates is not None else PROVIDER_RATES_CENTS_PER_SECOND
-    return float(table[model][resolution]) + POST_COST_CENTS_PER_SECOND
+    try:
+        rate = float(table[model][resolution])
+    except (KeyError, TypeError, ValueError):
+        raise ValueError(
+            f"no provider rate for {model} at {resolution}"
+        ) from None
+    return rate + POST_COST_CENTS_PER_SECOND
 
 
 def per_second_estimate(model: str, resolution: str, output_seconds: float,

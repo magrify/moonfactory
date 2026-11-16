@@ -323,3 +323,48 @@ and a Production job ran from balance at 99 cents. With the
 account's settled cost set to leave one cent of ceiling
 headroom, both a Wan 3.0 create and a Production create were
 refused 402 before dispatch with nothing created or charged.
+
+## Frontier shelf (Pass 2, 2026-11-16)
+
+Four more models in the picker: Seedance 2.5, Veo 3.1, Veo 3.1
+Fast, and Kling 3.0, next to Wan 2.2, Wan 3.0, and Wan 3.0 Prime.
+Names only, as always; the default is still Wan 2.2 and switching
+is still paid-only. Each model validates its own lengths and
+resolutions (Veo makes 4, 6, or 8 second clips; Kling up to 15
+seconds; Seedance 4 to 30 seconds at up to 1080p).
+
+Seedance 2.5 is the first lane that beats the big credit
+platform's price instead of just clearing our minimum: it sells
+at 33.368 cents per second at 720p against their effective 34.4,
+so a 5 second clip is $1.67 of balance against their ~$1.72, and
+the 1.25x minimum under it is satisfied with room. That is
+possible because the lane's supplier charges $0.194 per second
+where the first supplier quoted $0.462 for the same model. Veo
+3.1, Veo 3.1 Fast, and Kling 3.0 have no measured competitor
+effective yet, so they sell at the hard minimum (cost times
+1.25): 50.125, 18.875, and 15.875 cents per second at 720p.
+Included budget still debits every lane at raw provider cost,
+and the per-account cost ceiling is untouched.
+
+The 6-hourly rate refresh now covers the new supplier's
+published Seedance prices as a required read alongside the Wan
+pages; a failed read still leaves the staleness pause armed.
+
+Verification, 2026-11-16, against the public URL
+(scratch/verify_frontier_shelf.py, in-Modal harness): config
+lists all seven models in order with Seedance unavailable (its
+supplier account is the one remaining setup step; the lane
+unpauses the moment its key is stored, no deploy needed). A free
+account got 403 on create and quote for every new lane. Quotes
+on a Creator account: Seedance 5 s 720p at 167 cents of balance
+or 98.21 cents of included budget (the refreshed raw cost),
+Veo 3.1 8 s at 401 / 320.8, Kling 3.0 5 s at 80 / 63.5.
+Per-model validation refused Veo at 5 seconds and 480p,
+Seedance at 3 seconds, and Kling at 20 seconds, all 422. The
+cost ceiling refused a Wan 3.0 create at 402 before dispatch
+with no job created. Real submissions at $0 provider balances:
+Wan 3.0, Veo 3.1 Fast, and Kling 3.0 each returned the clean
+"temporarily unavailable" with an error job and the hold fully
+released; Seedance refused 503 before dispatch (lane paused,
+no key yet). Balances, included budget, and settled cost were
+untouched after every submission.

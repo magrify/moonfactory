@@ -3,8 +3,9 @@
 One FastAPI service on Modal that serves the landing page and studio,
 handles accounts, enforces the business rules (pricing.py + config
 below), dispatches generation jobs to the private worker endpoint
-(Wan 2.2 lanes) and to the per-second model lanes (Wan 3.0 and
-Wan 3.0 Prime, via the provider queue configured below), and
+(Wan 2.2 lanes) and to the per-second model lanes (Wan 3.0,
+Wan 3.0 Prime, Seedance 2.5, Veo 3.1, Veo 3.1 Fast, and Kling 3.0,
+via the provider routes configured below), and
 receives Stripe webhooks. The worker API key lives only in this app's
 Modal Secret and is never sent to a browser.
 
@@ -31,6 +32,7 @@ State: Modal Dicts (users, jobs, meta, outbox). Finished files are
 cached on the moonfactory-data Volume.
 """
 
+import base64
 import hashlib
 import hmac
 import json
@@ -117,10 +119,43 @@ MODELS = [
     {"id": "wan2.2", "label": "Wan 2.2", "paid_only": False},
     {"id": "wan3", "label": "Wan 3.0", "paid_only": True},
     {"id": "wan3_prime", "label": "Wan 3.0 Prime", "paid_only": True},
+    {"id": "seedance", "label": "Seedance 2.5", "paid_only": True},
+    {"id": "veo3", "label": "Veo 3.1", "paid_only": True},
+    {"id": "veo3_fast", "label": "Veo 3.1 Fast", "paid_only": True},
+    {"id": "kling3", "label": "Kling 3.0", "paid_only": True},
 ]
 MODEL_LABELS = {m["id"]: m["label"] for m in MODELS}
 DEFAULT_MODEL = "wan2.2"
-PER_SECOND_MODELS = ("wan3", "wan3_prime")
+PER_SECOND_MODELS = ("wan3", "wan3_prime", "seedance", "veo3", "veo3_fast", "kling3")
+# Which supplier serves each per-second model. Internal only: the
+# picker, the pricing page, and every error show model names, never
+# suppliers (Amendment 1). Seedance 2.5's primary supplier is the
+# one whose per-second rate makes the lane undercut-capable under
+# Amendment 3; its fal endpoint stays in FALLBACK notes in
+# pricing.py, not wired, because fal charges over twice the rate
+# and offers no 1080p tier for this model.
+MODEL_PROVIDER = {
+    "wan3": "fal",
+    "wan3_prime": "fal",
+    "veo3": "fal",
+    "veo3_fast": "fal",
+    "kling3": "fal",
+    "seedance": "beatapi",
+}
+# Per-model duration bounds in seconds (the global form range is
+# 3-30; these narrow it to what each model actually accepts).
+MODEL_DURATION_BOUNDS = {
+    "seedance": (4, 30),
+    "veo3": (4, 8),
+    "veo3_fast": (4, 8),
+    "kling3": (3, 15),
+}
+# Veo generates only these clip lengths; anything else is refused
+# at validation instead of being silently rounded by the provider.
+MODEL_DURATION_STEPS = {
+    "veo3": (4, 6, 8),
+    "veo3_fast": (4, 6, 8),
+}
 FAL_BASE = "https://queue.fal.run"
 FAL_ENDPOINTS = {
     ("wan3", "text"): "alibaba/wan-3.0/text-to-video",
@@ -129,7 +164,44 @@ FAL_ENDPOINTS = {
     ("wan3_prime", "text"): "alibaba/wan-3.0-prime/text-to-video",
     ("wan3_prime", "image"): "alibaba/wan-3.0-prime/image-to-video",
     ("wan3_prime", "reference"): "alibaba/wan-3.0-prime/reference-to-video",
+    ("veo3", "text"): "fal-ai/veo3.1",
+    ("veo3", "image"): "fal-ai/veo3.1/image-to-video",
+    ("veo3", "reference"): "fal-ai/veo3.1/reference-to-video",
+    ("veo3_fast", "text"): "fal-ai/veo3.1/fast",
+    ("veo3_fast", "image"): "fal-ai/veo3.1/fast/image-to-video",
+    ("veo3_fast", "reference"): "fal-ai/veo3.1/fast/reference-to-video",
+    # Kling 3.0: the resolution picks the tier, Standard at 720p and
+    # Pro at 1080p, so these entries are keyed by resolution too.
+    ("kling3", "text"): {
+        "720p": "fal-ai/kling-video/v3/standard/text-to-video",
+        "1080p": "fal-ai/kling-video/v3/pro/text-to-video",
+    },
+    ("kling3", "image"): {
+        "720p": "fal-ai/kling-video/v3/standard/image-to-video",
+        "1080p": "fal-ai/kling-video/v3/pro/image-to-video",
+    },
+    ("kling3", "reference"): {
+        "720p": "fal-ai/kling-video/v3/standard/reference-to-video",
+        "1080p": "fal-ai/kling-video/v3/pro/reference-to-video",
+    },
 }
+
+
+def fal_endpoint_for(model: str, mode: str, resolution: str) -> str:
+    entry = FAL_ENDPOINTS[(model, mode)]
+    if isinstance(entry, dict):
+        return entry[resolution]
+    return entry
+
+
+# Second supplier (Seedance 2.5): an async task API. Create returns
+# a task id; the platform polls the task on the same cadence as the
+# fal lanes until it succeeds or fails, then downloads the result
+# from the task's output. The supplier also offers webhooks, but a
+# task stopped by a processing timeout sends no event, so polling
+# is the contract's reliable path and the only one wired.
+BEATAPI_BASE = "https://api.beatapi.io"
+BEATAPI_MODEL_IDS = {"seedance": "seedance-2.5"}
 # The one user-facing sentence for any per-second-lane failure:
 # provider errors, billing failures, and pauses all surface as this,
 # never as a raw provider response.
@@ -582,12 +654,26 @@ def api():
                 "updated_at": _now(),
             }
             meta["provider_rates"] = table
-        return table
+            return table
+        # A stored table predates any lane added since it was
+        # written: seed values fill the gaps per model and
+        # resolution, refreshed values always win.
+        merged = {
+            model: dict(resolutions)
+            for model, resolutions in
+            pricing.PROVIDER_RATES_CENTS_PER_SECOND.items()
+        }
+        for model, resolutions in (table.get("rates") or {}).items():
+            if isinstance(resolutions, dict):
+                merged.setdefault(model, {}).update(resolutions)
+        return {"rates": merged, "updated_at": table.get("updated_at")}
 
     def api_lane_state(model: str) -> dict:
         table = rate_table()
         age = _now() - float(table.get("updated_at") or 0)
-        configured = bool(os.environ.get("FAL_KEY"))
+        provider = MODEL_PROVIDER.get(model, "fal")
+        key_env = "BEATAPI_KEY" if provider == "beatapi" else "FAL_KEY"
+        configured = bool(os.environ.get(key_env))
         rates = (table.get("rates") or {}).get(model) or {}
         paused = (
             not configured
@@ -937,6 +1023,15 @@ def api():
         raw = pricing.per_second_lane_cost_cents(
             job["model"], job["resolution"], table["rates"]
         ) * billed
+        # A supplier that reports its own settled charge (the task
+        # API's usage record) is the truest cost there is: it already
+        # reflects token-based pricing and reference-video rates the
+        # per-second estimate can only approximate. Settle at the
+        # reported charge when the job carries one; the cap below
+        # still binds, so a bad report can never overcharge the
+        # account's budget accounting.
+        if job.get("provider_cost_cents") is not None:
+            raw = float(job["provider_cost_cents"])
         cap = float(job.get("cap_raw_cents") or raw)
         settled_raw = min(raw, cap)
         job["billed_seconds"] = billed
@@ -1040,9 +1135,73 @@ def api():
                 pass
         return job
 
+    def _beatapi_headers() -> dict:
+        return {
+            "Authorization": f"Bearer {os.environ.get('BEATAPI_KEY', '')}",
+            "Content-Type": "application/json",
+        }
+
+    def mirror_beatapi_status(job: dict) -> dict:
+        """Poll the task API on the same cadence as the fal lanes.
+        On success the task carries the result URL, the billed
+        output seconds, and the supplier's own settled charge in
+        USD; settlement prefers that charge (see settle_fal_job)."""
+        if job["status"] in ("queued", "running") and _now() - job.get("last_poll", 0) > 8:
+            job["last_poll"] = _now()
+            jobs[job["id"]] = job
+            try:
+                resp = requests.get(
+                    f"{BEATAPI_BASE}/v1/tasks/{job['provider_task_id']}",
+                    headers=_beatapi_headers(), timeout=15,
+                )
+                if resp.status_code == 200:
+                    task = (resp.json() or {}).get("data") or {}
+                    status = task.get("status")
+                    if status == "processing":
+                        job["status"] = "running"
+                        jobs[job["id"]] = job
+                    elif status == "succeeded":
+                        media = (
+                            (task.get("output") or {}).get("media") or []
+                        )
+                        video = next(
+                            (m for m in media if m.get("type") == "video"),
+                            media[0] if media else {},
+                        )
+                        usage = task.get("usage") or {}
+                        if video.get("url"):
+                            job["result_url"] = video["url"]
+                            if usage.get("billable_duration_seconds"):
+                                job["result_duration"] = float(
+                                    usage["billable_duration_seconds"]
+                                )
+                            if usage.get("credits_settled") is not None:
+                                job["provider_cost_cents"] = round(
+                                    float(usage["credits_settled"]) * 100, 2
+                                )
+                            job["status"] = "done"
+                            jobs[job["id"]] = job
+                            settle_fal_job(job)
+                        else:
+                            job["poll_errors"] = int(job.get("poll_errors") or 0) + 1
+                            if job["poll_errors"] > 30:
+                                fail_fal_job(job)
+                            else:
+                                jobs[job["id"]] = job
+                    elif status == "failed":
+                        job["provider_error"] = (
+                            f"{task.get('error_code')}: {task.get('error_message')}"
+                        )[:200]
+                        fail_fal_job(job)
+            except Exception:
+                pass
+        return job
+
     def mirror_status(job: dict) -> dict:
         if job.get("provider") == "fal":
             return mirror_fal_status(job)
+        if job.get("provider") == "beatapi":
+            return mirror_beatapi_status(job)
         if job["status"] in ("queued", "running") and _now() - job.get("last_poll", 0) > 8:
             try:
                 resp = requests.get(
@@ -1101,18 +1260,37 @@ def api():
             "has_custom_audio": bool(job.get("music_prompt")),
         }
 
-    def _api_job_params(body: dict) -> dict:
+    def _api_job_params(body: dict, model: str = "") -> dict:
         """Validate a per-second-lane job's shape once, for both the
-        quote and the create path, so the two can never disagree."""
+        quote and the create path, so the two can never disagree.
+        Duration and resolution limits are per model: each lane
+        refuses what its model cannot actually produce instead of
+        letting the provider silently change the order."""
         try:
             duration = int(body.get("duration_seconds") or 5)
         except (TypeError, ValueError):
             raise HTTPException(status_code=422, detail="duration must be a whole number of seconds")
-        if duration < 3 or duration > 30:
-            raise HTTPException(status_code=422, detail="duration must be between 3 and 30 seconds")
+        low, high = MODEL_DURATION_BOUNDS.get(model, (3, 30))
+        if duration < low or duration > high:
+            raise HTTPException(
+                status_code=422,
+                detail=f"duration for this model must be between {low} and {high} seconds",
+            )
+        steps = MODEL_DURATION_STEPS.get(model)
+        if steps and duration not in steps:
+            raise HTTPException(
+                status_code=422,
+                detail="this model generates clips of "
+                + ", ".join(f"{s} seconds" for s in steps),
+            )
         resolution = body.get("resolution") or "720p"
-        if resolution not in pricing.RESOLUTIONS:
-            raise HTTPException(status_code=422, detail="resolution must be 480p, 720p, or 1080p")
+        allowed_res = pricing.MODEL_RESOLUTIONS.get(model, pricing.RESOLUTIONS)
+        if resolution not in allowed_res:
+            raise HTTPException(
+                status_code=422,
+                detail="resolution for this model must be one of: "
+                + ", ".join(allowed_res),
+            )
         ref_images = body.get("reference_image_urls") or []
         ref_videos = body.get("reference_video_urls") or []
         ref_audios = body.get("reference_audio_urls") or []
@@ -1133,6 +1311,11 @@ def api():
                 )
         start_image = body.get("start_image_png_b64") or None
         end_image = body.get("end_image_png_b64") or None
+        if model in ("veo3", "veo3_fast") and (ref_videos or ref_audios):
+            raise HTTPException(
+                status_code=422,
+                detail="this model takes image references only",
+            )
         if ref_images or ref_videos or ref_audios:
             mode = "reference"
         elif start_image:
@@ -1208,7 +1391,7 @@ def api():
         if model in PER_SECOND_MODELS:
             if not is_paid(user):
                 raise HTTPException(status_code=403, detail="model switching is a paid feature")
-            return _quote_for(user, model, _api_job_params(body))
+            return _quote_for(user, model, _api_job_params(body, model))
         return {
             "model": model,
             "model_label": MODEL_LABELS[model],
@@ -1217,13 +1400,198 @@ def api():
             "included_budget_cents_remaining": round(included_budget_remaining(user), 2),
         }
 
+    def _submit_failed(job: dict, detail: str):
+        """Shared submit-failure path for every per-second lane:
+        the internal detail stays on the record, the job fails, the
+        hold releases, and the user sees the one clean sentence."""
+        job["provider_error"] = detail[:200]
+        jobs[job["id"]] = job
+        fail_fal_job(job)
+        raise HTTPException(status_code=503, detail=MODEL_UNAVAILABLE)
+
+    def submit_fal_job(job: dict, body: dict, params: dict, prompt: str, base: str):
+        model = job["model"]
+        endpoint = fal_endpoint_for(model, params["mode"], params["resolution"])
+        if model in ("veo3", "veo3_fast"):
+            # Veo's fal schema: clip length as a string, audio as
+            # generate_audio, frames as image_url / end_image_url,
+            # references as image_urls (images only; validation
+            # already refused video and audio references).
+            payload = {
+                "prompt": prompt,
+                "aspect_ratio": "9:16",
+                "duration": f"{params['duration']}s",
+                "resolution": params["resolution"],
+                "generate_audio": True,
+            }
+            if params["mode"] == "image":
+                payload["image_url"] = f"data:image/png;base64,{params['start_image']}"
+                if params["end_image"]:
+                    payload["end_image_url"] = f"data:image/png;base64,{params['end_image']}"
+            elif params["mode"] == "reference":
+                if params["reference_image_urls"]:
+                    payload["image_urls"] = params["reference_image_urls"]
+        elif model == "kling3":
+            # Kling's tier rides in the endpoint path (see
+            # FAL_ENDPOINTS), so no resolution field goes in the
+            # body; native audio is part of the priced tier.
+            payload = {
+                "prompt": prompt,
+                "aspect_ratio": "9:16",
+                "duration": params["duration"],
+            }
+            if params["mode"] == "image":
+                payload["image_url"] = f"data:image/png;base64,{params['start_image']}"
+                if params["end_image"]:
+                    payload["end_image_url"] = f"data:image/png;base64,{params['end_image']}"
+            elif params["mode"] == "reference":
+                if params["reference_image_urls"]:
+                    payload["reference_image_urls"] = params["reference_image_urls"]
+                if params["reference_video_urls"]:
+                    payload["reference_video_urls"] = params["reference_video_urls"]
+                if params["reference_audio_urls"]:
+                    payload["reference_audio_urls"] = params["reference_audio_urls"]
+        else:
+            payload = {
+                "prompt": prompt,
+                "resolution": params["resolution"],
+                "aspect_ratio": "9:16",
+                "duration": params["duration"],
+                "audio": True,
+            }
+            if params["mode"] == "image":
+                payload["start_image_url"] = f"data:image/png;base64,{params['start_image']}"
+                if params["end_image"]:
+                    payload["end_image_url"] = f"data:image/png;base64,{params['end_image']}"
+            elif params["mode"] == "reference":
+                if params["reference_image_urls"]:
+                    payload["reference_image_urls"] = params["reference_image_urls"]
+                if params["reference_video_urls"]:
+                    payload["reference_video_urls"] = params["reference_video_urls"]
+                if params["reference_audio_urls"]:
+                    payload["reference_audio_urls"] = params["reference_audio_urls"]
+        if isinstance(body.get("seed"), int):
+            payload["seed"] = body["seed"]
+        webhook_url = f"{base}/api/fal/webhook/{job['id']}?token={_fal_token(job['id'])}"
+        submit_url = f"{FAL_BASE}/{endpoint}?fal_webhook={urllib.parse.quote(webhook_url, safe='')}"
+        try:
+            resp = requests.post(
+                submit_url, headers=_fal_headers(), json=payload, timeout=30
+            )
+        except Exception as exc:
+            _submit_failed(job, f"submit unreachable: {exc}")
+        if resp.status_code not in (200, 201, 202):
+            _submit_failed(job, f"submit http {resp.status_code}: {resp.text[:150]}")
+        data = resp.json()
+        job["provider_request_id"] = data.get("request_id")
+        job["provider_status_url"] = data.get("status_url")
+        job["provider_response_url"] = data.get("response_url")
+        jobs[job["id"]] = job
+
+    def _beatapi_upload(data: bytes, filename: str, mime: str) -> str:
+        """Upload one media file to the task supplier and return
+        its public URL. Their task inputs must be public https
+        URLs; the platform's own inputs arrive as uploads, so they
+        go through the supplier's file endpoint first."""
+        resp = requests.post(
+            f"{BEATAPI_BASE}/v1/files",
+            headers={
+                "Authorization": f"Bearer {os.environ.get('BEATAPI_KEY', '')}"
+            },
+            files={"file": (filename, data, mime)},
+            timeout=60,
+        )
+        if resp.status_code not in (200, 201):
+            raise ValueError(f"file upload http {resp.status_code}")
+        url = ((resp.json() or {}).get("data") or {}).get("url")
+        if not url:
+            raise ValueError("file upload returned no url")
+        return url
+
+    def _beatapi_media_url(value: str, kind: str) -> str:
+        """One task input as a public URL: pass https URLs through,
+        upload anything else (data URLs, raw base64 frames)."""
+        if value.startswith("https://"):
+            return value
+        if value.startswith("data:"):
+            header, _, b64 = value.partition(",")
+            mime = header[5:].split(";")[0] or "application/octet-stream"
+            raw = base64.b64decode(b64)
+        else:
+            # Start and end frames arrive as raw base64 PNG.
+            mime = "image/png"
+            raw = base64.b64decode(value)
+        ext = {"image/png": "png", "image/jpeg": "jpg",
+               "video/mp4": "mp4", "audio/mpeg": "mp3"}.get(mime, "bin")
+        return _beatapi_upload(raw, f"{kind}.{ext}", mime)
+
+    def submit_beatapi_job(job: dict, body: dict, params: dict, prompt: str):
+        """Create one task on the Seedance supplier. The price is
+        reserved from the supplier balance at creation; a failed
+        task is refunded there in full, and any refusal here (a
+        $0 balance answers 402) fails the job and releases the
+        platform hold, exactly like the fal lanes."""
+        payload = {
+            "model": BEATAPI_MODEL_IDS[job["model"]],
+            "prompt": prompt,
+            "duration": params["duration"],
+            "resolution": params["resolution"],
+            "aspect_ratio": "9:16",
+            "generate_audio": True,
+        }
+        try:
+            if params["mode"] == "image":
+                frames = [_beatapi_media_url(params["start_image"], "first-frame")]
+                if params["end_image"]:
+                    frames.append(_beatapi_media_url(params["end_image"], "last-frame"))
+                payload["images"] = frames
+            elif params["mode"] == "reference":
+                if params["reference_image_urls"]:
+                    payload["reference_images"] = [
+                        _beatapi_media_url(u, "reference-image")
+                        for u in params["reference_image_urls"]
+                    ]
+                if params["reference_video_urls"]:
+                    payload["reference_videos"] = [
+                        _beatapi_media_url(u, "reference-video")
+                        for u in params["reference_video_urls"]
+                    ]
+                if params["reference_audio_urls"]:
+                    payload["reference_audios"] = [
+                        _beatapi_media_url(u, "reference-audio")
+                        for u in params["reference_audio_urls"]
+                    ]
+        except Exception as exc:
+            _submit_failed(job, f"media upload failed: {exc}")
+        if isinstance(body.get("seed"), int):
+            payload["seed"] = body["seed"]
+        headers = dict(_beatapi_headers())
+        # The job id doubles as the idempotency key: a retried
+        # submit within the supplier's window replays the first
+        # task instead of reserving twice.
+        headers["Idempotency-Key"] = job["id"]
+        try:
+            resp = requests.post(
+                f"{BEATAPI_BASE}/v1/videos/tasks",
+                headers=headers, json=payload, timeout=30,
+            )
+        except Exception as exc:
+            _submit_failed(job, f"submit unreachable: {exc}")
+        if resp.status_code not in (200, 201, 202):
+            _submit_failed(job, f"submit http {resp.status_code}: {resp.text[:150]}")
+        data = (resp.json() or {}).get("data") or {}
+        if not data.get("id"):
+            _submit_failed(job, "submit returned no task id")
+        job["provider_task_id"] = data["id"]
+        jobs[job["id"]] = job
+
     def create_api_job(user: dict, body: dict, model: str, base: str,
                        prompt: str, music_prompt: str, camera: dict = None):
         """Quote -> hold -> submit, per design s.3. Any failure at or
         before submission leaves an error job with the clean public
         message and the hold fully released: no charge, nothing
         stuck."""
-        params = _api_job_params(body)
+        params = _api_job_params(body, model)
         state = api_lane_state(model)
         if state["paused"]:
             raise HTTPException(status_code=503, detail=MODEL_UNAVAILABLE)
@@ -1259,8 +1627,10 @@ def api():
             "id": pysecrets.token_hex(8),
             "user_id": user["id"],
             "worker_job_id": None,
-            "provider": "fal",
+            "provider": MODEL_PROVIDER.get(model, "fal"),
             "provider_request_id": None,
+            "provider_task_id": None,
+            "provider_cost_cents": None,
             "provider_status_url": None,
             "provider_response_url": None,
             "lane": model,
@@ -1293,48 +1663,10 @@ def api():
             "cap_raw_cents": est["cap_raw_cents"],
         }
         jobs[job["id"]] = job
-        endpoint = FAL_ENDPOINTS[(model, params["mode"])]
-        payload = {
-            "prompt": prompt,
-            "resolution": params["resolution"],
-            "aspect_ratio": "9:16",
-            "duration": params["duration"],
-            "audio": True,
-        }
-        if params["mode"] == "image":
-            payload["start_image_url"] = f"data:image/png;base64,{params['start_image']}"
-            if params["end_image"]:
-                payload["end_image_url"] = f"data:image/png;base64,{params['end_image']}"
-        elif params["mode"] == "reference":
-            if params["reference_image_urls"]:
-                payload["reference_image_urls"] = params["reference_image_urls"]
-            if params["reference_video_urls"]:
-                payload["reference_video_urls"] = params["reference_video_urls"]
-            if params["reference_audio_urls"]:
-                payload["reference_audio_urls"] = params["reference_audio_urls"]
-        if isinstance(body.get("seed"), int):
-            payload["seed"] = body["seed"]
-        webhook_url = f"{base}/api/fal/webhook/{job['id']}?token={_fal_token(job['id'])}"
-        submit_url = f"{FAL_BASE}/{endpoint}?fal_webhook={urllib.parse.quote(webhook_url, safe='')}"
-        try:
-            resp = requests.post(
-                submit_url, headers=_fal_headers(), json=payload, timeout=30
-            )
-        except Exception as exc:
-            job["provider_error"] = f"submit unreachable: {exc}"[:200]
-            jobs[job["id"]] = job
-            fail_fal_job(job)
-            raise HTTPException(status_code=503, detail=MODEL_UNAVAILABLE)
-        if resp.status_code not in (200, 201, 202):
-            job["provider_error"] = f"submit http {resp.status_code}: {resp.text[:150]}"
-            jobs[job["id"]] = job
-            fail_fal_job(job)
-            raise HTTPException(status_code=503, detail=MODEL_UNAVAILABLE)
-        data = resp.json()
-        job["provider_request_id"] = data.get("request_id")
-        job["provider_status_url"] = data.get("status_url")
-        job["provider_response_url"] = data.get("response_url")
-        jobs[job["id"]] = job
+        if job["provider"] == "beatapi":
+            submit_beatapi_job(job, body, params, prompt)
+        else:
+            submit_fal_job(job, body, params, prompt, base)
         return JSONResponse(public_job(job), status_code=202)
 
     @web.post("/api/jobs")
@@ -1626,7 +1958,7 @@ def api():
         if not out_path.exists():
             raw_path = FILES_DIR / f"{job_id}.raw.mp4"
             if not raw_path.exists():
-                if job.get("provider") == "fal":
+                if job.get("provider") in ("fal", "beatapi"):
                     if not job.get("result_url"):
                         raise HTTPException(status_code=502, detail="finished file is not available yet")
                     resp = requests.get(job["result_url"], timeout=300)
@@ -1641,7 +1973,7 @@ def api():
                     if resp.status_code != 200:
                         raise HTTPException(status_code=502, detail="finished file is not available yet")
                     raw_path.write_bytes(resp.content)
-            if job.get("provider") == "fal":
+            if job.get("provider") in ("fal", "beatapi"):
                 bed = _bed_for_job(job) if job.get("music_prompt") else None
                 try:
                     _process_api_file(raw_path, out_path, bed_path=bed)
@@ -2109,47 +2441,102 @@ def _process_api_file(raw_path: Path, out_path: Path, bed_path=None):
 
 @app.function(image=image, schedule=modal.Period(hours=6))
 def refresh_provider_rates():
-    """Re-read the provider's published per-model prices and refresh
+    """Re-read the providers' published per-model prices and refresh
     the live rate table (design s.6). The table's timestamp advances
-    only when every model's full price set was re-read, so a partial
-    or failed read leaves the staleness pause armed instead of
-    quietly extending stale prices. Runs on CPU; no key needed, the
-    pages are public."""
+    only when every required model's full price set was re-read, so
+    a partial or failed read leaves the staleness pause armed
+    instead of quietly extending stale prices. Required reads: the
+    two Wan pages and the Seedance page on its supplier's site.
+    The Veo and Kling pages are read opportunistically (their
+    prices update when the pages parse, and the weekly margin
+    report is the backstop until they do). Runs on CPU; no key
+    needed, the pages are public."""
     import re as _re
 
     import requests as _requests
 
-    pages = {
-        "wan3": "alibaba/wan-3.0/text-to-video",
-        "wan3_prime": "alibaba/wan-3.0-prime/text-to-video",
+    def fal_pairs(text: str) -> dict:
+        text = text.replace("\\", "")
+        pairs = {}
+        for price, res in _re.findall(
+            r"\$(\d+\.\d+)\*\*\s*\*\*(480p|720p|1080p)\*\*", text
+        ):
+            pairs[res] = round(float(price) * 100, 3)
+        if not pairs:
+            for price, res in _re.findall(
+                r"\$(\d+\.\d+)\s+at\s+(480p|720p|1080p)", text
+            ):
+                pairs[res] = round(float(price) * 100, 3)
+        return pairs
+
+    fal_pages = {
+        "wan3": [("alibaba/wan-3.0/text-to-video", pricing.RESOLUTIONS)],
+        "wan3_prime": [("alibaba/wan-3.0-prime/text-to-video", pricing.RESOLUTIONS)],
+        "veo3": [("fal-ai/veo3.1", ("720p", "1080p"))],
+        "veo3_fast": [("fal-ai/veo3.1/fast", ("720p", "1080p"))],
+        "kling3": [
+            ("fal-ai/kling-video/v3/standard/text-to-video", ("720p",)),
+            ("fal-ai/kling-video/v3/pro/text-to-video", ("1080p",)),
+        ],
     }
     found = {}
-    for model, page in pages.items():
-        try:
-            resp = _requests.get(
-                f"https://fal.ai/models/{page}",
-                headers={"User-Agent": "Mozilla/5.0"},
-                timeout=30,
-            )
-            if resp.status_code != 200:
+    for model, page_specs in fal_pages.items():
+        pairs = {}
+        expected = set()
+        for page, resolutions in page_specs:
+            expected.update(resolutions)
+            try:
+                resp = _requests.get(
+                    f"https://fal.ai/models/{page}",
+                    headers={"User-Agent": "Mozilla/5.0"},
+                    timeout=30,
+                )
+                if resp.status_code != 200:
+                    continue
+                for res, cents in fal_pairs(resp.text).items():
+                    if res in resolutions:
+                        pairs[res] = cents
+            except Exception:
                 continue
-            text = resp.text.replace("\\", "")
+        if expected and expected.issubset(pairs):
+            found[model] = {res: pairs[res] for res in sorted(expected)}
+
+    # Seedance 2.5's supplier publishes per-clip prices for 8-second
+    # clips on the model's own page; per-second is price / 8. The
+    # rows used are the no-video-input ones, the same basis as the
+    # seeded table. The page carries them as structured-data offers
+    # ("name": "... 8 sec · 720p · no video input", "price": 1.5633)
+    # and as a rendered table; try both shapes.
+    try:
+        resp = _requests.get(
+            "https://beatapi.io/seedance-2.5-api",
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=30,
+        )
+        if resp.status_code == 200:
+            text = resp.text.replace("\\u00b7", "·").replace("\\", "")
             pairs = {}
-            for price, res in _re.findall(
-                r"\$(\d+\.\d+)\*\*\s*\*\*(480p|720p|1080p)\*\*", text
+            for res, price in _re.findall(
+                r"8 sec · (480p|720p|1080p) · no video input\",\"url\":\"[^\"]*\",\"price\":(\d+\.\d+)",
+                text,
             ):
-                pairs[res] = float(price) * 100
+                pairs[res] = round(float(price) / 8 * 100, 3)
             if len(pairs) < 3:
                 pairs = {}
-                for price, res in _re.findall(
-                    r"\$(\d+\.\d+)\s+at\s+(480p|720p|1080p)", text
+                for res, price in _re.findall(
+                    r"8 sec · (480p|720p|1080p) · no video input[^$\d]{0,80}\$(\d+\.\d+)",
+                    text,
                 ):
-                    pairs[res] = float(price) * 100
+                    pairs[res] = round(float(price) / 8 * 100, 3)
             if len(pairs) == 3:
-                found[model] = {res: pairs[res] for res in pricing.RESOLUTIONS}
-        except Exception:
-            continue
-    if len(found) != len(pages):
+                found["seedance"] = {
+                    res: pairs[res] for res in pricing.RESOLUTIONS
+                }
+    except Exception:
+        pass
+
+    required = {"wan3", "wan3_prime", "seedance"}
+    if not required.issubset(found):
         return {"verified": sorted(found), "updated": False}
     table = meta.get("provider_rates") or {
         "rates": pricing.PROVIDER_RATES_CENTS_PER_SECOND,
@@ -2218,9 +2605,13 @@ and X: 9:16, captioned by you, ready to post.</p>
   <tr><th>Model</th><th>What you get</th><th>Who can use it</th></tr>
   <tr><td>Wan 2.2</td><td>Draft previews and Production renders at 720x1280, about 5 seconds each</td><td>Everyone; Production is Creator plan or balance</td></tr>
   <tr><td>Wan 3.0</td><td>Sharper motion and detail, sound made with the picture, up to 30 seconds in one pass</td><td>Any paying customer</td></tr>
-  <tr><td>Wan 3.0 Prime</td><td>The flagship tier: the best motion and detail of the three</td><td>Any paying customer</td></tr>
+  <tr><td>Wan 3.0 Prime</td><td>The flagship Wan tier: the best motion and detail of the Wan family</td><td>Any paying customer</td></tr>
+  <tr><td>Seedance 2.5</td><td>Long takes up to 30 seconds with sound made with the picture, at up to 1080p</td><td>Any paying customer</td></tr>
+  <tr><td>Veo 3.1</td><td>Cinematic shots with sound, 4 to 8 seconds, at 720p or 1080p</td><td>Any paying customer</td></tr>
+  <tr><td>Veo 3.1 Fast</td><td>The quick Veo tier: same shots, faster and cheaper, 4 to 8 seconds</td><td>Any paying customer</td></tr>
+  <tr><td>Kling 3.0</td><td>Cinematic motion with sound, up to 15 seconds, at 720p or 1080p</td><td>Any paying customer</td></tr>
 </table>
-<p class="muted">Wan 3.0 and Wan 3.0 Prime are priced per second.
+<p class="muted">Every model beyond Wan 2.2 is priced per second.
 The exact price for your video is always shown before it runs.
 Creator members can pay from their included monthly budget;
 everyone else pays per video from prepaid balance. Nothing ever
@@ -2231,12 +2622,12 @@ runs at a price you have not seen first.</p>
 top up a prepaid balance and pay per clip, no subscription.
 <strong>Creator:</strong> a monthly plan with an included
 generation budget, plus top-ups whenever you want more. Any
-payment, either way, unlocks all three models, custom music, and
+payment, either way, unlocks every model, custom music, and
 hiding your clips from the gallery.</p>
 <div id="pricing"><p class="muted">Loading prices...</p></div>
 <p class="muted">Wan 2.2 prices come from one formula: worst-case
 measured generation cost, times three, with card fees included.
-Wan 3.0 and Wan 3.0 Prime are priced per second against what the
+The per-second models are priced against what the
 big credit platforms effectively charge for the same clip, and
 never below our own cost plus a margin, so no video ever runs at
 a loss. If our costs drop, the included time goes up on its own.</p>
@@ -2277,12 +2668,20 @@ resets each month, which is part of how the price stays at $20.</p>
 fetch('/api/pricing').then(r => r.json()).then(p => {
   const secs = p.creator_included_production_seconds;
   let perSecond = '';
-  if (p.api_lanes && p.api_lanes.wan3 && p.api_lanes.wan3_prime) {
-    perSecond = ' Wan 3.0 costs $' +
-      (p.api_lanes.wan3.balance_debit_cents_per_second['720p']/100).toFixed(2) +
-      ' per second at 720p and Wan 3.0 Prime $' +
-      (p.api_lanes.wan3_prime.balance_debit_cents_per_second['720p']/100).toFixed(2) +
-      ' per second at 720p, and the exact price for your length and size is shown before the job runs.';
+  if (p.api_lanes) {
+    const order = ['wan3', 'wan3_prime', 'seedance', 'veo3', 'veo3_fast', 'kling3'];
+    const parts = [];
+    for (const id of order) {
+      const lane = p.api_lanes[id];
+      if (lane && lane.balance_debit_cents_per_second['720p'] != null) {
+        parts.push(lane.label + ' $' +
+          (lane.balance_debit_cents_per_second['720p']/100).toFixed(2));
+      }
+    }
+    if (parts.length) {
+      perSecond = ' Per-second models at 720p, per second: ' + parts.join(', ') +
+        '. The exact price for your length and size is shown before the job runs.';
+    }
   }
   let html =
     '<div class="card"><strong>Pay per video</strong>: no subscription. Top up $5 / $10 / $20 of prepaid balance and pay per clip. ' +
@@ -2291,7 +2690,7 @@ fetch('/api/pricing').then(r => r.json()).then(p => {
     perSecond + '</div>' +
     '<div class="card"><strong>Creator</strong>: $' + (p.creator_price_cents/100).toFixed(2) +
     '/month. An included monthly budget, about ' + secs +
-    ' seconds of Production time at current generation costs, and the same budget also pays for Wan 3.0 and Wan 3.0 Prime seconds. ' +
+    ' seconds of Production time at current generation costs, and the same budget also pays for seconds on the per-second models. ' +
     'Top-ups work on top of the plan whenever you want more.</div>' +
     '<div class="card"><strong>Free</strong>: $0. Wan 2.2 Draft lane, 5 clips per account total, watermarked.</div>';
   document.getElementById('pricing').innerHTML = html;
@@ -2357,6 +2756,10 @@ APP_HTML = (
       <option value="wan2.2">Wan 2.2</option>
       <option value="wan3">Wan 3.0</option>
       <option value="wan3_prime">Wan 3.0 Prime</option>
+      <option value="seedance">Seedance 2.5</option>
+      <option value="veo3">Veo 3.1</option>
+      <option value="veo3_fast">Veo 3.1 Fast</option>
+      <option value="kling3">Kling 3.0</option>
     </select>
     <p class="muted" id="model-note"></p>
     <div id="lane-wrap">
@@ -2574,14 +2977,13 @@ function showStudio(u) {
   $('handle').value = u.handle || '';
   const opt = $('gallery-optout');
   const prodOption = document.querySelector('#lane option[value="production"]');
-  const w3 = document.querySelector('#model option[value="wan3"]');
-  const w3p = document.querySelector('#model option[value="wan3_prime"]');
+  const paidModels = document.querySelectorAll('#model option:not([value="wan2.2"])');
   if (u.paid_customer) {
     opt.disabled = false; opt.checked = !!u.gallery_opt_out;
     $('gallery-note').textContent = '';
     prodOption.disabled = false;
     $('lane-note').textContent = '';
-    w3.disabled = false; w3p.disabled = false;
+    paidModels.forEach(o => { o.disabled = false; });
     $('model-note').textContent = '';
     $('music').disabled = false;
     $('music-note').textContent = 'Describe the music and it is generated for this video.';
@@ -2590,7 +2992,7 @@ function showStudio(u) {
     $('gallery-note').textContent = 'Clips from accounts that have never paid always show in the gallery. Hiding them unlocks with any payment.';
     prodOption.disabled = true;
     $('lane-note').textContent = '';
-    w3.disabled = true; w3p.disabled = true;
+    paidModels.forEach(o => { o.disabled = true; });
     $('model').value = 'wan2.2';
     $('model-note').textContent = 'Model switching unlocks with any payment. Accounts that have never paid render on Wan 2.2 Draft.';
     $('music').disabled = true; $('music').value = '';
@@ -2620,12 +3022,40 @@ async function fetchQuote() {
     }
   } catch (e) { q.textContent = ''; }
 }
+// Per-model length and resolution choices, mirroring what the
+// server accepts for each model (it validates again on quote and
+// create, so this only keeps the form honest).
+const MODEL_OPTS = {
+  wan3: { durations: [5, 10, 15, 20, 30], resolutions: ['480p', '720p', '1080p'] },
+  wan3_prime: { durations: [5, 10, 15, 20, 30], resolutions: ['480p', '720p', '1080p'] },
+  seedance: { durations: [5, 10, 15, 20, 30], resolutions: ['480p', '720p', '1080p'] },
+  veo3: { durations: [4, 6, 8], resolutions: ['720p', '1080p'] },
+  veo3_fast: { durations: [4, 6, 8], resolutions: ['720p', '1080p'] },
+  kling3: { durations: [5, 10, 15], resolutions: ['720p', '1080p'] }
+};
+function fillSelect(sel, values, label) {
+  const keep = sel.value;
+  sel.innerHTML = '';
+  for (const v of values) {
+    const o = document.createElement('option');
+    o.value = v; o.textContent = label(v);
+    sel.appendChild(o);
+  }
+  if (values.map(String).includes(keep)) sel.value = keep;
+}
 function updateModelUI() {
   const m = $('model').value;
   const api = m !== 'wan2.2';
   $('lane-wrap').style.display = api ? 'none' : 'block';
   $('api-opts').style.display = api ? 'block' : 'none';
-  if (api) fetchQuote();
+  if (api) {
+    const opts = MODEL_OPTS[m];
+    if (opts) {
+      fillSelect($('duration'), opts.durations, v => v + ' seconds');
+      fillSelect($('resolution'), opts.resolutions, v => v);
+    }
+    fetchQuote();
+  }
 }
 $('model').addEventListener('change', updateModelUI);
 $('duration').addEventListener('change', fetchQuote);
