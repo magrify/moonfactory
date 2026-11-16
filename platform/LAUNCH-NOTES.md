@@ -137,3 +137,73 @@ then) and the trademark screen from the original decision list.
   delivery.
 - Production renders take about 25 minutes and Draft about 6 to 13.
   The studio says so up front; there is no queue position display yet.
+
+## Update, 2026-11-16 (later): Wan 3.0, Wan 3.0 Prime, and the cost ceiling
+
+The model picker is live. The studio and the landing page offer
+three models by name only: Wan 2.2, Wan 3.0, and Wan 3.0 Prime. No
+surface says where any model runs. The default for every account
+and every job is Wan 2.2, the cheapest (BUSINESS-RULES Rule 3,
+Amendment 2); switching models is a Creator-plan feature, enforced
+on the server: a free account that asks for Wan 3.0 or Prime gets a
+clean 403 before anything is quoted, held, or dispatched.
+
+Wan 3.0 and Wan 3.0 Prime run per second: 480p, 720p, or 1080p, 3
+to 30 seconds in one pass, with the sound the model makes kept in
+the delivered file and normalized to the house loudness standard.
+Every job follows quote, hold, dispatch, settle: the exact price
+is quoted first (POST /api/jobs/quote, and the studio shows it
+before you create), the job's spend cap (estimate times 1.1) is
+held before dispatch, and the hold settles at the actual billed
+seconds, never above the cap. Any failure on these two models
+surfaces as one sentence, "this model is temporarily unavailable";
+the hold is released in full and nothing is charged.
+
+Included time is one budget now, not per-model allowances: 637
+cents of measured generation cost per Creator month at current
+prices. A Wan 2.2 segment debits 15 cents of it (the same 214
+included production seconds as before); a Wan 3.0 second at 720p
+debits 10.1 cents; a Prime second at 720p debits 14.1 cents.
+Balance payment runs at three times measured cost, as always.
+
+Amendment 2's hard ceiling is enforced before dispatch on every
+paid path: an account's settled generation cost across all models
+combined can never exceed what it has paid in, net of card fees
+(the Stripe webhook keeps the paid-in total; subscriptions count
+on invoice.paid, top-ups on checkout completion). A job whose
+worst-case cost would cross the ceiling is refused with a 402
+before anything runs. Free accounts stay bounded by the
+5-lifetime-clips rule and the platform-wide free ceiling instead.
+
+The per-second lanes guard themselves: the published price table
+behind them is re-read every six hours, and if it ever goes more
+than 24 hours without a verified refresh, the lanes pause rather
+than quote from stale prices.
+
+Payments state: /api/config reports payments_mode "live" (the
+platform's restricted key is mounted and recognized), and checkout
+session creation is verified against the live account.
+
+One operational state to know: the generation account behind the
+two per-second models currently holds zero credit, so a Wan 3.0
+or Prime submission is refused at dispatch today and the user
+sees the clean unavailable message with the hold released (this
+exact path is what the verification below exercised). The moment
+credit is added to that account, the same submissions succeed
+with no code or configuration change.
+
+Verification, 2026-11-16, against the public URL: /api/config
+shows the three models, default Wan 2.2, payments live.
+/api/pricing shows the per-second lanes unpaused at 10.0 and 14.0
+cents per second (720p). Free account: Wan 3.0 create 403, Prime
+quote 403. Test Creator account with a token paid-in total:
+Wan 2.2 Production refused 402 and Wan 3.0 refused 402, no jobs
+created, balance and budget untouched. With a full month's
+paid-in total: Wan 3.0, 5s, 720p quoted at exactly 50.5 cents of
+included budget (152 cents from balance; cap 55.55); Wan 3.0,
+30s, 1080p quoted at 1,809 cents from balance; Prime, 5s, 720p at
+212 cents. One real Wan 3.0 submission reached the provider and
+came back refused for the zero balance: the user-visible result
+was the 503 unavailable sentence, the job record shows the error
+with the hold released, and the account's balance, budget, and
+settled cost were all unchanged afterwards.

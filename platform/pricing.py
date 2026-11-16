@@ -77,6 +77,79 @@ def lane_paused(lane: str) -> bool:
     return JOB_PRICE_CENTS[lane] < floor_price_cents(lane)
 
 
+# ---------------------------------------------------------------------------
+# Per-second lanes (Wan 3.0 and Wan 3.0 Prime). Design:
+# API-LANES-DESIGN.md sections 5 and 6. These lanes carry a per-second
+# measured cost instead of a per-job one: the provider rate for the
+# chosen resolution plus the measured local post cost per finished
+# second. Balance debits are cost x margin multiplier (the Stripe fee
+# was already paid when the balance was bought, so no gross-up here);
+# included-budget debits are raw cost, because the budget itself is
+# denominated in cost cents.
+# ---------------------------------------------------------------------------
+
+RESOLUTIONS = ("480p", "720p", "1080p")
+
+# Provider list rates, USD cents per billed second (output seconds
+# plus reference-video input seconds). Seeded from the provider's
+# published model pages, verified 2026-11-16. The platform refreshes
+# this table on a schedule into its live config and pauses the lanes
+# rather than quote from a table older than
+# PROVIDER_RATE_STALE_SECONDS (Rule 2 auto-pause).
+PROVIDER_RATES_CENTS_PER_SECOND = {
+    "wan3": {"480p": 5.0, "720p": 10.0, "1080p": 20.0},
+    "wan3_prime": {"480p": 6.8, "720p": 14.0, "1080p": 28.0},
+}
+PROVIDER_RATE_STALE_SECONDS = 24 * 3600
+
+# Local post cost per finished second for per-second-lane outputs,
+# in cents. Measured 2026-11-16: the loudness pass on a 5 s clip is
+# a fraction of a CPU second on the platform container; carried at
+# 0.1c/s so the lane cost is never understated. The optional GPU
+# upscale pass is not sold on these lanes yet and is not in here.
+POST_COST_CENTS_PER_SECOND = 0.1
+
+# Hard per-job spend cap = estimate x tolerance (Rule 3). The cap is
+# what gets held before dispatch; settling never exceeds it.
+HOLD_TOLERANCE = 1.1
+
+
+def production_cost_per_second() -> float:
+    """Measured production cost per second, cents."""
+    return MEASURED_COST_CENTS["production"] / SEGMENT_SECONDS
+
+
+def included_budget_cents() -> float:
+    """The Creator plan's one included render budget, in cents of
+    measured cost: net plan revenue divided by the margin
+    multiplier. Every lane debits this same budget at its own
+    per-second cost (Rule 3 amendment, 2026-11-16)."""
+    return net_of(CREATOR_PRICE_CENTS) / MARGIN_MULTIPLIER
+
+
+def per_second_lane_cost_cents(model: str, resolution: str, rates=None) -> float:
+    """Worst-case cost per billed second for a per-second lane."""
+    table = rates if rates is not None else PROVIDER_RATES_CENTS_PER_SECOND
+    return float(table[model][resolution]) + POST_COST_CENTS_PER_SECOND
+
+
+def per_second_estimate(model: str, resolution: str, output_seconds: float,
+                        reference_video_seconds: float = 0.0, rates=None) -> dict:
+    """The exact quote for a per-second-lane job (amended Rule 3):
+    raw cost, the balance debit at the floor, and the hold caps."""
+    import math
+
+    billed = float(output_seconds) + float(reference_video_seconds)
+    raw = per_second_lane_cost_cents(model, resolution, rates) * billed
+    return {
+        "billed_seconds": billed,
+        "raw_cost_cents": raw,
+        "balance_debit_cents": math.ceil(raw * MARGIN_MULTIPLIER),
+        "cap_raw_cents": raw * HOLD_TOLERANCE,
+        "cap_balance_cents": math.ceil(raw * MARGIN_MULTIPLIER * HOLD_TOLERANCE),
+    }
+
+
 def creator_included_production_seconds() -> int:
     """Production seconds the Creator plan can include at the floor.
 
@@ -104,4 +177,7 @@ def public_pricing() -> dict:
         "topup_packs_cents": TOPUP_PACKS_CENTS,
         "segment_seconds": SEGMENT_SECONDS,
         "lanes_paused": {lane: lane_paused(lane) for lane in MEASURED_COST_CENTS},
+        "included_budget_cents": round(included_budget_cents(), 2),
+        "per_second_rates_cents": PROVIDER_RATES_CENTS_PER_SECOND,
+        "post_cost_cents_per_second": POST_COST_CENTS_PER_SECOND,
     }
