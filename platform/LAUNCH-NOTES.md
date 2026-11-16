@@ -643,3 +643,58 @@ measurement found the effect's action plainly: the subject's
 area grew from 5.1% of the frame to 47.6% (about 9.4x) first
 frame to last, with its center steady, which is what inflating
 looks like.
+
+## Update, 2026-11-16 (run 20): studio look pass (Pass 8)
+
+The front end now follows the open-higgsfield patterns mined
+into workflows/camera-presets/INDEX.md. Front end only: no job
+dispatch, pricing, gate, or API behavior changed (the job and
+gallery responses gained additive display fields only).
+
+- Catalog as data: the landing page's hand-written model table
+  and the studio's hand-written model select are gone. Both
+  pages render the model shelf as cards from /api/config (names,
+  order, who can use each model, whether it can run right now)
+  and /api/pricing (per-segment prices for Wan 2.2; per-second
+  prices at each size for the rest). In the studio the cards are
+  the picker: clicking one picks the model, and the plan gate
+  disables the same cards it always disabled. The one piece that
+  is not served data is the per-model length list, which comes
+  from the single table that also fills the form's length select
+  and mirrors what the server accepts.
+- One composer: the Create card leads with the prompt, large,
+  and groups every setting under it in labeled sections (Model,
+  Start image, Camera and look, Sound, Length and shape). The
+  landing page's first screen has a prompt field whose text
+  carries into the studio. A price line under the Create button
+  shows the house-lane and effects price from /api/pricing
+  before anything runs, next to the per-second quote line.
+- Gallery as history: studio job cards and public gallery cards
+  now show the exact cost of every job (balance charge,
+  included-budget debit, or free clip) alongside the model,
+  camera presets, effect, and film look that made it; gallery
+  cards also show length, size, aspect, and segment count. The
+  Clip tab shares the Create tab's header, tab bar, cards, and
+  headings.
+- The fixed comparison against higgsfield.ai lives in
+  STUDIO-LOOK-CHECKLIST.md at the repo root, with per-row
+  verdicts and the open items that are features rather than
+  presentation (attach-as-input, project pages, reference
+  slots), stated plainly there. It is built from page reads and
+  rendered structure, not screenshots, and says so.
+
+Verification, 2026-11-16, against the public URL: the landing,
+studio, gallery, and Clip pages were read back after deploy;
+the served scripts pass a syntax check; the catalog card text
+was reproduced from the live /api/config and /api/pricing
+values (Wan 2.2 Draft $1.99 and Production $0.99 per segment;
+Wan 3.0 $0.13/sec at 720p; Seedance 2.5 shows Temporarily
+unavailable, matching its paused state); /api/config,
+/api/pricing, /api/camera-presets (42 presets, all available),
+and /api/effects (24 effects) are unchanged in shape; the
+gallery serves 26 items with the new cost and spec fields;
+forbidden-word and em-dash greps over the served pages are
+clean; the free-account gate logic (locked models, locked
+opt-out, lock notes) is present in the served studio unchanged.
+No jobs were created and no provider calls were made; spend
+was deploy CPU only.
