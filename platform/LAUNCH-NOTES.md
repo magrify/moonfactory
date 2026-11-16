@@ -11,48 +11,78 @@ to finish the launch. Nothing in this file is a secret value.
   file delivery with the house music bed muxed on and a watermark on
   free-tier files.
 - Quotas and pricing are enforced in code from platform/pricing.py:
-  free plan is Draft only, 5 clips per account per month, 100 free
-  jobs per month across the whole platform, watermarked. Creator is
-  $20/mo with the included production seconds the formula computes
-  (about 40 s at the measured costs from the test phase).
+  free plan is Draft only, 5 clips per account TOTAL (lifetime
+  counter on the account, no reset, no monthly allowance), plus a
+  platform-wide total budget of 100 free jobs in config, watermarked.
+  Creator is $20/mo with the included production seconds the formula
+  computes (about 40 s at the measured costs from the test phase).
 - Bot check on signup and job creation: Cloudflare Turnstile,
   provisioned for the platform hostname and live. A proof-of-work
   challenge stays accepted as a fallback for clients without a
   browser.
 
-## Switched off until Jack supplies these
+## Switched off, with the exact remaining step for each
 
-### 1. Stripe (test mode first)
+### 1. Stripe (live is the requirement)
 
-The checkout and webhook code is finished and refuses live keys. To
-switch payments on, Jack needs to:
+Jack's ruling (2026-11-16): live Stripe, for real, not a test-mode
+placeholder. The code now accepts live keys as the active
+configuration (the old test-only guard is removed), /api/config
+reports the configured mode, and checkout can pin configured Stripe
+price IDs (STRIPE_PRICE_CREATOR, STRIPE_PRICE_TOPUP_500/1000/2000)
+or create prices inline from pricing.py.
 
-1. Create or open the Stripe account Moonfactory will bill under
-   (his call which business entity).
-2. In the Stripe dashboard, test mode: Developers, API keys. Copy the
-   test secret key (starts sk_test_) and the test publishable key.
-3. Add a webhook endpoint in test mode pointing at
-   <platform URL>/api/stripe/webhook for the events
-   checkout.session.completed, invoice.paid, invoice.payment_failed,
-   customer.subscription.deleted, and copy its signing secret
-   (starts whsec_).
-4. Hand the three values over through the Secure Vault, not chat.
-   Muse then puts STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET into
-   the Modal Secret named moonfactory-secrets and redeploys. No code
-   change is needed.
-5. To go live later: repeat with the live keys, and remove the
-   sk_test_ guard in platform/app.py (stripe_client) as a deliberate,
-   separate step.
+State found on 2026-11-16: the Secure Vault holds NO stripe.com
+login (the full saved-login list was checked), and the Stripe
+connector is not connected. A secret key (sk_live_) exists only
+inside the Stripe dashboard; no API or connector can export one.
+The remaining account-side step, in one pass:
 
-### 2. Transactional email
+1. Sign in to the Stripe dashboard (or connect the account through
+   the Stripe connector link the main agent can send: an OAuth
+   consent, not a key hand-over).
+2. Create the products/prices: Creator $20/mo, top-ups $5/$10/$20.
+3. Add the live webhook endpoint for
+   https://magrify--moonfactory-api.us-east.modal.run/api/stripe/webhook
+   with events checkout.session.completed, invoice.paid,
+   invoice.payment_failed, customer.subscription.deleted.
+4. Reveal the live secret key and the webhook signing secret.
+5. Those two values go straight into the Modal Secret
+   moonfactory-secrets (STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET)
+   plus the price IDs, and the platform redeploys. No code change.
 
-Signups work today, but verification emails land in the operator
-outbox (readable only with the admin key) because no mail provider is
-configured. For real public signup, Jack picks a provider
-(PrivateEmail SMTP for a magrify.com address, Resend, Postmark, SES)
-and supplies SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, SMTP_FROM
-through the Secure Vault. They go into the same Modal Secret; the
-mailer switches from outbox to SMTP on the next deploy, no code change.
+If the account is not yet activated for live payments, activation
+in the dashboard (business details, bank account) is the step that
+has to happen first; everything above is ready to land the moment
+it is done.
+
+### 2. Transactional email (Resend, decided 2026-11-16)
+
+Jack's pick: Resend. The platform code already sends through the
+Resend API as its primary route whenever RESEND_API_KEY is in the
+deployment secret; the sender is config (RESEND_FROM), default
+Moonfactory <noreply@magrify.com>. Fallbacks stay in place: 
+PrivateEmail SMTP (public settings are code defaults: host
+mail.privateemail.com, port 587 STARTTLS, user support@magrify.com)
+whenever a mailbox password is configured, then the operator
+outbox, so signup never breaks.
+
+Remaining setup, all account-side (needs a browser session):
+1. Create the Resend account as a Magrify business signup under
+   support@magrify.com (free tier), completing any verification
+   email in the PrivateEmail inbox.
+2. Add magrify.com as the sending domain in Resend. Merge its DNS
+   records into the magrify.com Cloudflare zone WITHOUT breaking
+   PrivateEmail: extend the existing SPF record with Resend's
+   include (never replace it), add Resend's DKIM record(s) as
+   given, DMARC as given. Afterward, confirm support@magrify.com
+   still receives mail with a test message.
+3. Create a Resend API key and put it in the Modal Secret
+   moonfactory-secrets as RESEND_API_KEY (value never written to
+   any file or log).
+4. The next deploy sends verification mail from
+   noreply@magrify.com; verify with a fresh signup to a readable
+   inbox and follow the link.
 
 ### 3. Cloudflare Turnstile (done)
 

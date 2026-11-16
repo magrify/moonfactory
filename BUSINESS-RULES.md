@@ -26,8 +26,8 @@ Set by Jack, 2026-11-15: save money as a business, and structure pricing so ever
 
 ## Rule 5: The free tier is a marketing budget with a ceiling, not an open tap
 
-- Free clips run only on the cheapest lane (Draft, self-hosted 5B), at 480p, watermarked, hard-capped per account per month, lowest queue priority.
-- Free jobs run in spare capacity: when paid work is queued, free jobs wait. Free-tier spend has a monthly platform-wide ceiling in config; when the ceiling is hit, free jobs pause until the next month. The free tier can never crowd out or outspend paying work.
+- Free clips run only on the cheapest lane (Draft, self-hosted 5B), at 480p, watermarked, lowest queue priority. The cap is 5 clips per account, total, for the life of the account: no monthly allowance, no reset (Jack's rule, 2026-11-16).
+- Free jobs run in spare capacity: when paid work is queued, free jobs wait. Free-tier spend has a platform-wide total ceiling in config; when the ceiling is hit, free jobs pause until the operator raises it. The free tier can never crowd out or outspend paying work.
 - Anti-abuse is part of the cost model: one account per person enforced by email verification and rate limits, because a farmed free tier is a real GPU bill.
 
 ## Rule 6: Idle costs zero, always

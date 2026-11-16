@@ -18,10 +18,14 @@ Live app: https://magrify--moonfactory-api.us-east.modal.run
   1080x1920) and two-segment chaining are proven in the worker and
   shown in modal-worker/STATUS.md. The public job form renders one
   segment per job today.
-- Payments are wired for Stripe test mode: checkout for the Creator
-  plan and for prepaid top-ups, with webhooks as the source of truth.
-  Checkout stays off until test keys are added to the deployment
-  secret. platform/LAUNCH-NOTES.md lists exactly what is needed.
+- Free plan: 5 Draft clips per account, total. The counter is on the
+  account for life and never resets; there is no monthly allowance.
+- Payments are wired for Stripe: checkout for the Creator plan and
+  for prepaid top-ups, with webhooks as the source of truth. The code
+  takes live keys as the active configuration. Checkout stays off
+  until the live secret key and webhook signing secret are added to
+  the deployment secret. platform/LAUNCH-NOTES.md lists exactly what
+  is needed.
 
 ## Pricing rules
 
@@ -72,6 +76,7 @@ LAUNCH-NOTES.md describes what each one switches on.
 
 Test phase. The generation pipeline and the platform are proven end to
 end, including a signup-to-download smoke test through the public URL.
-Open items before a public launch push: Stripe test keys, a real
-email provider for verification mail, and a domain. All three are
+Open items before a public launch push: Stripe live keys, the
+mailbox password for the configured PrivateEmail sending (every
+other mail setting is already in place), and a domain. All three are
 listed with exact steps in platform/LAUNCH-NOTES.md.

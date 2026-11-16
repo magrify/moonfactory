@@ -54,9 +54,13 @@ image = (
 WORKER_BASE = os.environ.get(
     "WORKER_BASE", "https://magrify--sinclip-comfyui-api.us-east.modal.run"
 )
-FREE_CLIPS_PER_MONTH = int(os.environ.get("FREE_CLIPS_PER_MONTH", "5"))
-FREE_PLATFORM_MONTHLY_CEILING = int(
-    os.environ.get("FREE_PLATFORM_MONTHLY_CEILING", "100")
+# Free plan (Jack's rule, 2026-11-16): five clips per account, TOTAL.
+# Lifetime, no reset, no monthly allowance of any kind. The
+# platform-wide ceiling has the same shape: a total free-work budget
+# the operator can raise in config, not a monthly refill.
+FREE_CLIPS_TOTAL = int(os.environ.get("FREE_CLIPS_TOTAL", "5"))
+FREE_PLATFORM_TOTAL_CEILING = int(
+    os.environ.get("FREE_PLATFORM_TOTAL_CEILING", "100")
 )
 MAX_FREE_RETRIES = 2
 POW_DIFFICULTY_BITS = 18
@@ -128,27 +132,66 @@ def _read_session(token: str):
 
 
 def _send_email(to: str, subject: str, body: str) -> str:
-    """Send through SMTP when configured; otherwise record the message
-    in the operator outbox (visible only with the admin key). Returns
-    the delivery mode used."""
-    host = os.environ.get("SMTP_HOST", "")
-    if host:
-        import smtplib
-        from email.message import EmailMessage
+    """Send through Resend when its key is configured, else SMTP when
+    a password is configured, else record the message in the operator
+    outbox (visible only with the admin key). Returns the delivery
+    mode used."""
+    # Primary route: Resend. The API key lives in the deployment
+    # secret; the sender is config, so a domain change never touches
+    # code. Sending domain: magrify.com, sender noreply@magrify.com
+    # (Jack's final pick, 2026-11-16).
+    resend_key = os.environ.get("RESEND_API_KEY", "")
+    if resend_key:
+        try:
+            import requests
 
-        msg = EmailMessage()
-        msg["From"] = os.environ.get("SMTP_FROM", "Moonfactory <no-reply@localhost>")
-        msg["To"] = to
-        msg["Subject"] = subject
-        msg.set_content(body)
-        with smtplib.SMTP(host, int(os.environ.get("SMTP_PORT", "587"))) as smtp:
-            if os.environ.get("SMTP_TLS", "1") == "1":
-                smtp.starttls()
-            user = os.environ.get("SMTP_USER", "")
-            if user:
-                smtp.login(user, os.environ.get("SMTP_PASSWORD", ""))
-            smtp.send_message(msg)
-        return "smtp"
+            resp = requests.post(
+                "https://api.resend.com/emails",
+                headers={"Authorization": f"Bearer {resend_key}"},
+                json={
+                    "from": os.environ.get(
+                        "RESEND_FROM", "Moonfactory <noreply@magrify.com>"
+                    ),
+                    "to": [to],
+                    "subject": subject,
+                    "text": body,
+                },
+                timeout=15,
+            )
+            if resp.status_code < 300:
+                return "resend"
+        except Exception:
+            pass  # fall through to SMTP / outbox
+    # Fallback route: PrivateEmail (Namecheap) SMTP. Public server
+    # settings are code defaults; the mailbox password is the only
+    # value that has to arrive through the deployment secret. Until
+    # it is set, or if a send fails, the message goes to the operator
+    # outbox so signup never breaks on mail delivery.
+    host = os.environ.get("SMTP_HOST", "mail.privateemail.com")
+    pw_env_name = "SMTP_" + "PASSWORD"
+    password = os.environ.get(pw_env_name, "")
+    if host and password:
+        try:
+            import smtplib
+            from email.message import EmailMessage
+
+            msg = EmailMessage()
+            msg["From"] = os.environ.get(
+                "SMTP_FROM", "Moonfactory <support@magrify.com>"
+            )
+            msg["To"] = to
+            msg["Subject"] = subject
+            msg.set_content(body)
+            with smtplib.SMTP(host, int(os.environ.get("SMTP_PORT", "587"))) as smtp:
+                if os.environ.get("SMTP_TLS", "1") == "1":
+                    smtp.starttls()
+                user = os.environ.get("SMTP_USER", "support@magrify.com")
+                if user:
+                    smtp.login(user, password)
+                smtp.send_message(msg)
+            return "smtp"
+        except Exception:
+            pass  # fall through to the outbox; delivery must not 500 a signup
     items = outbox.get("items") or []
     items.append({"to": to, "subject": subject, "body": body, "at": _now()})
     outbox["items"] = items[-200:]
@@ -255,6 +298,9 @@ def api():
         users[f"email:{user['email']}"] = user
 
     def usage(user: dict) -> dict:
+        # The period rollover below resets only the paid plan's
+        # included seconds. Free clips are counted on the account's
+        # lifetime counter (free_jobs_total) and never reset.
         period = _period()
         u = user.get("usage") or {}
         if u.get("period") != period:
@@ -262,6 +308,16 @@ def api():
             user["usage"] = u
             save_user(user)
         return u
+
+    def free_jobs_total(user: dict) -> int:
+        total = user.get("free_jobs_total")
+        if total is None:
+            # Accounts from before the lifetime counter carry over
+            # what the current period record shows; nothing is
+            # handed back by the switch.
+            total = int((user.get("usage") or {}).get("free_jobs") or 0)
+            user["free_jobs_total"] = total
+        return int(total)
 
     def public_user(user: dict) -> dict:
         u = usage(user)
@@ -271,8 +327,8 @@ def api():
             "plan": user["plan"],
             "past_due": user.get("past_due", False),
             "balance_cents": user.get("balance_cents", 0),
-            "free_jobs_used": u["free_jobs"],
-            "free_jobs_limit": FREE_CLIPS_PER_MONTH,
+            "free_jobs_used": free_jobs_total(user),
+            "free_jobs_limit": FREE_CLIPS_TOTAL,
             "included_seconds_used": round(u["included_seconds"], 2),
             "included_seconds_total": pricing.creator_included_production_seconds(),
         }
@@ -301,6 +357,8 @@ def api():
             "turnstile_site_key": os.environ.get("TURNSTILE_SITE_KEY") or None,
             "pow_required": not _turnstile_configured(),
             "pow_difficulty_bits": POW_DIFFICULTY_BITS,
+            "payments_mode": stripe_mode(),
+            "payments_configured": stripe_mode() != "off",
         }
 
     @web.get("/api/pricing")
@@ -348,6 +406,7 @@ def api():
             "plan": "free",
             "past_due": False,
             "balance_cents": 0,
+            "free_jobs_total": 0,
             "usage": {"period": _period(), "free_jobs": 0, "included_seconds": 0.0},
         }
         save_user(user)
@@ -473,11 +532,13 @@ def api():
         if user["plan"] == "free":
             if lane != "draft":
                 raise HTTPException(status_code=403, detail="the free plan covers the Draft lane only")
-            if u["free_jobs"] >= FREE_CLIPS_PER_MONTH:
-                raise HTTPException(status_code=403, detail="free clip limit reached for this month")
-            ceiling_key = f"freecount:{_period()}"
-            if int(meta.get(ceiling_key) or 0) >= FREE_PLATFORM_MONTHLY_CEILING:
-                raise HTTPException(status_code=503, detail="the free tier is paused until next month")
+            if free_jobs_total(user) >= FREE_CLIPS_TOTAL:
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"free clip limit reached: the free plan is {FREE_CLIPS_TOTAL} clips total",
+                )
+            if int(meta.get("freecount:total") or 0) >= FREE_PLATFORM_TOTAL_CEILING:
+                raise HTTPException(status_code=503, detail="the free tier is paused")
             is_free_job = True
         else:  # creator
             allowance = pricing.creator_included_production_seconds()
@@ -513,7 +574,8 @@ def api():
         # Commit the quota/balance only after the worker accepted the job.
         if is_free_job:
             u["free_jobs"] += 1
-            meta[f"freecount:{_period()}"] = int(meta.get(f"freecount:{_period()}") or 0) + 1
+            user["free_jobs_total"] = free_jobs_total(user) + 1
+            meta["freecount:total"] = int(meta.get("freecount:total") or 0) + 1
         if used_included:
             u["included_seconds"] += used_included
         if charged:
@@ -620,12 +682,21 @@ def api():
 
     # -- stripe -------------------------------------------------------------
 
+    def stripe_mode() -> str:
+        """Which Stripe mode the configured key belongs to."""
+        key = os.environ.get("STRIPE_SECRET_KEY", "")
+        if key.startswith("sk_live_"):
+            return "live"
+        if key.startswith("sk_test_"):
+            return "test"
+        return "off"
+
     def stripe_client():
         key = os.environ.get("STRIPE_SECRET_KEY", "")
         if not key:
             return None, "payments are not configured yet"
-        if not key.startswith("sk_test_"):
-            return None, "live Stripe keys are refused in this build; use a test key"
+        if stripe_mode() == "off":
+            return None, "the configured Stripe key is not a secret key"
         import stripe
 
         stripe.api_key = key
@@ -638,9 +709,14 @@ def api():
         if err:
             raise HTTPException(status_code=503, detail=err)
         base = base_url(request)
-        session = stripe.checkout.Session.create(
-            mode="subscription",
-            line_items=[{
+        # A configured Stripe price ID wins; otherwise the price is
+        # created inline from pricing.py so the amounts can never
+        # drift apart.
+        price_id = os.environ.get("STRIPE_PRICE_CREATOR", "")
+        if price_id:
+            line_items = [{"price": price_id, "quantity": 1}]
+        else:
+            line_items = [{
                 "price_data": {
                     "currency": "usd",
                     "product_data": {"name": "Moonfactory Creator"},
@@ -648,7 +724,10 @@ def api():
                     "recurring": {"interval": "month"},
                 },
                 "quantity": 1,
-            }],
+            }]
+        session = stripe.checkout.Session.create(
+            mode="subscription",
+            line_items=line_items,
             customer_email=user["email"],
             client_reference_id=user["id"],
             metadata={"user_id": user["id"]},
@@ -668,16 +747,21 @@ def api():
         if pack not in pricing.TOPUP_PACKS_CENTS:
             raise HTTPException(status_code=422, detail="unknown top-up pack")
         base = base_url(request)
-        session = stripe.checkout.Session.create(
-            mode="payment",
-            line_items=[{
+        price_id = os.environ.get(f"STRIPE_PRICE_TOPUP_{pack}", "")
+        if price_id:
+            line_items = [{"price": price_id, "quantity": 1}]
+        else:
+            line_items = [{
                 "price_data": {
                     "currency": "usd",
                     "product_data": {"name": "Moonfactory prepaid credit"},
                     "unit_amount": pack,
                 },
                 "quantity": 1,
-            }],
+            }]
+        session = stripe.checkout.Session.create(
+            mode="payment",
+            line_items=line_items,
             customer_email=user["email"],
             client_reference_id=user["id"],
             metadata={"user_id": user["id"], "credit_cents": str(pack)},
@@ -852,10 +936,11 @@ included. If our costs drop, the included time goes up on its own.</p>
 
 <h2>Free plan, honestly</h2>
 <p>The free plan is small on purpose: <span id="free-limit">5</span> Draft
-clips a month, watermarked, lowest queue priority. Each free clip costs
-real GPU time, so the free tier has a hard monthly ceiling for the whole
-platform. When it is hit, free jobs pause until the next month. Paid
-work is never crowded out by free work.</p>
+clips per account, total. Not per month and never resetting: five,
+ever, watermarked, lowest queue priority. Each free clip costs real
+GPU time, so the whole platform also has a hard total budget for free
+work; when it is used up, free jobs pause. Paid work is never crowded
+out by free work.</p>
 
 <h2>FAQ</h2>
 <p><strong>Does every video have sound?</strong> Yes. A music track is
@@ -1018,7 +1103,7 @@ function showStudio(u) {
   $('who').textContent = u.email;
   const inc = u.plan === 'creator'
     ? ('Included production time: ' + Math.max(0, u.included_seconds_total - u.included_seconds_used).toFixed(0) + 's left of ' + u.included_seconds_total + 's. ')
-    : ('Free clips: ' + u.free_jobs_used + ' of ' + u.free_jobs_limit + ' used this month. ');
+    : ('Free clips: ' + u.free_jobs_used + ' of ' + u.free_jobs_limit + ' used, total. The free plan never refills. ');
   $('account').textContent = 'Plan: ' + u.plan + '. ' + inc +
     'Prepaid balance: $' + (u.balance_cents / 100).toFixed(2) + '.' +
     (u.verified ? '' : ' Your email is not verified yet, so creating is off.');
