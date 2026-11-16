@@ -15,9 +15,12 @@ Implements BUSINESS-RULES.md Rule 2 and Rule 8 in code:
 Measured costs (Modal list rates, from modal-worker/STATUS.md):
 - Draft job (Wan 2.2 5B, one ~5 s clip): worst observed ~$0.50 per job
   including a lost attempt across the test runs.
-- Production segment (Wan 2.2 A14B, 5.06 s, L40S): ~$0.77 per segment
-  (23m39s wall at $1.95/hr on the chain test; the solo render was the
-  same order).
+- Production segment (Wan 2.2 A14B, 5.06 s, L40S): ~$0.15 per segment
+  worst case. The lane now runs the LightX2V 4-step distilled recipe
+  (20 steps -> 4, cfg 1.0, LoRA on both UNETs), benchmarked 2026-11-16
+  at 216 s wall = ~$0.12 per segment with quality holding against the
+  old 20-step render (23m39s wall, ~$0.77); 15 cents carries the
+  cold-start variance above the verified measure.
 """
 
 MARGIN_MULTIPLIER = 3.0
@@ -29,7 +32,7 @@ SEGMENT_SECONDS = 5.06
 # Worst-case measured cost per job, in cents.
 MEASURED_COST_CENTS = {
     "draft": 50,
-    "production": 80,
+    "production": 15,
 }
 
 CREATOR_PRICE_CENTS = 2000  # $20/mo

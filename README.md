@@ -35,7 +35,8 @@ the measured per-job generation costs from the test phase and derives:
 - a per-lane price floor of worst-case measured cost times three,
   grossed up for Stripe's 2.9% + 30c fee,
 - the Creator plan's included production seconds from the plan's net
-  revenue at that floor rate (about 40 seconds at current costs),
+  revenue at that floor rate (214 seconds at current costs, after
+  the production lane moved to a 4-step distilled render recipe),
 - per-job top-up prices at or above the floor.
 
 BUSINESS-RULES.md is the full rule set: prepaid only, free tier capped

@@ -139,7 +139,7 @@ class ComfyUI:
         import shutil
 
         models_dir = COMFY_ROOT / "models"
-        for category in ("diffusion_models", "text_encoders", "vae", "clip_vision", "SEEDVR2"):
+        for category in ("diffusion_models", "text_encoders", "vae", "clip_vision", "SEEDVR2", "loras"):
             target = Path(MODELS_MOUNT) / category
             link = models_dir / category
             if link.is_symlink() or link.exists():
@@ -334,6 +334,44 @@ def download_prod_models():
     return results
 
 
+LORA_FILES = [
+    ("split_files/loras/wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors",
+     "loras/wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors",
+     1226977424),
+    ("split_files/loras/wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors",
+     "loras/wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors",
+     1226977424),
+]
+
+
+@app.function(image=download_image, volumes={"/models": volume}, timeout=1800)
+def download_loras():
+    import shutil
+
+    from huggingface_hub import hf_hub_download
+
+    results = {}
+    for src, dst, expected in LORA_FILES:
+        final = Path("/models") / dst
+        if final.exists() and final.stat().st_size > 0:
+            results[dst] = final.stat().st_size
+            print(f"already present: {dst} ({final.stat().st_size} bytes)")
+            continue
+        print(f"downloading {MODEL_REPO}:{src} ...", flush=True)
+        staged = hf_hub_download(
+            repo_id=MODEL_REPO, filename=src, local_dir="/models/_stage_lora"
+        )
+        final.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(staged, final)
+        results[dst] = final.stat().st_size
+        print(f"stored {dst}: {final.stat().st_size} bytes "
+              f"(expected {expected}, match={final.stat().st_size == expected})",
+              flush=True)
+    shutil.rmtree("/models/_stage_lora", ignore_errors=True)
+    volume.commit()
+    return results
+
+
 SEEDVR2_REPO = "numz/SeedVR2_comfyUI"
 SEEDVR2_FILES = {
     "seedvr2_ema_3b_fp16.safetensors": 6783018808,
@@ -396,7 +434,13 @@ jobs = modal.Dict.from_name("sinclip-jobs", create_if_missing=True)
 
 LANE_WORKFLOWS = {
     "draft": "draft_i2v_5b.json",
-    "production": "prod_i2v_a14b.json",
+    # Production runs the LightX2V 4-step distilled recipe since
+    # 2026-11-16 (run 7): benchmarked at 216 s wall / ~$0.12 per
+    # segment on L40S vs 23m39s / ~$0.77 for the 20-step original,
+    # with quality holding on the frame comparison. The 20-step
+    # template (prod_i2v_a14b.json) is kept for reference and for
+    # the local render-prod / chain modes.
+    "production": "prod_i2v_a14b_distilled.json",
 }
 LANE_DEFAULT_IMAGES = {
     "draft": "/assets/test_start.png",
@@ -413,6 +457,10 @@ api_image = (
     .add_local_file(
         str(Path(__file__).parent.parent / "workflows" / "prod_i2v_a14b.json"),
         "/workflows/prod_i2v_a14b.json",
+    )
+    .add_local_file(
+        str(Path(__file__).parent.parent / "workflows" / "prod_i2v_a14b_distilled.json"),
+        "/workflows/prod_i2v_a14b_distilled.json",
     )
     .add_local_file(
         str(Path(__file__).parent / "test_start.png"),
@@ -584,6 +632,9 @@ OUTPUT_PATH = Path(__file__).parent.parent / "outputs" / "first-draft-test.mp4"
 PROD_WORKFLOW_PATH = Path(__file__).parent.parent / "workflows" / "prod_i2v_a14b.json"
 PROD_IMAGE_PATH = Path(__file__).parent / "test_start_720.png"
 PROD_OUTPUT_PATH = Path(__file__).parent.parent / "outputs" / "first-prod-test.mp4"
+
+DISTILLED_WORKFLOW_PATH = Path(__file__).parent.parent / "workflows" / "prod_i2v_a14b_distilled.json"
+DISTILLED_OUTPUT_PATH = Path(__file__).parent.parent / "outputs" / "prod-distilled-test.mp4"
 
 CHAIN_WORKFLOW_PATH = Path(__file__).parent.parent / "workflows" / "firstlast_chain.json"
 CHAIN_START_PATH = Path(__file__).parent / "chain_seg1_last.png"
@@ -868,6 +919,49 @@ def main(mode: str = "render"):
         POST_OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
         POST_OUTPUT_PATH.write_bytes(video_bytes)
         print(f"saved {POST_OUTPUT_PATH} ({len(video_bytes)} bytes)")
+        return
+
+    if mode == "download-loras":
+        sizes = download_loras.remote()
+        for name, size in sizes.items():
+            print(f"{name}: {size} bytes")
+        print(f"total lora set: {sum(sizes.values()) / 1e9:.2f} GB")
+        return
+
+    if mode == "fetch-distilled":
+        video_bytes = fetch_output.remote("prod_distilled_test_00001.mp4")
+        DISTILLED_OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
+        DISTILLED_OUTPUT_PATH.write_bytes(video_bytes)
+        print(f"saved {DISTILLED_OUTPUT_PATH} ({len(video_bytes)} bytes) via volume fetch")
+        return
+
+    if mode == "render-prod-distilled":
+        workflow = json.loads(DISTILLED_WORKFLOW_PATH.read_text())
+        for node in workflow.values():
+            ct = node.get("class_type")
+            inputs = node.get("inputs", {})
+            if ct == "LoadImage":
+                inputs["image"] = PROD_IMAGE_PATH.name
+            elif ct == "CLIPTextEncode":
+                if inputs.get("text") == "PLACEHOLDER_POSITIVE_PROMPT":
+                    inputs["text"] = POSITIVE_PROMPT
+                elif inputs.get("text") == "PLACEHOLDER_NEGATIVE_PROMPT":
+                    inputs["text"] = NEGATIVE_PROMPT
+            elif ct == "KSamplerAdvanced":
+                inputs["noise_seed"] = SEED
+            elif ct == "VHS_VideoCombine":
+                inputs["filename_prefix"] = "sinclip/prod_distilled_test"
+
+        image_bytes = PROD_IMAGE_PATH.read_bytes()
+        t0 = time.time()
+        video_bytes = ComfyUI().run_workflow.remote(
+            workflow, image_bytes, PROD_IMAGE_PATH.name
+        )
+        wall = time.time() - t0
+        DISTILLED_OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
+        DISTILLED_OUTPUT_PATH.write_bytes(video_bytes)
+        print(f"saved {DISTILLED_OUTPUT_PATH} ({len(video_bytes)} bytes)")
+        print(f"WALL_SECONDS={wall:.1f} L40S_COST_USD={wall * 0.000542:.3f}")
         return
 
     if mode == "render-prod":

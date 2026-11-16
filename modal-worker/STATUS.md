@@ -4,6 +4,53 @@ Task: stand up the generation worker on Modal and produce the first real
 vertical draft clip (Wan 2.2 TI2V-5B, 480x832, 81 frames, 16 fps).
 Spend ceiling: stay inside the $30 Modal credit; abort and report near $3.
 
+## RUN 7 (2026-11-16): RENDER-COST OPTIMIZATION — DISTILLED PRODUCTION LANE ADOPTED
+
+- [x] Production lane switched to the LightX2V 4-step distilled
+      recipe and it is LIVE (worker + platform redeployed, public
+      pricing endpoint verified). New workflow:
+      workflows/prod_i2v_a14b_distilled.json = the A14B pair with
+      wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise / _low_noise
+      LoRAs (strength 1.0, one per UNET; both files byte-verified in
+      the Volume under loras/, 1,226,977,424 B each), 4 steps split
+      2+2, cfg 1.0, euler/simple, shift 5.0. LANE_WORKFLOWS in app.py
+      now maps "production" to the distilled file; the 20-step
+      template stays for reference / local modes.
+- [x] Benchmark (identical inputs to the baseline render: same
+      start image, seed 12345, same prompts): wall 216.4 s on L40S
+      = ~$0.12 per segment, vs the baseline 23m39s / ~$0.77. Output
+      outputs/prod-distilled-test.mp4: 720x1280, 81 frames, 5.06 s,
+      spec-identical to outputs/first-prod-test.mp4.
+- [x] Quality verdict: HOLDS on the benchmark scene. Side-by-side
+      frames at 0.3 / 2.5 / 4.8 s (local comparison): composition,
+      balloon geometry, colors and edges are clean in both; no
+      warping or structural defects in the distilled frames.
+      Within-clip motion MAE 1.17 / 1.79 / 1.04 (distilled) vs
+      1.06 / 1.36 / 0.99 (baseline); Laplacian sharpness higher in
+      the distilled frames at all three timestamps (73.9 / 70.7 /
+      62.2 vs 41.9 / 32.2 / 27.5). Differences are trajectory
+      differences (cloud/hill arrangement, balloon slightly higher
+      late in the clip), plus two tiny bright specks on the sun's
+      rim in the 4.8 s distilled frame. HONEST CAVEAT: the test
+      scene is flat illustration with gentle motion, the content
+      distillation handles best; parity on photoreal, fine-detail,
+      fast-motion content is NOT proven by this benchmark.
+- [x] Pricing updated (platform/pricing.py, 3x formula untouched):
+      production measured cost 80c -> 15c worst case (verified
+      $0.117 measure + cold-start headroom). Floor $0.78, per-job
+      production price $0.99, Creator included production seconds
+      40 -> 214 (about 3.6 minutes) at the same $20 plan.
+- [ ] NOT tested, deliberately: the distilled config on L4
+      ($0.000222/s). Best case saves only ~$0.03/segment over the
+      L40S figure now that L40S measures $0.12, against the known
+      24 GB offload risk (the A10 attempt at 20 steps never
+      finished) and run-7 budget uncertainty (see BUILD-LOG run 7
+      for the duplicate-delivery accounting). TeaCache stacking
+      also untested: at 4 steps there is little left to cache.
+- Spend (run 7): LoRA download ~$0.01; verified benchmark render
+      ~$0.12; worst-case total ~$0.37 if the duplicate-reported and
+      killed duplicate runs billed in full. Cap was $0.65.
+
 ## RUN 2 (2026-11-16, started 02:23 UTC): AUDIO PASS + PRODUCTION LANE
 
 - [x] Step 1 DONE (02:28 UTC): ACE-Step route produced the bed (no

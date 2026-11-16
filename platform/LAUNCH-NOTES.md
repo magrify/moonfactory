@@ -15,7 +15,9 @@ to finish the launch. Nothing in this file is a secret value.
   counter on the account, no reset, no monthly allowance), plus a
   platform-wide total budget of 100 free jobs in config, watermarked.
   Creator is $20/mo with the included production seconds the formula
-  computes (about 40 s at the measured costs from the test phase).
+  computes (214 s at current measured costs; the production lane
+  runs a 4-step distilled recipe since 2026-11-16, about $0.12 per
+  segment measured, 15c worst case in pricing.py).
 - Bot check on signup and job creation: Cloudflare Turnstile,
   provisioned for the platform hostname and live. A proof-of-work
   challenge stays accepted as a fallback for clients without a
