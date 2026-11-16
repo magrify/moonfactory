@@ -491,3 +491,56 @@ closer to the supplied end image than to its start (distance
 end-frame jobs ran at the same time on one account with no
 serial babysitting. The paid test account's balance and settled
 cost moved by exactly the per-segment amounts throughout.
+
+## Update, 2026-11-16 (run 17): start-image generation (Pass 3)
+
+The Create form's start image now has three sources: upload your
+own (as before), none for a text-only video (as before), or
+"Describe it and we make it": type a description of the first
+frame, the platform makes it at the aspect ratio picked for the
+video (9:16, 16:9, or 1:1, at the Production house shape), shows
+it in the form, and one click attaches it as the video's start
+image. Making another frame is allowed; every generation is
+charged. The feature is described everywhere as making the first
+frame; the image model is never named in user copy.
+
+An image generation is a normal platform job record with the
+same holds, the same Amendment 2 ceiling checked before
+dispatch, and the same Rule 8 failure restore as video jobs (a
+failed frame returns its balance charge, its included-budget
+debit, and its settled cost, in full). Gate decision: any
+account that could run the matching video job may generate its
+start image. Free accounts may generate start images for their
+Draft clips, counted exactly like a Draft render against the
+free ceilings (5 lifetime per account and the platform-wide
+total), because the free tier is a capped marketing budget and
+the first frame is part of that clip's cost either way.
+
+Pricing, measured first (Rule 2, self-hosted lane): one proof
+render through the deployed worker measured 64.3 seconds of
+L40S wall, cold start and model load included (24.1 seconds of
+that was the generation itself), which is $0.0349 at the L40S
+list rate. Carried at 5 cents worst case, the floor price is
+gross_up(5 x 3) = 47 cents per image from balance, charged
+exactly at the computed floor with no rounding. A Creator's
+included budget debits at the raw carried cost, 5 cents per
+image.
+
+Verification, 2026-11-16, against the public URL
+(scratch/verify_start_image.py, in-Modal harness): config and
+/api/pricing serve the image lane at 47 cents with a 5 cent
+measured cost. A free account got 422 on a 4:3 aspect and on an
+empty prompt (create and quote). Quotes: free accounts pay with
+a free clip, a balance account pays 47 cents, a Creator debits
+5 cents of included budget. A topped-out account (settled cost
+equal to its paid-in total) was refused 402 before dispatch with
+no job created and its balance untouched. A failed image job
+restored its 47 cent balance charge and its 5 cents of settled
+cost in full. The one end-to-end session, on a free account from
+an empty form: a start image generated from a text prompt
+(720x1280 PNG), attached with one reference, and a Draft video
+job run from it delivered a finished file (h264, 5.06 seconds,
+sound muxed by the usual post chain); the image and the video
+each counted once against the free lifetime counter. Session
+wall time 266.7 seconds end to end (image leg 30 seconds at
+poll granularity, video leg 229.6 seconds).

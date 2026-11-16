@@ -326,6 +326,10 @@ def public_pricing() -> dict:
             "max_upload_bytes": CLIP_MAX_UPLOAD_BYTES,
             "max_clips_per_job": CLIP_MAX_CLIPS_PER_JOB,
         },
+        "image": {
+            "price_cents": IMAGE_PRICE_CENTS,
+            "measured_cost_cents": IMAGE_MEASURED_COST_CENTS,
+        },
         "per_second_rates_cents": PROVIDER_RATES_CENTS_PER_SECOND,
         "post_cost_cents_per_second": POST_COST_CENTS_PER_SECOND,
         "frontier_min_markup": FRONTIER_MIN_MARKUP,
@@ -382,4 +386,38 @@ def clip_quote(duration_seconds: float) -> dict:
         "max_source_seconds": CLIP_MAX_SOURCE_SECONDS,
         "max_upload_bytes": CLIP_MAX_UPLOAD_BYTES,
         "max_clips_per_job": CLIP_MAX_CLIPS_PER_JOB,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Start-image generation (PARITY-PROGRAM Pass 3). A self-hosted lane,
+# so Rule 2 applies in full: the price is the worst-case measured
+# cost x the margin multiplier, grossed up for Stripe fees by the
+# same gross_up() the video lanes use, charged exactly at the floor
+# with no rounding to a nicer number.
+#
+# Measured 2026-11-16 (one proof render through the deployed worker,
+# 9:16 at 720x1280, 8 steps): 64.3 s of L40S wall for the worker
+# call, cold start and model load included (24.1 s of that was the
+# generation itself), at the L40S list rate of $0.000542/s =
+# $0.0349 per image. Carried at 5 cents worst case, the same
+# cold-start headroom shape the production lane uses (verified
+# $0.117 carried at 15c). Floor: gross_up(5 x 3) = 47 cents per
+# image from balance. The Creator included budget debits at the raw
+# carried cost, 5 cents per image (Amendment 1 one-budget rule).
+# Free accounts may generate start images for their Draft clips,
+# counted exactly like a Draft render against the free ceilings
+# (5 lifetime per account, platform-wide total in config): the free
+# tier is a capped marketing budget and a first frame is part of a
+# Draft clip's cost either way.
+# ---------------------------------------------------------------------------
+
+IMAGE_MEASURED_COST_CENTS = 5.0
+IMAGE_PRICE_CENTS = gross_up(IMAGE_MEASURED_COST_CENTS * MARGIN_MULTIPLIER)
+
+
+def image_quote() -> dict:
+    return {
+        "price_cents": IMAGE_PRICE_CENTS,
+        "measured_cost_cents": IMAGE_MEASURED_COST_CENTS,
     }

@@ -73,6 +73,50 @@ Response `200`:
 Finished files are also persisted in the Modal Volume `sinclip-models`
 under `api_jobs/<job_id>.mp4`.
 
+### POST /image-jobs — submit a start-image generation job (Pass 3)
+
+Text-to-image for a video's first frame. The workflow is
+`workflows/z_image_t2i.json` (built from the Freefield z-image app
+definition; model files staged in the Volume:
+`diffusion_models/z_image_turbo_int8_convrot.safetensors`,
+`text_encoders/qwen_3_4b_fp8_mixed.safetensors`, `vae/ae.safetensors`).
+
+Request JSON:
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `prompt` | string | yes | The frame description (422 when empty) |
+| `aspect_ratio` | string | no | `9:16` (default), `16:9`, or `1:1` (422 otherwise). Rendered at the production house shape for the aspect: 720x1280, 1280x720, 960x960. |
+| `seed` | int | no | Defaults to the house seed |
+
+Response `202`: `{"job_id": "...", "status": "queued"}`. Same
+`X-API-Key` auth and jobs Dict as the video endpoints. Errors:
+`401` bad key, `422` missing prompt or bad aspect.
+
+### GET /image-jobs/{job_id} — image job status
+
+Response `200`:
+
+    {"job_id": "...", "lane": "image", "prompt": "...",
+     "status": "queued|running|done|error", "error": "...",
+     "bytes": 12345, "created_at": 1763000000.0,
+     "aspect_ratio": "9:16", "gpu_seconds": 64.3, "exec_seconds": 24.1}
+
+`gpu_seconds` is the measured wall of the worker call (cold start
+included, the convention the video benchmarks use); `exec_seconds`
+is the ComfyUI execution alone. Unknown id (or a video job id):
+`404`.
+
+### GET /image-jobs/{job_id}/file — download the finished image
+
+`200` with `Content-Type: image/png` once the job is `done`.
+`409` while queued/running/error, `404` for unknown ids. Finished
+images persist in the Volume under `api_jobs/<job_id>.png`.
+
+Measured cost (2026-11-16, one proof render, 9:16): 64.3 s wall on
+L40S = $0.0349 at the $0.000542/s list rate; the platform prices
+the lane from this measure (see platform/pricing.py).
+
 ## How it works
 
 `POST /jobs` records the job in the Modal Dict `sinclip-jobs` and spawns

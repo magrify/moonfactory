@@ -282,6 +282,87 @@ class ComfyUI:
                         return self._persist_output(path)
         raise RuntimeError(f"No video file in ComfyUI outputs: {entry.get('outputs')}")
 
+    def _find_image_output(self, workflow):
+        """Return the Path of an existing PNG for this workflow's
+        SaveImage filename_prefix in ComfyUI's output dir, or None."""
+        prefix = None
+        for node in workflow.values():
+            if node.get("class_type") == "SaveImage":
+                prefix = node.get("inputs", {}).get("filename_prefix")
+                break
+        if not prefix:
+            return None
+        out_dir = COMFY_ROOT / "output" / Path(prefix).parent
+        stem = Path(prefix).name
+        if out_dir.is_dir():
+            matches = sorted(out_dir.glob(f"{stem}_*.png"))
+            if matches:
+                return matches[-1]
+        return None
+
+    @modal.method()
+    def run_image_workflow(self, workflow: dict):
+        """Submit one patched API-format image workflow to the local
+        ComfyUI and return the produced PNG as bytes. Mirrors
+        run_workflow, but the terminal node is SaveImage and the
+        output is a still image. Returns (bytes, gpu_seconds) where
+        gpu_seconds is the wall time of the ComfyUI execution poll,
+        the figure the platform prices the lane from."""
+        import requests
+
+        existing = self._find_image_output(workflow)
+        if existing is not None:
+            print(f"reusing existing output {existing}", flush=True)
+            return self._persist_output(existing), 0.0
+
+        self._wait_for_comfy(timeout=60)
+
+        payload = {"prompt": workflow, "client_id": str(uuid.uuid4())}
+        r = requests.post(f"{COMFY_BASE}/prompt", json=payload, timeout=30)
+        if r.status_code != 200:
+            raise RuntimeError(
+                f"ComfyUI /prompt returned {r.status_code}: {r.text[:2000]}"
+            )
+        data = r.json()
+        if data.get("node_errors"):
+            raise RuntimeError(f"ComfyUI rejected workflow: {data['node_errors']}")
+        prompt_id = data["prompt_id"]
+        print(f"submitted image prompt {prompt_id}", flush=True)
+
+        started = time.time()
+        deadline = started + 1800
+        entry = None
+        while time.time() < deadline:
+            r = requests.get(f"{COMFY_BASE}/history/{prompt_id}", timeout=15)
+            r.raise_for_status()
+            history = r.json()
+            if prompt_id in history:
+                candidate = history[prompt_id]
+                status = candidate.get("status", {})
+                if status.get("status_str") == "error":
+                    raise RuntimeError(f"ComfyUI execution error: {status}")
+                if candidate.get("outputs"):
+                    entry = candidate
+                    break
+            time.sleep(2)
+        if entry is None:
+            raise TimeoutError(f"image prompt {prompt_id} did not finish in time")
+        gpu_seconds = time.time() - started
+
+        for node_output in entry.get("outputs", {}).values():
+            for item in node_output.get("images", []):
+                filename = item.get("filename", "")
+                if filename.endswith(".png"):
+                    path = (
+                        COMFY_ROOT
+                        / item.get("type", "output")
+                        / item.get("subfolder", "")
+                        / filename
+                    )
+                    print(f"reading output {path}", flush=True)
+                    return self._persist_output(path), gpu_seconds
+        raise RuntimeError(f"No image file in ComfyUI outputs: {entry.get('outputs')}")
+
 
 MODEL_REPO_21 = "Comfy-Org/Wan_2.1_ComfyUI_repackaged"
 # (repo, source path in repo, path inside the ComfyUI models dir)
@@ -468,6 +549,10 @@ api_image = (
         "/workflows/firstlast_chain.json",
     )
     .add_local_file(
+        str(Path(__file__).parent.parent / "workflows" / "z_image_t2i.json"),
+        "/workflows/z_image_t2i.json",
+    )
+    .add_local_file(
         str(Path(__file__).parent / "test_start.png"),
         "/assets/test_start.png",
     )
@@ -486,6 +571,37 @@ LANE_DIMS = {
     "draft": {"9:16": (480, 832), "16:9": (800, 448), "1:1": (640, 640)},
     "production": {"9:16": (720, 1280), "16:9": (1280, 720), "1:1": (960, 960)},
 }
+
+# Start-image generation (Pass 3): one still image per job at the
+# production house shape for the chosen aspect, so the frame feeds
+# either house lane at its native aspect with no crop or pad. The
+# workflow is workflows/z_image_t2i.json, built from the Freefield
+# z-image app definition (8 steps, res_multistep, cfg 1).
+IMAGE_DIMS = {
+    "9:16": (720, 1280), "16:9": (1280, 720), "1:1": (960, 960),
+}
+
+
+def _build_image_workflow(prompt: str, seed: int, aspect: str = "9:16",
+                          prefix: str = ""):
+    workflow = json.loads(
+        (Path("/workflows") / "z_image_t2i.json").read_text()
+    )
+    width, height = IMAGE_DIMS[aspect]
+    for node in workflow.values():
+        ct = node.get("class_type")
+        inputs = node.get("inputs", {})
+        if ct == "CLIPTextEncode":
+            if inputs.get("text") == "PLACEHOLDER_POSITIVE_PROMPT":
+                inputs["text"] = prompt
+        elif ct == "KSampler":
+            inputs["seed"] = seed
+        elif ct == "EmptySD3LatentImage":
+            inputs["width"] = width
+            inputs["height"] = height
+        elif ct == "SaveImage":
+            inputs["filename_prefix"] = prefix or "sinclip/api_image"
+    return workflow
 
 
 def _build_lane_workflow(lane: str, prompt: str, negative: str, seed: int,
@@ -747,6 +863,60 @@ def read_job_file(job_id: str):
     return path.read_bytes()
 
 
+@app.function(image=api_image, timeout=3600)
+def run_image_job(job_id: str, prompt: str, seed: int, aspect: str = "9:16"):
+    """Dispatcher for one start-image job: build the image workflow,
+    run it on the ComfyUI class, persist the PNG into the Volume,
+    and record the outcome in the jobs Dict. Spawned by the web
+    endpoint; never called synchronously. The record carries the
+    measured GPU seconds (the remote call wall, cold start included,
+    the same convention the video lane benchmarks use) so the
+    platform prices the lane from real renders."""
+    jobs[job_id] = {**(jobs.get(job_id) or {}), "status": "running"}
+    started = time.time()
+    try:
+        workflow = _build_image_workflow(
+            prompt, seed, aspect, prefix=f"sinclip/api_image_{job_id}")
+        data, exec_seconds = ComfyUI().run_image_workflow.remote(workflow)
+        wall = time.time() - started
+        store_image_file.remote(job_id, data)
+        jobs[job_id] = {
+            **(jobs.get(job_id) or {}),
+            "status": "done",
+            "file": f"api_jobs/{job_id}.png",
+            "bytes": len(data),
+            "gpu_seconds": round(wall, 1),
+            "exec_seconds": round(float(exec_seconds or 0), 1),
+        }
+        return {"job_id": job_id, "status": "done", "bytes": len(data),
+                "gpu_seconds": round(wall, 1)}
+    except Exception as exc:  # noqa: BLE001 - record any failure for the API
+        jobs[job_id] = {
+            **(jobs.get(job_id) or {}),
+            "status": "error",
+            "error": f"{type(exc).__name__}: {exc}"[:500],
+            "gpu_seconds": round(time.time() - started, 1),
+        }
+        raise
+
+
+@app.function(image=download_image, volumes={"/models": volume}, timeout=600)
+def store_image_file(job_id: str, data: bytes):
+    dest_dir = Path("/models/api_jobs")
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    (dest_dir / f"{job_id}.png").write_bytes(data)
+    volume.commit()
+    return len(data)
+
+
+@app.function(image=download_image, volumes={"/models": volume}, timeout=600)
+def read_image_file(job_id: str):
+    path = Path("/models/api_jobs") / f"{job_id}.png"
+    if not path.exists():
+        raise FileNotFoundError(f"no image file for job {job_id}")
+    return path.read_bytes()
+
+
 @app.function(image=api_image, secrets=[modal.Secret.from_name("sinclip-api-key")])
 @modal.asgi_app()
 def api():
@@ -843,6 +1013,54 @@ def api():
                                 detail=f"job status is {record.get('status')}")
         data = read_job_file.remote(job_id)
         return Response(content=data, media_type="video/mp4")
+
+    @web.post("/image-jobs")
+    async def create_image_job(request: Request, x_api_key: str = Header(default="")):
+        _auth(x_api_key)
+        body = await request.json()
+        prompt = (body.get("prompt") or "").strip()
+        if not prompt:
+            raise HTTPException(status_code=422, detail="prompt is required")
+        aspect = body.get("aspect_ratio") or "9:16"
+        if aspect not in ASPECT_RATIOS:
+            raise HTTPException(
+                status_code=422,
+                detail=f"aspect_ratio must be one of {list(ASPECT_RATIOS)}")
+        job_id = uuid.uuid4().hex[:16]
+        record = {
+            "job_id": job_id,
+            "lane": "image",
+            "prompt": prompt,
+            "status": "queued",
+            "created_at": time.time(),
+            "aspect_ratio": aspect,
+        }
+        jobs[job_id] = record
+        run_image_job.spawn(
+            job_id, prompt, int(body.get("seed") or SEED), aspect)
+        return JSONResponse({"job_id": job_id, "status": "queued"}, status_code=202)
+
+    @web.get("/image-jobs/{job_id}")
+    def get_image_job(job_id: str, x_api_key: str = Header(default="")):
+        _auth(x_api_key)
+        record = jobs.get(job_id)
+        if record is None or record.get("lane") != "image":
+            raise HTTPException(status_code=404, detail="unknown job_id")
+        return {k: record.get(k) for k in
+                ("job_id", "lane", "prompt", "status", "error", "bytes",
+                 "created_at", "aspect_ratio", "gpu_seconds", "exec_seconds")}
+
+    @web.get("/image-jobs/{job_id}/file")
+    def get_image_job_file(job_id: str, x_api_key: str = Header(default="")):
+        _auth(x_api_key)
+        record = jobs.get(job_id)
+        if record is None or record.get("lane") != "image":
+            raise HTTPException(status_code=404, detail="unknown job_id")
+        if record.get("status") != "done":
+            raise HTTPException(status_code=409,
+                                detail=f"job status is {record.get('status')}")
+        data = read_image_file.remote(job_id)
+        return Response(content=data, media_type="image/png")
 
     return web
 

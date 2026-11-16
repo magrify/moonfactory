@@ -352,6 +352,9 @@ MAX_SEGMENTS = 12
 CONCURRENCY_FREE = 1
 CONCURRENCY_PAID = 4
 MAX_IMAGE_BYTES = 10 * 1024 * 1024
+# Start-image generation (Pass 3): the image prompt is a frame
+# description, sized like the other per-job prompt fields.
+IMAGE_PROMPT_MAX_CHARS = 1000
 
 
 def _validate_image_b64(value, field: str):
@@ -1043,6 +1046,11 @@ def api():
                 "end_frame_lane": "production",
                 "text_only_lane": "draft",
             },
+            "start_image": {
+                "price_cents": pricing.IMAGE_PRICE_CENTS,
+                "measured_cost_cents": pricing.IMAGE_MEASURED_COST_CENTS,
+                "aspects": list(HOUSE_ASPECTS),
+            },
             "models": [
                 {
                     "id": m["id"],
@@ -1491,9 +1499,61 @@ def api():
                 pass
         return job
 
+    def mirror_image_status(job: dict) -> dict:
+        """Start-image jobs (Pass 3) poll the worker's image
+        endpoint. A failed image job restores everything it held
+        (Rule 8): the balance charge returns, the included-budget
+        debit returns, and the dispatch-time settled cost comes
+        back off the account's ceiling total."""
+        if job["status"] in ("queued", "running") and _now() - job.get("last_poll", 0) > 8:
+            try:
+                resp = requests.get(
+                    f"{WORKER_BASE}/image-jobs/{job['worker_job_id']}",
+                    headers=_worker_headers(), timeout=15,
+                )
+                if resp.status_code == 200:
+                    remote = resp.json()
+                    job["status"] = remote.get("status", job["status"])
+                    job["bytes"] = remote.get("bytes")
+                    if remote.get("gpu_seconds") is not None:
+                        job["gpu_seconds"] = remote.get("gpu_seconds")
+                    if job["status"] == "error":
+                        job["internal_error"] = remote.get("error")
+                        job["error"] = (
+                            "the first frame could not be made, nothing was charged"
+                        )
+                        owner = users.get(f"id:{job['user_id']}")
+                        if owner:
+                            if job.get("charged_cents") and not job.get("refunded"):
+                                owner["balance_cents"] = (
+                                    owner.get("balance_cents", 0)
+                                    + job["charged_cents"])
+                                job["refunded"] = True
+                            if job.get("included_cost_cents") and not job.get("included_released"):
+                                u = usage(owner)
+                                u["included_cost_cents"] = max(
+                                    0.0, included_cost_used(owner)
+                                    - float(job["included_cost_cents"]))
+                                owner["usage"] = u
+                                job["included_released"] = True
+                            if job.get("cost_cents") and not job.get("cost_released"):
+                                owner["cost_settled_cents"] = max(
+                                    0.0,
+                                    float(owner.get("cost_settled_cents") or 0.0)
+                                    - float(job["cost_cents"]))
+                                job["cost_released"] = True
+                            save_user(owner)
+            except Exception:
+                pass
+            job["last_poll"] = _now()
+            jobs[job["id"]] = job
+        return job
+
     def mirror_status(job: dict) -> dict:
         if job.get("provider") == "clip":
             return job
+        if job.get("kind") == "image":
+            return mirror_image_status(job)
         if job.get("provider") == "fal":
             return mirror_fal_status(job)
         if job.get("provider") == "beatapi":
@@ -1593,7 +1653,8 @@ def api():
             "id": job["id"],
             "lane": job["lane"],
             "model": (
-                "Clip" if job.get("kind") in ("clip_job", "clip_output")
+                "First frame" if job.get("kind") == "image"
+                else "Clip" if job.get("kind") in ("clip_job", "clip_output")
                 else MODEL_LABELS.get(job.get("model") or DEFAULT_MODEL, "Wan 2.2")
             ),
             "model_id": job.get("model") or DEFAULT_MODEL,
@@ -2112,6 +2173,22 @@ def api():
                 detail="aspect_ratio must be one of: " + ", ".join(HOUSE_ASPECTS))
         start_image = body.get("start_image_png_b64") or None
         end_image = body.get("end_image_png_b64") or None
+        if body.get("start_image_job_id") and not start_image:
+            # One-click attach (Pass 3): the start frame is one of
+            # the user's own finished image jobs. Resolve it here,
+            # server-side, so the rest of creation treats it exactly
+            # like an uploaded start image.
+            image_job = jobs.get(body["start_image_job_id"])
+            if not image_job or image_job.get("user_id") != user["id"] \
+                    or image_job.get("kind") != "image":
+                raise HTTPException(status_code=404, detail="unknown start image")
+            image_job = mirror_status(image_job)
+            if image_job["status"] != "done":
+                raise HTTPException(
+                    status_code=409, detail="that first frame is not finished yet")
+            start_image = base64.b64encode(
+                ensure_image_file(image_job).read_bytes()).decode()
+            body["start_image_png_b64"] = start_image
         try:
             _validate_image_b64(start_image, "start image")
             _validate_image_b64(end_image, "end image")
@@ -2315,6 +2392,187 @@ def api():
             for j in mine[:50]
         ]}
 
+    # -- start-image generation (Pass 3) --------------------------------
+    # An image job is a normal platform job record (kind "image"):
+    # same accounts, same holds, same Amendment 2 ceiling, same
+    # Rule 8 failure restore as video jobs (mirror_image_status).
+    # Gate decision: any account that could run the matching video
+    # job may generate its start image. Free accounts generate for
+    # their Draft clips, counted exactly like a Draft render
+    # against the free ceilings, because the free tier is a capped
+    # marketing budget and the first frame is part of that clip's
+    # cost either way. Paid paths: a Creator's included budget
+    # debits at the raw measured cost; balance pays the Rule 2
+    # floor price in pricing.py. Each generation is charged,
+    # including regenerations.
+
+    def _image_params(body: dict):
+        prompt = (body.get("prompt") or "").strip()
+        if not prompt or len(prompt) > IMAGE_PROMPT_MAX_CHARS:
+            raise HTTPException(
+                status_code=422,
+                detail=f"an image prompt of up to {IMAGE_PROMPT_MAX_CHARS} characters is required")
+        aspect = body.get("aspect_ratio") or "9:16"
+        if aspect not in HOUSE_ASPECTS:
+            raise HTTPException(
+                status_code=422,
+                detail="aspect_ratio must be one of: " + ", ".join(HOUSE_ASPECTS))
+        return prompt, aspect
+
+    def _image_payment(user: dict) -> dict:
+        """Which rail an image job would pay from, before anything
+        runs, mirroring the video lanes' order: free ceilings for
+        accounts that have never paid, then a subscriber's included
+        budget at raw cost, then balance at the floor price."""
+        if user["plan"] == "free" and not is_paid(user):
+            return {"method": "free"}
+        if (user["plan"] == "creator"
+                and included_budget_remaining(user) >= pricing.IMAGE_MEASURED_COST_CENTS):
+            return {"method": "included",
+                    "included_debit_cents": pricing.IMAGE_MEASURED_COST_CENTS}
+        if int(user.get("balance_cents", 0)) >= pricing.IMAGE_PRICE_CENTS:
+            return {"method": "balance", "charge_cents": pricing.IMAGE_PRICE_CENTS}
+        return {"method": "insufficient", "charge_cents": pricing.IMAGE_PRICE_CENTS,
+                "balance_cents": int(user.get("balance_cents", 0))}
+
+    @web.post("/api/images/quote")
+    async def quote_image(request: Request, mf_session: str = Cookie(default="")):
+        user = require_user(request, mf_session)
+        body = await request.json()
+        _image_params(body)
+        return {
+            **pricing.image_quote(),
+            "payment": _image_payment(user),
+            "ceiling_ok": (
+                True if not is_paid(user) and user["plan"] == "free"
+                else ceiling_allows(user, pricing.IMAGE_MEASURED_COST_CENTS)
+            ),
+        }
+
+    @web.post("/api/images")
+    async def create_image(request: Request, mf_session: str = Cookie(default="")):
+        user = require_user(request, mf_session)
+        if _rate_limited("imagecreate", user["id"], 10):
+            raise HTTPException(status_code=429, detail="too many jobs, slow down")
+        if not user["verified"]:
+            raise HTTPException(status_code=403, detail="verify your email before creating")
+        if user.get("past_due"):
+            raise HTTPException(status_code=403, detail="your subscription payment is past due")
+        body = await request.json()
+        if not _verify_bot_check(body, client_ip(request)):
+            raise HTTPException(status_code=403, detail="bot check failed")
+        prompt, aspect = _image_params(body)
+        # Same in-flight limits as video jobs, counted together:
+        # an image render is a render.
+        limit = CONCURRENCY_PAID if is_paid(user) else CONCURRENCY_FREE
+        in_flight = 0
+        for key in list(jobs.keys()):
+            other = jobs.get(key)
+            if (other and other.get("user_id") == user["id"]
+                    and other.get("status") in ("queued", "running")
+                    and other.get("provider") != "clip"
+                    and other.get("kind") not in ("clip_job", "clip_output")):
+                in_flight += 1
+        if in_flight >= limit:
+            raise HTTPException(
+                status_code=429,
+                detail=f"you already have {in_flight} jobs in flight (your plan allows {limit} at a time); one needs to finish before the next starts")
+        u = usage(user)
+        charged = 0
+        used_budget = 0.0
+        job_cost_cents = 0.0
+        is_free_job = False
+        if user["plan"] == "free" and not is_paid(user):
+            if free_jobs_total(user) >= FREE_CLIPS_TOTAL:
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"free clip limit reached: the free plan is {FREE_CLIPS_TOTAL} clips total",
+                )
+            if int(meta.get("freecount:total") or 0) >= FREE_PLATFORM_TOTAL_CEILING:
+                raise HTTPException(status_code=503, detail="the free tier is paused")
+            is_free_job = True
+        else:
+            # Amendment 2 ceiling, before dispatch, as on every
+            # paid path.
+            if not ceiling_allows(user, pricing.IMAGE_MEASURED_COST_CENTS):
+                raise HTTPException(
+                    status_code=402,
+                    detail="this job would exceed the total generation your payments cover",
+                )
+            payment = _image_payment(user)
+            if payment["method"] == "included":
+                used_budget = float(pricing.IMAGE_MEASURED_COST_CENTS)
+            elif payment["method"] == "balance":
+                charged = pricing.IMAGE_PRICE_CENTS
+            else:
+                raise HTTPException(
+                    status_code=402,
+                    detail=f"included budget used up; a first frame costs {pricing.IMAGE_PRICE_CENTS} cents of prepaid balance")
+            job_cost_cents = float(pricing.IMAGE_MEASURED_COST_CENTS)
+        try:
+            resp = requests.post(
+                f"{WORKER_BASE}/image-jobs",
+                headers=_worker_headers(),
+                json={
+                    "prompt": prompt,
+                    "aspect_ratio": aspect,
+                    "seed": body.get("seed"),
+                },
+                timeout=30,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"generation worker unreachable: {exc}")
+        if resp.status_code != 202:
+            raise HTTPException(status_code=502, detail=f"generation worker refused the job ({resp.status_code})")
+        worker_job_id = resp.json()["job_id"]
+        # Commit the quota/balance only after the worker accepted
+        # the job, exactly like the video lanes.
+        if is_free_job:
+            u["free_jobs"] += 1
+            user["free_jobs_total"] = free_jobs_total(user) + 1
+            meta["freecount:total"] = int(meta.get("freecount:total") or 0) + 1
+        if used_budget:
+            u["included_cost_cents"] = included_cost_used(user) + used_budget
+        if charged:
+            user["balance_cents"] = user.get("balance_cents", 0) - charged
+        if job_cost_cents:
+            user["cost_settled_cents"] = (
+                float(user.get("cost_settled_cents") or 0.0) + job_cost_cents
+            )
+        user["usage"] = u
+        save_user(user)
+        job = {
+            "id": pysecrets.token_hex(8),
+            "user_id": user["id"],
+            "worker_job_id": worker_job_id,
+            "provider": "worker-image",
+            "kind": "image",
+            "lane": "image",
+            "model": None,
+            "prompt": prompt,
+            "user_prompt": prompt,
+            "camera_presets": [],
+            "camera_preset_names": [],
+            "camera_look": {},
+            "status": "queued",
+            "error": None,
+            "bytes": None,
+            "created_at": _now(),
+            "charged_cents": charged,
+            "free_tier": is_free_job,
+            "included_cost_cents": used_budget,
+            "cost_cents": job_cost_cents,
+            "music_prompt": None,
+            "plan_at_job": user["plan"],
+            "retry_of": body.get("retry_of"),
+            "last_poll": 0,
+            "aspect_ratio": aspect,
+        }
+        jobs[job["id"]] = job
+        return JSONResponse(
+            {**public_job(job), "quote": pricing.image_quote()},
+            status_code=202)
+
     @web.post("/api/jobs/{job_id}/regenerate")
     async def regenerate(job_id: str, request: Request, mf_session: str = Cookie(default="")):
         user = require_user(request, mf_session)
@@ -2461,6 +2719,28 @@ def api():
             data_volume.commit()
         return out_path
 
+    def ensure_image_file(job: dict) -> Path:
+        """Fetch a finished start image from the worker once and
+        cache it on the data Volume. Images are delivered as made:
+        no post chain, no watermark, no music stage."""
+        FILES_DIR.mkdir(parents=True, exist_ok=True)
+        out_path = FILES_DIR / f"{job['id']}.png"
+        if not out_path.exists():
+            try:
+                data_volume.reload()
+            except Exception:
+                pass
+        if not out_path.exists():
+            resp = requests.get(
+                f"{WORKER_BASE}/image-jobs/{job['worker_job_id']}/file",
+                headers=_worker_headers(), timeout=120,
+            )
+            if resp.status_code != 200:
+                raise HTTPException(status_code=502, detail="finished file is not available yet")
+            out_path.write_bytes(resp.content)
+            data_volume.commit()
+        return out_path
+
     @web.get("/api/jobs/{job_id}/file")
     def job_file(job_id: str, request: Request, mf_session: str = Cookie(default="")):
         user = require_user(request, mf_session)
@@ -2470,6 +2750,9 @@ def api():
         job = mirror_status(job)
         if job["status"] != "done":
             raise HTTPException(status_code=409, detail=f"job status is {job['status']}")
+        if job.get("kind") == "image":
+            return FileResponse(ensure_image_file(job), media_type="image/png",
+                                filename=f"moonfactory-{job_id}.png")
         if job.get("kind") == "clip_job":
             raise HTTPException(status_code=409, detail="this clip job made several clips, open one of them")
         out_path = ensure_processed(job)
@@ -2485,6 +2768,7 @@ def api():
         del jobs[job_id]
         for path in (FILES_DIR / f"{job_id}.mp4",
                      FILES_DIR / f"{job_id}.raw.mp4",
+                     FILES_DIR / f"{job_id}.png",
                      FILES_DIR / "beds" / f"{job_id}.wav"):
             try:
                 path.unlink(missing_ok=True)
@@ -2754,6 +3038,10 @@ def api():
     # accounts that have never paid always list.
 
     def gallery_visible(job: dict) -> bool:
+        if job.get("kind") == "image":
+            # Start images are ingredients, not finished clips: they
+            # never list in the gallery.
+            return False
         if job.get("status") != "done" or job.get("removed"):
             return False
         owner = users.get(f"id:{job.get('user_id')}")
@@ -3544,8 +3832,23 @@ APP_HTML = (
     <label>End image (PNG, optional, Production lane: the video steers to this final frame)</label>
     <input id="endimg" type="file" accept="image/png">
     </div>
-    <label>Start image (PNG, optional on Draft: leave empty for a text-only video)</label>
-    <input id="startimg" type="file" accept="image/png">
+    <label>Start image (the first frame of your video)</label>
+    <select id="start-source">
+      <option value="none" selected>None: text only (Draft lane)</option>
+      <option value="upload">Upload an image</option>
+      <option value="generate">Describe it and we make it</option>
+    </select>
+    <div id="start-upload-wrap" style="display:none">
+      <label>Start image file (PNG or JPEG)</label>
+      <input id="startimg" type="file" accept="image/png,image/jpeg">
+    </div>
+    <div id="start-gen-wrap" style="display:none">
+      <label>Describe the first frame</label>
+      <textarea id="image-prompt" rows="2" maxlength="1000" placeholder="a red hot air balloon over rolling green hills at sunrise, bright daylight"></textarea>
+      <button class="btn secondary" id="gen-image" type="button">Make the first frame</button>
+      <p class="muted" id="image-note">We make the opening frame at the aspect ratio you picked above. Check it here, and it attaches to your video with one click. Every frame we make is charged like a small render; the exact price shows before it runs. Not happy with it? Make another.</p>
+      <div id="image-preview"></div>
+    </div>
     <div id="botcheck2"></div>
     <button class="btn" id="create">Create video</button>
     <p id="job-msg"></p>
@@ -3607,6 +3910,7 @@ const $ = id => document.getElementById(id);
 let cfg = { pow_required: true, pow_difficulty_bits: 18, turnstile_site_key: null };
 let startImageB64 = null;
 let endImageB64 = null;
+let generatedImageJobId = null;
 
 async function solvePow() {
   const r = await fetch('/api/challenge'); const c = await r.json();
@@ -3649,10 +3953,58 @@ function msg(id, text, cls) { const el = $(id); el.textContent = text; el.classN
 
 $('startimg').addEventListener('change', e => {
   const f = e.target.files[0]; if (!f) { startImageB64 = null; return; }
+  generatedImageJobId = null;
   const reader = new FileReader();
   reader.onload = () => { startImageB64 = String(reader.result).split(',')[1]; };
   reader.readAsDataURL(f);
 });
+// Start image source choice: upload your own, go text-only, or
+// describe the first frame and have it made. A made frame attaches
+// to the video job by its job id, resolved on the server.
+$('start-source').addEventListener('change', () => {
+  const src = $('start-source').value;
+  $('start-upload-wrap').style.display = src === 'upload' ? 'block' : 'none';
+  $('start-gen-wrap').style.display = src === 'generate' ? 'block' : 'none';
+  if (src !== 'upload') startImageB64 = null;
+  if (src !== 'generate') generatedImageJobId = null;
+});
+$('gen-image').onclick = async () => {
+  try {
+    const prompt = $('image-prompt').value.trim();
+    if (!prompt) { msg('image-note', 'Describe the first frame first.', 'err'); return; }
+    msg('image-note', 'Checking the price...');
+    const q = await api('/api/images/quote', { method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ prompt: prompt, aspect_ratio: $('aspect').value }) });
+    const p = q.payment || {};
+    const priceText = p.method === 'free' ? 'it counts as one of your free clips'
+      : p.method === 'included' ? 'it debits $' + ((p.included_debit_cents || 0) / 100).toFixed(2) + ' of your included budget'
+      : 'it costs $' + ((q.price_cents || 0) / 100).toFixed(2) + ' from your prepaid balance';
+    msg('image-note', 'Making your first frame: ' + priceText + '...');
+    const bot = await botFields('botcheck2');
+    const r = await api('/api/images', { method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ prompt: prompt, aspect_ratio: $('aspect').value, ...bot }) });
+    const imageJobId = r.id;
+    const poll = async () => {
+      const list = await api('/api/jobs');
+      const j = list.jobs.find(x => x.id === imageJobId);
+      if (!j) return;
+      if (j.status === 'done') {
+        generatedImageJobId = imageJobId;
+        $('image-preview').innerHTML =
+          '<img src="/api/jobs/' + imageJobId + '/file" style="width:180px;border-radius:8px" alt="Your first frame">' +
+          '<p class="muted">This frame is attached as your start image. Create your video when you are ready, or make another frame first.</p>';
+        msg('image-note', 'Your first frame is ready and attached.', 'ok');
+        loadJobs();
+      } else if (j.status === 'error') {
+        msg('image-note', j.error || 'The first frame could not be made, nothing was charged.', 'err');
+        loadJobs();
+      } else {
+        setTimeout(poll, 5000);
+      }
+    };
+    setTimeout(poll, 3000);
+  } catch (e) { msg('image-note', e.message, 'err'); }
+};
 $('endimg').addEventListener('change', e => {
   const f = e.target.files[0]; if (!f) { endImageB64 = null; return; }
   const reader = new FileReader();
@@ -3905,16 +4257,19 @@ $('create').onclick = async () => {
     const bot = await botFields('botcheck2');
     const model = $('model').value;
     const camera = { camera_presets: selectedPresets, camera_look: selectedLook() };
+    const startFields = $('start-source').value === 'generate' && generatedImageJobId
+      ? { start_image_job_id: generatedImageJobId }
+      : { start_image_png_b64: startImageB64 };
     const jobBody = model === 'wan2.2'
       ? { model: model, lane: $('lane').value, prompt: $('prompt').value,
           music_prompt: $('music').disabled ? '' : $('music').value,
-          start_image_png_b64: startImageB64, end_image_png_b64: endImageB64,
+          ...startFields, end_image_png_b64: endImageB64,
           aspect_ratio: $('aspect').value, segments: Number($('segments').value),
           ...camera, ...bot }
       : { model: model, prompt: $('prompt').value,
           music_prompt: $('music').disabled ? '' : $('music').value,
           duration_seconds: Number($('duration').value), resolution: $('resolution').value,
-          start_image_png_b64: startImageB64, ...camera, ...bot };
+          ...startFields, ...camera, ...bot };
     const r = await api('/api/jobs', { method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(jobBody) });
     msg('job-msg', model === 'wan2.2'
@@ -3947,7 +4302,8 @@ async function loadJobs() {
       if (isClipJob && j.stage && (j.status === 'queued' || j.status === 'running')) html += '<br><span class="muted">' + j.stage + '</span>';
       if (j.camera_presets && j.camera_presets.length) html +=
         '<br><span class="muted">Camera: ' + j.camera_presets.join(' \\u2192 ') + '</span>';
-      if (j.status === 'done') html += '<br><video controls src="/api/jobs/' + j.id + '/file"></video>' +
+      if (j.status === 'done' && j.kind === 'image') html += '<br><img src="/api/jobs/' + j.id + '/file" style="width:160px;border-radius:8px" alt="">';
+      if (j.status === 'done' && j.kind !== 'image') html += '<br><video controls src="/api/jobs/' + j.id + '/file"></video>' +
         '<br><a href="/api/jobs/' + j.id + '/file" download>Download</a>';
       if (j.status === 'error') html += '<br><span class="err">' + (j.error || 'failed') + '</span>';
       if (j.status === 'done' || j.status === 'error') html +=
