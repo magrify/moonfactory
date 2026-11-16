@@ -500,10 +500,14 @@ MODEL_UNAVAILABLE = "this model is temporarily unavailable"
 # Availability: the prompt-recipe presets (mechanism "prompt") run
 # today on the Wan 2.2 lanes, and the same composed prompt passes
 # through to the per-second lanes. The Fun Camera presets
-# (mechanism "workflow_patch", status "needs_model") wait on a model
-# download: the picker shows them as coming soon and the server
-# refuses them, never silently drops them. Presets are not a paid
-# feature; free accounts may use them on their Draft lane.
+# (mechanism "workflow_patch") went live 2026-11-16 (Pass 4): the
+# chosen pose conditions the worker's Fun Camera render instead of
+# adding prompt text. A Fun Camera preset is a single conditioned
+# move: it cannot chain with any other move, and it runs on the
+# Production lane only (one segment, no end image), enforced in
+# validation below. Presets are not a paid feature; free accounts
+# may use the prompt recipes on their Draft lane, and Fun Camera
+# inherits the Production lane's paid gate.
 # ---------------------------------------------------------------------------
 
 
@@ -536,12 +540,22 @@ LOOK_SLOTS = (
 
 
 def camera_preset_available(preset: dict) -> bool:
-    """Selectable today: a prompt recipe that does not wait on a
-    model. Everything else shows in the picker as coming soon."""
-    return (
-        preset.get("mechanism") == "prompt"
-        and preset.get("status") != "needs_model"
-    )
+    """Selectable today: any preset whose status is not
+    needs_model. The prompt recipes run on both Wan 2.2 lanes; the
+    Fun Camera presets (mechanism "workflow_patch") run on the
+    Production lane since the model download landed (Pass 4)."""
+    return preset.get("status") != "needs_model"
+
+
+def fun_camera_preset(preset_ids):
+    """The single Fun Camera preset in a selection, or None. Fun
+    Camera entries carry their pose in patch.value, the exact
+    camera_pose string the worker's Fun Camera workflow takes."""
+    for pid in preset_ids or []:
+        preset = CAMERA_PRESETS.get(pid) or {}
+        if preset.get("mechanism") == "workflow_patch":
+            return preset
+    return None
 
 
 def validate_camera_selection(body: dict):
@@ -567,6 +581,14 @@ def validate_camera_selection(body: dict):
     if len(ids) > CAMERA_MAX_MOVES:
         raise ValueError(
             f"at most {CAMERA_MAX_MOVES} camera moves can be chained"
+        )
+    if fun_camera_preset(ids) is not None and len(ids) > 1:
+        # A Fun Camera preset is one conditioned move baked into
+        # the render, not prompt text: it cannot chain with prompt
+        # recipes or with a second Fun Camera preset.
+        raise ValueError(
+            "a Fun Camera preset is a single conditioned move and "
+            "cannot be combined with other camera moves"
         )
     look_in = body.get("camera_look") or {}
     if not isinstance(look_in, dict):
@@ -2194,6 +2216,39 @@ def api():
             _validate_image_b64(end_image, "end image")
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc))
+        # Fun Camera routing (Pass 4): a fun-* preset is camera
+        # conditioning on the worker's Fun Camera path, Production
+        # lane semantics and pricing. It is never prompt text, and
+        # the shapes it cannot take are clean 422s here, before any
+        # quote, hold, or dispatch.
+        fun_preset = fun_camera_preset(camera_ids)
+        camera_speed = 1.0
+        if body.get("camera_speed") is not None:
+            try:
+                camera_speed = float(body["camera_speed"])
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=422, detail="camera_speed must be a number")
+        if fun_preset is not None:
+            if model in PER_SECOND_MODELS:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Fun Camera presets run on the Wan 2.2 Production lane")
+            if lane != "production":
+                raise HTTPException(
+                    status_code=422,
+                    detail="Fun Camera presets run on the Production lane")
+            if segments > 1:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Fun Camera presets render one segment at a time")
+            if end_image:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Fun Camera presets do not take an end image")
+            if not 0.1 <= camera_speed <= 3.0:
+                raise HTTPException(
+                    status_code=422,
+                    detail="camera speed must be between 0.1 and 3.0")
         if model in PER_SECOND_MODELS:
             # The per-second lanes take single-pass clips at 9:16 in
             # this form; chaining and other aspects are house-lane
@@ -2312,6 +2367,11 @@ def api():
                     "end_image_png_b64": end_image,
                     "aspect_ratio": aspect,
                     "segments": segments,
+                    "camera_pose": (
+                        (fun_preset.get("patch") or {}).get("value")
+                        if fun_preset else None
+                    ),
+                    "camera_speed": camera_speed if fun_preset else None,
                 },
                 timeout=30,
             )
@@ -2350,6 +2410,11 @@ def api():
             "camera_presets": camera["camera_presets"],
             "camera_preset_names": camera["camera_preset_names"],
             "camera_look": camera["camera_look"],
+            "camera_pose": (
+                (fun_preset.get("patch") or {}).get("value")
+                if fun_preset else None
+            ),
+            "camera_speed": camera_speed if fun_preset else None,
             "status": "queued",
             "error": None,
             "bytes": None,
@@ -2600,6 +2665,7 @@ def api():
             "prompt": parent.get("user_prompt") or parent["prompt"],
             "camera_presets": parent.get("camera_presets") or [],
             "camera_look": parent.get("camera_look") or {},
+            "camera_speed": parent.get("camera_speed"),
             "music_prompt": parent.get("music_prompt"),
             "model": parent.get("model") or DEFAULT_MODEL,
             "duration_seconds": parent.get("duration_seconds"),

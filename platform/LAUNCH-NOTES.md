@@ -544,3 +544,48 @@ sound muxed by the usual post chain); the image and the video
 each counted once against the free lifetime counter. Session
 wall time 266.7 seconds end to end (image leg 30 seconds at
 poll granularity, video leg 229.6 seconds).
+
+## Update, 2026-11-16 (run 18): Fun Camera presets live (Pass 4)
+
+The nine Fun Camera presets are live. In the picker they now show
+as available camera moves (no more "coming soon"), and picking
+one steers the render itself: the move is built into how the
+clip is made, not added to the words of the prompt. They run on
+the Production lane and price as a Production segment. A Fun
+Camera preset is a single move: it cannot be combined with other
+camera moves, it renders one segment at a time, and it does not
+take an end image; the server refuses those combinations with a
+clean 422 before anything is charged. A speed for the move can
+be sent with the job (camera_speed, 0.1 to 3.0, default 1.0).
+Every other gate is unchanged: free accounts still get a 403 on
+the Production lane, Fun Camera included.
+
+Measured cost: the proof render below took 177.8 seconds of
+worker wall (about $0.10), inside the Production lane's 15 cent
+worst case already carried in pricing.py, so no pricing change
+was needed. The lane renders with the same fast recipe the
+Production lane uses (the stock recipe would cost about $0.77 a
+segment).
+
+Verification, 2026-11-16, against the public URL
+(scratch/verify_fun_camera.py plus its measurement follow-ups,
+in-Modal harness): the picker serves all 42 presets as
+available, the nine Fun Camera ones included. A free account got
+403 on a Fun Camera Production job, and 422 on Fun Camera with
+the Draft lane, combined with another move, with a second Fun
+Camera preset, with two segments, with an end image, with an
+out-of-range speed, and with a per-second model. The worker
+refuses a pose on the Draft lane, an unknown pose, two segments,
+and a bad speed with 422s, and a missing key with 401. One proof
+render (Production, Pan left (Fun Camera), the balloon benchmark
+scene, seed 12345) finished and delivered a 720x1280 h264 clip
+with AAC audio at 5.06 seconds, listed in the gallery as
+"Camera: Pan left (Fun Camera)", charged exactly one Production
+segment. Stated plainly: the frame measurement on that clip
+found no measurable pan (subject position and frame drift
+unchanged first to last frame), and the prompt-recipe Pan left
+rendered alongside it moved more (subject center +0.012 of frame
+width, with a rise). The wiring, gates, and cost are proven; the
+strength of the conditioned move under the fast recipe is the
+open item, and judging it needs one render on the stock recipe
+(about $0.77), outside this run's spend cap.

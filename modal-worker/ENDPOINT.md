@@ -44,6 +44,40 @@ Request JSON:
 | `end_image_png_b64` | string | no | Base64 PNG end image, production lane only, and only with a start image (422 otherwise). The segment renders through the firstlast workflow (WanFirstLastFrameToVideo with the lane's distilled recipe), so the end image steers the render. |
 | `aspect_ratio` | string | no | `9:16` (default), `16:9`, or `1:1` (422 otherwise). The worker renders natively at the chosen shape: draft 480x832 / 800x448 / 640x640, production 720x1280 / 1280x720 / 960x960. Nothing downstream crops or pads. |
 | `segments` | int | no | 1 (default) to 12. Above 1 the job chains: each segment after the first starts from the previous segment's last frame, the final segment steers to the end image when one was given, and the segments are stitched (shared boundary frame dropped) into one file. If a segment fails after at least one completed, the completed segments deliver as one file with `partial: true` and `segments_done` set; segment 1 failing is a plain error. |
+| `camera_pose` | string | no | One of `Static`, `Pan Up`, `Pan Down`, `Pan Left`, `Pan Right`, `Zoom In`, `Zoom Out`, `Anti Clockwise (ACW)`, `ClockWise (CW)`. Switches the render to the Fun Camera path (below). Production lane only, exactly 1 segment, no end image (422 otherwise). |
+| `camera_speed` | number | no | Fun Camera move speed, 0.1 to 3.0, default 1.0 (422 outside). Only meaningful with `camera_pose`. |
+
+### Fun Camera path (camera conditioning, live 2026-11-16)
+
+A job with `camera_pose` set renders through
+`workflows/fun_camera_i2v.json` (Wan 2.2 Fun Camera UNET pair,
+staged in the Volume as
+`diffusion_models/wan2.2_fun_camera_high_noise_14B_fp8_scaled.safetensors`
+and the matching low-noise file, 15,301,408,048 bytes each). The
+pose and speed patch the `WanCameraEmbedding` node; the move is
+model conditioning, not prompt text, and the job record carries
+`camera_pose`, `camera_speed`, and the measured `render_seconds`.
+
+Recipe: the lane runs the LightX2V distilled patch, the same one
+the firstlast workflow carries. The stock workflow is 20 steps at
+cfg 3.5 (the long recipe, about $0.77 a segment on this model
+set), far beyond a normal Production segment; the patch raises
+the workflow's LightX2V LoRA pair from strength 0.0 to 1.0 and
+sets the 4-step split (2 high-noise + 2 low-noise) at cfg 1.0.
+Measured proof render (2026-11-16, Pan Left, balloon benchmark
+scene, seed 12345): 177.8 s of worker wall, about $0.10 at the
+L40S list rate, inside the Production lane's 15c worst case, so
+the platform prices a Fun Camera segment as a Production segment.
+
+Honest verification note: that proof render completed and
+delivered a coherent clip, but frame measurement showed no
+measurable pan (subject centroid and phase-correlation drift at
+the first frame's values), weaker than the prompt-recipe Pan left
+rendered alongside it. Whether the distilled LoRA pair washes
+out the camera conditioning, or the conditioning needs the stock
+recipe's guidance, is an open loop-back item: judging it takes
+one stock-recipe render (about $0.77), which sat outside the
+Pass 4 run's spend cap.
 
 Response `202`:
 

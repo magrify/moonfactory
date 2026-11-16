@@ -31,16 +31,24 @@ own terms, plus the UX patterns mined from open-higgsfield
    the move harder than text. Spec'd in each preset's
    `keyframe_enhancement`; the API dispatcher does not expose the firstlast
    lane yet, so these are recipes, not wired features.
-3. **Fun Camera conditioning (9 presets, needs one model download).**
+3. **Fun Camera conditioning (9 presets, live 2026-11-16, Pass 4).**
    Wan 2.2 Fun Camera takes the move as a camera embedding
    (`WanCameraEmbedding.camera_pose`: Static, Pan Up/Down/Left/Right,
    Zoom In/Out, Anti Clockwise (ACW), ClockWise (CW), plus a speed value).
    This is true camera control, the closest open-weights route to
-   Higgsfield's Camera Controls. The ported workflow is validated and
-   placeholder-ready; it waits on the two Fun Camera UNET files
-   (15.3 GB each). Everything else it needs (umt5 text encoder, wan_2.1
-   VAE, both LightX2V LoRAs for the fast variant) is already in the
-   sinclip-models Volume.
+   Higgsfield's Camera Controls. The two Fun Camera UNET files
+   (15.3 GB each) are staged in the sinclip-models Volume, the
+   worker takes `camera_pose` / `camera_speed` on the production
+   lane, and the picker serves all nine presets as available. A
+   Fun Camera preset is a single conditioned move: it cannot chain
+   with other moves, and it runs one segment at a time with no end
+   image (the platform refuses those combinations with a 422). The
+   lane renders with the LightX2V distilled patch (4 steps, cfg
+   1.0), so a segment costs what a Production segment costs.
+   Open item, stated plainly: the Pass 4 proof render (Pan Left)
+   completed at that cost but showed no measurable pan under the
+   distilled recipe; whether the stock 20-step recipe carries the
+   conditioning better is unverified (see modal-worker/ENDPOINT.md).
 
 ## Composition grammar (from Freefield's Cinema Studio)
 

@@ -553,6 +553,10 @@ api_image = (
         "/workflows/z_image_t2i.json",
     )
     .add_local_file(
+        str(Path(__file__).parent.parent / "workflows" / "fun_camera_i2v.json"),
+        "/workflows/fun_camera_i2v.json",
+    )
+    .add_local_file(
         str(Path(__file__).parent / "test_start.png"),
         "/assets/test_start.png",
     )
@@ -695,10 +699,69 @@ def _build_firstlast_workflow(prompt: str, negative: str, seed: int,
     return workflow
 
 
+# Fun Camera conditioning (PARITY-PROGRAM Pass 4): the Wan 2.2 Fun
+# Camera UNET pair takes the camera move as an embedding
+# (WanCameraEmbedding.camera_pose), not prompt text. The nine poses
+# are the values the preset library's fun-* entries patch in.
+FUN_CAMERA_POSES = (
+    "Static", "Pan Up", "Pan Down", "Pan Left", "Pan Right",
+    "Zoom In", "Zoom Out", "Anti Clockwise (ACW)", "ClockWise (CW)",
+)
+
+
+def _build_fun_camera_workflow(prompt: str, negative: str, seed: int,
+                               camera_pose: str, camera_speed: float = 1.0,
+                               aspect: str = "9:16", prefix: str = ""):
+    """One Fun Camera segment: workflows/fun_camera_i2v.json with the
+    chosen pose and speed patched into WanCameraEmbedding.
+
+    Recipe: the lane runs the LightX2V distilled patch, the same one
+    Worker C applied to the firstlast workflow. The stock workflow
+    is 20 steps at cfg 3.5 (the long recipe, ~$0.77 a segment
+    measured on the production model set), which prices a Fun
+    Camera segment far beyond a normal Production segment. The
+    workflow already carries the LightX2V LoRA pair as loader nodes
+    at strength 0.0; the patch raises them to 1.0 and sets the
+    4-step split (2 high-noise + 2 low-noise) at cfg 1.0, so a Fun
+    Camera segment costs what a Production segment costs."""
+    workflow = json.loads(
+        (Path("/workflows") / "fun_camera_i2v.json").read_text()
+    )
+    width, height = LANE_DIMS["production"][aspect]
+    for node in workflow.values():
+        ct = node.get("class_type")
+        inputs = node.get("inputs", {})
+        if ct == "CLIPTextEncode":
+            if inputs.get("text") == "PLACEHOLDER_POSITIVE_PROMPT":
+                inputs["text"] = prompt
+            elif inputs.get("text") == "PLACEHOLDER_NEGATIVE_PROMPT":
+                inputs["text"] = negative
+        elif ct == "WanCameraEmbedding":
+            inputs["camera_pose"] = camera_pose
+            inputs["speed"] = camera_speed
+            inputs["width"] = width
+            inputs["height"] = height
+        elif ct == "LoraLoaderModelOnly":
+            inputs["strength_model"] = 1.0
+        elif ct == "KSamplerAdvanced":
+            inputs["noise_seed"] = seed
+            inputs["cfg"] = 1.0
+            inputs["steps"] = 4
+            if inputs.get("start_at_step") == 0:
+                inputs["end_at_step"] = 2
+            else:
+                inputs["start_at_step"] = 2
+                inputs["end_at_step"] = 4
+        elif ct == "VHS_VideoCombine":
+            inputs["filename_prefix"] = prefix or "sinclip/api_funcamera"
+    return workflow
+
+
 @app.function(image=api_image, timeout=3600)
 def run_job(job_id: str, lane: str, prompt: str, negative: str, seed: int,
             start_image_b64: str = "", end_image_b64: str = "",
-            aspect: str = "9:16", segments: int = 1):
+            aspect: str = "9:16", segments: int = 1,
+            camera_pose: str = "", camera_speed: float = 1.0):
     """Dispatcher: build the lane workflow, run it on the ComfyUI class,
     persist the result into the Volume, and record the outcome in the
     jobs Dict. Spawned by the web endpoint; never called synchronously.
@@ -720,6 +783,7 @@ def run_job(job_id: str, lane: str, prompt: str, negative: str, seed: int,
 
     jobs[job_id] = {**(jobs.get(job_id) or {}), "status": "running",
                     "segments_total": segments, "segments_done": 0}
+    render_started = time.time()
     workdir = Path(tempfile.mkdtemp(prefix=f"job_{job_id}_"))
     try:
         start_bytes = base64.b64decode(start_image_b64) if start_image_b64 else None
@@ -732,7 +796,18 @@ def run_job(job_id: str, lane: str, prompt: str, negative: str, seed: int,
             prefix = f"sinclip/api_{lane}_{job_id}_seg{i + 1}"
             seg_seed = seed + i
             try:
-                if use_firstlast:
+                if camera_pose:
+                    workflow = _build_fun_camera_workflow(
+                        prompt, negative, seg_seed, camera_pose,
+                        camera_speed, aspect, prefix)
+                    image_name = f"job_{job_id}_seg{i + 1}.png"
+                    for node in workflow.values():
+                        if node.get("class_type") == "LoadImage":
+                            node["inputs"]["image"] = image_name
+                    video = ComfyUI().run_workflow.remote(
+                        workflow, image_bytes=start_bytes,
+                        image_name=image_name)
+                elif use_firstlast:
                     workflow = _build_firstlast_workflow(
                         prompt, negative, seg_seed, aspect, prefix)
                     start_name = f"job_{job_id}_seg{i + 1}_start.png"
@@ -829,6 +904,7 @@ def run_job(job_id: str, lane: str, prompt: str, negative: str, seed: int,
             "file": f"api_jobs/{job_id}.mp4",
             "bytes": len(final),
             "segments_done": len(seg_paths),
+            "render_seconds": round(time.time() - render_started, 1),
         }
         if failure is not None:
             record["partial"] = True
@@ -966,6 +1042,35 @@ def api():
             raise HTTPException(
                 status_code=422,
                 detail="the production lane needs a start image; text-only jobs run on the draft lane")
+        # Fun Camera conditioning: a camera_pose switches the
+        # production render to the Fun Camera workflow. It is a
+        # single conditioned move: production lane only, one
+        # segment, no end image.
+        camera_pose = body.get("camera_pose") or ""
+        try:
+            camera_speed = float(body.get("camera_speed") or 1.0)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=422, detail="camera_speed must be a number")
+        if camera_pose:
+            if camera_pose not in FUN_CAMERA_POSES:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"camera_pose must be one of {list(FUN_CAMERA_POSES)}")
+            if lane != "production":
+                raise HTTPException(
+                    status_code=422,
+                    detail="camera conditioning runs on the production lane only")
+            if segments != 1:
+                raise HTTPException(
+                    status_code=422,
+                    detail="camera conditioning renders one segment at a time")
+            if end_image:
+                raise HTTPException(
+                    status_code=422,
+                    detail="camera conditioning does not take an end image")
+            if not 0.1 <= camera_speed <= 3.0:
+                raise HTTPException(
+                    status_code=422, detail="camera_speed must be between 0.1 and 3.0")
         job_id = uuid.uuid4().hex[:16]
         record = {
             "job_id": job_id,
@@ -976,6 +1081,8 @@ def api():
             "aspect_ratio": aspect,
             "segments_total": segments,
             "segments_done": 0,
+            "camera_pose": camera_pose or None,
+            "camera_speed": camera_speed if camera_pose else None,
         }
         jobs[job_id] = record
         run_job.spawn(
@@ -988,6 +1095,8 @@ def api():
             end_image,
             aspect,
             segments,
+            camera_pose,
+            camera_speed,
         )
         return JSONResponse({"job_id": job_id, "status": "queued"}, status_code=202)
 
@@ -1000,7 +1109,8 @@ def api():
         return {k: record.get(k) for k in
                 ("job_id", "lane", "prompt", "status", "error", "bytes",
                  "created_at", "aspect_ratio", "segments_total",
-                 "segments_done", "partial", "partial_error")}
+                 "segments_done", "partial", "partial_error",
+                 "camera_pose", "camera_speed", "render_seconds")}
 
     @web.get("/jobs/{job_id}/file")
     def get_job_file(job_id: str, x_api_key: str = Header(default="")):
