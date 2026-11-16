@@ -277,3 +277,49 @@ prompt byte for byte, the delivered file is 720x1280 h264 with
 AAC audio, and the gallery item for the clip shows
 "Camera: Dolly in". GPU spend for the whole verification was
 the one distilled production render, about $0.12.
+
+## Update, 2026-11-16 (run 13): Amendment 3 pricing and pay-per-video
+
+Two billing paths, both first-class (Jack, 2026-11-16).
+Pay per video: any verified account buys top-ups ($5 / $10 / $20)
+and pays per job from balance on every lane, no subscription.
+Creator: the $20/mo plan with its included budget, plus top-ups.
+"Paid" for the feature gates (switching to Wan 3.0 or Wan 3.0
+Prime, custom music prompts, gallery opt-out) now means any
+paying customer: an active subscription OR an account that has
+ever paid in. The included budget itself stays a subscription
+benefit; pay-per-video accounts pay every job from balance. The
+free path is unchanged: 5 lifetime Draft clips on Wan 2.2,
+watermarked, all gates closed for accounts that have never paid.
+Paid jobs ship without a watermark whatever the plan name says.
+
+Per-second lane prices changed under Amendment 3. Balance prices
+for Wan 3.0 and Wan 3.0 Prime are no longer cost times three;
+they are set against Higgsfield's effective per-clip price for
+the comparable output (5 seconds, 720p, with audio), with a hard
+minimum of cost times 1.25. On both lanes the minimum is what
+binds: Higgsfield's effective price for Wan 3.0 ($0.44 a clip)
+sits below the raw provider cost of the clip itself, and Prime's
+($0.74) sits below cost times 1.25. So Wan 3.0 sells at 12.625
+cents per second at 720p (a 5 second clip is 64 cents of balance,
+down from $1.52) and Prime at 17.625 cents per second (89 cents,
+down from $2.12), and the pricing data records both lanes as
+cannot-undercut rather than pretending otherwise; that flag is
+in /api/pricing as data, not in any user-facing copy. Included
+budget still debits these lanes at raw cost, and the per-account
+cost ceiling still refuses jobs before dispatch on every path.
+
+Verification, 2026-11-16, against the public URL
+(scratch/verify_pricing_billing.py, in-Modal harness): a
+never-paid free account got 403 on Production create, Wan 3.0
+quote, Wan 3.0 create, a music-prompt create, and gallery
+opt-out. A signed $10 top-up webhook credited a no-subscription
+account (balance 1000, net paid 941.0, plan still free), after
+which opt-out returned 200, the Wan 3.0 quote came back as a
+64-cent balance charge, the Prime quote as 89 cents, a Draft job
+with a music prompt was accepted (and refunded in full when its
+deliberately invalid start image failed it before sampling),
+and a Production job ran from balance at 99 cents. With the
+account's settled cost set to leave one cent of ceiling
+headroom, both a Wan 3.0 create and a Production create were
+refused 402 before dispatch with nothing created or charged.

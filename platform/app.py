@@ -91,9 +91,11 @@ FREE_PLATFORM_TOTAL_CEILING = int(
 MAX_FREE_RETRIES = 2
 POW_DIFFICULTY_BITS = 18
 SEGMENT_SECONDS = pricing.SEGMENT_SECONDS
-# Creator-plan feature gates (Jack, 2026-11-16): custom audio and
-# model/lane switching are paid-only, enforced server-side in
-# create_job and the settings endpoints below, not just in the UI.
+# Paid feature gates (Jack, 2026-11-16; Amendment 3): custom audio,
+# model/lane switching, and gallery opt-out are open to any paying
+# customer (active subscription OR an account that has ever paid
+# in), enforced server-side in create_job and the settings endpoints
+# below, not just in the UI. See is_paid().
 CUSTOM_AUDIO_MAX_CHARS = 300
 HANDLE_RE = re.compile(r"[A-Za-z0-9_-]{3,20}")
 
@@ -542,6 +544,19 @@ def api():
     def included_budget_remaining(user: dict) -> float:
         return pricing.included_budget_cents() - included_cost_used(user)
 
+    def is_paid(user: dict) -> bool:
+        """Amendment 3 (Jack, 2026-11-16): "paid" means any paying
+        customer. Billing is two first-class paths, subscription and
+        pay-per-video, so the feature gates (model switching, custom
+        audio, gallery opt-out) open for an active subscription OR
+        an account that has ever paid in. The included budget itself
+        stays a subscription benefit; a pay-per-video account pays
+        from balance on every lane."""
+        return (
+            user.get("plan") == "creator"
+            or float(user.get("net_paid_cents") or 0.0) > 0
+        )
+
     def ceiling_allows(user: dict, worst_case_cost_cents: float) -> bool:
         """Rule 3, Amendment 2: the hard per-account cost ceiling.
         An account is never served more generation cost (settled
@@ -612,6 +627,7 @@ def api():
             "email": user["email"],
             "verified": user["verified"],
             "plan": user["plan"],
+            "paid_customer": is_paid(user),
             "handle": display_handle(user),
             "gallery_opt_out": bool(user.get("gallery_opt_out")),
             "past_due": user.get("past_due", False),
@@ -677,15 +693,28 @@ def api():
         lanes = {}
         for model in PER_SECOND_MODELS:
             state = api_lane_state(model)
+            frontier = {
+                res: pricing.frontier_lane(model, res, table["rates"])
+                for res in state["rates_cents_per_second"]
+            }
             lanes[model] = {
                 "label": MODEL_LABELS[model],
                 "rates_cents_per_second": state["rates_cents_per_second"],
                 "balance_debit_cents_per_second": {
-                    res: math.ceil(
-                        pricing.per_second_lane_cost_cents(model, res, table["rates"])
-                        * pricing.MARGIN_MULTIPLIER
-                    )
-                    for res in state["rates_cents_per_second"]
+                    res: math.ceil(frontier[res]["sell_cents_per_second"])
+                    for res in frontier
+                },
+                "sell_cents_per_second": {
+                    res: frontier[res]["sell_cents_per_second"]
+                    for res in frontier
+                },
+                "higgsfield_effective_cents_per_second": {
+                    res: frontier[res]["higgsfield_effective_cents_per_second"]
+                    for res in frontier
+                },
+                "can_undercut": {
+                    res: frontier[res]["can_undercut"]
+                    for res in frontier
                 },
                 "paused": state["paused"],
                 "rates_updated_at": state["rates_updated_at"],
@@ -858,10 +887,10 @@ def api():
         user = require_user(request, mf_session)
         body = await request.json()
         opt_out = bool(body.get("opt_out"))
-        if opt_out and user["plan"] == "free":
+        if opt_out and not is_paid(user):
             raise HTTPException(
                 status_code=403,
-                detail="gallery opt-out is a Creator plan feature",
+                detail="gallery opt-out is a paid feature",
             )
         user["gallery_opt_out"] = opt_out
         save_user(user)
@@ -917,7 +946,12 @@ def api():
         owner = users.get(f"id:{job['user_id']}")
         if owner:
             if job.get("hold_kind") == "balance":
-                debit = math.ceil(settled_raw * pricing.MARGIN_MULTIPLIER)
+                # Settle at the Amendment 3 sell rate for the lane,
+                # never above the hold the user saw.
+                debit = pricing.per_second_balance_debit_cents(
+                    job["model"], job["resolution"], billed, table["rates"]
+                )
+                debit = min(debit, int(hold))
                 refund = int(hold) - debit
                 if refund > 0:
                     owner["balance_cents"] = int(owner.get("balance_cents", 0)) + refund
@@ -1130,7 +1164,10 @@ def api():
         )
         remaining = included_budget_remaining(user)
         ceiling_ok = ceiling_allows(user, est["cap_raw_cents"])
-        if remaining >= est["cap_raw_cents"]:
+        # The included budget is a subscription benefit (Amendment
+        # 3): pay-per-video accounts always pay these lanes from
+        # balance, even though the budget formula is global.
+        if user["plan"] == "creator" and remaining >= est["cap_raw_cents"]:
             payment = {
                 "method": "included",
                 "included_debit_cents": round(est["raw_cost_cents"], 2),
@@ -1169,8 +1206,8 @@ def api():
         if model not in MODEL_LABELS:
             raise HTTPException(status_code=422, detail="unknown model")
         if model in PER_SECOND_MODELS:
-            if user["plan"] == "free":
-                raise HTTPException(status_code=403, detail="model switching is a Creator plan feature")
+            if not is_paid(user):
+                raise HTTPException(status_code=403, detail="model switching is a paid feature")
             return _quote_for(user, model, _api_job_params(body))
         return {
             "model": model,
@@ -1200,8 +1237,10 @@ def api():
                 detail="this job would exceed the total generation your payments cover",
             )
         # Hold the cap before the provider call exists (Rule 1).
+        # Included budget pays first for subscribers only;
+        # pay-per-video accounts hold against balance (Amendment 3).
         u = usage(user)
-        if included_budget_remaining(user) >= est["cap_raw_cents"]:
+        if user["plan"] == "creator" and included_budget_remaining(user) >= est["cap_raw_cents"]:
             hold_kind = "included"
             hold_amount = est["cap_raw_cents"]
             u["included_cost_cents"] = included_cost_used(user) + hold_amount
@@ -1324,18 +1363,20 @@ def api():
         prompt = (body.get("prompt") or "").strip()
         if not prompt or len(prompt) > 2000:
             raise HTTPException(status_code=422, detail="a prompt of up to 2000 characters is required")
-        # Custom audio is a Creator-plan feature (Jack, 2026-11-16),
-        # enforced here on the server: a free account that submits a
-        # music prompt gets a clean rejection before any dispatch.
+        # Custom audio is a paid feature (Jack, 2026-11-16;
+        # Amendment 3: any paying customer, subscription or
+        # pay-per-video), enforced here on the server: an account
+        # that has never paid gets a clean rejection before any
+        # dispatch.
         music_prompt = (body.get("music_prompt") or "").strip()
         if len(music_prompt) > CUSTOM_AUDIO_MAX_CHARS:
             raise HTTPException(
                 status_code=422,
                 detail=f"music prompt must be {CUSTOM_AUDIO_MAX_CHARS} characters or fewer",
             )
-        if music_prompt and user["plan"] == "free":
+        if music_prompt and not is_paid(user):
             raise HTTPException(
-                status_code=403, detail="custom audio is a Creator plan feature"
+                status_code=403, detail="custom audio is a paid feature"
             )
         # Camera presets (available to every plan; model switching
         # stays the paid gate, presets are not one). The final
@@ -1356,11 +1397,12 @@ def api():
         if camera_ids or camera_look:
             prompt = compose_camera_prompt(prompt, camera_ids, camera_look)
         if model in PER_SECOND_MODELS:
-            # Model switching is paid-only, enforced here on the
-            # server before any quote, hold, or dispatch.
-            if user["plan"] == "free":
+            # Model switching is paid-only (Amendment 3: any paying
+            # customer), enforced here on the server before any
+            # quote, hold, or dispatch.
+            if not is_paid(user):
                 raise HTTPException(
-                    status_code=403, detail="model switching is a Creator plan feature"
+                    status_code=403, detail="model switching is a paid feature"
                 )
             return create_api_job(
                 user, body, model, base_url(request), prompt, music_prompt,
@@ -1372,7 +1414,7 @@ def api():
         used_budget = 0.0
         job_cost_cents = 0.0
         is_free_job = False
-        if user["plan"] == "free":
+        if user["plan"] == "free" and not is_paid(user):
             if lane != "draft":
                 raise HTTPException(status_code=403, detail="the free plan covers the Draft lane only")
             if free_jobs_total(user) >= FREE_CLIPS_TOTAL:
@@ -1383,30 +1425,36 @@ def api():
             if int(meta.get("freecount:total") or 0) >= FREE_PLATFORM_TOTAL_CEILING:
                 raise HTTPException(status_code=503, detail="the free tier is paused")
             is_free_job = True
-        else:  # creator
-            # The Amendment 2 ceiling is the outer wall, checked
-            # before anything is dispatched: this job's measured
-            # cost must fit inside what the account has paid in.
+        else:
+            # Paid path (Amendment 3): a Creator subscription, or a
+            # pay-per-video account that has paid in. The Amendment 2
+            # ceiling is the outer wall for both, checked before
+            # anything is dispatched: this job's measured cost must
+            # fit inside what the account has paid in.
             job_cost = float(pricing.MEASURED_COST_CENTS[lane])
             if not ceiling_allows(user, job_cost):
                 raise HTTPException(
                     status_code=402,
                     detail="this job would exceed the total generation your payments cover",
                 )
-            # Inside the ceiling, the one included budget pays first
-            # (production-segment cost per segment, the accounting
-            # the included-seconds counter always used), then the
-            # prepaid balance at the lane's fixed job price.
-            if included_budget_remaining(user) >= pricing.MEASURED_COST_CENTS["production"]:
+            # Inside the ceiling, a subscriber's included budget
+            # pays first (production-segment cost per segment, the
+            # accounting the included-seconds counter always used);
+            # everyone else pays the lane's fixed job price from
+            # prepaid balance. Pay-per-video accounts have no
+            # included budget, so balance is their only rail.
+            if user["plan"] == "creator" and included_budget_remaining(user) >= pricing.MEASURED_COST_CENTS["production"]:
                 used_included = SEGMENT_SECONDS
                 used_budget = float(pricing.MEASURED_COST_CENTS["production"])
             else:
                 price = pricing.JOB_PRICE_CENTS[lane]
                 if user.get("balance_cents", 0) < price:
-                    raise HTTPException(
-                        status_code=402,
-                        detail=f"included time used up; this job costs {price} cents of prepaid balance",
+                    detail = (
+                        f"included time used up; this job costs {price} cents of prepaid balance"
+                        if user["plan"] == "creator"
+                        else f"this job costs {price} cents of prepaid balance"
                     )
+                    raise HTTPException(status_code=402, detail=detail)
                 charged = price
             job_cost_cents = job_cost
         try:
@@ -1462,6 +1510,7 @@ def api():
             "bytes": None,
             "created_at": _now(),
             "charged_cents": charged,
+            "free_tier": is_free_job,
             "included_seconds": used_included,
             "included_cost_cents": used_budget,
             "cost_cents": job_cost_cents,
@@ -1542,8 +1591,8 @@ def api():
 
     def _bed_for_job(job: dict):
         """The music bed for a job's delivery. Jobs without a music
-        prompt get the house bed. Jobs with one (Creator only, gated
-        at creation) get an ACE-Step bed generated from the prompt,
+        prompt get the house bed. Jobs with one (paid customers
+        only, gated at creation) get an ACE-Step bed generated from the prompt,
         cached per job on the data Volume. Any audio-stage failure
         falls back to the house bed and is flagged on the job record,
         so delivery never breaks on the music stage."""
@@ -1604,8 +1653,15 @@ def api():
                     _process_file(raw_path, out_path, watermark=False,
                                   bed_path=_bed_for_job(job))
             else:
+                # Watermark marks free-tier work, not a plan name:
+                # a pay-per-video job on a free-plan account was
+                # paid for and ships clean (Amendment 3). Jobs from
+                # before the flag fall back to the plan recorded at
+                # creation.
                 _process_file(raw_path, out_path,
-                              watermark=(job.get("plan_at_job") == "free"),
+                              watermark=bool(job.get(
+                                  "free_tier",
+                                  job.get("plan_at_job") == "free")),
                               bed_path=_bed_for_job(job))
             data_volume.commit()
         return out_path
@@ -1646,7 +1702,8 @@ def api():
     # or real name), no identifying job metadata, every item carries
     # a report control, owners can delete their clips at any time
     # (which removes them here), and an admin can remove any item.
-    # Opting out is a Creator-plan feature; free clips always list.
+    # Opting out is a paid feature (Amendment 3); clips from
+    # accounts that have never paid always list.
 
     def gallery_visible(job: dict) -> bool:
         if job.get("status") != "done" or job.get("removed"):
@@ -1654,7 +1711,7 @@ def api():
         owner = users.get(f"id:{job.get('user_id')}")
         if not owner:
             return False
-        if owner.get("plan") != "free" and owner.get("gallery_opt_out"):
+        if is_paid(owner) and owner.get("gallery_opt_out"):
             return False
         return True
 
@@ -2153,27 +2210,36 @@ and X: 9:16, captioned by you, ready to post.</p>
   <li>Bring a start image, or use the built-in one.</li>
   <li>Write the prompt: what moves, where the camera goes, the mood.</li>
   <li>Pick a model and render. Every account starts on Wan 2.2;
-      Creator members can switch models in the studio.</li>
+      paying customers can switch models in the studio.</li>
 </ol>
 
 <h2>Models</h2>
 <table>
   <tr><th>Model</th><th>What you get</th><th>Who can use it</th></tr>
   <tr><td>Wan 2.2</td><td>Draft previews and Production renders at 720x1280, about 5 seconds each</td><td>Everyone; Production is Creator plan or balance</td></tr>
-  <tr><td>Wan 3.0</td><td>Sharper motion and detail, sound made with the picture, up to 30 seconds in one pass</td><td>Creator plan</td></tr>
-  <tr><td>Wan 3.0 Prime</td><td>The flagship tier: the best motion and detail of the three</td><td>Creator plan</td></tr>
+  <tr><td>Wan 3.0</td><td>Sharper motion and detail, sound made with the picture, up to 30 seconds in one pass</td><td>Any paying customer</td></tr>
+  <tr><td>Wan 3.0 Prime</td><td>The flagship tier: the best motion and detail of the three</td><td>Any paying customer</td></tr>
 </table>
 <p class="muted">Wan 3.0 and Wan 3.0 Prime are priced per second.
-The exact price for your video is always shown before it runs, and
-your included plan budget can pay for it: a second on a bigger
-model simply costs more of the budget. Nothing ever runs at a
-price you have not seen first.</p>
+The exact price for your video is always shown before it runs.
+Creator members can pay from their included monthly budget;
+everyone else pays per video from prepaid balance. Nothing ever
+runs at a price you have not seen first.</p>
 
 <h2>Pricing</h2>
+<p>Two ways to pay, side by side. <strong>Pay per video:</strong>
+top up a prepaid balance and pay per clip, no subscription.
+<strong>Creator:</strong> a monthly plan with an included
+generation budget, plus top-ups whenever you want more. Any
+payment, either way, unlocks all three models, custom music, and
+hiding your clips from the gallery.</p>
 <div id="pricing"><p class="muted">Loading prices...</p></div>
-<p class="muted">Every price on this page comes from one formula:
-worst-case measured generation cost, times three, with card fees
-included. If our costs drop, the included time goes up on its own.</p>
+<p class="muted">Wan 2.2 prices come from one formula: worst-case
+measured generation cost, times three, with card fees included.
+Wan 3.0 and Wan 3.0 Prime are priced per second against what the
+big credit platforms effectively charge for the same clip, and
+never below our own cost plus a margin, so no video ever runs at
+a loss. If our costs drop, the included time goes up on its own.</p>
 
 <h2>Free plan, honestly</h2>
 <p>The free plan is small on purpose: <span id="free-limit">5</span> Draft
@@ -2185,18 +2251,20 @@ out by free work.</p>
 
 <h2>Gallery</h2>
 <p>Finished clips show in the <a href="/gallery">public gallery</a>
-under the creator's handle, never an email address. Creator members
-can opt out in the studio; free clips are always listed. Every
+under the creator's handle, never an email address. Paying
+customers can opt out in the studio; clips from accounts that have
+never paid are always listed. Every
 gallery item has a report button, and anything reported gets
 reviewed and removed when it should not be there.</p>
 
 <h2>FAQ</h2>
 <p><strong>Does every video have sound?</strong> Yes. A music track is
 mixed onto every finished video. Silent output is not a thing here.
-Creator members can also describe the music they want and have it
-generated for that video; free clips use the house track.</p>
-<p><strong>Can I use the videos commercially?</strong> Yes, on the
-Creator plan. Free clips are for trying things out.</p>
+Paying customers can also describe the music they want and have it
+generated for that video; other clips use the house track.</p>
+<p><strong>Can I use the videos commercially?</strong> Yes, on either
+paid path: the Creator plan or pay per video. Free clips are for
+trying things out.</p>
 <p><strong>What if a render fails?</strong> If the failure is on our
 side, the charge goes back to your balance automatically and you can
 re-run it.</p>
@@ -2208,23 +2276,24 @@ resets each month, which is part of how the price stays at $20.</p>
 <script>
 fetch('/api/pricing').then(r => r.json()).then(p => {
   const secs = p.creator_included_production_seconds;
-  let html =
-    '<div class="card"><strong>Free</strong>: $0. Wan 2.2 Draft lane, watermarked.</div>' +
-    '<div class="card"><strong>Creator</strong>: $' + (p.creator_price_cents/100).toFixed(2) +
-    '/month. Wan 2.2 Production lane, no watermark, and about ' + secs +
-    ' seconds of included production time per month at current generation costs. ' +
-    'The same included budget also pays for Wan 3.0 and Wan 3.0 Prime seconds.</div>' +
-    '<div class="card"><strong>Top-ups</strong>: prepaid credit, $5 / $10 / $20. ' +
-    'A Draft clip costs $' + (p.job_price_cents.draft/100).toFixed(2) +
-    ' of balance past the included time; a Production render costs $' +
-    (p.job_price_cents.production/100).toFixed(2) + '.</div>';
+  let perSecond = '';
   if (p.api_lanes && p.api_lanes.wan3 && p.api_lanes.wan3_prime) {
-    html += '<div class="card"><strong>Wan 3.0</strong>: $' +
+    perSecond = ' Wan 3.0 costs $' +
       (p.api_lanes.wan3.balance_debit_cents_per_second['720p']/100).toFixed(2) +
-      ' per second at 720p from balance. <strong>Wan 3.0 Prime</strong>: $' +
+      ' per second at 720p and Wan 3.0 Prime $' +
       (p.api_lanes.wan3_prime.balance_debit_cents_per_second['720p']/100).toFixed(2) +
-      ' per second at 720p. The exact price for your length and size is shown before the job runs.</div>';
+      ' per second at 720p, and the exact price for your length and size is shown before the job runs.';
   }
+  let html =
+    '<div class="card"><strong>Pay per video</strong>: no subscription. Top up $5 / $10 / $20 of prepaid balance and pay per clip. ' +
+    'A Draft clip costs $' + (p.job_price_cents.draft/100).toFixed(2) +
+    ' and a Production render $' + (p.job_price_cents.production/100).toFixed(2) + '.' +
+    perSecond + '</div>' +
+    '<div class="card"><strong>Creator</strong>: $' + (p.creator_price_cents/100).toFixed(2) +
+    '/month. An included monthly budget, about ' + secs +
+    ' seconds of Production time at current generation costs, and the same budget also pays for Wan 3.0 and Wan 3.0 Prime seconds. ' +
+    'Top-ups work on top of the plan whenever you want more.</div>' +
+    '<div class="card"><strong>Free</strong>: $0. Wan 2.2 Draft lane, 5 clips per account total, watermarked.</div>';
   document.getElementById('pricing').innerHTML = html;
 });
 </script>
@@ -2275,6 +2344,10 @@ APP_HTML = (
       <button class="btn secondary" id="logout">Sign out</button>
     </p>
     <p id="pay-msg"></p>
+    <p class="muted">Two ways to pay: top up and pay per video with
+    no subscription, or get Creator for a monthly included budget
+    plus top-ups. Any payment unlocks every model, custom music,
+    and hiding your clips from the gallery.</p>
   </div>
 
   <div class="card">
@@ -2492,7 +2565,9 @@ function showStudio(u) {
   $('who').textContent = u.email;
   const inc = u.plan === 'creator'
     ? ('Included production time: ' + Math.max(0, u.included_seconds_total - u.included_seconds_used).toFixed(0) + 's left of ' + u.included_seconds_total + 's. ')
-    : ('Free clips: ' + u.free_jobs_used + ' of ' + u.free_jobs_limit + ' used, total. The free plan never refills. ');
+    : (u.paid_customer
+      ? 'Pay per video: you pay per clip from your balance, and every paid feature is unlocked. '
+      : ('Free clips: ' + u.free_jobs_used + ' of ' + u.free_jobs_limit + ' used, total. The free plan never refills. '));
   $('account').textContent = 'Plan: ' + u.plan + '. ' + inc +
     'Prepaid balance: $' + (u.balance_cents / 100).toFixed(2) + '.' +
     (u.verified ? '' : ' Your email is not verified yet, so creating is off.');
@@ -2501,7 +2576,7 @@ function showStudio(u) {
   const prodOption = document.querySelector('#lane option[value="production"]');
   const w3 = document.querySelector('#model option[value="wan3"]');
   const w3p = document.querySelector('#model option[value="wan3_prime"]');
-  if (u.plan === 'creator') {
+  if (u.paid_customer) {
     opt.disabled = false; opt.checked = !!u.gallery_opt_out;
     $('gallery-note').textContent = '';
     prodOption.disabled = false;
@@ -2512,21 +2587,21 @@ function showStudio(u) {
     $('music-note').textContent = 'Describe the music and it is generated for this video.';
   } else {
     opt.disabled = true; opt.checked = false;
-    $('gallery-note').textContent = 'Free clips always show in the gallery. Hiding them is a Creator feature.';
+    $('gallery-note').textContent = 'Clips from accounts that have never paid always show in the gallery. Hiding them unlocks with any payment.';
     prodOption.disabled = true;
     $('lane-note').textContent = '';
     w3.disabled = true; w3p.disabled = true;
     $('model').value = 'wan2.2';
-    $('model-note').textContent = 'Model switching is a Creator feature. Free accounts render on Wan 2.2 Draft.';
+    $('model-note').textContent = 'Model switching unlocks with any payment. Accounts that have never paid render on Wan 2.2 Draft.';
     $('music').disabled = true; $('music').value = '';
-    $('music-note').textContent = 'Custom audio is a Creator feature. Free clips get the house music track.';
+    $('music-note').textContent = 'Custom audio unlocks with any payment. Free clips get the house music track.';
   }
   updateModelUI();
   loadJobs();
 }
 async function fetchQuote() {
   const q = $('quote');
-  if (!currentUser || currentUser.plan !== 'creator') { q.textContent = ''; return; }
+  if (!currentUser || !currentUser.paid_customer) { q.textContent = ''; return; }
   try {
     const r = await api('/api/jobs/quote', { method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ model: $('model').value,
@@ -2658,8 +2733,8 @@ GALLERY_HTML = (
 <a href="/app">Open the studio</a></header>
 <h1>Community gallery</h1>
 <p class="muted">Finished clips from Moonfactory creators, shown under
-the creator's handle only. Clips are public by default; Creator
-members can opt out in the studio. If a clip should not be here, use
+the creator's handle only. Clips are public by default; paying
+customers can opt out in the studio. If a clip should not be here, use
 its Report button and it will be reviewed.</p>
 <div id="items"><p class="muted">Loading...</p></div>
 </main>
