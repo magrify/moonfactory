@@ -40,13 +40,18 @@ Request JSON:
 | `prompt` | string | yes | Positive prompt |
 | `negative_prompt` | string | no | Defaults to the house negative prompt |
 | `seed` | int | no | Defaults to the house seed |
-| `start_image_png_b64` | string | no | Base64 PNG start image. Omit to use the lane's built-in test image |
+| `start_image_png_b64` | string | no | Base64 PNG start image. On the draft lane, omit for a text-only job (the 5B model runs its text-to-video path). The production lane requires one (422 without). |
+| `end_image_png_b64` | string | no | Base64 PNG end image, production lane only, and only with a start image (422 otherwise). The segment renders through the firstlast workflow (WanFirstLastFrameToVideo with the lane's distilled recipe), so the end image steers the render. |
+| `aspect_ratio` | string | no | `9:16` (default), `16:9`, or `1:1` (422 otherwise). The worker renders natively at the chosen shape: draft 480x832 / 800x448 / 640x640, production 720x1280 / 1280x720 / 960x960. Nothing downstream crops or pads. |
+| `segments` | int | no | 1 (default) to 12. Above 1 the job chains: each segment after the first starts from the previous segment's last frame, the final segment steers to the end image when one was given, and the segments are stitched (shared boundary frame dropped) into one file. If a segment fails after at least one completed, the completed segments deliver as one file with `partial: true` and `segments_done` set; segment 1 failing is a plain error. |
 
 Response `202`:
 
     {"job_id": "026009aee5f54a4a", "status": "queued"}
 
-Errors: `401` bad key, `422` unknown lane or missing prompt.
+Errors: `401` bad key, `422` unknown lane, missing prompt, bad
+aspect, segments out of range, an end image without a start image
+or on the draft lane, or a production job with no start image.
 
 ### GET /jobs/{job_id} — job status
 
@@ -54,7 +59,9 @@ Response `200`:
 
     {"job_id": "...", "lane": "draft", "prompt": "...",
      "status": "queued|running|done|error",
-     "error": "...", "bytes": 12345, "created_at": 1763000000.0}
+     "error": "...", "bytes": 12345, "created_at": 1763000000.0,
+     "aspect_ratio": "9:16", "segments_total": 1, "segments_done": 1,
+     "partial": false}
 
 (`error` and `bytes` are null until relevant.) Unknown id: `404`.
 

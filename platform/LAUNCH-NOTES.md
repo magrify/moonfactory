@@ -143,10 +143,9 @@ then) and the trademark screen from the original decision list.
 
 ## Deliberate launch limits, stated plainly
 
-- One video per job is a single ~5 second segment. Chained
-  multi-segment videos are proven in the worker (see BUILD-LOG run 3)
-  but are not wired into the public job form yet; that is the next
-  product step, not a hidden gap.
+- One video per job was a single ~5 second segment until the
+  form finishers update below (2026-11-16, run 16): paying
+  customers now chain up to 12 segments into one video.
 - Every delivered video carries a music bed: the house bed by
   default, or a bed generated from the job's own music prompt for
   Creator-plan jobs (live since 2026-11-16; the audio app takes any
@@ -154,8 +153,10 @@ then) and the trademark screen from the original decision list.
   fails at delivery time, the file falls back to the house bed and
   the job record is flagged (audio_fallback) rather than breaking
   delivery.
-- Production renders take about 25 minutes and Draft about 6 to 13.
-  The studio says so up front; there is no queue position display yet.
+- Production renders take about 25 minutes on the long recipe
+  (the distilled lane is about 4 minutes) and Draft about 4 to 13.
+  The studio job list shows segment progress and each in-flight
+  job's position among the account's running videos.
 
 ## Update, 2026-11-16 (later): Wan 3.0, Wan 3.0 Prime, and the cost ceiling
 
@@ -421,3 +422,72 @@ refused 402 before dispatch with nothing charged. Link jobs were
 verified through the guard and quote path only; the end to end
 proof used the upload path, and one guessed public video id
 turned out unavailable, so no live link download is claimed.
+
+## Update, 2026-11-16 (run 16): form finishers (Pass 1 b-f)
+
+The generation form now carries the shapes the worker already
+knew how to render. All of it is on the Wan 2.2 house lanes; the
+per-second lanes keep their own duration and resolution surface
+and refuse the house shapes with a clean 422 (chaining, or an
+aspect other than 9:16) rather than silently reshaping an order.
+
+- Chaining: pick 1 to 12 segments of about 5 seconds. The worker
+  renders segment 1, starts each later segment from the previous
+  segment's last frame, steers the final segment to the end image
+  when one was given, stitches with the shared boundary frame
+  dropped, and delivers ONE finished video through the usual post
+  chain (music bed, loudness, watermark rules unchanged; the bed
+  now loops so a long video is never trimmed to the bed). Pricing
+  is per segment, exactly as single segments price today. Chains
+  are paid-only: free accounts stay single-segment Draft, and a
+  chained job's segments each count as renders for cost and the
+  per-account ceiling. If a segment fails mid-chain, the completed
+  segments deliver as one finished (shorter) video and stay
+  charged per segment; the segments that never rendered are
+  refunded in full (balance share back, settled cost and included
+  budget restored for those segments). Segment 1 failing is a
+  plain error with the usual full restore. The job list shows
+  "Segment X of Y" while a chain runs.
+- Start and end frames: both lanes take a start image (PNG or
+  JPEG, shape-checked on the server before dispatch). An end
+  image runs on the Production lane only, through the worker's
+  firstlast workflow with the lane's distilled recipe applied, so
+  the end frame steers the render; Draft plus an end image, or an
+  end image with no start image, is a 422.
+- Text-only mode: the Draft lane needs no start image (its model
+  is a text-and-image-to-video model and runs its text path).
+  Production still needs a start image and says so with a 422
+  instead of silently using a built-in picture.
+- Aspect ratios: 9:16, 16:9, and 1:1 on both house lanes,
+  rendered natively at the chosen shape (Draft 480x832, 800x448,
+  640x640; Production 720x1280, 1280x720, 960x960) and delivered
+  at that aspect; nothing is cropped from another shape. The
+  Draft 16:9 shape is the closest the model's size grid allows
+  at that pixel budget (ratio 1.786 against 1.778); Production
+  16:9 is exact.
+- Parallel submission: accounts can run several jobs at once,
+  free 1 in flight, paying customers 4, with the position of each
+  in-flight job shown in the studio list. Beyond the limit the
+  server answers 429 before anything is charged or dispatched.
+
+Verification, 2026-11-16, against the public URL
+(scratch/verify_form_finishers.py plus the ff_checks, ff_finish,
+and ff_169 harnesses, in-Modal): the config serves the house
+shapes; a free account got 403 on a chain and on Production, 422
+on Draft with an end image, and 429 with one seeded in-flight
+job. A paid account's twelve bad combinations (segments 0 and
+13, a 4:3 aspect, an end image without a start, an end image on
+Draft, a text-only Production job, a non-base64 image, a
+non-image upload, and chaining or a 16:9 aspect on Wan 3.0 and
+on Seedance 2.5) each returned 422 with the worker's job count
+unchanged, and a fifth in-flight job returned 429. Proof
+renders, all Draft except the end-frame one: a 2-segment chained
+job delivered one 10.06 second file with sound, both segments
+counted, charged exactly two Draft prices; a text-only job with
+no image supplied delivered at 1600x896 (ratio 1.786); a
+start/end-frame Production job's final frame measured far
+closer to the supplied end image than to its start (distance
+10.7 against 243.3 in mean color); and the chain, text-only, and
+end-frame jobs ran at the same time on one account with no
+serial babysitting. The paid test account's balance and settled
+cost moved by exactly the per-segment amounts throughout.

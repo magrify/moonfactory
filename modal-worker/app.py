@@ -449,6 +449,7 @@ LANE_DEFAULT_IMAGES = {
 
 api_image = (
     modal.Image.debian_slim(python_version="3.12")
+    .apt_install("ffmpeg")
     .pip_install("fastapi[standard]")
     .add_local_file(
         str(Path(__file__).parent.parent / "workflows" / "draft_i2v_5b.json"),
@@ -463,6 +464,10 @@ api_image = (
         "/workflows/prod_i2v_a14b_distilled.json",
     )
     .add_local_file(
+        str(Path(__file__).parent.parent / "workflows" / "firstlast_chain.json"),
+        "/workflows/firstlast_chain.json",
+    )
+    .add_local_file(
         str(Path(__file__).parent / "test_start.png"),
         "/assets/test_start.png",
     )
@@ -473,11 +478,24 @@ api_image = (
 )
 
 
-def _build_lane_workflow(lane: str, prompt: str, negative: str, seed: int):
+ASPECT_RATIOS = ("9:16", "16:9", "1:1")
+# Native render dimensions per lane and aspect. The worker renders
+# at exactly these dimensions; nothing downstream crops or pads, so
+# the delivered file's aspect is the aspect that was ordered.
+LANE_DIMS = {
+    "draft": {"9:16": (480, 832), "16:9": (800, 448), "1:1": (640, 640)},
+    "production": {"9:16": (720, 1280), "16:9": (1280, 720), "1:1": (960, 960)},
+}
+
+
+def _build_lane_workflow(lane: str, prompt: str, negative: str, seed: int,
+                         aspect: str = "9:16", text_only: bool = False,
+                         prefix: str = ""):
     workflow = json.loads(
         (Path("/workflows") / LANE_WORKFLOWS[lane]).read_text()
     )
-    prefix = f"sinclip/api_{lane}"
+    prefix = prefix or f"sinclip/api_{lane}"
+    width, height = LANE_DIMS[lane][aspect]
     for node in workflow.values():
         ct = node.get("class_type")
         inputs = node.get("inputs", {})
@@ -490,43 +508,219 @@ def _build_lane_workflow(lane: str, prompt: str, negative: str, seed: int):
             inputs["seed"] = seed
         elif ct == "KSamplerAdvanced":
             inputs["noise_seed"] = seed
+        elif ct == "WanImageToVideo":
+            inputs["width"] = width
+            inputs["height"] = height
+            if text_only:
+                # The 5B lane is a text-and-image-to-video model:
+                # with no start image wired in, the same node runs
+                # its text-to-video path.
+                inputs.pop("start_image", None)
         elif ct == "VHS_VideoCombine":
             inputs["filename_prefix"] = prefix
+    if text_only:
+        for nid in [k for k, n in workflow.items()
+                    if n.get("class_type") == "LoadImage"]:
+            del workflow[nid]
+    return workflow
+
+
+def _build_firstlast_workflow(prompt: str, negative: str, seed: int,
+                              aspect: str = "9:16", prefix: str = ""):
+    """First frame / last frame segment on the production model set,
+    with the lane's distilled recipe applied (the same LightX2V LoRA
+    pair and 4-step split the production lane renders with), so an
+    end-frame segment costs what a production segment costs. The
+    end image conditions the render through
+    WanFirstLastFrameToVideo; it is never stored and ignored."""
+    workflow = json.loads(
+        (Path("/workflows") / "firstlast_chain.json").read_text()
+    )
+    width, height = LANE_DIMS["production"][aspect]
+    workflow["19"] = {
+        "class_type": "LoraLoaderModelOnly",
+        "inputs": {
+            "lora_name": "wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors",
+            "model": ["1", 0], "strength_model": 1.0,
+        },
+    }
+    workflow["20"] = {
+        "class_type": "LoraLoaderModelOnly",
+        "inputs": {
+            "lora_name": "wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors",
+            "model": ["2", 0], "strength_model": 1.0,
+        },
+    }
+    for node in workflow.values():
+        ct = node.get("class_type")
+        inputs = node.get("inputs", {})
+        if ct == "CLIPTextEncode":
+            if inputs.get("text") == "PLACEHOLDER_POSITIVE_PROMPT":
+                inputs["text"] = prompt
+            elif inputs.get("text") == "PLACEHOLDER_NEGATIVE_PROMPT":
+                inputs["text"] = negative
+        elif ct == "ModelSamplingSD3":
+            # Node 12 wraps the high-noise UNET (1), node 13 the low (2).
+            inputs["model"] = ["19", 0] if inputs.get("model") == ["1", 0] else ["20", 0]
+        elif ct == "WanFirstLastFrameToVideo":
+            inputs["width"] = width
+            inputs["height"] = height
+        elif ct == "KSamplerAdvanced":
+            inputs["noise_seed"] = seed
+            inputs["cfg"] = 1.0
+            inputs["steps"] = 4
+            if inputs.get("start_at_step") == 0:
+                inputs["end_at_step"] = 2
+            else:
+                inputs["start_at_step"] = 2
+                inputs["end_at_step"] = 4
+        elif ct == "VHS_VideoCombine":
+            inputs["filename_prefix"] = prefix or "sinclip/api_firstlast"
     return workflow
 
 
 @app.function(image=api_image, timeout=3600)
 def run_job(job_id: str, lane: str, prompt: str, negative: str, seed: int,
-            start_image_b64: str = ""):
+            start_image_b64: str = "", end_image_b64: str = "",
+            aspect: str = "9:16", segments: int = 1):
     """Dispatcher: build the lane workflow, run it on the ComfyUI class,
     persist the result into the Volume, and record the outcome in the
-    jobs Dict. Spawned by the web endpoint; never called synchronously."""
-    import base64
+    jobs Dict. Spawned by the web endpoint; never called synchronously.
 
-    jobs[job_id] = {**(jobs.get(job_id) or {}), "status": "running"}
+    Chaining (segments > 1): segment 1 renders from the job's start
+    image (or text only on the draft lane); each later segment starts
+    from the previous segment's last frame, extracted here, and the
+    final segment steers to the job's end image when one was given
+    (production lane, firstlast workflow). Segments are stitched with
+    the shared boundary frame dropped from every later segment (the
+    seam shape proven in BUILD-LOG run 3). If a segment fails after
+    at least one completed, the completed segments are stitched and
+    delivered as a partial job (status done, partial=true) instead of
+    discarding real rendered work; segment 1 failing is a plain error.
+    """
+    import base64
+    import subprocess
+    import tempfile
+
+    jobs[job_id] = {**(jobs.get(job_id) or {}), "status": "running",
+                    "segments_total": segments, "segments_done": 0}
+    workdir = Path(tempfile.mkdtemp(prefix=f"job_{job_id}_"))
     try:
-        workflow = _build_lane_workflow(lane, prompt, negative, seed)
-        if start_image_b64:
-            image_bytes = base64.b64decode(start_image_b64)
-            image_name = f"job_{job_id}.png"
+        start_bytes = base64.b64decode(start_image_b64) if start_image_b64 else None
+        end_bytes = base64.b64decode(end_image_b64) if end_image_b64 else None
+        seg_paths = []
+        failure = None
+        for i in range(segments):
+            is_last = i == segments - 1
+            use_firstlast = bool(end_bytes) and is_last and lane == "production"
+            prefix = f"sinclip/api_{lane}_{job_id}_seg{i + 1}"
+            seg_seed = seed + i
+            try:
+                if use_firstlast:
+                    workflow = _build_firstlast_workflow(
+                        prompt, negative, seg_seed, aspect, prefix)
+                    start_name = f"job_{job_id}_seg{i + 1}_start.png"
+                    end_name = f"job_{job_id}_seg{i + 1}_end.png"
+                    for node in workflow.values():
+                        if node.get("class_type") == "LoadImage":
+                            if "PLACEHOLDER_START_IMAGE" in str(node["inputs"].get("image", "")):
+                                node["inputs"]["image"] = start_name
+                            elif "PLACEHOLDER_END_IMAGE" in str(node["inputs"].get("image", "")):
+                                node["inputs"]["image"] = end_name
+                    video = ComfyUI().run_workflow.remote(
+                        workflow,
+                        images={start_name: start_bytes, end_name: end_bytes},
+                    )
+                else:
+                    text_only = start_bytes is None
+                    workflow = _build_lane_workflow(
+                        lane, prompt, negative, seg_seed, aspect,
+                        text_only=text_only, prefix=prefix)
+                    if text_only:
+                        video = ComfyUI().run_workflow.remote(workflow)
+                    else:
+                        image_name = f"job_{job_id}_seg{i + 1}.png"
+                        for node in workflow.values():
+                            if node.get("class_type") == "LoadImage":
+                                node["inputs"]["image"] = image_name
+                        video = ComfyUI().run_workflow.remote(
+                            workflow, image_bytes=start_bytes,
+                            image_name=image_name)
+            except Exception as exc:  # noqa: BLE001 - partial delivery below
+                failure = exc
+                break
+            seg_path = workdir / f"seg{i + 1}.mp4"
+            seg_path.write_bytes(video)
+            seg_paths.append(seg_path)
+            jobs[job_id] = {**(jobs.get(job_id) or {}),
+                            "segments_done": i + 1}
+            if not is_last:
+                # The next segment continues from this one's last frame.
+                last_png = workdir / f"seg{i + 1}_last.png"
+                proc = subprocess.run(
+                    ["ffmpeg", "-y", "-sseof", "-0.1", "-i", str(seg_path),
+                     "-frames:v", "1", str(last_png)],
+                    capture_output=True, text=True, timeout=120)
+                if proc.returncode != 0 or not last_png.exists():
+                    failure = RuntimeError(
+                        f"last-frame extract failed: {proc.stderr[-200:]}")
+                    break
+                start_bytes = last_png.read_bytes()
+        if not seg_paths:
+            raise failure or RuntimeError("no segment rendered")
+        if len(seg_paths) == 1:
+            final = seg_paths[0].read_bytes()
         else:
-            image_bytes = Path(LANE_DEFAULT_IMAGES[lane]).read_bytes()
-            image_name = Path(LANE_DEFAULT_IMAGES[lane]).name
-        for node in workflow.values():
-            if node.get("class_type") == "LoadImage":
-                node["inputs"]["image"] = image_name
-        video = ComfyUI().run_workflow.remote(
-            workflow, image_bytes=image_bytes, image_name=image_name
-        )
-        # Persist under the job id in the Volume via a tiny volume writer:
-        store_job_file.remote(job_id, video)
-        jobs[job_id] = {
+            # Stitch: drop the first (shared boundary) frame of every
+            # segment after the first, then concat identical encodes.
+            parts = [seg_paths[0]]
+            for idx, seg_path in enumerate(seg_paths[1:], start=2):
+                trimmed = workdir / f"seg{idx}_trim.mp4"
+                proc = subprocess.run(
+                    ["ffmpeg", "-y", "-i", str(seg_path),
+                     "-vf", "select='gte(n\,1)'", "-vsync", "vfr",
+                     "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
+                     "-an", str(trimmed)],
+                    capture_output=True, text=True, timeout=600)
+                if proc.returncode != 0:
+                    raise RuntimeError(
+                        f"stitch trim failed: {proc.stderr[-200:]}")
+                parts.append(trimmed)
+            listfile = workdir / "concat.txt"
+            listfile.write_text(
+                "".join(f"file '{p}'\n" for p in parts))
+            out_path = workdir / "stitched.mp4"
+            proc = subprocess.run(
+                ["ffmpeg", "-y", "-f", "concat", "-safe", "0",
+                 "-i", str(listfile), "-c", "copy", str(out_path)],
+                capture_output=True, text=True, timeout=600)
+            if proc.returncode != 0 or not out_path.exists():
+                # Re-encode fallback if stream copy refuses the parts.
+                proc = subprocess.run(
+                    ["ffmpeg", "-y", "-f", "concat", "-safe", "0",
+                     "-i", str(listfile), "-c:v", "libx264",
+                     "-preset", "veryfast", "-crf", "18", "-an",
+                     str(out_path)],
+                    capture_output=True, text=True, timeout=600)
+                if proc.returncode != 0 or not out_path.exists():
+                    raise RuntimeError(
+                        f"stitch failed: {proc.stderr[-200:]}")
+            final = out_path.read_bytes()
+        store_job_file.remote(job_id, final)
+        record = {
             **(jobs.get(job_id) or {}),
             "status": "done",
             "file": f"api_jobs/{job_id}.mp4",
-            "bytes": len(video),
+            "bytes": len(final),
+            "segments_done": len(seg_paths),
         }
-        return {"job_id": job_id, "status": "done", "bytes": len(video)}
+        if failure is not None:
+            record["partial"] = True
+            record["partial_error"] = f"{type(failure).__name__}: {failure}"[:300]
+        jobs[job_id] = record
+        return {"job_id": job_id, "status": "done", "bytes": len(final),
+                "segments_done": len(seg_paths),
+                "partial": bool(failure is not None)}
     except Exception as exc:  # noqa: BLE001 - record any failure for the API
         jobs[job_id] = {
             **(jobs.get(job_id) or {}),
@@ -578,6 +772,30 @@ def api():
         prompt = (body.get("prompt") or "").strip()
         if not prompt:
             raise HTTPException(status_code=422, detail="prompt is required")
+        aspect = body.get("aspect_ratio") or "9:16"
+        if aspect not in ASPECT_RATIOS:
+            raise HTTPException(
+                status_code=422,
+                detail=f"aspect_ratio must be one of {list(ASPECT_RATIOS)}")
+        try:
+            segments = int(body.get("segments") if body.get("segments") is not None else 1)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=422, detail="segments must be a whole number")
+        if segments < 1 or segments > 12:
+            raise HTTPException(status_code=422, detail="segments must be between 1 and 12")
+        start_image = body.get("start_image_png_b64") or ""
+        end_image = body.get("end_image_png_b64") or ""
+        if end_image and not start_image:
+            raise HTTPException(
+                status_code=422, detail="an end image needs a start image")
+        if end_image and lane != "production":
+            raise HTTPException(
+                status_code=422,
+                detail="end images run on the production lane only")
+        if lane == "production" and not start_image:
+            raise HTTPException(
+                status_code=422,
+                detail="the production lane needs a start image; text-only jobs run on the draft lane")
         job_id = uuid.uuid4().hex[:16]
         record = {
             "job_id": job_id,
@@ -585,6 +803,9 @@ def api():
             "prompt": prompt,
             "status": "queued",
             "created_at": time.time(),
+            "aspect_ratio": aspect,
+            "segments_total": segments,
+            "segments_done": 0,
         }
         jobs[job_id] = record
         run_job.spawn(
@@ -593,7 +814,10 @@ def api():
             prompt,
             body.get("negative_prompt") or NEGATIVE_PROMPT,
             int(body.get("seed") or SEED),
-            body.get("start_image_png_b64") or "",
+            start_image,
+            end_image,
+            aspect,
+            segments,
         )
         return JSONResponse({"job_id": job_id, "status": "queued"}, status_code=202)
 
@@ -604,7 +828,9 @@ def api():
         if record is None:
             raise HTTPException(status_code=404, detail="unknown job_id")
         return {k: record.get(k) for k in
-                ("job_id", "lane", "prompt", "status", "error", "bytes", "created_at")}
+                ("job_id", "lane", "prompt", "status", "error", "bytes",
+                 "created_at", "aspect_ratio", "segments_total",
+                 "segments_done", "partial", "partial_error")}
 
     @web.get("/jobs/{job_id}/file")
     def get_job_file(job_id: str, x_api_key: str = Header(default="")):

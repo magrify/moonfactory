@@ -340,6 +340,37 @@ FREE_PLATFORM_TOTAL_CEILING = int(
 MAX_FREE_RETRIES = 2
 POW_DIFFICULTY_BITS = 18
 SEGMENT_SECONDS = pricing.SEGMENT_SECONDS
+# Form finishers (Pass 1): house-lane shape limits. Chaining runs
+# 2-12 segments of about 5 seconds each; aspects are rendered
+# natively by the worker at the chosen shape, never cropped from
+# another shape in the post chain.
+HOUSE_ASPECTS = ("9:16", "16:9", "1:1")
+MAX_SEGMENTS = 12
+# Per-plan in-flight generation limits: free accounts run one job
+# at a time, paying customers four. Clip jobs are a separate CPU
+# pipeline and are not counted here.
+CONCURRENCY_FREE = 1
+CONCURRENCY_PAID = 4
+MAX_IMAGE_BYTES = 10 * 1024 * 1024
+
+
+def _validate_image_b64(value, field: str):
+    """Shape-check an uploaded frame before anything is dispatched:
+    valid base64 carrying a PNG or JPEG of a sane size. Raises
+    ValueError; job creation turns it into a clean 422."""
+    if value is None or value == "":
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"{field} must be base64 image data")
+    try:
+        raw = base64.b64decode(value, validate=True)
+    except Exception:
+        raise ValueError(f"{field} is not valid base64 image data") from None
+    if len(raw) > MAX_IMAGE_BYTES:
+        raise ValueError(f"{field} is larger than 10 MB")
+    if not (raw.startswith(b"\x89PNG\r\n\x1a\n") or raw.startswith(b"\xff\xd8\xff")):
+        raise ValueError(f"{field} must be a PNG or JPEG image")
+    return value
 # Paid feature gates (Jack, 2026-11-16; Amendment 3): custom audio,
 # model/lane switching, and gallery opt-out are open to any paying
 # customer (active subscription OR an account that has ever paid
@@ -1005,6 +1036,13 @@ def api():
             "payments_mode": stripe_mode(),
             "payments_configured": stripe_mode() != "off",
             "default_model": DEFAULT_MODEL,
+            "house_lanes": {
+                "aspects": list(HOUSE_ASPECTS),
+                "max_segments": MAX_SEGMENTS,
+                "concurrency": {"free": CONCURRENCY_FREE, "paid": CONCURRENCY_PAID},
+                "end_frame_lane": "production",
+                "text_only_lane": "draft",
+            },
             "models": [
                 {
                     "id": m["id"],
@@ -1471,6 +1509,59 @@ def api():
                     job["status"] = remote.get("status", job["status"])
                     job["error"] = remote.get("error")
                     job["bytes"] = remote.get("bytes")
+                    if remote.get("segments_done") is not None:
+                        job["segments_done"] = remote.get("segments_done")
+                    if remote.get("partial"):
+                        job["partial"] = True
+                        job["partial_error"] = remote.get("partial_error")
+                    if (job["status"] == "done" and job.get("partial")
+                            and not job.get("partial_settled")):
+                        # Rule 8, stated behavior for a mid-chain
+                        # failure: the completed segments deliver as
+                        # one finished (shorter) video and stay
+                        # charged per segment; the segments that
+                        # never rendered are refunded in full (the
+                        # balance share returns, and the settled
+                        # cost comes back off the ceiling total).
+                        job["partial_settled"] = True
+                        total = int(job.get("segments_total") or 1)
+                        done_segs = int(job.get("segments_done") or 0)
+                        missing = max(0, total - done_segs)
+                        if missing and job.get("charged_cents"):
+                            per_seg = pricing.JOB_PRICE_CENTS[job["lane"]]
+                            refund = per_seg * missing
+                            owner = users.get(f"id:{job['user_id']}")
+                            if owner:
+                                owner["balance_cents"] = (
+                                    owner.get("balance_cents", 0) + refund)
+                                save_user(owner)
+                            job["charged_cents"] -= refund
+                        if missing and job.get("included_cost_cents"):
+                            per_seg_budget = float(
+                                pricing.MEASURED_COST_CENTS["production"])
+                            owner = users.get(f"id:{job['user_id']}")
+                            if owner:
+                                u = usage(owner)
+                                u["included_cost_cents"] = max(
+                                    0.0, included_cost_used(owner)
+                                    - per_seg_budget * missing)
+                                owner["usage"] = u
+                                save_user(owner)
+                            job["included_cost_cents"] = (
+                                float(job["included_cost_cents"])
+                                - per_seg_budget * missing)
+                        if missing and job.get("cost_cents"):
+                            per_seg_cost = float(
+                                pricing.MEASURED_COST_CENTS[job["lane"]])
+                            owner = users.get(f"id:{job['user_id']}")
+                            if owner:
+                                owner["cost_settled_cents"] = max(
+                                    0.0,
+                                    float(owner.get("cost_settled_cents") or 0.0)
+                                    - per_seg_cost * missing)
+                                save_user(owner)
+                            job["cost_cents"] = (
+                                float(job["cost_cents"]) - per_seg_cost * missing)
                     if job["status"] == "error" and job.get("charged_cents"):
                         # Rule 8: a failed generation restores the balance.
                         owner = users.get(f"id:{job['user_id']}")
@@ -1497,7 +1588,7 @@ def api():
             jobs[job["id"]] = job
         return job
 
-    def public_job(job: dict) -> dict:
+    def public_job(job: dict, queue_position=None) -> dict:
         return {
             "id": job["id"],
             "lane": job["lane"],
@@ -1527,6 +1618,12 @@ def api():
             "clip_ids": job.get("clip_ids") or [],
             "has_thumb": bool(job.get("has_thumb")),
             "pick_mode": job.get("pick_mode"),
+            "aspect_ratio": job.get("aspect_ratio") or "9:16",
+            "segments_total": int(job.get("segments_total") or 1),
+            "segments_done": int(job.get("segments_done") or 0),
+            "partial": bool(job.get("partial")),
+            "has_end_frame": bool(job.get("has_end_frame")),
+            "queue_position": queue_position,
         }
 
     def _api_job_params(body: dict, model: str = "") -> dict:
@@ -1997,6 +2094,73 @@ def api():
         }
         if camera_ids or camera_look:
             prompt = compose_camera_prompt(prompt, camera_ids, camera_look)
+        # Form finishers (Pass 1): shape validation for every lane,
+        # always before a quote, hold, charge, or dispatch. Unknown
+        # or unsupported combinations are clean 422s.
+        try:
+            segments = int(body.get("segments") if body.get("segments") is not None else 1)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=422, detail="segments must be a whole number")
+        if segments < 1 or segments > MAX_SEGMENTS:
+            raise HTTPException(
+                status_code=422,
+                detail=f"segments must be between 1 and {MAX_SEGMENTS}")
+        aspect = body.get("aspect_ratio") or "9:16"
+        if aspect not in HOUSE_ASPECTS:
+            raise HTTPException(
+                status_code=422,
+                detail="aspect_ratio must be one of: " + ", ".join(HOUSE_ASPECTS))
+        start_image = body.get("start_image_png_b64") or None
+        end_image = body.get("end_image_png_b64") or None
+        try:
+            _validate_image_b64(start_image, "start image")
+            _validate_image_b64(end_image, "end image")
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        if model in PER_SECOND_MODELS:
+            # The per-second lanes take single-pass clips at 9:16 in
+            # this form; chaining and other aspects are house-lane
+            # shapes, refused here rather than silently reshaped.
+            if segments > 1:
+                raise HTTPException(
+                    status_code=422,
+                    detail="multi-segment chaining runs on Wan 2.2; this model makes single-pass clips")
+            if aspect != "9:16":
+                raise HTTPException(
+                    status_code=422,
+                    detail="this model is offered at 9:16 in this form; other aspects run on Wan 2.2")
+        else:
+            if end_image and not start_image:
+                raise HTTPException(
+                    status_code=422, detail="an end image needs a start image")
+            if end_image and lane != "production":
+                raise HTTPException(
+                    status_code=422,
+                    detail="end images run on the Production lane")
+            if lane == "production" and not start_image:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Production needs a start image; text-only videos run on the Draft lane")
+            if segments > 1 and not is_paid(user):
+                raise HTTPException(
+                    status_code=403,
+                    detail="multi-segment videos are a paid feature; free accounts make single Draft clips")
+        # Per-plan concurrency: a user can have several jobs in
+        # flight at once, up to their plan limit, and the studio
+        # list shows each one's position. No serial babysitting.
+        limit = CONCURRENCY_PAID if is_paid(user) else CONCURRENCY_FREE
+        in_flight = 0
+        for key in list(jobs.keys()):
+            other = jobs.get(key)
+            if (other and other.get("user_id") == user["id"]
+                    and other.get("status") in ("queued", "running")
+                    and other.get("provider") != "clip"
+                    and other.get("kind") not in ("clip_job", "clip_output")):
+                in_flight += 1
+        if in_flight >= limit:
+            raise HTTPException(
+                status_code=429,
+                detail=f"you already have {in_flight} videos in flight (your plan allows {limit} at a time); one needs to finish before the next starts")
         if model in PER_SECOND_MODELS:
             # Model switching is paid-only (Amendment 3: any paying
             # customer), enforced here on the server before any
@@ -2032,7 +2196,7 @@ def api():
             # ceiling is the outer wall for both, checked before
             # anything is dispatched: this job's measured cost must
             # fit inside what the account has paid in.
-            job_cost = float(pricing.MEASURED_COST_CENTS[lane])
+            job_cost = float(pricing.MEASURED_COST_CENTS[lane]) * segments
             if not ceiling_allows(user, job_cost):
                 raise HTTPException(
                     status_code=402,
@@ -2044,11 +2208,11 @@ def api():
             # everyone else pays the lane's fixed job price from
             # prepaid balance. Pay-per-video accounts have no
             # included budget, so balance is their only rail.
-            if user["plan"] == "creator" and included_budget_remaining(user) >= pricing.MEASURED_COST_CENTS["production"]:
-                used_included = SEGMENT_SECONDS
-                used_budget = float(pricing.MEASURED_COST_CENTS["production"])
+            if user["plan"] == "creator" and included_budget_remaining(user) >= pricing.MEASURED_COST_CENTS["production"] * segments:
+                used_included = SEGMENT_SECONDS * segments
+                used_budget = float(pricing.MEASURED_COST_CENTS["production"]) * segments
             else:
-                price = pricing.JOB_PRICE_CENTS[lane]
+                price = pricing.JOB_PRICE_CENTS[lane] * segments
                 if user.get("balance_cents", 0) < price:
                     detail = (
                         f"included time used up; this job costs {price} cents of prepaid balance"
@@ -2067,7 +2231,10 @@ def api():
                     "prompt": prompt,
                     "negative_prompt": body.get("negative_prompt") or None,
                     "seed": body.get("seed"),
-                    "start_image_png_b64": body.get("start_image_png_b64") or None,
+                    "start_image_png_b64": start_image,
+                    "end_image_png_b64": end_image,
+                    "aspect_ratio": aspect,
+                    "segments": segments,
                 },
                 timeout=30,
             )
@@ -2119,6 +2286,13 @@ def api():
             "plan_at_job": user["plan"],
             "retry_of": body.get("retry_of"),
             "last_poll": 0,
+            "aspect_ratio": aspect,
+            "segments_total": segments,
+            "segments_done": 0,
+            "has_end_frame": bool(end_image),
+            "start_image_png_b64": start_image,
+            "end_image_png_b64": end_image,
+            "partial": False,
         }
         jobs[job["id"]] = job
         return JSONResponse(public_job(job), status_code=202)
@@ -2132,7 +2306,14 @@ def api():
             if job and job.get("user_id") == user["id"]:
                 mine.append(mirror_status(job))
         mine.sort(key=lambda j: j["created_at"], reverse=True)
-        return {"jobs": [public_job(j) for j in mine[:50]]}
+        active = sorted(
+            (j for j in mine if j["status"] in ("queued", "running")),
+            key=lambda j: j["created_at"])
+        positions = {j["id"]: i + 1 for i, j in enumerate(active)}
+        return {"jobs": [
+            public_job(j, queue_position=positions.get(j["id"]))
+            for j in mine[:50]
+        ]}
 
     @web.post("/api/jobs/{job_id}/regenerate")
     async def regenerate(job_id: str, request: Request, mf_session: str = Cookie(default="")):
@@ -2169,6 +2350,10 @@ def api():
             "reference_image_urls": parent.get("reference_image_urls"),
             "reference_video_urls": parent.get("reference_video_urls"),
             "reference_audio_urls": parent.get("reference_audio_urls"),
+            "segments": parent.get("segments_total") or 1,
+            "aspect_ratio": parent.get("aspect_ratio") or "9:16",
+            "start_image_png_b64": parent.get("start_image_png_b64"),
+            "end_image_png_b64": parent.get("end_image_png_b64"),
             "retry_of": root_id,
             "challenge_id": body.get("challenge_id"),
             "challenge_nonce": body.get("challenge_nonce"),
@@ -2919,7 +3104,9 @@ def _process_file(raw_path: Path, out_path: Path, watermark: bool, bed_path=None
     if bed_path is None:
         bed_path = BED_PATH
     bed = bed_path if bed_path and Path(bed_path).exists() else None
-    audio_in = ["-i", str(bed)] if bed else []
+    # The bed loops: a chained video is longer than one bed pass,
+    # and -shortest must trim to the video, never to the bed.
+    audio_in = ["-stream_loop", "-1", "-i", str(bed)] if bed else []
     audio_map = ["-map", "0:v:0", "-map", "1:a:0"] if bed else ["-map", "0:v:0"]
     audio_codec = ["-c:a", "aac", "-b:a", "160k",
                    "-af", "loudnorm=I=-14:TP=-1.5:LRA=11"] if bed else []
@@ -3128,7 +3315,7 @@ and X: 9:16, captioned by you, ready to post.</p>
 
 <h2>How it works</h2>
 <ol>
-  <li>Bring a start image, or use the built-in one.</li>
+  <li>Bring a start image, or just describe the scene for a text-only video on the Draft lane.</li>
   <li>Write the prompt: what moves, where the camera goes, the mood.</li>
   <li>Pick a model and render. Every account starts on Wan 2.2;
       paying customers can switch models in the studio.</li>
@@ -3137,7 +3324,7 @@ and X: 9:16, captioned by you, ready to post.</p>
 <h2>Models</h2>
 <table>
   <tr><th>Model</th><th>What you get</th><th>Who can use it</th></tr>
-  <tr><td>Wan 2.2</td><td>Draft previews and Production renders at 720x1280, about 5 seconds each</td><td>Everyone; Production is Creator plan or balance</td></tr>
+  <tr><td>Wan 2.2</td><td>Draft previews and Production renders, about 5 seconds per segment, in 9:16, 16:9 or 1:1. Paying customers can join up to 12 segments into one video of about a minute and steer Production renders to a chosen end frame.</td><td>Everyone; Production is Creator plan or balance</td></tr>
   <tr><td>Wan 3.0</td><td>Sharper motion and detail, sound made with the picture, up to 30 seconds in one pass</td><td>Any paying customer</td></tr>
   <tr><td>Wan 3.0 Prime</td><td>The flagship Wan tier: the best motion and detail of the Wan family</td><td>Any paying customer</td></tr>
   <tr><td>Seedance 2.5</td><td>Long takes up to 30 seconds with sound made with the picture, at up to 1080p</td><td>Any paying customer</td></tr>
@@ -3336,7 +3523,28 @@ APP_HTML = (
     <label>Music prompt (optional)</label>
     <textarea id="music" rows="2" maxlength="300" placeholder="lo-fi piano with soft rain, slow and dreamy"></textarea>
     <p class="muted" id="music-note"></p>
-    <label>Start image (PNG, optional)</label>
+    <div id="house-opts">
+    <label>Aspect ratio</label>
+    <select id="aspect">
+      <option value="9:16" selected>9:16 vertical</option>
+      <option value="16:9">16:9 wide</option>
+      <option value="1:1">1:1 square</option>
+    </select>
+    <label>Length (segments of about 5 seconds, joined into one video)</label>
+    <select id="segments">
+      <option value="1" selected>1 segment, about 5 seconds</option>
+      <option value="2">2 segments, about 10 seconds</option>
+      <option value="3">3 segments, about 15 seconds</option>
+      <option value="4">4 segments, about 20 seconds</option>
+      <option value="6">6 segments, about 30 seconds</option>
+      <option value="8">8 segments, about 40 seconds</option>
+      <option value="12">12 segments, about 60 seconds</option>
+    </select>
+    <p class="muted" id="segments-note"></p>
+    <label>End image (PNG, optional, Production lane: the video steers to this final frame)</label>
+    <input id="endimg" type="file" accept="image/png">
+    </div>
+    <label>Start image (PNG, optional on Draft: leave empty for a text-only video)</label>
     <input id="startimg" type="file" accept="image/png">
     <div id="botcheck2"></div>
     <button class="btn" id="create">Create video</button>
@@ -3398,6 +3606,7 @@ APP_HTML = (
 const $ = id => document.getElementById(id);
 let cfg = { pow_required: true, pow_difficulty_bits: 18, turnstile_site_key: null };
 let startImageB64 = null;
+let endImageB64 = null;
 
 async function solvePow() {
   const r = await fetch('/api/challenge'); const c = await r.json();
@@ -3442,6 +3651,12 @@ $('startimg').addEventListener('change', e => {
   const f = e.target.files[0]; if (!f) { startImageB64 = null; return; }
   const reader = new FileReader();
   reader.onload = () => { startImageB64 = String(reader.result).split(',')[1]; };
+  reader.readAsDataURL(f);
+});
+$('endimg').addEventListener('change', e => {
+  const f = e.target.files[0]; if (!f) { endImageB64 = null; return; }
+  const reader = new FileReader();
+  reader.onload = () => { endImageB64 = String(reader.result).split(',')[1]; };
   reader.readAsDataURL(f);
 });
 
@@ -3585,6 +3800,14 @@ function showStudio(u) {
     $('music').disabled = true; $('music').value = '';
     $('music-note').textContent = 'Custom audio unlocks with any payment. Free clips get the house music track.';
   }
+  const segSel = $('segments');
+  if (u.paid_customer) {
+    segSel.disabled = false;
+    $('segments-note').textContent = 'Longer videos are priced per segment, exactly like separate clips, and the segments join into one finished video.';
+  } else {
+    segSel.disabled = true; segSel.value = '1';
+    $('segments-note').textContent = 'Multi-segment videos unlock with any payment. Free accounts make single Draft clips.';
+  }
   updateModelUI();
   loadJobs();
 }
@@ -3634,6 +3857,7 @@ function updateModelUI() {
   const m = $('model').value;
   const api = m !== 'wan2.2';
   $('lane-wrap').style.display = api ? 'none' : 'block';
+  $('house-opts').style.display = api ? 'none' : 'block';
   $('api-opts').style.display = api ? 'block' : 'none';
   if (api) {
     const opts = MODEL_OPTS[m];
@@ -3684,7 +3908,9 @@ $('create').onclick = async () => {
     const jobBody = model === 'wan2.2'
       ? { model: model, lane: $('lane').value, prompt: $('prompt').value,
           music_prompt: $('music').disabled ? '' : $('music').value,
-          start_image_png_b64: startImageB64, ...camera, ...bot }
+          start_image_png_b64: startImageB64, end_image_png_b64: endImageB64,
+          aspect_ratio: $('aspect').value, segments: Number($('segments').value),
+          ...camera, ...bot }
       : { model: model, prompt: $('prompt').value,
           music_prompt: $('music').disabled ? '' : $('music').value,
           duration_seconds: Number($('duration').value), resolution: $('resolution').value,
@@ -3712,6 +3938,10 @@ async function loadJobs() {
       const spec = j.duration_seconds ? ' · ' + j.duration_seconds + 's' + (j.resolution ? ' · ' + j.resolution : '') : '';
       let html = '<strong>' + title + '</strong>' + spec + ' · ' + j.status + '<br><span class="muted">' +
         j.prompt.slice(0, 120) + '</span>';
+      if (j.aspect_ratio && j.model_id === 'wan2.2') html += '<br><span class="muted">Aspect: ' + j.aspect_ratio + '</span>';
+      if (j.segments_total > 1) html += '<br><span class="muted">Segment ' + Math.min(j.segments_done + (j.status === 'done' ? 0 : 1), j.segments_total) + ' of ' + j.segments_total + (j.status === 'done' ? ' joined into one video' : '') + '</span>';
+      if ((j.status === 'queued' || j.status === 'running') && j.queue_position) html += '<br><span class="muted">In flight: #' + j.queue_position + ' of your running videos</span>';
+      if (j.partial) html += '<br><span class="muted">Finished shorter than planned: the later segments could not render, and you were charged only for the segments in this file.</span>';
       if (isClipOut && j.score !== null && j.score !== undefined) html += '<br><span class="muted">Score: ' + j.score + '</span>';
       if (isClipOut && j.has_thumb) html += '<br><img src="/api/jobs/' + j.id + '/thumb" style="width:120px;border-radius:8px" alt="">';
       if (isClipJob && j.stage && (j.status === 'queued' || j.status === 'running')) html += '<br><span class="muted">' + j.stage + '</span>';
