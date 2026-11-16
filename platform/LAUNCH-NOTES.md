@@ -56,33 +56,33 @@ in the dashboard (business details, bank account) is the step that
 has to happen first; everything above is ready to land the moment
 it is done.
 
-### 2. Transactional email (Resend, decided 2026-11-16)
+### 2. Transactional email (Resend) — DONE 2026-11-16
 
-Jack's pick: Resend. The platform code already sends through the
-Resend API as its primary route whenever RESEND_API_KEY is in the
-deployment secret; the sender is config (RESEND_FROM), default
-Moonfactory <noreply@magrify.com>. Fallbacks stay in place: 
+Jack's pick: Resend. The account exists under the Magrify GitHub
+(account email support@magrify.com) and magrify.com is VERIFIED as
+a sending domain in Resend. The platform sends through the Resend
+API as its primary route; the sender is config (RESEND_FROM),
+Moonfactory <noreply@magrify.com>. Fallbacks stay in place:
 PrivateEmail SMTP (public settings are code defaults: host
 mail.privateemail.com, port 587 STARTTLS, user support@magrify.com)
 whenever a mailbox password is configured, then the operator
 outbox, so signup never breaks.
 
-Remaining setup, all account-side (needs a browser session):
-1. Create the Resend account as a Magrify business signup under
-   support@magrify.com (free tier), completing any verification
-   email in the PrivateEmail inbox.
-2. Add magrify.com as the sending domain in Resend. Merge its DNS
-   records into the magrify.com Cloudflare zone WITHOUT breaking
-   PrivateEmail: extend the existing SPF record with Resend's
-   include (never replace it), add Resend's DKIM record(s) as
-   given, DMARC as given. Afterward, confirm support@magrify.com
-   still receives mail with a test message.
-3. Create a Resend API key and put it in the Modal Secret
-   moonfactory-secrets as RESEND_API_KEY (value never written to
-   any file or log).
-4. The next deploy sends verification mail from
-   noreply@magrify.com; verify with a fresh signup to a readable
-   inbox and follow the link.
+Secret arrangement: the original Modal secret moonfactory-secrets
+was NOT touched (its SESSION_SECRET and TURNSTILE_SECRET_KEY exist
+nowhere else). The Resend API key (key name "moonfactory", full
+access) lives in a SECOND Modal secret, moonfactory-integrations,
+alongside RESEND_FROM; the platform function mounts both secrets.
+The key value is in no file, log, or commit.
+
+Delivery proof (2026-11-16): a fresh signup through the public URL
+with a Gmail plus-address returned email_mode "resend", and the
+verification email arrived in that Gmail inbox from Moonfactory
+<noreply@magrify.com>, subject "Verify your Moonfactory account",
+within seconds of the signup. The one remaining click (open the
+link, log in, run a job) goes through the browser with the
+connector's credential reference, because the Gmail connector
+redacts verification links in its read path by design.
 
 ### 3. Cloudflare Turnstile (done)
 

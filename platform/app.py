@@ -262,7 +262,10 @@ def _worker_headers() -> dict:
 
 @app.function(
     image=image,
-    secrets=[modal.Secret.from_name("moonfactory-secrets")],
+    secrets=[
+        modal.Secret.from_name("moonfactory-secrets"),
+        modal.Secret.from_name("moonfactory-integrations"),
+    ],
     volumes={"/worker-models": worker_models, "/data": data_volume},
     timeout=1200,
     max_containers=1,
