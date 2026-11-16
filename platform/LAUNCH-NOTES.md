@@ -70,15 +70,34 @@ the webhook is refused (503) because the handler builds its Stripe
 client first and that needs the one missing value below; the
 400 bad-signature path opens once it lands.
 
-The ONE outstanding value: STRIPE_SECRET_KEY (sk_live_). A secret
-key cannot be created or exported through the API or the
-connector; it exists only inside the Stripe dashboard, and that
-sign-in is gated by a passkey Muse's browser cannot complete.
-When Jack supplies it (dashboard reveal, entered through the
-Secure Vault), it goes into moonfactory-integrations the same way,
-the platform redeploys, /api/config flips payments_mode to
-"live", and checkout opens. No code change. Until then checkout
-stays off, deliberately, rather than half-configured.
+The ONE outstanding value was STRIPE_SECRET_KEY. A secret key
+cannot be created or exported through the API or the connector;
+it exists only inside the Stripe dashboard, and that sign-in is
+gated by a passkey Muse's browser cannot complete. RESOLVED
+2026-11-16: Jack created a restricted key in the dashboard
+(Checkout Sessions write, template: Recurring subscriptions and
+billing) and pasted it in chat; it is stored as STRIPE_SECRET_KEY
+in the Modal secret `moonfactory-providers` (alongside FAL_KEY),
+and payments verified LIVE (payments_mode "live", real checkout
+session creation confirmed).
+
+Webhook crediting verified end to end 2026-11-16 (run 11): with
+the key present, an unsigned POST to /api/stripe/webhook is
+refused 400 "bad signature" (was 503 before the key). Properly
+signed synthetic events through the public URL credited a test
+account exactly: a $10 top-up (price STRIPE_PRICE_TOPUP_1000)
+moved balance 0 -> 1000 cents and net_paid_cents 0 -> 941.0 (the
+fee-net amount); a Creator invoice.paid set plan=creator with
+the included budget at 637.33 cost-cents and net_paid_cents
+1912.0, and dedupe held at both layers (same event resent ->
+duplicate, no double count; new event id with the same invoice
+id -> still no double count). That run also found and fixed a
+real bug: stripe-python's construct_event returns typed objects
+whose .get() raises AttributeError, so every signed event had
+been crashing the handler with a 500 before crediting (and the
+event id was already marked seen, so Stripe retries would have
+been dropped as duplicates). The handler now parses the
+signature-verified payload as plain JSON after construct_event.
 
 ### 2. Transactional email (Resend) — DONE 2026-11-16
 

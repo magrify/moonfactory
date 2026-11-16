@@ -1591,6 +1591,14 @@ def api():
             event = stripe.Webhook.construct_event(payload, sig, wh_secret)
         except Exception:
             raise HTTPException(status_code=400, detail="bad signature")
+        # construct_event verifies the signature, but the SDK returns
+        # typed objects whose .get() raises AttributeError in current
+        # stripe-python versions; every delivery crashed at the first
+        # field read until this line (found by the signed-webhook
+        # verification run, 2026-11-16). The payload bytes are
+        # signature-verified at this point, so handle the event as
+        # the plain JSON it is.
+        event = json.loads(payload)
         seen = meta.get("stripe_events") or {}
         if event["id"] in seen:
             return {"received": True, "duplicate": True}
