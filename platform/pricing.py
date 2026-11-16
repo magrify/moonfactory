@@ -77,6 +77,36 @@ JOB_PRICE_CENTS = {lane: _round_up_price(floor_price_cents(lane))
                    for lane in MEASURED_COST_CENTS}
 
 
+# ---------------------------------------------------------------------------
+# Owner pricing exemption (Jack, 2026-11-16): Jack's own account
+# (support@magrify.com, flagged is_owner on its user record) is the
+# ONLY account that pays no markup. For that account every charge
+# resolves to raw cost on the cheapest route: the figure the
+# multipliers are applied to (MEASURED_COST_CENTS for the self-hosted
+# lanes, provider rate + post cost for the per-second lanes,
+# IMAGE_MEASURED_COST_CENTS for start images, CLIP_COST for
+# clipping), with no margin multiplier and no Stripe gross-up. Every
+# other account pays the standard prices above, unchanged. The
+# helpers below take the flag explicitly; app.py reads it from the
+# requesting account's record via is_owner(). Settled-cost accounting
+# is untouched: it always recorded actual cost, so for the owner the
+# charge now simply equals the cost that was already being settled.
+# ---------------------------------------------------------------------------
+
+
+def job_price_cents(lane: str, owner: bool = False) -> int:
+    """The per-job balance price for a self-hosted lane: the marked-up
+    JOB_PRICE_CENTS for everyone, raw measured cost for the owner."""
+    if owner:
+        return int(MEASURED_COST_CENTS[lane])
+    return JOB_PRICE_CENTS[lane]
+
+
+def job_price_table(owner: bool = False) -> dict:
+    """JOB_PRICE_CENTS as the requesting account should see it."""
+    return {lane: job_price_cents(lane, owner) for lane in MEASURED_COST_CENTS}
+
+
 def lane_paused(lane: str) -> bool:
     """Rule 2: a lane sells only at or above its floor."""
     return JOB_PRICE_CENTS[lane] < floor_price_cents(lane)
@@ -403,17 +433,38 @@ HIGGSFIELD_EFFECTIVE_CENTS_PER_CLIP = {
 }
 
 
-def frontier_lane(model: str, resolution: str, rates=None) -> dict:
+def frontier_lane(model: str, resolution: str, rates=None,
+                  owner: bool = False) -> dict:
     """The Amendment 3 price picture for one per-second lane at one
     resolution: provider cost per second, Higgsfield's effective
     per-second price for the comparable output, the hard minimum,
     the balance sell rate, and whether the lane can actually
     undercut. Higgsfield's effective price is documented on the
     720p basis; other resolutions scale it by the provider rate
-    ratio, the same shape as Higgsfield's own credit table."""
+    ratio, the same shape as Higgsfield's own credit table.
+    For the owner account (owner=True) the sell rate is the raw
+    cost itself: no markup, per the owner pricing exemption."""
     table = rates if rates is not None else PROVIDER_RATES_CENTS_PER_SECOND
     cost = per_second_lane_cost_cents(model, resolution, table)
     minimum = cost * FRONTIER_MIN_MARKUP
+    if owner:
+        picture = {
+            "cost_cents_per_second": round(cost, 3),
+            "minimum_cents_per_second": round(minimum, 3),
+            "sell_cents_per_second": round(cost, 3),
+            "can_undercut": None,
+        }
+        eff = HIGGSFIELD_EFFECTIVE_CENTS_PER_CLIP.get(model)
+        picture["higgsfield_effective_cents_per_second"] = (
+            round(
+                eff / CLIP_BASIS_SECONDS
+                * float(table[model][resolution])
+                / float(table[model]["720p"]),
+                3,
+            )
+            if eff is not None else None
+        )
+        return picture
     if model not in HIGGSFIELD_EFFECTIVE_CENTS_PER_CLIP:
         # No measured Higgsfield effective for this lane (see the
         # note on the table): the lane sells at the hard minimum and
@@ -446,12 +497,16 @@ def frontier_lane(model: str, resolution: str, rates=None) -> dict:
 
 
 def per_second_balance_debit_cents(model: str, resolution: str,
-                                   billed_seconds: float, rates=None) -> int:
+                                   billed_seconds: float, rates=None,
+                                   owner: bool = False) -> int:
     """What a per-second job charges prepaid balance: the Amendment 3
-    sell rate for the lane times the billed seconds, rounded up."""
+    sell rate for the lane times the billed seconds, rounded up.
+    The owner pays raw cost instead (owner pricing exemption)."""
     import math
 
-    sell = frontier_lane(model, resolution, rates)["sell_cents_per_second"]
+    sell = frontier_lane(
+        model, resolution, rates, owner=owner
+    )["sell_cents_per_second"]
     return math.ceil(sell * float(billed_seconds))
 
 
@@ -484,17 +539,24 @@ def per_second_lane_cost_cents(model: str, resolution: str, rates=None) -> float
 
 
 def per_second_estimate(model: str, resolution: str, output_seconds: float,
-                        reference_video_seconds: float = 0.0, rates=None) -> dict:
+                        reference_video_seconds: float = 0.0, rates=None,
+                        owner: bool = False) -> dict:
     """The exact quote for a per-second-lane job (amended Rule 3):
     raw cost, the balance debit at the Amendment 3 sell rate, and
     the hold caps. The included-budget side is untouched by the
-    amendment: budget debits stay denominated at raw cost."""
+    amendment: budget debits stay denominated at raw cost. For the
+    owner the sell rate is raw cost, so the debit and the balance
+    hold cap both resolve to cost (owner pricing exemption)."""
     import math
 
     billed = float(output_seconds) + float(reference_video_seconds)
     raw = per_second_lane_cost_cents(model, resolution, rates) * billed
-    debit = per_second_balance_debit_cents(model, resolution, billed, rates)
-    sell = frontier_lane(model, resolution, rates)["sell_cents_per_second"]
+    debit = per_second_balance_debit_cents(
+        model, resolution, billed, rates, owner=owner
+    )
+    sell = frontier_lane(
+        model, resolution, rates, owner=owner
+    )["sell_cents_per_second"]
     return {
         "billed_seconds": billed,
         "raw_cost_cents": raw,
@@ -518,14 +580,17 @@ def creator_included_production_seconds() -> int:
     return int(net // floor_cost_per_second)
 
 
-def public_pricing() -> dict:
+def public_pricing(owner: bool = False) -> dict:
     """Everything the pricing page is allowed to say, computed here so
-    no page ever hardcodes a number the formula would contradict."""
+    no page ever hardcodes a number the formula would contradict.
+    With owner=True the sell figures resolve to raw cost (owner
+    pricing exemption); the standard figures stay in the payload
+    alongside (floor prices, measured costs) exactly as before."""
     return {
         "margin_multiplier": MARGIN_MULTIPLIER,
         "creator_price_cents": CREATOR_PRICE_CENTS,
         "creator_included_production_seconds": creator_included_production_seconds(),
-        "job_price_cents": JOB_PRICE_CENTS,
+        "job_price_cents": job_price_table(owner),
         "floor_price_cents": {lane: floor_price_cents(lane)
                               for lane in MEASURED_COST_CENTS},
         "measured_cost_cents": MEASURED_COST_CENTS,
@@ -535,14 +600,14 @@ def public_pricing() -> dict:
         "included_budget_cents": round(included_budget_cents(), 2),
         "clipping": {
             "included_cents_per_source_minute": CLIP_INCLUDED_CENTS_PER_MINUTE,
-            "balance_cents_per_source_minute": CLIP_BALANCE_CENTS_PER_MINUTE,
+            "balance_cents_per_source_minute": clip_balance_rate_cents(owner),
             "cost_cents_per_source_minute": CLIP_COST_CENTS_PER_MINUTE,
             "max_source_seconds": CLIP_MAX_SOURCE_SECONDS,
             "max_upload_bytes": CLIP_MAX_UPLOAD_BYTES,
             "max_clips_per_job": CLIP_MAX_CLIPS_PER_JOB,
         },
         "image": {
-            "price_cents": IMAGE_PRICE_CENTS,
+            "price_cents": image_price_cents(owner),
             "measured_cost_cents": IMAGE_MEASURED_COST_CENTS,
         },
         "per_second_rates_cents": PROVIDER_RATES_CENTS_PER_SECOND,
@@ -550,7 +615,7 @@ def public_pricing() -> dict:
         "frontier_min_markup": FRONTIER_MIN_MARKUP,
         "frontier_lanes": {
             model: {
-                res: frontier_lane(model, res)
+                res: frontier_lane(model, res, owner=owner)
                 for res in PROVIDER_RATES_CENTS_PER_SECOND[model]
             }
             for model in HIGGSFIELD_EFFECTIVE_CENTS_PER_CLIP
@@ -589,14 +654,20 @@ def clip_source_minutes(duration_seconds: float) -> int:
     return max(1, math.ceil(float(duration_seconds) / 60.0))
 
 
-def clip_quote(duration_seconds: float) -> dict:
+def clip_balance_rate_cents(owner: bool = False) -> float:
+    """The per-source-minute balance rate for clipping: the standard
+    rate for everyone, raw cost for the owner (owner exemption)."""
+    return CLIP_COST_CENTS_PER_MINUTE if owner else CLIP_BALANCE_CENTS_PER_MINUTE
+
+
+def clip_quote(duration_seconds: float, owner: bool = False) -> dict:
     import math
 
     minutes = clip_source_minutes(duration_seconds)
     return {
         "source_minutes": minutes,
         "included_debit_cents": round(minutes * CLIP_INCLUDED_CENTS_PER_MINUTE, 2),
-        "balance_charge_cents": int(math.ceil(minutes * CLIP_BALANCE_CENTS_PER_MINUTE)),
+        "balance_charge_cents": int(math.ceil(minutes * clip_balance_rate_cents(owner))),
         "worst_case_cost_cents": round(minutes * CLIP_COST_CENTS_PER_MINUTE, 2),
         "max_source_seconds": CLIP_MAX_SOURCE_SECONDS,
         "max_upload_bytes": CLIP_MAX_UPLOAD_BYTES,
@@ -654,8 +725,18 @@ IMAGE_PRICE_CENTS = gross_up(IMAGE_MEASURED_COST_CENTS * MARGIN_MULTIPLIER)
 EFFECTS_MEASURED_SECONDS = 101.5
 
 
-def image_quote() -> dict:
+def image_price_cents(owner: bool = False) -> int:
+    """The balance price for one start image: the floor price for
+    everyone, raw measured cost for the owner (owner exemption)."""
+    import math
+
+    if owner:
+        return int(math.ceil(IMAGE_MEASURED_COST_CENTS))
+    return IMAGE_PRICE_CENTS
+
+
+def image_quote(owner: bool = False) -> dict:
     return {
-        "price_cents": IMAGE_PRICE_CENTS,
+        "price_cents": image_price_cents(owner),
         "measured_cost_cents": IMAGE_MEASURED_COST_CENTS,
     }
