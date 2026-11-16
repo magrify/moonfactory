@@ -50,6 +50,7 @@ import modal
 
 sys.path.insert(0, "/platform")
 import pricing  # noqa: E402
+import clipping  # noqa: E402
 
 app = modal.App("moonfactory")
 
@@ -66,6 +67,7 @@ image = (
     .apt_install("ffmpeg", "fonts-dejavu-core")
     .pip_install("fastapi[standard]", "requests", "stripe")
     .add_local_file(str(Path(__file__).parent / "pricing.py"), "/platform/pricing.py")
+    .add_local_file(str(Path(__file__).parent / "clipping.py"), "/platform/clipping.py")
     .add_local_file(
         str(
             Path(__file__).parent.parent
@@ -74,6 +76,251 @@ image = (
         "/platform/presets-index.json",
     )
 )
+
+
+# ---------------------------------------------------------------------------
+# Clipping (CLIPPING-DESIGN.md): a CPU-only function in this app, never
+# the GPU apps. 4 cores, 8 GiB, short scaledown, ffmpeg and sherpa-onnx
+# in the image, the Parakeet model cached on the data Volume at
+# /data/clip-models (downloaded once by clipping.ensure_model). The
+# pipeline itself is platform/clipping.py, ported from PeakCut (MIT,
+# pinned commit b3e403e; see PEAKCUT-LICENSE.txt).
+# ---------------------------------------------------------------------------
+
+clip_image = (
+    modal.Image.debian_slim(python_version="3.12")
+    .apt_install("ffmpeg", "fonts-dejavu-core")
+    .pip_install("sherpa-onnx", "yt-dlp", "numpy", "requests")
+    .add_local_file(str(Path(__file__).parent / "pricing.py"), "/platform/pricing.py")
+    .add_local_file(str(Path(__file__).parent / "clipping.py"), "/platform/clipping.py")
+    .add_local_dir(str(Path(__file__).parent / "clip_fonts"), "/platform/clip_fonts")
+)
+
+CLIP_STAGES = (
+    "Getting the video",
+    "Listening and transcribing",
+    "Picking the moments",
+    "Cutting your clips",
+)
+
+
+def _clip_usage(user: dict) -> dict:
+    period = _period()
+    u = user.get("usage") or {}
+    if u.get("period") != period:
+        u = {"period": period, "free_jobs": 0, "included_seconds": 0.0,
+             "included_cost_cents": 0.0}
+        user["usage"] = u
+    return u
+
+
+def _clip_release_hold(job: dict):
+    """Rule 8 for clip jobs: a failed job restores balance or budget
+    in full. Mirrors release_hold inside api() (the worker function
+    runs outside that closure)."""
+    if job.get("settled") or job.get("hold_released"):
+        return
+    hold = float(job.get("hold_amount") or 0)
+    if hold > 0:
+        owner = users.get(f"id:{job['user_id']}")
+        if owner:
+            if job.get("hold_kind") == "balance":
+                owner["balance_cents"] = int(owner.get("balance_cents", 0)) + int(hold)
+            elif job.get("hold_kind") == "included":
+                u = _clip_usage(owner)
+                u["included_cost_cents"] = max(
+                    0.0, float(u.get("included_cost_cents") or 0.0) - hold)
+                owner["usage"] = u
+            users[f"id:{owner['id']}"] = owner
+            users[f"email:{owner['email']}"] = owner
+    job["hold_released"] = True
+    jobs[job["id"]] = job
+
+
+def _clip_settle(job: dict):
+    """Settle a finished clip job at the exact quoted charge (the
+    source duration is probed before the hold, so there is no
+    estimate drift): included budget at the 0.9c per source minute
+    floor rate, or balance at 5c per source minute. The hold was the
+    exact charge, so settling only records the Rule 7 numbers and
+    the Amendment 2 settled cost (worst-case 0.3c per minute)."""
+    if job.get("settled") or job.get("hold_released"):
+        return
+    minutes = int(job.get("source_minutes") or 0)
+    owner = users.get(f"id:{job['user_id']}")
+    if owner:
+        owner["cost_settled_cents"] = (
+            float(owner.get("cost_settled_cents") or 0.0)
+            + minutes * pricing.CLIP_COST_CENTS_PER_MINUTE
+        )
+        users[f"id:{owner['id']}"] = owner
+        users[f"email:{owner['email']}"] = owner
+    job["charged_cents"] = (
+        int(job.get("hold_amount") or 0) if job.get("hold_kind") == "balance"
+        else 0
+    )
+    job["budget_cost_cents"] = (
+        round(float(job.get("hold_amount") or 0), 2)
+        if job.get("hold_kind") == "included" else 0.0
+    )
+    job["raw_cost_cents"] = round(
+        minutes * pricing.CLIP_COST_CENTS_PER_MINUTE, 2)
+    job["settled"] = True
+    jobs[job["id"]] = job
+
+
+@app.function(
+    image=clip_image,
+    volumes={"/data": data_volume},
+    cpu=2.0,
+    memory=2048,
+    timeout=300,
+    scaledown_window=60,
+)
+def clip_probe(url: str) -> dict:
+    """Link metadata (title, channel, duration) through the fetch
+    allowlist guard, for the quote step."""
+    return clipping.fetch_info(url)
+
+
+@app.function(
+    image=clip_image,
+    secrets=[modal.Secret.from_name("moonfactory-providers")],
+    volumes={"/data": data_volume},
+    cpu=4.0,
+    memory=8192,
+    timeout=3600,
+    scaledown_window=60,
+)
+def process_clip_job(job_id: str):
+    """Run one clip job end to end on CPU: fetch, transcribe, pick,
+    render. Clips land in the library as first-class jobs (lane
+    "clip") with their files already in place on the data Volume,
+    so the existing file, gallery and delete routes serve them."""
+    import secrets as _secrets
+
+    job = jobs.get(job_id)
+    if not job:
+        return
+    # A warm container's Volume view can predate the upload that
+    # created this job; reload before touching any file.
+    try:
+        data_volume.reload()
+    except Exception:
+        pass
+    files_dir = Path("/data/files")
+    files_dir.mkdir(parents=True, exist_ok=True)
+    work = Path("/data/clip-work") / job_id
+    work.mkdir(parents=True, exist_ok=True)
+
+    def set_stage(stage, status="running"):
+        job["stage"] = stage
+        job["status"] = status
+        jobs[job_id] = job
+
+    try:
+        set_stage(CLIP_STAGES[0])
+        if job.get("upload_path"):
+            src = Path(job["upload_path"])
+            if not src.exists():
+                raise RuntimeError("the uploaded file is missing")
+            title = job.get("source_title") or src.name
+            uploader = ""
+        else:
+            info = clipping.fetch_info(job["source_url"])
+            title = info.get("title") or ""
+            uploader = info.get("uploader") or ""
+            src = clipping.download_video(job["source_url"], work)
+        info = clipping.probe(src)
+        duration = float(info["duration"])
+        if duration > clipping.MAX_SOURCE_SECONDS:
+            raise RuntimeError("this video is longer than the 3 hour clipping limit")
+        job["duration_seconds"] = round(duration, 2)
+        job["source_title"] = title
+        jobs[job_id] = job
+
+        set_stage(CLIP_STAGES[1])
+        wav = work / "audio.wav"
+        clipping.extract_audio(src, wav)
+        db = clipping.loudness_per_second(wav)
+        words = []
+        try:
+            words = clipping.transcribe(wav, Path("/data/clip-models"))
+        except Exception as exc:  # transcription never blocks clipping
+            job["transcribe_error"] = str(exc)[:200]
+            jobs[job_id] = job
+
+        set_stage(CLIP_STAGES[2])
+        picks, pick_info = clipping.find_clips(
+            words, db, duration, title=title, uploader=uploader,
+            max_clips=int(job.get("clip_count") or 3),
+            length=job.get("length") or "medium",
+            api_key=os.environ.get("GEMINI_API_KEY", ""),
+        )
+        job["pick_mode"] = pick_info.get("mode")
+        job["pick_note"] = pick_info.get("note") or ""
+        jobs[job_id] = job
+        if not picks:
+            raise RuntimeError("no clips could be picked from this video")
+
+        set_stage(CLIP_STAGES[3])
+        clip_ids = []
+        for pick in picks:
+            child_id = _secrets.token_hex(8)
+            spec = dict(pick)
+            spec["style"] = job.get("caption_style") or "bounce"
+            spec["layout"] = job.get("layout") or "blur"
+            clipping.render_clip(
+                src, files_dir, child_id, spec, words,
+                int(info["width"]), int(info["height"]),
+                Path("/platform/clip_fonts"),
+            )
+            child = {
+                "id": child_id,
+                "user_id": job["user_id"],
+                "worker_job_id": None,
+                "provider": "clip",
+                "kind": "clip_output",
+                "clip_parent": job_id,
+                "lane": "clip",
+                "model": "clip",
+                "prompt": pick.get("hook") or pick.get("title") or "Clip",
+                "user_prompt": pick.get("hook") or pick.get("title") or "Clip",
+                "camera_presets": [],
+                "camera_preset_names": [],
+                "camera_look": {},
+                "status": "done",
+                "error": None,
+                "created_at": _now(),
+                "charged_cents": 0,
+                "hook": pick.get("hook") or "",
+                "title": pick.get("title") or "",
+                "score": pick.get("score"),
+                "duration_seconds": round(pick["end"] - pick["start"], 2),
+                "source_start": pick["start"],
+                "source_end": pick["end"],
+                "has_thumb": (files_dir / f"{child_id}.jpg").exists(),
+                "bytes": (files_dir / f"{child_id}.mp4").stat().st_size,
+                "plan_at_job": job.get("plan_at_job"),
+                "free_tier": False,
+                "music_prompt": None,
+            }
+            jobs[child_id] = child
+            clip_ids.append(child_id)
+        job["clip_ids"] = clip_ids
+        job["stage"] = "Done"
+        job["status"] = "done"
+        jobs[job_id] = job
+        _clip_settle(job)
+        data_volume.commit()
+    except Exception as exc:  # noqa: BLE001
+        job["status"] = "error"
+        job["error"] = "clipping failed, nothing was charged"
+        job["internal_error"] = str(exc)[:300]
+        jobs[job_id] = job
+        _clip_release_hold(job)
+        data_volume.commit()
+
 
 # ---------------------------------------------------------------------------
 # Config (BUSINESS-RULES.md, Rule 5 and friends). Env can override.
@@ -558,7 +805,7 @@ def _worker_headers() -> dict:
 @modal.asgi_app()
 def api():
     import requests
-    from fastapi import Cookie, FastAPI, Header, HTTPException, Request
+    from fastapi import Cookie, FastAPI, File, Header, HTTPException, Request, UploadFile
     from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 
     web = FastAPI(title="Moonfactory")
@@ -805,6 +1052,15 @@ def api():
                 "paused": state["paused"],
                 "rates_updated_at": state["rates_updated_at"],
             }
+        data["clipping"] = {
+            "included_cents_per_source_minute": pricing.CLIP_INCLUDED_CENTS_PER_MINUTE,
+            "balance_cents_per_source_minute": pricing.CLIP_BALANCE_CENTS_PER_MINUTE,
+            "cost_cents_per_source_minute": pricing.CLIP_COST_CENTS_PER_MINUTE,
+            "max_source_seconds": pricing.CLIP_MAX_SOURCE_SECONDS,
+            "max_upload_bytes": pricing.CLIP_MAX_UPLOAD_BYTES,
+            "max_clips_per_job": pricing.CLIP_MAX_CLIPS_PER_JOB,
+            "picking_mode": "ai" if os.environ.get("GEMINI_API_KEY") else "loudness",
+        }
         data["api_lanes"] = lanes
         data["models"] = [
             {"id": m["id"], "label": m["label"], "paid_only": m["paid_only"]}
@@ -1198,6 +1454,8 @@ def api():
         return job
 
     def mirror_status(job: dict) -> dict:
+        if job.get("provider") == "clip":
+            return job
         if job.get("provider") == "fal":
             return mirror_fal_status(job)
         if job.get("provider") == "beatapi":
@@ -1243,7 +1501,10 @@ def api():
         return {
             "id": job["id"],
             "lane": job["lane"],
-            "model": MODEL_LABELS.get(job.get("model") or DEFAULT_MODEL, "Wan 2.2"),
+            "model": (
+                "Clip" if job.get("kind") in ("clip_job", "clip_output")
+                else MODEL_LABELS.get(job.get("model") or DEFAULT_MODEL, "Wan 2.2")
+            ),
             "model_id": job.get("model") or DEFAULT_MODEL,
             "duration_seconds": job.get("duration_seconds"),
             "resolution": job.get("resolution"),
@@ -1258,6 +1519,14 @@ def api():
             "charged_cents": job.get("charged_cents", 0),
             "has_file": job["status"] == "done",
             "has_custom_audio": bool(job.get("music_prompt")),
+            "kind": job.get("kind") or "generation",
+            "stage": job.get("stage"),
+            "hook": job.get("hook"),
+            "score": job.get("score"),
+            "source_minutes": job.get("source_minutes"),
+            "clip_ids": job.get("clip_ids") or [],
+            "has_thumb": bool(job.get("has_thumb")),
+            "pick_mode": job.get("pick_mode"),
         }
 
     def _api_job_params(body: dict, model: str = "") -> dict:
@@ -1955,6 +2224,15 @@ def api():
         job_id = job["id"]
         FILES_DIR.mkdir(parents=True, exist_ok=True)
         out_path = FILES_DIR / f"{job_id}.mp4"
+        if job.get("provider") == "clip":
+            if not out_path.exists():
+                try:
+                    data_volume.reload()
+                except Exception:
+                    pass
+            if out_path.exists():
+                return out_path
+            raise HTTPException(status_code=404, detail="this job has no single file")
         if not out_path.exists():
             raw_path = FILES_DIR / f"{job_id}.raw.mp4"
             if not raw_path.exists():
@@ -2007,6 +2285,8 @@ def api():
         job = mirror_status(job)
         if job["status"] != "done":
             raise HTTPException(status_code=409, detail=f"job status is {job['status']}")
+        if job.get("kind") == "clip_job":
+            raise HTTPException(status_code=409, detail="this clip job made several clips, open one of them")
         out_path = ensure_processed(job)
         return FileResponse(out_path, media_type="video/mp4",
                             filename=f"moonfactory-{job_id}.mp4")
@@ -2027,6 +2307,257 @@ def api():
                 pass
         data_volume.commit()
         return {"status": "deleted"}
+
+
+    # -- clipping (CLIPPING-DESIGN.md sections 4, 6, 8) --------------------
+    # Clip jobs are platform jobs: same accounts, holds, ceilings,
+    # library and gallery rules as generation jobs. Free accounts are
+    # refused (no free clipping at launch). Creator subscribers debit
+    # the shared included budget at the 0.9c per source minute floor
+    # rate; everyone else pays 5c per source minute from balance. The
+    # exact charge is quoted before the job runs, from the probed
+    # duration rounded up to whole minutes.
+
+    def _clip_quote_for(user: dict, duration_seconds: float) -> dict:
+        q = pricing.clip_quote(duration_seconds)
+        remaining = included_budget_remaining(user)
+        if user["plan"] == "creator" and remaining >= q["included_debit_cents"]:
+            method = "included"
+        elif int(user.get("balance_cents", 0)) >= q["balance_charge_cents"]:
+            method = "balance"
+        else:
+            method = "insufficient"
+        return {
+            **q,
+            "duration_seconds": round(float(duration_seconds), 2),
+            "method": method,
+            "ceiling_ok": ceiling_allows(user, q["worst_case_cost_cents"]),
+            "included_budget_remaining_cents": round(remaining, 2),
+            "balance_cents": int(user.get("balance_cents", 0)),
+        }
+
+    @web.post("/api/clips/quote")
+    async def quote_clip(request: Request, mf_session: str = Cookie(default="")):
+        user = require_user(request, mf_session)
+        if not is_paid(user):
+            raise HTTPException(status_code=403, detail="clipping is a paid feature")
+        body = await request.json()
+        if body.get("url"):
+            try:
+                clipping.validate_fetch_url(body["url"])
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc))
+            try:
+                info = clip_probe.remote(body["url"])
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc))
+            except Exception:
+                raise HTTPException(status_code=502, detail="that link could not be read")
+            duration = float(info.get("duration") or 0)
+            if duration <= 0:
+                raise HTTPException(status_code=422, detail="that link has no readable duration")
+            if duration > pricing.CLIP_MAX_SOURCE_SECONDS:
+                raise HTTPException(status_code=422, detail="this video is longer than the 3 hour clipping limit")
+            return {**_clip_quote_for(user, duration),
+                    "title": info.get("title") or ""}
+        try:
+            duration = float(body.get("duration_seconds") or 0)
+        except (TypeError, ValueError):
+            duration = 0
+        if duration <= 0:
+            raise HTTPException(status_code=422, detail="duration_seconds or a link is required")
+        if duration > pricing.CLIP_MAX_SOURCE_SECONDS:
+            raise HTTPException(status_code=422, detail="this video is longer than the 3 hour clipping limit")
+        return _clip_quote_for(user, duration)
+
+    @web.post("/api/clips/upload")
+    async def upload_clip_source(request: Request, file: UploadFile = File(...),
+                                 mf_session: str = Cookie(default="")):
+        user = require_user(request, mf_session)
+        if not user["verified"]:
+            raise HTTPException(status_code=403, detail="verify your email before creating")
+        if not is_paid(user):
+            raise HTTPException(status_code=403, detail="clipping is a paid feature")
+        if _rate_limited("clipupload", user["id"], 6):
+            raise HTTPException(status_code=429, detail="too many uploads, slow down")
+        upload_id = pysecrets.token_hex(8)
+        src_dir = Path("/data/clip-sources")
+        src_dir.mkdir(parents=True, exist_ok=True)
+        suffix = Path(file.filename or "upload.mp4").suffix.lower()
+        if suffix not in (".mp4", ".mov", ".mkv", ".webm", ".m4v"):
+            suffix = ".mp4"
+        dest = src_dir / f"{upload_id}{suffix}"
+        size = 0
+        with dest.open("wb") as fh:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                size += len(chunk)
+                if size > pricing.CLIP_MAX_UPLOAD_BYTES:
+                    fh.close()
+                    dest.unlink(missing_ok=True)
+                    raise HTTPException(status_code=413, detail="file is larger than the 2 GiB upload limit")
+                fh.write(chunk)
+        data_volume.commit()
+        try:
+            info = clipping.probe(dest)
+        except Exception as exc:
+            dest.unlink(missing_ok=True)
+            raise HTTPException(status_code=422, detail=str(exc)[:200])
+        if float(info["duration"]) > pricing.CLIP_MAX_SOURCE_SECONDS:
+            dest.unlink(missing_ok=True)
+            raise HTTPException(status_code=422, detail="this video is longer than the 3 hour clipping limit")
+        meta[f"clipupload:{upload_id}"] = {
+            "user_id": user["id"], "path": str(dest),
+            "duration": float(info["duration"]),
+            "filename": (file.filename or "upload")[:120],
+            "created_at": _now(),
+        }
+        return {"upload_id": upload_id,
+                **_clip_quote_for(user, float(info["duration"]))}
+
+    @web.post("/api/clips")
+    async def create_clip(request: Request, mf_session: str = Cookie(default="")):
+        user = require_user(request, mf_session)
+        if _rate_limited("clipcreate", user["id"], 6):
+            raise HTTPException(status_code=429, detail="too many jobs, slow down")
+        if not user["verified"]:
+            raise HTTPException(status_code=403, detail="verify your email before creating")
+        if user.get("past_due"):
+            raise HTTPException(status_code=403, detail="your subscription payment is past due")
+        body = await request.json()
+        if not _verify_bot_check(body, client_ip(request)):
+            raise HTTPException(status_code=403, detail="bot check failed")
+        if not is_paid(user):
+            raise HTTPException(status_code=403, detail="clipping is a paid feature")
+        try:
+            clip_count = int(body.get("clip_count") or 3)
+        except (TypeError, ValueError):
+            clip_count = 3
+        if clip_count < 1 or clip_count > pricing.CLIP_MAX_CLIPS_PER_JOB:
+            raise HTTPException(
+                status_code=422,
+                detail=f"clip count must be between 1 and {pricing.CLIP_MAX_CLIPS_PER_JOB}")
+        length = body.get("length") or "medium"
+        if length not in clipping.LENGTH_RANGES:
+            raise HTTPException(status_code=422, detail="length must be short, medium or long")
+        caption_style = body.get("caption_style") or "bounce"
+        if caption_style not in clipping.STYLES:
+            raise HTTPException(
+                status_code=422,
+                detail="caption style must be one of: "
+                + ", ".join(clipping.STYLE_NAMES.values()))
+        layout = body.get("layout") or "blur"
+        if layout not in clipping.LAYOUTS:
+            raise HTTPException(
+                status_code=422,
+                detail="layout must be one of: "
+                + ", ".join(clipping.LAYOUTS.values()))
+        upload_path = None
+        source_url = None
+        source_title = ""
+        if body.get("upload_id"):
+            rec = meta.get(f"clipupload:{body['upload_id']}")
+            if not rec or rec.get("user_id") != user["id"]:
+                raise HTTPException(status_code=404, detail="unknown upload")
+            upload_path = rec["path"]
+            duration = float(rec["duration"])
+            source_title = rec.get("filename") or ""
+        elif body.get("url"):
+            try:
+                source_url = clipping.validate_fetch_url(body["url"])
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc))
+            try:
+                info = clip_probe.remote(source_url)
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc))
+            except Exception:
+                raise HTTPException(status_code=502, detail="that link could not be read")
+            duration = float(info.get("duration") or 0)
+            source_title = info.get("title") or ""
+            if duration <= 0:
+                raise HTTPException(status_code=422, detail="that link has no readable duration")
+        else:
+            raise HTTPException(status_code=422, detail="paste a link or upload a file")
+        if duration > pricing.CLIP_MAX_SOURCE_SECONDS:
+            raise HTTPException(status_code=422, detail="this video is longer than the 3 hour clipping limit")
+        q = pricing.clip_quote(duration)
+        if not ceiling_allows(user, q["worst_case_cost_cents"]):
+            raise HTTPException(
+                status_code=402,
+                detail="this job would exceed the total generation your payments cover")
+        # Hold the exact charge before dispatch (Rule 1). Included
+        # budget pays first for subscribers; balance is the other rail.
+        u = usage(user)
+        if user["plan"] == "creator" and included_budget_remaining(user) >= q["included_debit_cents"]:
+            hold_kind = "included"
+            hold_amount = q["included_debit_cents"]
+            u["included_cost_cents"] = included_cost_used(user) + hold_amount
+            user["usage"] = u
+        elif int(user.get("balance_cents", 0)) >= q["balance_charge_cents"]:
+            hold_kind = "balance"
+            hold_amount = q["balance_charge_cents"]
+            user["balance_cents"] = int(user.get("balance_cents", 0)) - int(hold_amount)
+        else:
+            raise HTTPException(
+                status_code=402,
+                detail=f"included budget used up; clipping this video costs {q['balance_charge_cents']} cents of prepaid balance")
+        save_user(user)
+        job = {
+            "id": pysecrets.token_hex(8),
+            "user_id": user["id"],
+            "worker_job_id": None,
+            "provider": "clip",
+            "kind": "clip_job",
+            "lane": "clip",
+            "model": "clip",
+            "prompt": source_title or source_url or "Uploaded video",
+            "user_prompt": source_title or source_url or "Uploaded video",
+            "camera_presets": [],
+            "camera_preset_names": [],
+            "camera_look": {},
+            "status": "queued",
+            "stage": CLIP_STAGES[0],
+            "error": None,
+            "created_at": _now(),
+            "charged_cents": 0,
+            "source_url": source_url,
+            "upload_path": upload_path,
+            "source_title": source_title,
+            "duration_seconds": round(duration, 2),
+            "source_minutes": q["source_minutes"],
+            "clip_count": clip_count,
+            "length": length,
+            "caption_style": caption_style,
+            "layout": layout,
+            "hold_kind": hold_kind,
+            "hold_amount": hold_amount,
+            "plan_at_job": user["plan"],
+            "free_tier": False,
+            "music_prompt": None,
+            "clip_ids": [],
+        }
+        jobs[job["id"]] = job
+        process_clip_job.spawn(job["id"])
+        return JSONResponse({**public_job(job), "quote": q}, status_code=202)
+
+    @web.get("/api/jobs/{job_id}/thumb")
+    def job_thumb(job_id: str, request: Request, mf_session: str = Cookie(default="")):
+        user = require_user(request, mf_session)
+        job = jobs.get(job_id)
+        if not job or job.get("user_id") != user["id"]:
+            raise HTTPException(status_code=404, detail="unknown job")
+        path = FILES_DIR / f"{job_id}.jpg"
+        if not path.exists():
+            try:
+                data_volume.reload()
+            except Exception:
+                pass
+        if not path.exists():
+            raise HTTPException(status_code=404, detail="no thumbnail")
+        return FileResponse(path, media_type="image/jpeg")
 
     # -- public gallery -----------------------------------------------------
     # Every finished clip is listed by default (Jack, 2026-11-16).
@@ -2053,7 +2584,10 @@ def api():
             "id": job["id"],
             "handle": display_handle(owner),
             "lane": job["lane"],
-            "model": MODEL_LABELS.get(job.get("model") or DEFAULT_MODEL, "Wan 2.2"),
+            "model": (
+                "Clip" if job.get("kind") in ("clip_job", "clip_output")
+                else MODEL_LABELS.get(job.get("model") or DEFAULT_MODEL, "Wan 2.2")
+            ),
             "prompt": (job.get("prompt") or "")[:200],
             "camera_presets": job.get("camera_preset_names") or [],
             "created_at": job["created_at"],
@@ -2724,6 +3258,10 @@ APP_HTML = (
 </div>
 
 <div id="studio" style="display:none">
+  <div style="margin-bottom:14px">
+    <button class="btn" id="tab-create">Create</button>
+    <button class="btn secondary" id="tab-clip">Clip</button>
+  </div>
   <div class="card">
     <h2 style="margin-top:0">Your account</h2>
     <p id="account"></p>
@@ -2749,6 +3287,7 @@ APP_HTML = (
     and hiding your clips from the gallery.</p>
   </div>
 
+  <div id="create-pane">
   <div class="card">
     <h2 style="margin-top:0">New video</h2>
     <label>Model</label>
@@ -2804,6 +3343,53 @@ APP_HTML = (
     <p id="job-msg"></p>
   </div>
 
+  </div>
+  </div>
+
+  <div id="clip-pane" style="display:none">
+  <div class="card">
+    <h2 style="margin-top:0">Turn one long video into clips that are ready to post.</h2>
+    <p class="muted">Paste a YouTube, Twitch or Kick link, or upload a file. You get vertical clips with captions and a hook on each one.</p>
+    <label>Video link</label>
+    <input id="clip-url" type="url" placeholder="https://www.youtube.com/watch?v=...">
+    <label>Or upload a video file</label>
+    <input id="clip-file" type="file" accept="video/*">
+    <label>How many clips</label>
+    <select id="clip-count">
+      <option value="1">1</option>
+      <option value="2">2</option>
+      <option value="3" selected>3</option>
+      <option value="4">4</option>
+      <option value="5">5</option>
+      <option value="6">6</option>
+    </select>
+    <label>Clip length</label>
+    <select id="clip-length">
+      <option value="short">Short</option>
+      <option value="medium" selected>Medium</option>
+      <option value="long">Long</option>
+    </select>
+    <label>Caption style</label>
+    <select id="clip-style">
+      <option value="bounce">Bounce</option>
+      <option value="hype">Hype</option>
+      <option value="clean">Clean</option>
+    </select>
+    <label>Layout</label>
+    <select id="clip-layout">
+      <option value="blur">Fill with blur</option>
+      <option value="zoom">Zoom</option>
+      <option value="crop">Crop</option>
+    </select>
+    <p id="clip-charge" class="muted"></p>
+    <div id="botcheck3"></div>
+    <button class="btn" id="make-clips">Make clips</button>
+    <p id="clip-msg"></p>
+    <p class="muted">Clip only content you own or have permission to use. Clipping is a paid feature: Creator plans use included clipping minutes, or pay 5 cents per source minute from your balance.</p>
+  </div>
+  <div id="clip-results"><p class="muted">No clips yet. Paste a link above and your clips will show up here.</p></div>
+  </div>
+
   <h2>Your videos</h2>
   <div id="jobs"><p class="muted">Loading...</p></div>
 </div>
@@ -2841,6 +3427,7 @@ function renderBotChecks() {
   if (cfg.turnstile_site_key && window.turnstile) {
     turnstile.render('#botcheck', { sitekey: cfg.turnstile_site_key });
     turnstile.render('#botcheck2', { sitekey: cfg.turnstile_site_key });
+    if (document.getElementById('botcheck3')) turnstile.render('#botcheck3', { sitekey: cfg.turnstile_site_key });
   }
 }
 async function api(path, opts) {
@@ -3119,10 +3706,15 @@ async function loadJobs() {
     let active = false;
     for (const j of r.jobs) {
       const div = document.createElement('div'); div.className = 'card';
-      const title = (j.model || 'Wan 2.2') + (j.model_id === 'wan2.2' ? ' · ' + j.lane : '');
+      const isClipOut = j.kind === 'clip_output';
+      const isClipJob = j.kind === 'clip_job';
+      const title = isClipOut ? (j.hook || 'Clip') : ((j.model || 'Wan 2.2') + (j.model_id === 'wan2.2' ? ' · ' + j.lane : ''));
       const spec = j.duration_seconds ? ' · ' + j.duration_seconds + 's' + (j.resolution ? ' · ' + j.resolution : '') : '';
       let html = '<strong>' + title + '</strong>' + spec + ' · ' + j.status + '<br><span class="muted">' +
         j.prompt.slice(0, 120) + '</span>';
+      if (isClipOut && j.score !== null && j.score !== undefined) html += '<br><span class="muted">Score: ' + j.score + '</span>';
+      if (isClipOut && j.has_thumb) html += '<br><img src="/api/jobs/' + j.id + '/thumb" style="width:120px;border-radius:8px" alt="">';
+      if (isClipJob && j.stage && (j.status === 'queued' || j.status === 'running')) html += '<br><span class="muted">' + j.stage + '</span>';
       if (j.camera_presets && j.camera_presets.length) html +=
         '<br><span class="muted">Camera: ' + j.camera_presets.join(' \\u2192 ') + '</span>';
       if (j.status === 'done') html += '<br><video controls src="/api/jobs/' + j.id + '/file"></video>' +
@@ -3134,7 +3726,33 @@ async function loadJobs() {
       div.innerHTML = html; box.appendChild(div);
     }
     if (active) setTimeout(loadJobs, 10000);
+    renderClipResults(r.jobs);
   } catch (e) { /* signed out */ }
+}
+function renderClipResults(jobs) {
+  const box = document.getElementById('clip-results');
+  if (!box) return;
+  const clips = jobs.filter(j => j.kind === 'clip_output');
+  const parents = jobs.filter(j => j.kind === 'clip_job' && (j.status === 'queued' || j.status === 'running'));
+  if (!clips.length && !parents.length) {
+    box.innerHTML = '<p class="muted">No clips yet. Paste a link above and your clips will show up here.</p>';
+    return;
+  }
+  box.innerHTML = '';
+  for (const j of parents) {
+    const d = document.createElement('div'); d.className = 'card';
+    d.innerHTML = '<strong>Clipping</strong> · ' + (j.stage || j.status);
+    box.appendChild(d);
+  }
+  for (const j of clips) {
+    const d = document.createElement('div'); d.className = 'card';
+    let h = '<strong>' + (j.hook || 'Clip') + '</strong> · ' + (j.duration_seconds || '') + 's';
+    if (j.score !== null && j.score !== undefined) h += ' · Score: ' + j.score;
+    if (j.has_thumb) h += '<br><img src="/api/jobs/' + j.id + '/thumb" style="width:140px;border-radius:8px" alt="">';
+    h += '<br><video controls src="/api/jobs/' + j.id + '/file"></video>' +
+      '<br><a href="/api/jobs/' + j.id + '/file" download>Download</a>';
+    d.innerHTML = h; box.appendChild(d);
+  }
 }
 $('jobs').addEventListener('click', async e => {
   const b = e.target.closest('[data-del]');
@@ -3143,6 +3761,69 @@ $('jobs').addEventListener('click', async e => {
   try { await api('/api/jobs/' + b.dataset.del, { method: 'DELETE' }); loadJobs(); }
   catch (err) { alert(err.message); }
 });
+
+// ---- Clip tab ----
+let clipUploadId = null;
+let clipQuote = null;
+function showTab(which) {
+  $('create-pane').style.display = which === 'create' ? 'block' : 'none';
+  $('clip-pane').style.display = which === 'clip' ? 'block' : 'none';
+  $('tab-create').className = which === 'create' ? 'btn' : 'btn secondary';
+  $('tab-clip').className = which === 'clip' ? 'btn' : 'btn secondary';
+}
+$('tab-create').onclick = () => showTab('create');
+$('tab-clip').onclick = () => showTab('clip');
+function clipChargeLine(q) {
+  if (!q) { $('clip-charge').textContent = ''; return; }
+  clipQuote = q;
+  const m = q.source_minutes;
+  if (q.method === 'included') {
+    $('clip-charge').textContent = 'This video is ' + m + ' minutes. It uses ' + m + ' of your included clipping minutes.';
+  } else {
+    $('clip-charge').textContent = 'This video is ' + m + ' minutes. Clipping costs $' + (q.balance_charge_cents / 100).toFixed(2) + ' from your balance.';
+  }
+}
+$('clip-url').addEventListener('change', async () => {
+  const url = $('clip-url').value.trim();
+  if (!url) return;
+  clipUploadId = null;
+  try {
+    msg('clip-msg', 'Reading that link...');
+    const q = await api('/api/clips/quote', { method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ url }) });
+    clipChargeLine(q);
+    msg('clip-msg', q.title ? 'Found: ' + q.title : '', '');
+  } catch (e) { msg('clip-msg', e.message, 'err'); $('clip-charge').textContent = ''; }
+});
+$('clip-file').addEventListener('change', async () => {
+  const f = $('clip-file').files[0];
+  if (!f) return;
+  try {
+    msg('clip-msg', 'Uploading your file...');
+    const fd = new FormData(); fd.append('file', f);
+    const r = await fetch('/api/clips/upload', { method: 'POST', body: fd });
+    const q = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(q.detail || ('HTTP ' + r.status));
+    clipUploadId = q.upload_id;
+    clipChargeLine(q);
+    msg('clip-msg', 'File ready.', 'ok');
+  } catch (e) { msg('clip-msg', e.message, 'err'); }
+});
+$('make-clips').onclick = async () => {
+  try {
+    msg('clip-msg', 'Working on the bot check...');
+    const bot = await botFields('botcheck3');
+    const payload = { clip_count: Number($('clip-count').value), length: $('clip-length').value,
+      caption_style: $('clip-style').value, layout: $('clip-layout').value, ...bot };
+    if (clipUploadId) payload.upload_id = clipUploadId;
+    else if ($('clip-url').value.trim()) payload.url = $('clip-url').value.trim();
+    else { msg('clip-msg', 'Paste a link or upload a file first.', 'err'); return; }
+    const r = await api('/api/clips', { method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload) });
+    msg('clip-msg', 'Clipping started. Stages: Getting the video, Listening and transcribing, Picking the moments, Cutting your clips.', 'ok');
+    loadJobs();
+  } catch (e) { msg('clip-msg', e.message, 'err'); }
+};
 fetch('/api/config').then(r => r.json()).then(c => { cfg = c; renderBotChecks(); });
 loadPresets();
 if (new URLSearchParams(location.search).get('verified')) {

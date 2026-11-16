@@ -368,3 +368,56 @@ Wan 3.0, Veo 3.1 Fast, and Kling 3.0 each returned the clean
 released; Seedance refused 503 before dispatch (lane paused,
 no key yet). Balances, included budget, and settled cost were
 untouched after every submission.
+
+## Update, 2026-11-16 (run 15): Clip tab v1
+
+The studio now has two tabs at the top, Create and Clip. Clip mode
+turns one long video into vertical clips that are ready to post:
+paste a YouTube, Twitch or Kick link, or upload a file, pick how
+many clips (up to 6), a length (short, medium, long), a caption
+style (Bounce, Hype, Clean) and a layout (Fill with blur, Zoom,
+Crop), and press Make clips. The pipeline is ported from PeakCut
+(MIT, pinned commit b3e403e; see THIRD-PARTY-NOTICES.md): fetch
+with the same allowlist guard (playlists and channels refused),
+Parakeet transcription on CPU with word timestamps, moment
+picking, and rendering at 1080x1920 with word by word captions and
+a hook on each clip. It runs in a CPU only function in this app
+(4 cores, 8 GiB); the speech model is cached on the data Volume.
+PeakCut's update checker, server and accounts were not ported.
+
+Limits, set explicitly for v1: longest source 3 hours, largest
+upload 2 GiB, up to 6 clips per job.
+
+Pricing (CLIPPING-DESIGN.md section 6): source minutes are the
+probed duration rounded up to whole minutes. Creator subscribers
+debit the shared included budget at 0.9 cents per source minute
+(marketed as up to 300 clipping minutes a month). Balance users
+pay 5 cents per source minute. Free accounts cannot clip. The
+exact charge shows before the job runs, the hard cost ceiling
+checks the worst case cost (0.3 cents per source minute) before
+dispatch, and a failed clip job restores the balance or budget in
+full. Finished clips land in the library and list in the gallery
+under the same rules as generated clips.
+
+Moment picking today runs in the loudness fallback mode: the
+picking code path reads GEMINI_API_KEY from the
+moonfactory-providers secret, and no such key is stored yet, so
+picks are the loudest speech stretches with placeholder hooks.
+Adding that one key turns on the smarter picking with no deploy.
+
+Verification, 2026-11-16, against the public URL
+(scratch/verify_clipping.py, in-Modal harness): free account
+refused 403 on clip quote, upload and create. Playlist, channel,
+non-allowlist and other-site links refused 422. A Creator upload
+job on the 180 second public domain test excerpt (probed 180.01 s,
+so 4 source minutes) ran end to end: 2 clips in the library at
+1080x1920 h264 with AAC, thumbnails present, the hook pill visible
+in a frame grab, the included budget debited exactly 3.6 cents
+(0.9 x 4) and settled cost 1.2 cents (0.3 x 4); the clip lists in
+the gallery. A balance account was charged exactly 20 cents
+(5 x 4) for the same source; a deliberately failed job restored
+its balance in full; a job that would breach the cost ceiling was
+refused 402 before dispatch with nothing charged. Link jobs were
+verified through the guard and quote path only; the end to end
+proof used the upload path, and one guessed public video id
+turned out unavailable, so no live link download is claimed.

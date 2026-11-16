@@ -318,6 +318,14 @@ def public_pricing() -> dict:
         "segment_seconds": SEGMENT_SECONDS,
         "lanes_paused": {lane: lane_paused(lane) for lane in MEASURED_COST_CENTS},
         "included_budget_cents": round(included_budget_cents(), 2),
+        "clipping": {
+            "included_cents_per_source_minute": CLIP_INCLUDED_CENTS_PER_MINUTE,
+            "balance_cents_per_source_minute": CLIP_BALANCE_CENTS_PER_MINUTE,
+            "cost_cents_per_source_minute": CLIP_COST_CENTS_PER_MINUTE,
+            "max_source_seconds": CLIP_MAX_SOURCE_SECONDS,
+            "max_upload_bytes": CLIP_MAX_UPLOAD_BYTES,
+            "max_clips_per_job": CLIP_MAX_CLIPS_PER_JOB,
+        },
         "per_second_rates_cents": PROVIDER_RATES_CENTS_PER_SECOND,
         "post_cost_cents_per_second": POST_COST_CENTS_PER_SECOND,
         "frontier_min_markup": FRONTIER_MIN_MARKUP,
@@ -328,4 +336,50 @@ def public_pricing() -> dict:
             }
             for model in HIGGSFIELD_EFFECTIVE_CENTS_PER_CLIP
         },
+    }
+
+
+# ---------------------------------------------------------------------------
+# Clipping (CLIPPING-DESIGN.md section 6). Cost measured in the design's
+# smoke test and production estimate: worst case 0.3 cents per source
+# minute all in (CPU compute about 0.20, hosted picking about 0.02,
+# storage and egress about 0.02, retries absorbed). The Rule 2 floor at
+# the 3x multiplier is therefore 0.9 cents per source minute, which is
+# exactly the rate the Creator plan's shared included budget is debited
+# at (marketed as up to 300 clipping minutes a month). Balance users pay
+# 5 cents per source minute, about half of the main competitor's
+# effective 9.7 cents and about 16x worst-case cost. Free accounts get
+# no clipping at launch. Source minutes are the probed duration rounded
+# up to whole minutes. Amendment 2's hard ceiling applies with the
+# worst-case cost figure below.
+# ---------------------------------------------------------------------------
+
+CLIP_COST_CENTS_PER_MINUTE = 0.3
+CLIP_INCLUDED_CENTS_PER_MINUTE = 0.9
+CLIP_BALANCE_CENTS_PER_MINUTE = 5.0
+CLIP_MAX_SOURCE_SECONDS = 3 * 3600
+CLIP_MAX_UPLOAD_BYTES = 2 * 1024 ** 3
+CLIP_MAX_CLIPS_PER_JOB = 6
+
+
+def clip_source_minutes(duration_seconds: float) -> int:
+    """Source minutes billed for a clip job: probed duration rounded
+    up to whole minutes, at least one."""
+    import math
+
+    return max(1, math.ceil(float(duration_seconds) / 60.0))
+
+
+def clip_quote(duration_seconds: float) -> dict:
+    import math
+
+    minutes = clip_source_minutes(duration_seconds)
+    return {
+        "source_minutes": minutes,
+        "included_debit_cents": round(minutes * CLIP_INCLUDED_CENTS_PER_MINUTE, 2),
+        "balance_charge_cents": int(math.ceil(minutes * CLIP_BALANCE_CENTS_PER_MINUTE)),
+        "worst_case_cost_cents": round(minutes * CLIP_COST_CENTS_PER_MINUTE, 2),
+        "max_source_seconds": CLIP_MAX_SOURCE_SECONDS,
+        "max_upload_bytes": CLIP_MAX_UPLOAD_BYTES,
+        "max_clips_per_job": CLIP_MAX_CLIPS_PER_JOB,
     }
