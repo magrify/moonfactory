@@ -226,3 +226,54 @@ came back refused for the zero balance: the user-visible result
 was the 503 unavailable sentence, the job record shows the error
 with the hold released, and the account's balance, budget, and
 settled cost were all unchanged afterwards.
+
+## Update, 2026-11-16 (later still): camera presets in the studio
+
+The camera-preset library (workflows/camera-presets/, ported from
+Freefield's Cinema Studio) is wired into the studio form. The
+picker is rendered from the library data, never hand-built:
+GET /api/camera-presets serves presets-index.json (42 presets,
+the look vocabulary, max 3 chained moves), and the form builds
+its chips and look selects from that response.
+
+Behavior: a user chains up to three camera moves in pick order
+(numbered chips, with a "Camera: A -> B" line under them) and can
+add film-look picks (tempo, genre, era, camera body, lens, focal
+length, aperture, lighting, palette) as optional selects. Nothing
+is defaulted in: with no camera selection, the prompt that runs
+is exactly the one the user wrote. At job creation the server
+composes the final prompt in the library's grammar (preset recipe
+text + user prompt, look sentence folded in), stores BOTH the
+original prompt and the applied preset names on the job record,
+and the studio job list and the public gallery show the preset
+names ("Camera: Dolly in"). Regenerating a job recomposes from
+the stored original, so the identical prompt runs again.
+
+Presets work on both Wan 2.2 lanes and the composed prompt passes
+through unchanged to the Wan 3.0 lanes. Presets are not a paid
+feature: free accounts use them on Draft; model switching stays
+the paid gate. The nine Fun Camera presets (true camera
+conditioning, waiting on the Fun Camera model download) appear
+in the picker disabled with a plain "coming soon" label, and the
+server refuses them with a 422 if asked directly; invalid
+selections (unknown preset, a fourth move, an unknown look
+value) are also clean 422s before anything is dispatched. The
+keyframe recipes carried by 13 of the prompt presets are not
+wired (the dispatcher does not expose the firstlast lane yet);
+those presets still run today on their prompt text.
+
+Verification, 2026-11-16, against the public URL
+(scratch/verify_camera_presets.py, in-Modal harness): the picker
+endpoint serves 42 presets (33 available, 9 coming soon) and all
+nine look slots. Free account: the four invalid selections each
+returned 422; a Draft job with Dolly in plus a Classic
+Anamorphic lens pick stored the preset id, the look, and the
+original prompt, with the composed prompt on the record. Paid
+account: a Production job with Dolly in chained into Pan left
+stored both names in order and the ", then " composition. One
+live Production render (Dolly in, the balloon benchmark scene)
+finished done; the worker's own job record holds the composed
+prompt byte for byte, the delivered file is 720x1280 h264 with
+AAC audio, and the gallery item for the clip shows
+"Camera: Dolly in". GPU spend for the whole verification was
+the one distilled production render, about $0.12.

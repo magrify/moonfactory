@@ -19,6 +19,14 @@ Finished clips list in a public gallery by default (handles only,
 never emails; Creator users can opt out; reports and an admin
 removal path keep it moderated).
 
+The studio's camera layer comes from the preset library
+(workflows/camera-presets/presets-index.json, shipped in the image
+as data): users chain up to three camera moves and pick from a
+film-look vocabulary; at job creation the platform composes the
+final prompt from the preset recipes and the user's prompt, and
+the job record keeps both, plus the preset names the gallery and
+studio display.
+
 State: Modal Dicts (users, jobs, meta, outbox). Finished files are
 cached on the moonfactory-data Volume.
 """
@@ -56,6 +64,13 @@ image = (
     .apt_install("ffmpeg", "fonts-dejavu-core")
     .pip_install("fastapi[standard]", "requests", "stripe")
     .add_local_file(str(Path(__file__).parent / "pricing.py"), "/platform/pricing.py")
+    .add_local_file(
+        str(
+            Path(__file__).parent.parent
+            / "workflows" / "camera-presets" / "presets-index.json"
+        ),
+        "/platform/presets-index.json",
+    )
 )
 
 # ---------------------------------------------------------------------------
@@ -117,6 +132,152 @@ FAL_ENDPOINTS = {
 # provider errors, billing failures, and pauses all surface as this,
 # never as a raw provider response.
 MODEL_UNAVAILABLE = "this model is temporarily unavailable"
+
+# ---------------------------------------------------------------------------
+# Camera presets (workflows/camera-presets/, ported from Freefield's
+# Cinema Studio, MIT; see that folder's INDEX.md). The library is
+# data: the studio picker is rendered from presets-index.json, never
+# hand-built per preset. At job creation the platform composes the
+# final prompt as preset recipe text + the user's prompt, in the
+# library's composition grammar, and stores both the original prompt
+# and the applied preset names on the job record.
+#
+# Availability: the prompt-recipe presets (mechanism "prompt") run
+# today on the Wan 2.2 lanes, and the same composed prompt passes
+# through to the per-second lanes. The Fun Camera presets
+# (mechanism "workflow_patch", status "needs_model") wait on a model
+# download: the picker shows them as coming soon and the server
+# refuses them, never silently drops them. Presets are not a paid
+# feature; free accounts may use them on their Draft lane.
+# ---------------------------------------------------------------------------
+
+
+def _load_camera_library() -> dict:
+    for cand in (
+        Path("/platform/presets-index.json"),
+        Path(__file__).parent.parent
+        / "workflows" / "camera-presets" / "presets-index.json",
+    ):
+        try:
+            data = json.loads(cand.read_text())
+            if isinstance(data, dict) and data.get("presets"):
+                return data
+        except Exception:
+            continue
+    return {"presets": [], "looks": {}, "composition": {}}
+
+
+CAMERA_LIBRARY = _load_camera_library()
+CAMERA_PRESETS = {p["id"]: p for p in CAMERA_LIBRARY.get("presets") or []}
+CAMERA_LOOKS = CAMERA_LIBRARY.get("looks") or {}
+CAMERA_MAX_MOVES = int(
+    ((CAMERA_LIBRARY.get("composition") or {}).get("moves_join") or {}).get("max")
+    or 3
+)
+LOOK_SLOTS = (
+    "tempo", "genre", "era", "camera_body", "lens", "focal",
+    "aperture", "lighting", "palette",
+)
+
+
+def camera_preset_available(preset: dict) -> bool:
+    """Selectable today: a prompt recipe that does not wait on a
+    model. Everything else shows in the picker as coming soon."""
+    return (
+        preset.get("mechanism") == "prompt"
+        and preset.get("status") != "needs_model"
+    )
+
+
+def validate_camera_selection(body: dict):
+    """Validate a job body's camera_presets / camera_look fields.
+
+    Returns (preset_ids, look) with duplicates removed and order
+    preserved. Raises ValueError with a user-facing message; job
+    creation turns that into a 422 before anything is dispatched.
+    """
+    raw = body.get("camera_presets") or []
+    if not isinstance(raw, list):
+        raise ValueError("camera_presets must be a list of preset ids")
+    ids = []
+    for pid in raw:
+        if not isinstance(pid, str) or pid not in CAMERA_PRESETS:
+            raise ValueError(f"unknown camera preset: {pid}")
+        if not camera_preset_available(CAMERA_PRESETS[pid]):
+            raise ValueError(
+                f"the {CAMERA_PRESETS[pid]['name']} camera preset is coming soon"
+            )
+        if pid not in ids:
+            ids.append(pid)
+    if len(ids) > CAMERA_MAX_MOVES:
+        raise ValueError(
+            f"at most {CAMERA_MAX_MOVES} camera moves can be chained"
+        )
+    look_in = body.get("camera_look") or {}
+    if not isinstance(look_in, dict):
+        raise ValueError("camera_look must be an object of look choices")
+    look = {}
+    for slot, value in look_in.items():
+        if slot not in LOOK_SLOTS or slot not in CAMERA_LOOKS:
+            raise ValueError(f"unknown look setting: {slot}")
+        if value is None or value == "":
+            continue
+        if value not in (CAMERA_LOOKS.get(slot) or {}):
+            raise ValueError(f"unknown {slot} look: {value}")
+        look[slot] = value
+    return ids, look
+
+
+def compose_camera_prompt(scene: str, preset_ids, look: dict) -> str:
+    """Compose the final prompt in the library's grammar:
+
+        {moves}{scene}.{tempo} The look of a film{genre}{era}:
+        {camera_body}; {lens}; {focal}; {aperture}.
+        Lighting: {lighting}. Color: {palette}.
+
+    Every part is optional and contributes nothing when empty. Look
+    choices are pills the user actively picked: unlike Freefield's
+    studio, nothing is defaulted in silently, so a job with no
+    camera selection keeps exactly the prompt the user wrote.
+    """
+    look = look or {}
+
+    def phrase(slot: str) -> str:
+        value = look.get(slot)
+        if not value:
+            return ""
+        return (CAMERA_LOOKS.get(slot) or {}).get(value) or ""
+
+    sentences = []
+    fragments = []
+    for pid in preset_ids or []:
+        frag = ((CAMERA_PRESETS.get(pid) or {}).get("prompt") or {}).get("fragment")
+        if frag:
+            fragments.append(frag)
+    if fragments:
+        sentences.append("The camera " + ", then ".join(fragments) + ".")
+    scene_clean = (scene or "").strip().rstrip(".").strip()
+    scene_sentence = scene_clean + "."
+    tempo = phrase("tempo")
+    if tempo:
+        scene_sentence += tempo
+    sentences.append(scene_sentence)
+    body_bits = [
+        b for b in (
+            phrase("camera_body"), phrase("lens"),
+            phrase("focal"), phrase("aperture"),
+        ) if b
+    ]
+    if phrase("genre") or phrase("era") or body_bits:
+        head = "The look of a film" + phrase("genre") + phrase("era")
+        if body_bits:
+            head += ": " + "; ".join(body_bits)
+        sentences.append(head + ".")
+    if phrase("lighting"):
+        sentences.append("Lighting: " + phrase("lighting") + ".")
+    if phrase("palette"):
+        sentences.append("Color: " + phrase("palette") + ".")
+    return " ".join(sentences).strip()
 
 
 def _now() -> float:
@@ -537,6 +698,34 @@ def api():
         data["default_model"] = DEFAULT_MODEL
         return data
 
+    @web.get("/api/camera-presets")
+    def camera_presets():
+        """The studio's camera picker, rendered from the preset
+        library data (workflows/camera-presets/presets-index.json).
+        Unavailable presets are listed with available=false and a
+        plain coming-soon note: shown, never silently dropped."""
+        return {
+            "max_moves": CAMERA_MAX_MOVES,
+            "presets": [
+                {
+                    "id": p["id"],
+                    "name": p["name"],
+                    "description": p.get("description") or "",
+                    "group": p.get("group") or "",
+                    "mechanism": p.get("mechanism"),
+                    "available": camera_preset_available(p),
+                    "unavailable_note": (
+                        None if camera_preset_available(p) else "coming soon"
+                    ),
+                }
+                for p in CAMERA_LIBRARY.get("presets") or []
+            ],
+            "looks": {
+                slot: list((CAMERA_LOOKS.get(slot) or {}).keys())
+                for slot in LOOK_SLOTS
+            },
+        }
+
     @web.get("/api/challenge")
     def challenge(request: Request):
         if _rate_limited("challenge", client_ip(request), 30):
@@ -866,6 +1055,10 @@ def api():
             "duration_seconds": job.get("duration_seconds"),
             "resolution": job.get("resolution"),
             "prompt": job["prompt"],
+            "user_prompt": job.get("user_prompt") or job["prompt"],
+            "camera_presets": job.get("camera_preset_names") or [],
+            "camera_preset_ids": job.get("camera_presets") or [],
+            "camera_look": job.get("camera_look") or {},
             "status": job["status"],
             "error": job.get("error"),
             "created_at": job["created_at"],
@@ -988,7 +1181,7 @@ def api():
         }
 
     def create_api_job(user: dict, body: dict, model: str, base: str,
-                       prompt: str, music_prompt: str):
+                       prompt: str, music_prompt: str, camera: dict = None):
         """Quote -> hold -> submit, per design s.3. Any failure at or
         before submission leaves an error job with the clean public
         message and the hold fully released: no charge, nothing
@@ -1034,6 +1227,10 @@ def api():
             "lane": model,
             "model": model,
             "prompt": prompt,
+            "user_prompt": (camera or {}).get("user_prompt", prompt),
+            "camera_presets": (camera or {}).get("camera_presets") or [],
+            "camera_preset_names": (camera or {}).get("camera_preset_names") or [],
+            "camera_look": (camera or {}).get("camera_look") or {},
             "status": "queued",
             "error": None,
             "bytes": None,
@@ -1140,6 +1337,24 @@ def api():
             raise HTTPException(
                 status_code=403, detail="custom audio is a Creator plan feature"
             )
+        # Camera presets (available to every plan; model switching
+        # stays the paid gate, presets are not one). The final
+        # prompt sent to any lane is the composed one; the record
+        # keeps the user's original prompt and the preset names.
+        try:
+            camera_ids, camera_look = validate_camera_selection(body)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        camera = {
+            "user_prompt": prompt,
+            "camera_presets": camera_ids,
+            "camera_preset_names": [
+                CAMERA_PRESETS[pid]["name"] for pid in camera_ids
+            ],
+            "camera_look": camera_look,
+        }
+        if camera_ids or camera_look:
+            prompt = compose_camera_prompt(prompt, camera_ids, camera_look)
         if model in PER_SECOND_MODELS:
             # Model switching is paid-only, enforced here on the
             # server before any quote, hold, or dispatch.
@@ -1148,7 +1363,8 @@ def api():
                     status_code=403, detail="model switching is a Creator plan feature"
                 )
             return create_api_job(
-                user, body, model, base_url(request), prompt, music_prompt
+                user, body, model, base_url(request), prompt, music_prompt,
+                camera=camera,
             )
         u = usage(user)
         charged = 0
@@ -1237,6 +1453,10 @@ def api():
             "lane": lane,
             "model": DEFAULT_MODEL,
             "prompt": prompt,
+            "user_prompt": camera["user_prompt"],
+            "camera_presets": camera["camera_presets"],
+            "camera_preset_names": camera["camera_preset_names"],
+            "camera_look": camera["camera_look"],
             "status": "queued",
             "error": None,
             "bytes": None,
@@ -1284,7 +1504,13 @@ def api():
         body = await request.json()
         new_body = {
             "lane": parent["lane"],
-            "prompt": parent["prompt"],
+            # Recompose from the original prompt and the stored
+            # camera selection, so a regenerate runs the identical
+            # final prompt instead of composing a second time on top
+            # of the already-composed one.
+            "prompt": parent.get("user_prompt") or parent["prompt"],
+            "camera_presets": parent.get("camera_presets") or [],
+            "camera_look": parent.get("camera_look") or {},
             "music_prompt": parent.get("music_prompt"),
             "model": parent.get("model") or DEFAULT_MODEL,
             "duration_seconds": parent.get("duration_seconds"),
@@ -1440,6 +1666,7 @@ def api():
             "lane": job["lane"],
             "model": MODEL_LABELS.get(job.get("model") or DEFAULT_MODEL, "Wan 2.2"),
             "prompt": (job.get("prompt") or "")[:200],
+            "camera_presets": job.get("camera_preset_names") or [],
             "created_at": job["created_at"],
             "file_url": f"/gallery/{job['id']}/file",
         }
@@ -1898,6 +2125,13 @@ _CSS = """
   .muted { color: #555; font-size: 14px; } .err { color: #b00020; } .ok { color: #0a6a2a; }
   video { width: 100%; max-width: 360px; border-radius: 8px; background: #000; }
   table { border-collapse: collapse; } td, th { border: 1px solid #ddd; padding: 8px 10px; text-align: left; }
+  .chip { display: inline-block; border: 1px solid #bbb; background: #fff; color: #1a1a1a;
+    border-radius: 999px; padding: 5px 12px; cursor: pointer; font-size: 13px; margin: 0 6px 6px 0; width: auto; }
+  .chip.on { background: #6a1fd0; color: #fff; border-color: #6a1fd0; }
+  .chip:disabled { opacity: .45; cursor: default; }
+  #looks { display: flex; flex-wrap: wrap; gap: 8px 14px; margin-bottom: 12px; }
+  #looks label { font-weight: 400; font-size: 13px; }
+  #looks select { width: auto; margin: 2px 0 0; display: block; }
 </style>
 """
 
@@ -2079,6 +2313,11 @@ APP_HTML = (
     </div>
     <label>Prompt</label>
     <textarea id="prompt" rows="3" placeholder="a red hot air balloon rising over green hills, gentle forward camera movement, bright daylight"></textarea>
+    <label>Camera moves (optional, up to 3, applied in the order you pick them)</label>
+    <div id="presets"><p class="muted">Loading camera presets...</p></div>
+    <p class="muted" id="preset-chain"></p>
+    <label>Film look (optional)</label>
+    <div id="looks"></div>
     <label>Music prompt (optional)</label>
     <textarea id="music" rows="2" maxlength="300" placeholder="lo-fi piano with soft rain, slow and dreamy"></textarea>
     <p class="muted" id="music-note"></p>
@@ -2142,6 +2381,91 @@ $('startimg').addEventListener('change', e => {
   reader.onload = () => { startImageB64 = String(reader.result).split(',')[1]; };
   reader.readAsDataURL(f);
 });
+
+// Camera presets: the picker is rendered from the library data at
+// /api/camera-presets, never hand-built per preset. Selected moves
+// keep their pick order; the server composes them into the prompt
+// in that order (up to the library's max).
+let presetData = null;
+let selectedPresets = [];
+const LOOK_LABELS = { tempo: 'Tempo', genre: 'Genre', era: 'Era',
+  camera_body: 'Camera', lens: 'Lens', focal: 'Focal length',
+  aperture: 'Aperture', lighting: 'Lighting', palette: 'Color' };
+async function loadPresets() {
+  try {
+    presetData = await api('/api/camera-presets');
+    const box = $('presets'); box.innerHTML = '';
+    for (const p of presetData.presets) {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'chip';
+      b.dataset.pid = p.id; b.dataset.name = p.name;
+      b.title = p.description || '';
+      if (!p.available) {
+        b.disabled = true;
+        b.textContent = p.name + ' (' + (p.unavailable_note || 'coming soon') + ')';
+      } else {
+        b.textContent = p.name;
+        b.onclick = () => togglePreset(p.id);
+      }
+      box.appendChild(b);
+    }
+    const lb = $('looks'); lb.innerHTML = '';
+    for (const slot of Object.keys(presetData.looks)) {
+      const wrap = document.createElement('label');
+      wrap.appendChild(document.createTextNode(LOOK_LABELS[slot] || slot));
+      const sel = document.createElement('select');
+      sel.id = 'look-' + slot;
+      const any = document.createElement('option');
+      any.value = ''; any.textContent = 'Any';
+      sel.appendChild(any);
+      for (const opt of presetData.looks[slot]) {
+        const o = document.createElement('option');
+        o.value = opt; o.textContent = opt;
+        sel.appendChild(o);
+      }
+      wrap.appendChild(sel);
+      lb.appendChild(wrap);
+    }
+    renderChain();
+  } catch (e) {
+    $('presets').innerHTML = '<p class="muted">Camera presets could not load. Your prompt still works on its own.</p>';
+  }
+}
+function togglePreset(pid) {
+  const i = selectedPresets.indexOf(pid);
+  if (i >= 0) { selectedPresets.splice(i, 1); }
+  else {
+    const max = presetData ? presetData.max_moves : 3;
+    if (selectedPresets.length >= max) {
+      msg('preset-chain', 'Up to ' + max + ' moves, applied in the order you pick them.', 'err');
+      return;
+    }
+    selectedPresets.push(pid);
+  }
+  renderChain();
+}
+function renderChain() {
+  const names = {};
+  if (presetData) for (const p of presetData.presets) names[p.id] = p.name;
+  document.querySelectorAll('#presets .chip').forEach(b => {
+    if (b.disabled) return;
+    const i = selectedPresets.indexOf(b.dataset.pid);
+    b.classList.toggle('on', i >= 0);
+    b.textContent = (i >= 0 ? (i + 1) + '. ' : '') + b.dataset.name;
+  });
+  $('preset-chain').textContent = selectedPresets.length
+    ? 'Camera: ' + selectedPresets.map(id => names[id] || id).join(' \\u2192 ')
+    : 'No camera move picked: the camera follows your prompt.';
+  $('preset-chain').className = 'muted';
+}
+function selectedLook() {
+  const look = {};
+  if (presetData) for (const slot of Object.keys(presetData.looks)) {
+    const el = $('look-' + slot);
+    if (el && el.value) look[slot] = el.value;
+  }
+  return look;
+}
 
 $('signup').onclick = async () => {
   try {
@@ -2264,14 +2588,15 @@ $('create').onclick = async () => {
     msg('job-msg', 'Working on the bot check...');
     const bot = await botFields('botcheck2');
     const model = $('model').value;
+    const camera = { camera_presets: selectedPresets, camera_look: selectedLook() };
     const jobBody = model === 'wan2.2'
       ? { model: model, lane: $('lane').value, prompt: $('prompt').value,
           music_prompt: $('music').disabled ? '' : $('music').value,
-          start_image_png_b64: startImageB64, ...bot }
+          start_image_png_b64: startImageB64, ...camera, ...bot }
       : { model: model, prompt: $('prompt').value,
           music_prompt: $('music').disabled ? '' : $('music').value,
           duration_seconds: Number($('duration').value), resolution: $('resolution').value,
-          start_image_png_b64: startImageB64, ...bot };
+          start_image_png_b64: startImageB64, ...camera, ...bot };
     const r = await api('/api/jobs', { method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(jobBody) });
     msg('job-msg', model === 'wan2.2'
@@ -2293,6 +2618,8 @@ async function loadJobs() {
       const spec = j.duration_seconds ? ' · ' + j.duration_seconds + 's' + (j.resolution ? ' · ' + j.resolution : '') : '';
       let html = '<strong>' + title + '</strong>' + spec + ' · ' + j.status + '<br><span class="muted">' +
         j.prompt.slice(0, 120) + '</span>';
+      if (j.camera_presets && j.camera_presets.length) html +=
+        '<br><span class="muted">Camera: ' + j.camera_presets.join(' \\u2192 ') + '</span>';
       if (j.status === 'done') html += '<br><video controls src="/api/jobs/' + j.id + '/file"></video>' +
         '<br><a href="/api/jobs/' + j.id + '/file" download>Download</a>';
       if (j.status === 'error') html += '<br><span class="err">' + (j.error || 'failed') + '</span>';
@@ -2312,6 +2639,7 @@ $('jobs').addEventListener('click', async e => {
   catch (err) { alert(err.message); }
 });
 fetch('/api/config').then(r => r.json()).then(c => { cfg = c; renderBotChecks(); });
+loadPresets();
 if (new URLSearchParams(location.search).get('verified')) {
   msg('auth-msg', 'Email verified. You can sign in now.', 'ok');
 }
@@ -2353,6 +2681,11 @@ async function loadGallery() {
       const lane = document.createElement('span'); lane.className = 'muted';
       lane.textContent = ' · ' + (item.model || item.lane);
       head.appendChild(who); head.appendChild(lane);
+      if (item.camera_presets && item.camera_presets.length) {
+        const cam = document.createElement('span'); cam.className = 'muted';
+        cam.textContent = ' · Camera: ' + item.camera_presets.join(', ');
+        head.appendChild(cam);
+      }
       const desc = document.createElement('p'); desc.className = 'muted';
       desc.textContent = item.prompt;
       const video = document.createElement('video');
