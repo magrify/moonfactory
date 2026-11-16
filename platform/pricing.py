@@ -158,18 +158,24 @@ PROVIDER_RATES_CENTS_PER_SECOND = {
     # 10.50 / 21.00) are in DISPLACED_RATES below; fal's route
     # (6.8 / 14.0 / 28.0) is the fallback below.
     "wan3_prime": {"480p": 5.44, "720p": 5.44, "1080p": 5.44},
-    # Seedance 2.5, mixed route (follow-up pass, 2026-11-16):
-    # 480p and 1080p via BeatAPI ($0.096 / $0.481 per second, no
-    # reference video, audio included at no extra cost); the 720p
-    # tier via CometAPI at $0.1848/s, the cheapest published 720p
-    # rate (CometAPI surfaces no 480p/1080p for this model; the
+    # Seedance 2.5, mixed route (follow-up pass, 2026-11-16;
+    # round 2, same day): 480p and 720p via CometAPI at its API
+    # catalog's stated actual prices, $0.0824 / $0.1848 per second
+    # (read 2026-11-16 from CometAPI's own models API, the
+    # seedance-2-5 entry's "Actual price / second" column: 80% of
+    # the official $0.103 / $0.231). The 480p tier moved off
+    # BeatAPI ($0.096 seeded; its live page read ~$0.0968) in
+    # round 2: the CometAPI figure is the cheapest verified 480p
+    # rate anywhere in the sweep. 1080p stays on BeatAPI at
+    # $0.481 per second, no reference video, audio included at no
+    # extra cost (CometAPI surfaces no 1080p for this model; the
     # displaced BeatAPI 720p rate is in DISPLACED_RATES below).
     # With reference videos BeatAPI bills a LOWER per-second rate
     # over output + reference seconds, so estimating every billed
     # second at the no-reference rate is the conservative
     # direction, and settlement uses the provider's own reported
     # charge, never this estimate.
-    "seedance": {"480p": 9.6, "720p": 18.48, "1080p": 48.1},
+    "seedance": {"480p": 8.24, "720p": 18.48, "1080p": 48.1},
     # Veo 3.1 via PiAPI (follow-up pass, 2026-11-16): $0.12/s is
     # the cheapest published per-second rate anywhere, on the
     # NO-AUDIO basis (PiAPI's with-audio rate is $0.24/s). The
@@ -182,31 +188,52 @@ PROVIDER_RATES_CENTS_PER_SECOND = {
     "veo3": {"720p": 12.0, "1080p": 12.0},
     # Veo 3.1 Fast via fal, with audio: $0.15/s at 720p and 1080p.
     "veo3_fast": {"720p": 15.0, "1080p": 15.0},
-    # Kling 3.0 via Kie (follow-up pass, 2026-11-16): from
-    # $0.0755/s, the cheapest published route. The from-price does
-    # not split standard/pro, so it is carried flat at both
-    # resolutions pending console confirmation. BeatAPI's rates
-    # (11.0 / 13.0, sound included) are in DISPLACED_RATES below;
-    # fal's with-audio route (12.6 / 16.8) is the fallback below
-    # and fal's endpoints stay wired in app.py.
-    "kling3": {"720p": 7.55, "1080p": 7.55},
+    # Kling 3.0 via Kie (follow-up pass, 2026-11-16; round-2
+    # cost correction, same day): Kie's own model page
+    # (kie.ai/kling-3-0) prices kling-3.0/video per second at
+    # 15.1 credits ($0.0755) at 720p and 20.2 credits ($0.101) at
+    # 1080p WITHOUT audio, and 22.7 credits ($0.1135) / 30.2
+    # credits ($0.151) WITH audio. This lane ships sound on (the
+    # Kie submit sends sound=true), so the with-audio rates are
+    # the cost basis; the $0.0755 "from" figure seeded in the
+    # follow-up pass was the 720p no-audio rate and understated
+    # every job the lane ran. BeatAPI's rates (11.0 / 13.0,
+    # sound included) are in DISPLACED_RATES below; fal's
+    # with-audio route (12.6 / 16.8) is the fallback below and
+    # fal's endpoints stay wired in app.py.
+    "kling3": {"720p": 11.35, "1080p": 15.1},
     # --- Full-shelf wiring, 2026-11-16 (model availability audit).
     # Every rate below is the primary supplier's published rate,
     # verified 2026-11-16; none of these lanes carries a measured
     # Higgsfield effective, so frontier_lane() sells them at the
     # hard minimum (cost x 1.25) with can_undercut unanswered.
-    # Kling 4.0 via Kie (follow-up pass, 2026-11-16): from
-    # $0.085/s with a media input, the cheapest published route;
-    # Kie's own page prices no-input 1080p at $0.2125/s, carried
-    # at 1080p. Kie prices are published "from" prices pending
-    # console confirmation. BeatAPI's with-input rates (18.0 /
-    # 28.0) are in DISPLACED_RATES below.
-    "kling4": {"720p": 8.5, "1080p": 21.25},
+    # Kling 4.0 via Kie (follow-up pass, 2026-11-16; round-2
+    # cost correction, same day): Kie's own model page
+    # (kie.ai/kling-4-0) prices keyframe-to-video and
+    # reference-to-video WITHOUT a video input at 28.5 credits
+    # ($0.1425/s) at 720p and 42.5 credits ($0.2125/s) at 1080p.
+    # The $0.085/s figure seeded in the follow-up pass is Kie's
+    # WITH-reference-video rate, which is per BILLED second over
+    # input + output seconds (output x 2 when the input is no
+    # longer than the output), not per output second; the lane's
+    # standard job shapes (text, keyframe) bill at the no-input
+    # rates, so those are the cost basis. Settlement still uses
+    # Kie's reported consumeCredits where one exists. BeatAPI's
+    # with-input rates (18.0 / 28.0) are in DISPLACED_RATES below.
+    "kling4": {"720p": 14.25, "1080p": 21.25},
     # Kling 3.0 Omni via Kie (follow-up pass, 2026-11-16): from
     # $0.0755/s (the from-price does not split standard/pro;
     # carried flat pending console confirmation). fal's with-audio
     # rates (Standard $0.112/s, Pro $0.14/s) are the fallback
     # below; fal's endpoints stay wired in app.py.
+    # Round-2 note (2026-11-16): the submit sends sound=true for
+    # this lane too, and third-party reads of Kie's Omni matrix
+    # put its sound-on 720p rate at 18-20 credits ($0.09-0.10/s),
+    # above this flat seed. The seed is NOT re-based on those
+    # reads: they are estimated third-party figures, not Kie's
+    # own published page, and the lane has no Higgsfield figure
+    # to enforce against. It stays flagged for a Kie console
+    # confirmation, the same status as before this round.
     "kling3_omni": {"720p": 7.55, "1080p": 7.55},
     # Seedance 2.0 via BeatAPI (seedance-2): carried at the
     # WITH-video-input rates ($0.618 / $1.247 / $3.107 per
@@ -453,6 +480,57 @@ HIGGSFIELD_EFFECTIVE_CENTS_PER_CLIP_BY_RESOLUTION = {
     "wan3": {"1080p": 86.04},
 }
 
+# Round 2 (2026-11-16, Jack's strengthened rule): EVERY public
+# price must be cheaper than Higgsfield's, no matter what — or
+# at raw provider cost where undercutting with a markup is
+# impossible but raw cost is still below Higgsfield's price.
+# Never below raw cost. A lane whose raw cost meets or exceeds
+# Higgsfield's price even at cost is priced at cost and flagged
+# (pricing_basis "at_cost_residual" in the frontier_lane
+# payload). The x1.25 minimum yields where it blocks this rule.
+#
+# The table below carries Higgsfield's effective per-second
+# price for the compared lanes that are NOT in the Amendment 3
+# target tables above. It is comparison-and-cap only: adding a
+# lane here can only lower or confirm its sell rate, never raise
+# it (lanes in the target tables price toward 0.97x Higgsfield;
+# these stay at the x1.25 minimum unless the cap binds). Figures
+# are Higgsfield's published credit counts converted at the same
+# Plus monthly rate as the audit (4.9167c per credit), per
+# second:
+# - Kling 3.0: 10 credits per 5 s at 720p WITH sound (the lane
+#   ships sound on). Its 1080p sound-on count is unpublished, so
+#   that tier carries no figure (round-1 audit: NOCOMP).
+# - Kling 4.0: 11.25 credits per 5 s at 720p, 16.25 at 1080p.
+# - Seedance 2.0: ~22 credits per 5 s at 720p (21.633). At 1080p
+#   the more recent read governs (CamClo, crawled 2026-11-13:
+#   ~60 credits -> 59.0); an October 2026 read (~45 credits ->
+#   44.25) conflicts and is recorded in the audit doc — the
+#   lane's floor sell sits under the governing figure either
+#   way it is read for 720p, and under the CamClo figure at
+#   1080p.
+# - Veo 3.1: ~40 credits per 4 s (49.167). Veo 3.1 Fast: ~16
+#   credits per 4 s (19.667). Veo 3.1 Lite: 12 credits per 8 s
+#   at 720p (7.375). Grok Imagine: 22.5 credits per 5 s at 720p
+#   (22.125).
+HIGGSFIELD_POLICY_CENTS_PER_SECOND = {
+    "kling3": {"720p": 9.833},
+    "kling4": {"720p": 11.063, "1080p": 15.979},
+    "seedance2": {"720p": 21.633, "1080p": 59.0},
+    "veo3": {"720p": 49.167, "1080p": 49.167},
+    "veo3_fast": {"720p": 19.667, "1080p": 19.667},
+    "veo3_lite": {"720p": 7.375},
+    "grok": {"720p": 22.125},
+}
+
+
+def _higgsfield_policy_cents_per_second(model, resolution):
+    """The round-2 comparison figure for a lane outside the
+    Amendment 3 target tables, or None where no published
+    Higgsfield figure exists for that cell."""
+    return HIGGSFIELD_POLICY_CENTS_PER_SECOND.get(
+        model, {}).get(resolution)
+
 
 def _higgsfield_effective_cents_per_second(model, resolution, table):
     """Higgsfield's effective price per second for the comparable
@@ -496,6 +574,8 @@ def frontier_lane(model: str, resolution: str, rates=None,
     undercut. Higgsfield's effective price is documented on the
     720p basis; other resolutions scale it by the provider rate
     ratio, the same shape as Higgsfield's own credit table.
+    Round 2 (2026-11-16) adds the at-cost cap and the
+    pricing_basis field; see HIGGSFIELD_POLICY_CENTS_PER_SECOND.
     For the owner account (owner=True) the sell rate is the raw
     cost itself: no markup, per the owner pricing exemption."""
     table = rates if rates is not None else PROVIDER_RATES_CENTS_PER_SECOND
@@ -514,29 +594,48 @@ def frontier_lane(model: str, resolution: str, rates=None,
             round(higgsfield, 3) if higgsfield is not None else None
         )
         return picture
-    if higgsfield is None:
-        # No measured Higgsfield effective for this lane (see the
-        # note on the table): the lane sells at the hard minimum and
-        # the undercut question stays honestly unanswered, rather
-        # than pricing against an invented competitor figure.
-        return {
-            "cost_cents_per_second": round(cost, 3),
-            "higgsfield_effective_cents_per_second": None,
-            "minimum_cents_per_second": _ceil3(minimum),
-            "sell_cents_per_second": _ceil3(minimum),
-            "can_undercut": None,
-        }
-    target = higgsfield * UNDERCUT_FRACTION
-    if target >= minimum:
-        sell, can_undercut = target, True
+    # Round 2 (2026-11-16): the comparison figure is the
+    # Amendment 3 target-table figure where one exists, else the
+    # policy-table figure. Target-table lanes price toward 0.97x
+    # Higgsfield exactly as before; every other lane sells at the
+    # hard minimum. The at-cost cap below then applies to BOTH:
+    # where the resulting sell rate would sit at or above
+    # Higgsfield's figure, the lane sells at raw cost instead —
+    # under Higgsfield where cost allows (pricing_basis
+    # "at_cost_undercut"), or flagged as a residual exception
+    # where even raw cost meets or exceeds Higgsfield's price
+    # ("at_cost_residual"). The cap never raises a price and
+    # never prices below cost.
+    policy = _higgsfield_policy_cents_per_second(model, resolution)
+    effective = higgsfield if higgsfield is not None else policy
+    if higgsfield is not None:
+        target = higgsfield * UNDERCUT_FRACTION
+        if target >= minimum:
+            sell, can_undercut = target, True
+        else:
+            sell, can_undercut = minimum, False
     else:
-        sell, can_undercut = minimum, False
+        # No target-table figure: the lane sells at the hard
+        # minimum. Where no policy figure exists either, the
+        # undercut question stays honestly unanswered rather than
+        # pricing against an invented competitor figure.
+        sell, can_undercut = minimum, None
+    basis = "standard"
+    if effective is not None and sell >= effective:
+        sell = cost
+        basis = ("at_cost_residual" if cost >= effective
+                 else "at_cost_undercut")
+        can_undercut = sell < effective
+    elif effective is not None and can_undercut is None:
+        can_undercut = sell < effective
     return {
         "cost_cents_per_second": round(cost, 3),
-        "higgsfield_effective_cents_per_second": round(higgsfield, 3),
+        "higgsfield_effective_cents_per_second": (
+            round(effective, 3) if effective is not None else None),
         "minimum_cents_per_second": _ceil3(minimum),
         "sell_cents_per_second": _ceil3(sell),
         "can_undercut": can_undercut,
+        "pricing_basis": basis,
     }
 
 
@@ -662,7 +761,8 @@ def public_pricing(owner: bool = False) -> dict:
                 res: frontier_lane(model, res, owner=owner)
                 for res in PROVIDER_RATES_CENTS_PER_SECOND[model]
             }
-            for model in HIGGSFIELD_EFFECTIVE_CENTS_PER_CLIP
+            for model in set(HIGGSFIELD_EFFECTIVE_CENTS_PER_CLIP)
+            | set(HIGGSFIELD_POLICY_CENTS_PER_SECOND)
         },
     }
 

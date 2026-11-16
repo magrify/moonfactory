@@ -520,11 +520,15 @@ PROVIDER_KEY_ENV = {
     "minimax": "MINIMAX_API_KEY",
     "replicate": "REPLICATE_API_TOKEN",
 }
-# Per-resolution route overrides: Seedance 2.5's cheapest 720p
-# route is a different supplier than its 480p/1080p route, so the
-# provider is a function of (model, resolution), not model alone.
+# Per-resolution route overrides: Seedance 2.5's cheapest route
+# is a different supplier at 480p/720p (CometAPI) than at 1080p
+# (BeatAPI), so the provider is a function of (model,
+# resolution), not model alone. The 480p tier joined the
+# CometAPI route in pricing round 2 (2026-11-16): CometAPI's
+# own models API states an actual 480p price of $0.0824/s,
+# below BeatAPI's ~$0.0968/s live read.
 MODEL_PROVIDER_OVERRIDES = {
-    "seedance": {"720p": "cometapi"},
+    "seedance": {"480p": "cometapi", "720p": "cometapi"},
 }
 
 
@@ -2789,8 +2793,16 @@ def api():
         sent: none is published for these endpoints."""
         ids = {"seedance": "seedance-2-5-260628",
                "wan3_prime": "wan-3-0-prime"}
+        size = "720x1280"
+        if job["model"] == "seedance" and \
+                params.get("resolution") == "480p":
+            # CometAPI's Seedance 2.5 catalog lists the 480p tier
+            # as 854x480 landscape; the platform is vertical, so
+            # the 9:16 raster is 480x854. The 480p tier routes
+            # here since pricing round 2 (2026-11-16).
+            size = "480x854"
         payload = {"model": ids[job["model"]], "prompt": prompt,
-                   "duration": params["duration"], "size": "720x1280"}
+                   "duration": params["duration"], "size": size}
         try:
             ref = None
             if params["mode"] == "image":
@@ -5292,13 +5304,15 @@ def refresh_provider_rates():
     required = {"wan3", "seedance"}
     if not required.issubset(found):
         return {"verified": sorted(found), "updated": False}
-    # Seedance's 720p tier rides CometAPI since the follow-up
-    # pass; the BeatAPI page read covers only the tiers BeatAPI
-    # still serves, so the seeded CometAPI rate is never shadowed.
+    # Seedance's 480p and 720p tiers ride CometAPI (720p since
+    # the follow-up pass, 480p since pricing round 2, both
+    # 2026-11-16); the BeatAPI page read covers only the tier
+    # BeatAPI still serves (1080p), so the seeded CometAPI rates
+    # are never shadowed.
     if "seedance" in found:
         found["seedance"] = {
             res: cents for res, cents in found["seedance"].items()
-            if res != "720p"
+            if res not in ("480p", "720p")
         }
     table = meta.get("provider_rates") or {
         "rates": pricing.PROVIDER_RATES_CENTS_PER_SECOND,
