@@ -432,6 +432,60 @@ HIGGSFIELD_EFFECTIVE_CENTS_PER_CLIP = {
     # effective exists.
 }
 
+# Per-resolution overrides, added by the 2026-11-16 pricing audit.
+# The clip table above is a single 720p figure per model; other
+# resolutions were scaled from it by the provider-rate ratio. That
+# scaling is wrong where Higgsfield publishes its own
+# per-resolution credit counts, because Higgsfield's resolution
+# multipliers are its own, not the provider's. Published counts
+# (Higgsfield's pricing-page table and Generate-button reads,
+# 2026-11-03 to 2026-11-09, converted at the same Plus monthly
+# credit rate as the table above, $59 / 1200 credits = 4.9167c):
+# Seedance 2.5 charges 15 credits per 5 s clip at 480p and 80 at
+# 1080p, against 35 at 720p (a 2.29x step the provider-rate ratio
+# overstated as 2.62x, which had the 1080p lane selling ABOVE
+# Higgsfield's effective price, and the 480p lane too); Wan 3.0
+# charges 17.5 credits per 5 s at 1080p. Cells recorded here
+# replace the scaled figure outright; every other cell keeps the
+# scaled figure.
+HIGGSFIELD_EFFECTIVE_CENTS_PER_CLIP_BY_RESOLUTION = {
+    "seedance": {"480p": 73.75, "1080p": 393.33},
+    "wan3": {"1080p": 86.04},
+}
+
+
+def _higgsfield_effective_cents_per_second(model, resolution, table):
+    """Higgsfield's effective price per second for the comparable
+    output, or None where no figure exists. A recorded
+    per-resolution figure wins; otherwise the model's 720p clip
+    figure scales by the provider-rate ratio, the same shape as
+    before."""
+    by_res = HIGGSFIELD_EFFECTIVE_CENTS_PER_CLIP_BY_RESOLUTION.get(
+        model, {})
+    if resolution in by_res:
+        return by_res[resolution] / CLIP_BASIS_SECONDS
+    eff = HIGGSFIELD_EFFECTIVE_CENTS_PER_CLIP.get(model)
+    if eff is None:
+        return None
+    return (
+        eff / CLIP_BASIS_SECONDS
+        * float(table[model][resolution])
+        / float(table[model]["720p"])
+    )
+
+
+def _ceil3(value: float) -> float:
+    """Round UP to 3 decimals: a published minimum or sell rate is
+    never a rounding hair below the exact figure it claims. The
+    wan3 480p minimum is exactly 4.5625, which round() published
+    as 4.562, a sell rate technically under the 1.25x floor (the
+    per-job balance debit ceils to whole cents, so no job ever
+    actually charged under the floor; this makes the published
+    rate itself exact)."""
+    import math
+
+    return math.ceil(value * 1000) / 1000.0
+
 
 def frontier_lane(model: str, resolution: str, rates=None,
                   owner: bool = False) -> dict:
@@ -447,6 +501,8 @@ def frontier_lane(model: str, resolution: str, rates=None,
     table = rates if rates is not None else PROVIDER_RATES_CENTS_PER_SECOND
     cost = per_second_lane_cost_cents(model, resolution, table)
     minimum = cost * FRONTIER_MIN_MARKUP
+    higgsfield = _higgsfield_effective_cents_per_second(
+        model, resolution, table)
     if owner:
         picture = {
             "cost_cents_per_second": round(cost, 3),
@@ -454,18 +510,11 @@ def frontier_lane(model: str, resolution: str, rates=None,
             "sell_cents_per_second": round(cost, 3),
             "can_undercut": None,
         }
-        eff = HIGGSFIELD_EFFECTIVE_CENTS_PER_CLIP.get(model)
         picture["higgsfield_effective_cents_per_second"] = (
-            round(
-                eff / CLIP_BASIS_SECONDS
-                * float(table[model][resolution])
-                / float(table[model]["720p"]),
-                3,
-            )
-            if eff is not None else None
+            round(higgsfield, 3) if higgsfield is not None else None
         )
         return picture
-    if model not in HIGGSFIELD_EFFECTIVE_CENTS_PER_CLIP:
+    if higgsfield is None:
         # No measured Higgsfield effective for this lane (see the
         # note on the table): the lane sells at the hard minimum and
         # the undercut question stays honestly unanswered, rather
@@ -473,15 +522,10 @@ def frontier_lane(model: str, resolution: str, rates=None,
         return {
             "cost_cents_per_second": round(cost, 3),
             "higgsfield_effective_cents_per_second": None,
-            "minimum_cents_per_second": round(minimum, 3),
-            "sell_cents_per_second": round(minimum, 3),
+            "minimum_cents_per_second": _ceil3(minimum),
+            "sell_cents_per_second": _ceil3(minimum),
             "can_undercut": None,
         }
-    eff_720 = (
-        HIGGSFIELD_EFFECTIVE_CENTS_PER_CLIP[model] / CLIP_BASIS_SECONDS
-    )
-    ratio = float(table[model][resolution]) / float(table[model]["720p"])
-    higgsfield = eff_720 * ratio
     target = higgsfield * UNDERCUT_FRACTION
     if target >= minimum:
         sell, can_undercut = target, True
@@ -490,8 +534,8 @@ def frontier_lane(model: str, resolution: str, rates=None,
     return {
         "cost_cents_per_second": round(cost, 3),
         "higgsfield_effective_cents_per_second": round(higgsfield, 3),
-        "minimum_cents_per_second": round(minimum, 3),
-        "sell_cents_per_second": round(sell, 3),
+        "minimum_cents_per_second": _ceil3(minimum),
+        "sell_cents_per_second": _ceil3(sell),
         "can_undercut": can_undercut,
     }
 
