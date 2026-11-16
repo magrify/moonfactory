@@ -112,8 +112,19 @@ RESOLUTIONS = ("480p", "720p", "1080p")
 # rather than quote from a table older than
 # PROVIDER_RATE_STALE_SECONDS (Rule 2 auto-pause).
 PROVIDER_RATES_CENTS_PER_SECOND = {
-    "wan3": {"480p": 5.0, "720p": 10.0, "1080p": 20.0},
-    "wan3_prime": {"480p": 6.8, "720p": 14.0, "1080p": 28.0},
+    # Wan 3.0 via BeatAPI (route rule, Jack 2026-11-16: the
+    # cheapest route is primary). BeatAPI publishes $0.284 /
+    # $0.568 / $1.088 per 8-second clip = 3.55 / 7.10 / 13.60 per
+    # second; fal's route (5.0 / 10.0 / 20.0) is recorded as the
+    # fallback below. This supplier bills reference-video seconds
+    # at the output rate (its Prime page notes a 1.5x factor on
+    # video references); settlement uses the provider's own
+    # reported charge, never this estimate.
+    "wan3": {"480p": 3.55, "720p": 7.1, "1080p": 13.6},
+    # Wan 3.0 Prime via BeatAPI: $0.484 / $0.84 / $1.68 per
+    # 8-second clip = 6.05 / 10.50 / 21.00 per second. fal's route
+    # (6.8 / 14.0 / 28.0) is the fallback below.
+    "wan3_prime": {"480p": 6.05, "720p": 10.5, "1080p": 21.0},
     # Seedance 2.5 via BeatAPI (Pass 2 supplier change, 2026-11-16):
     # $0.096 / $0.194 / $0.481 per second, no reference video, audio
     # included at no extra cost. With reference videos BeatAPI bills
@@ -123,22 +134,109 @@ PROVIDER_RATES_CENTS_PER_SECOND = {
     # reported charge, never this estimate.
     "seedance": {"480p": 9.6, "720p": 19.4, "1080p": 48.1},
     # Veo 3.1 via fal, with audio (fal lists silent at half):
-    # $0.40/s at 720p and 1080p; no 480p tier exists.
+    # $0.40/s at 720p and 1080p; no 480p tier exists. BeatAPI sells
+    # Veo only as fixed 8-second per-clip billing, which does not
+    # fit this per-second lane shape, so fal stays primary here
+    # despite the higher per-second figure (route-rule caveat,
+    # 2026-11-16).
     "veo3": {"720p": 40.0, "1080p": 40.0},
     # Veo 3.1 Fast via fal, with audio: $0.15/s at 720p and 1080p.
     "veo3_fast": {"720p": 15.0, "1080p": 15.0},
-    # Kling 3.0 via fal, with native audio: Standard (720p) $0.126/s,
-    # Pro (1080p) $0.168/s. Resolution selects the tier.
-    "kling3": {"720p": 12.6, "1080p": 16.8},
+    # Kling 3.0 via BeatAPI (route rule): $0.88 / $1.04 per
+    # 8-second clip = 11.0 / 13.0 per second, sound included at
+    # the same rate. fal's with-audio route (12.6 / 16.8) is the
+    # fallback below; fal's endpoints stay wired in app.py.
+    "kling3": {"720p": 11.0, "1080p": 13.0},
+    # --- Full-shelf wiring, 2026-11-16 (model availability audit).
+    # Every rate below is the primary supplier's published rate,
+    # verified 2026-11-16; none of these lanes carries a measured
+    # Higgsfield effective, so frontier_lane() sells them at the
+    # hard minimum (cost x 1.25) with can_undercut unanswered.
+    # Kling 4.0 via BeatAPI (kling-v4): carried at the
+    # WITH-video-input rates, $1.44 / $2.24 per 8-second clip
+    # (no-input is $1.20 / $1.84); settlement uses the provider's
+    # reported charge, so carrying the higher rate only ever
+    # overstates the estimate.
+    "kling4": {"720p": 18.0, "1080p": 28.0},
+    # Kling 3.0 Omni via fal, with audio: Standard $0.112/s,
+    # Pro $0.14/s; resolution selects the tier, as with Kling 3.0.
+    "kling3_omni": {"720p": 11.2, "1080p": 14.0},
+    # Seedance 2.0 via BeatAPI (seedance-2): carried at the
+    # WITH-video-input rates ($0.618 / $1.247 / $3.107 per
+    # 8-second clip; no-input $0.509 / $1.027 / $2.563).
+    "seedance2": {"480p": 7.725, "720p": 15.593, "1080p": 38.842},
+    # Seedance 2.0 Fast via BeatAPI: with-input $0.486 / $0.980
+    # per 8-second clip (no-input $0.409 / $0.826).
+    "seedance2_fast": {"480p": 6.072, "720p": 12.251},
+    # Seedance 2.0 Mini via BeatAPI: with-input $0.263 / $0.589
+    # per 8-second clip (no-input $0.216 / $0.485). Silent model.
+    "seedance2_mini": {"480p": 3.283, "720p": 7.363},
+    # Veo 3.1 Lite via fal, with audio: $0.05/s at 720p,
+    # $0.08/s at 1080p (silent is half).
+    "veo3_lite": {"720p": 5.0, "1080p": 8.0},
+    # Gemini Omni 1.2 Flash via BeatAPI: $0.392 / $0.5824 per
+    # 8-second clip. This is also the pinned successor lane for
+    # the Veo 3.1 family, whose fal endpoints carry a
+    # 2026-11-17 deprecation date.
+    "omni12": {"720p": 4.9, "1080p": 7.28},
+    # Gemini Omni 1.1 Flash via BeatAPI: $0.48 / $0.72 per
+    # 8-second clip.
+    "omni11": {"720p": 6.0, "1080p": 9.0},
+    # Hailuo 2.3 via fal is priced per clip, not per second:
+    # Standard $0.28 (6 s) / $0.56 (10 s), Pro $0.49 (6 s) /
+    # $0.82 (10 s). Carried per second at the worst case in each
+    # tier ($0.56/10 s and $0.49/6 s), so the estimate never
+    # understates; the lane is silent.
+    "hailuo23": {"720p": 5.6, "1080p": 8.2},
+    # MiniMax H3 via BeatAPI (route rule: $0.02/s entry vs fal's
+    # $0.05/s): $0.16 / $0.24 / $0.376 per 8-second clip.
+    # Reference videos bill at the output rate on this supplier,
+    # so the output + reference-second estimate is exact.
+    "minimax_h3": {"480p": 2.0, "720p": 3.0, "1080p": 4.7},
+    # Grok Imagine Video 1.5 via BeatAPI: $0.20 / $0.40 / $0.72
+    # per 8-second clip.
+    "grok": {"480p": 2.5, "720p": 5.0, "1080p": 9.0},
+    # Luma Ray 3.2 via fal is priced per clip ($0.50 / $1.00 /
+    # $2.00 at 5 s, double at 10 s): a flat per-second rate at
+    # every duration, carried as published.
+    "luma_ray32": {"480p": 10.0, "720p": 20.0, "1080p": 40.0},
+    # LTX-2.5 via fal, Pro tier: $0.12/s at 720p, $0.17/s at
+    # 1080p (4K exists at $0.34/s and is not sold).
+    "ltx25": {"720p": 12.0, "1080p": 17.0},
+    # LTX-2.5 Fast via fal: $0.09/s at 720p, $0.13/s at 1080p.
+    "ltx25_fast": {"720p": 9.0, "1080p": 13.0},
+    # HappyHorse 1.1 via BeatAPI: $0.96 / $1.24 per 8-second clip.
+    "happyhorse": {"720p": 12.0, "1080p": 15.5},
+    # Pika 2.2 via fal is priced per clip; the audit's published
+    # approximations ($0.20 / $0.45 per 5-second clip, doubling
+    # at 10 s) convert to these per-second rates.
+    "pika22": {"720p": 4.0, "1080p": 9.0},
+    # Vidu Q2 deliberately carries NO rate: the audit found no
+    # published per-second price, and an invented one would sell
+    # the lane at a guessed cost. The lane stays paused (the
+    # platform pauses any model with no rates) until a published
+    # rate is recorded here.
 }
 
 # Fallback supplier data, kept for the record and never shown to
 # users: Seedance 2.5 via fal costs $0.215/s (480p) and $0.462/s
 # (720p) with no 1080p tier, which is why the lane's primary
-# supplier is BeatAPI (Pass 2). If the primary supplier ever goes
-# away, this row is the starting point for a fallback wiring.
+# supplier is BeatAPI (Pass 2). The Wan and Kling 3.0 rows are
+# the fal routes those lanes ran on before the 2026-11-16 route
+# rule made BeatAPI primary; their fal endpoints stay wired in
+# app.py, so a fallback is a provider flip, not a rebuild. The
+# Seedance 2.0 rows are fal's published text-to-video rates from
+# the 2026-11-16 audit, recorded in case that family's primary
+# lane ever needs a fallback wiring. If a primary supplier ever
+# goes away, this table is the starting point.
 FALLBACK_PROVIDER_RATES_CENTS_PER_SECOND = {
     "seedance": {"480p": 21.5, "720p": 46.2},
+    "wan3": {"480p": 5.0, "720p": 10.0, "1080p": 20.0},
+    "wan3_prime": {"480p": 6.8, "720p": 14.0, "1080p": 28.0},
+    "kling3": {"720p": 12.6, "1080p": 16.8},
+    "seedance2": {"480p": 30.34, "720p": 30.34, "1080p": 30.34},
+    "seedance2_fast": {"720p": 24.34},
+    "seedance2_mini": {"720p": 20.34},
 }
 
 # Resolutions each per-second model can actually be ordered at.
@@ -148,6 +246,18 @@ MODEL_RESOLUTIONS = {
     "veo3": ("720p", "1080p"),
     "veo3_fast": ("720p", "1080p"),
     "kling3": ("720p", "1080p"),
+    "kling4": ("720p", "1080p"),
+    "kling3_omni": ("720p", "1080p"),
+    "seedance2_fast": ("480p", "720p"),
+    "seedance2_mini": ("480p", "720p"),
+    "veo3_lite": ("720p", "1080p"),
+    "omni12": ("720p", "1080p"),
+    "omni11": ("720p", "1080p"),
+    "hailuo23": ("720p", "1080p"),
+    "ltx25": ("720p", "1080p"),
+    "ltx25_fast": ("720p", "1080p"),
+    "happyhorse": ("720p", "1080p"),
+    "pika22": ("720p", "1080p"),
 }
 PROVIDER_RATE_STALE_SECONDS = 24 * 3600
 

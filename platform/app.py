@@ -404,24 +404,77 @@ MODELS = [
     {"id": "veo3", "label": "Veo 3.1", "paid_only": True},
     {"id": "veo3_fast", "label": "Veo 3.1 Fast", "paid_only": True},
     {"id": "kling3", "label": "Kling 3.0", "paid_only": True},
+    # Full shelf (2026-11-16 availability audit): every model the
+    # audit confirmed addable through the two wired suppliers.
+    # Confirmed-unavailable models (Sora 2, Cinema Studio, DoP,
+    # Kling 4.0 Flash) are not listed and were not wired.
+    {"id": "kling4", "label": "Kling 4.0", "paid_only": True},
+    {"id": "kling3_omni", "label": "Kling 3.0 Omni", "paid_only": True},
+    {"id": "seedance2", "label": "Seedance 2.0", "paid_only": True},
+    {"id": "seedance2_fast", "label": "Seedance 2.0 Fast", "paid_only": True},
+    {"id": "seedance2_mini", "label": "Seedance 2.0 Mini", "paid_only": True},
+    {"id": "veo3_lite", "label": "Veo 3.1 Lite", "paid_only": True},
+    # The Gemini Omni line is the pinned successor lane for the
+    # Veo 3.1 family, whose fal endpoints carry a 2026-11-17
+    # deprecation date; the Veo entries above stay as they are.
+    {"id": "omni12", "label": "Gemini Omni 1.2 Flash", "paid_only": True},
+    {"id": "omni11", "label": "Gemini Omni 1.1 Flash", "paid_only": True},
+    {"id": "hailuo23", "label": "Hailuo 2.3", "paid_only": True},
+    {"id": "minimax_h3", "label": "MiniMax H3", "paid_only": True},
+    {"id": "grok", "label": "Grok Imagine Video 1.5", "paid_only": True},
+    {"id": "luma_ray32", "label": "Luma Ray 3.2", "paid_only": True},
+    {"id": "ltx25", "label": "LTX-2.5", "paid_only": True},
+    {"id": "ltx25_fast", "label": "LTX-2.5 Fast", "paid_only": True},
+    {"id": "happyhorse", "label": "HappyHorse 1.1", "paid_only": True},
+    {"id": "pika22", "label": "Pika 2.2", "paid_only": True},
+    {"id": "vidu_q2", "label": "Vidu Q2", "paid_only": True},
 ]
 MODEL_LABELS = {m["id"]: m["label"] for m in MODELS}
 DEFAULT_MODEL = "wan2.2"
-PER_SECOND_MODELS = ("wan3", "wan3_prime", "seedance", "veo3", "veo3_fast", "kling3")
+PER_SECOND_MODELS = (
+    "wan3", "wan3_prime", "seedance", "veo3", "veo3_fast", "kling3",
+    "kling4", "kling3_omni", "seedance2", "seedance2_fast",
+    "seedance2_mini", "veo3_lite", "omni12", "omni11", "hailuo23",
+    "minimax_h3", "grok", "luma_ray32", "ltx25", "ltx25_fast",
+    "happyhorse", "pika22", "vidu_q2",
+)
 # Which supplier serves each per-second model. Internal only: the
 # picker, the pricing page, and every error show model names, never
-# suppliers (Amendment 1). Seedance 2.5's primary supplier is the
-# one whose per-second rate makes the lane undercut-capable under
-# Amendment 3; its fal endpoint stays in FALLBACK notes in
-# pricing.py, not wired, because fal charges over twice the rate
-# and offers no 1080p tier for this model.
+# suppliers (Amendment 1). Route rule (Jack, 2026-11-16): where a
+# model is sold by both suppliers, the cheaper published route is
+# primary and the other stays wired or recorded as the fallback.
+# That is why Wan 3.0, Wan 3.0 Prime and Kling 3.0 moved to
+# BeatAPI (their fal rates sit in pricing.py's fallback table and
+# their fal endpoints stay in FAL_ENDPOINTS below), and why Veo
+# stays on fal despite BeatAPI's lower sticker: BeatAPI bills Veo
+# as a fixed 8-second clip, which does not fit the per-second
+# lane shape. Seedance 2.5's fal endpoint stays in FALLBACK notes
+# in pricing.py, not wired, because fal charges over twice the
+# rate and offers no 1080p tier for this model.
 MODEL_PROVIDER = {
-    "wan3": "fal",
-    "wan3_prime": "fal",
+    "wan3": "beatapi",
+    "wan3_prime": "beatapi",
+    "seedance": "beatapi",
+    "kling3": "beatapi",
+    "kling4": "beatapi",
+    "seedance2": "beatapi",
+    "seedance2_fast": "beatapi",
+    "seedance2_mini": "beatapi",
+    "omni12": "beatapi",
+    "omni11": "beatapi",
+    "grok": "beatapi",
+    "happyhorse": "beatapi",
+    "minimax_h3": "beatapi",
     "veo3": "fal",
     "veo3_fast": "fal",
-    "kling3": "fal",
-    "seedance": "beatapi",
+    "kling3_omni": "fal",
+    "veo3_lite": "fal",
+    "hailuo23": "fal",
+    "luma_ray32": "fal",
+    "ltx25": "fal",
+    "ltx25_fast": "fal",
+    "pika22": "fal",
+    "vidu_q2": "fal",
 }
 # Per-model duration bounds in seconds (the global form range is
 # 3-30; these narrow it to what each model actually accepts).
@@ -430,13 +483,41 @@ MODEL_DURATION_BOUNDS = {
     "veo3": (4, 8),
     "veo3_fast": (4, 8),
     "kling3": (3, 15),
+    "kling4": (3, 30),
+    "kling3_omni": (3, 15),
+    "seedance2": (4, 15),
+    "seedance2_fast": (4, 15),
+    "seedance2_mini": (4, 15),
+    "veo3_lite": (4, 8),
+    "omni12": (3, 15),
+    "omni11": (3, 10),
+    "minimax_h3": (4, 15),
+    "grok": (3, 15),
+    "happyhorse": (3, 15),
+    "ltx25": (6, 20),
+    "ltx25_fast": (6, 20),
 }
 # Veo generates only these clip lengths; anything else is refused
 # at validation instead of being silently rounded by the provider.
+# Hailuo, Luma and Pika likewise accept only their listed lengths.
 MODEL_DURATION_STEPS = {
     "veo3": (4, 6, 8),
     "veo3_fast": (4, 6, 8),
+    "veo3_lite": (4, 6, 8),
+    "hailuo23": (6, 10),
+    "luma_ray32": (5, 10),
+    "pika22": (5, 10),
 }
+# Models whose supplier endpoint has no reference mode at all:
+# they take a prompt or a start image, nothing else. Validation
+# refuses reference inputs for them with a clean 422.
+TEXT_IMAGE_ONLY_MODELS = (
+    "veo3_lite", "hailuo23", "luma_ray32", "ltx25", "ltx25_fast",
+    "pika22", "vidu_q2",
+)
+# Models that accept references but only still images: their
+# supplier schemas have no reference video or audio inputs.
+IMAGE_REFS_ONLY_MODELS = ("grok", "happyhorse")
 FAL_BASE = "https://queue.fal.run"
 FAL_ENDPOINTS = {
     ("wan3", "text"): "alibaba/wan-3.0/text-to-video",
@@ -465,6 +546,47 @@ FAL_ENDPOINTS = {
         "720p": "fal-ai/kling-video/v3/standard/reference-to-video",
         "1080p": "fal-ai/kling-video/v3/pro/reference-to-video",
     },
+    # Kling 3.0 Omni: the same resolution-keyed tier shape as
+    # Kling 3.0 (Standard at 720p, Pro at 1080p).
+    ("kling3_omni", "text"): {
+        "720p": "fal-ai/kling-video/o3/standard/text-to-video",
+        "1080p": "fal-ai/kling-video/o3/pro/text-to-video",
+    },
+    ("kling3_omni", "image"): {
+        "720p": "fal-ai/kling-video/o3/standard/image-to-video",
+        "1080p": "fal-ai/kling-video/o3/pro/image-to-video",
+    },
+    ("kling3_omni", "reference"): {
+        "720p": "fal-ai/kling-video/o3/standard/reference-to-video",
+        "1080p": "fal-ai/kling-video/o3/pro/reference-to-video",
+    },
+    # Veo 3.1 Lite: text and image modes only (validation refuses
+    # reference inputs for this model).
+    ("veo3_lite", "text"): "fal-ai/veo3.1/lite",
+    ("veo3_lite", "image"): "fal-ai/veo3.1/lite/image-to-video",
+    # Hailuo 2.3: the tier rides in the path like Kling's; text
+    # and image modes only, and the model is silent.
+    ("hailuo23", "text"): {
+        "720p": "minimax/hailuo-2.3/standard/text-to-video",
+        "1080p": "minimax/hailuo-2.3/pro/text-to-video",
+    },
+    ("hailuo23", "image"): {
+        "720p": "minimax/hailuo-2.3/standard/image-to-video",
+        "1080p": "minimax/hailuo-2.3/pro/image-to-video",
+    },
+    ("luma_ray32", "text"): "luma/agent/ray/v3.2/text-to-video",
+    ("luma_ray32", "image"): "luma/agent/ray/v3.2/image-to-video",
+    ("ltx25", "text"): "lightricks/ltx-2.5/text-to-video",
+    ("ltx25", "image"): "lightricks/ltx-2.5/image-to-video",
+    ("ltx25_fast", "text"): "lightricks/ltx-2.5/text-to-video/fast",
+    ("ltx25_fast", "image"): "lightricks/ltx-2.5/image-to-video/fast",
+    ("pika22", "text"): "fal-ai/pika/v2.2/text-to-video",
+    ("pika22", "image"): "fal-ai/pika/v2.2/image-to-video",
+    # Vidu Q2: wired but price-paused (no published per-second
+    # rate in the 2026-11-16 audit, so pricing.py carries no rate
+    # for it and the lane stays paused until one is recorded).
+    ("vidu_q2", "text"): "fal-ai/vidu/q2/text-to-video",
+    ("vidu_q2", "image"): "fal-ai/vidu/q2/image-to-video",
 }
 
 
@@ -475,14 +597,41 @@ def fal_endpoint_for(model: str, mode: str, resolution: str) -> str:
     return entry
 
 
-# Second supplier (Seedance 2.5): an async task API. Create returns
+# Second supplier (BeatAPI): an async task API. Create returns
 # a task id; the platform polls the task on the same cadence as the
 # fal lanes until it succeeds or fails, then downloads the result
 # from the task's output. The supplier also offers webhooks, but a
 # task stopped by a processing timeout sends no event, so polling
 # is the contract's reliable path and the only one wired.
 BEATAPI_BASE = "https://api.beatapi.io"
-BEATAPI_MODEL_IDS = {"seedance": "seedance-2.5"}
+BEATAPI_MODEL_IDS = {
+    "seedance": "seedance-2.5",
+    "wan3": "wan-3.0",
+    "wan3_prime": "wan-3.0-prime",
+    "kling3": "kling-v3",
+    "kling4": "kling-v4",
+    "seedance2": "seedance-2",
+    "seedance2_fast": "seedance-2-fast",
+    "seedance2_mini": "seedance-2-mini",
+    "omni12": "gemini-omni-1.2-flash",
+    "omni11": "gemini-omni-1.1-flash",
+    "grok": "grok-imagine-video-1.5",
+    "happyhorse": "happyhorse-1.1",
+    "minimax_h3": "minimax-h3",
+}
+# This supplier's model schemas are closed (additionalProperties:
+# false): only these models define a generate_audio flag at all.
+# Kling 3.0 takes its audio switch under a different name
+# ("sound"); every other model on this supplier either always
+# includes audio or is silent, and sending an unknown field would
+# fail the submit.
+BEATAPI_AUDIO_MODELS = ("seedance", "seedance2", "seedance2_fast")
+# Resolutions whose value on this supplier differs from the
+# platform's resolution name for the same output size.
+BEATAPI_RESOLUTION_MAP = {
+    "kling3": {"720p": "std", "1080p": "pro"},
+    "minimax_h3": {"720p": "768P"},
+}
 # The one user-facing sentence for any per-second-lane failure:
 # provider errors, billing failures, and pauses all surface as this,
 # never as a raw provider response.
@@ -1833,10 +1982,35 @@ def api():
                 )
         start_image = body.get("start_image_png_b64") or None
         end_image = body.get("end_image_png_b64") or None
-        if model in ("veo3", "veo3_fast") and (ref_videos or ref_audios):
+        if model in ("veo3", "veo3_fast", "veo3_lite") and (ref_videos or ref_audios):
             raise HTTPException(
                 status_code=422,
                 detail="this model takes image references only",
+            )
+        if model in TEXT_IMAGE_ONLY_MODELS and (ref_images or ref_videos or ref_audios):
+            raise HTTPException(
+                status_code=422,
+                detail="this model takes a prompt or a start image only",
+            )
+        if model in IMAGE_REFS_ONLY_MODELS and (ref_videos or ref_audios):
+            raise HTTPException(
+                status_code=422,
+                detail="this model takes image references only",
+            )
+        if model == "kling3" and (ref_images or ref_videos or ref_audios):
+            # Kling 3.0's primary supplier has no reference mode;
+            # reference media belongs to the Omni lane. Refused
+            # here rather than silently dropped.
+            raise HTTPException(
+                status_code=422,
+                detail="this model takes a prompt or a start image only",
+            )
+        if model == "omni12" and ref_videos and not ref_images:
+            # This supplier rejects reference videos submitted
+            # without at least one reference image.
+            raise HTTPException(
+                status_code=422,
+                detail="reference videos on this model need a reference image too",
             )
         if ref_images or ref_videos or ref_audios:
             mode = "reference"
@@ -1863,6 +2037,23 @@ def api():
         runs. The ceiling is reported too, so a refusal is never a
         surprise at create time."""
         state = api_lane_state(model)
+        if state["paused"]:
+            # A paused lane has no live quote (a price-paused model
+            # has no rates at all, and estimating one would raise
+            # instead of answering). Report the pause plainly.
+            return {
+                "model": model,
+                "model_label": MODEL_LABELS[model],
+                "duration_seconds": params["duration"],
+                "resolution": params["resolution"],
+                "billed_seconds": float(params["duration"]),
+                "raw_cost_cents": 0.0,
+                "balance_debit_cents": 0,
+                "cap_cents": 0.0,
+                "lane_paused": True,
+                "ceiling_ok": False,
+                "payment": {"method": "unavailable"},
+            }
         est = pricing.per_second_estimate(
             model, params["resolution"], params["duration"],
             params["reference_video_seconds"], rate_table()["rates"],
@@ -1934,7 +2125,7 @@ def api():
     def submit_fal_job(job: dict, body: dict, params: dict, prompt: str, base: str):
         model = job["model"]
         endpoint = fal_endpoint_for(model, params["mode"], params["resolution"])
-        if model in ("veo3", "veo3_fast"):
+        if model in ("veo3", "veo3_fast", "veo3_lite"):
             # Veo's fal schema: clip length as a string, audio as
             # generate_audio, frames as image_url / end_image_url,
             # references as image_urls (images only; validation
@@ -1953,7 +2144,7 @@ def api():
             elif params["mode"] == "reference":
                 if params["reference_image_urls"]:
                     payload["image_urls"] = params["reference_image_urls"]
-        elif model == "kling3":
+        elif model in ("kling3", "kling3_omni"):
             # Kling's tier rides in the endpoint path (see
             # FAL_ENDPOINTS), so no resolution field goes in the
             # body; native audio is part of the priced tier.
@@ -1973,6 +2164,31 @@ def api():
                     payload["reference_video_urls"] = params["reference_video_urls"]
                 if params["reference_audio_urls"]:
                     payload["reference_audio_urls"] = params["reference_audio_urls"]
+        elif model == "hailuo23":
+            # Hailuo's tier rides in the endpoint path like
+            # Kling's; the model is silent and its schema takes
+            # no aspect or resolution fields.
+            payload = {
+                "prompt": prompt,
+                "duration": params["duration"],
+            }
+            if params["mode"] == "image":
+                payload["image_url"] = f"data:image/png;base64,{params['start_image']}"
+        elif model in ("luma_ray32", "ltx25", "ltx25_fast", "pika22", "vidu_q2"):
+            # Minimal text/image payloads in the shared fal shape.
+            # These lanes are dark (the supplier account is
+            # unfunded), so a schema mismatch surfaces as the
+            # clean unavailable sentence with the hold released,
+            # never a charge; the payloads get their funded
+            # verification pass before any of these lanes lights.
+            payload = {
+                "prompt": prompt,
+                "aspect_ratio": "9:16",
+                "duration": params["duration"],
+                "resolution": params["resolution"],
+            }
+            if params["mode"] == "image":
+                payload["image_url"] = f"data:image/png;base64,{params['start_image']}"
         else:
             payload = {
                 "prompt": prompt,
@@ -2048,19 +2264,33 @@ def api():
         return _beatapi_upload(raw, f"{kind}.{ext}", mime)
 
     def submit_beatapi_job(job: dict, body: dict, params: dict, prompt: str):
-        """Create one task on the Seedance supplier. The price is
+        """Create one task on the BeatAPI supplier. The price is
         reserved from the supplier balance at creation; a failed
         task is refunded there in full, and any refusal here (a
         $0 balance answers 402) fails the job and releases the
         platform hold, exactly like the fal lanes."""
+        model = job["model"]
         payload = {
-            "model": BEATAPI_MODEL_IDS[job["model"]],
+            "model": BEATAPI_MODEL_IDS[model],
             "prompt": prompt,
             "duration": params["duration"],
-            "resolution": params["resolution"],
-            "aspect_ratio": "9:16",
-            "generate_audio": True,
+            "resolution": BEATAPI_RESOLUTION_MAP.get(model, {}).get(
+                params["resolution"], params["resolution"]
+            ),
         }
+        # The supplier's schemas are closed: an audio switch goes
+        # only to the models that define one, under the name each
+        # defines. Every other model on this supplier either
+        # always includes audio or is silent.
+        if model in BEATAPI_AUDIO_MODELS:
+            payload["generate_audio"] = True
+        elif model == "kling3":
+            payload["sound"] = True
+        # Image-led requests on these models follow the start
+        # image's own shape; the supplier's contract omits the
+        # aspect ratio there.
+        if not (model in ("grok", "kling3") and params["mode"] == "image"):
+            payload["aspect_ratio"] = "9:16"
         try:
             if params["mode"] == "image":
                 frames = [_beatapi_media_url(params["start_image"], "first-frame")]
@@ -3660,11 +3890,12 @@ def refresh_provider_rates():
     only when every required model's full price set was re-read, so
     a partial or failed read leaves the staleness pause armed
     instead of quietly extending stale prices. Required reads: the
-    two Wan pages and the Seedance page on its supplier's site.
-    The Veo and Kling pages are read opportunistically (their
-    prices update when the pages parse, and the weekly margin
-    report is the backstop until they do). Runs on CPU; no key
-    needed, the pages are public."""
+    Seedance and two Wan pages on the BeatAPI supplier's site (the
+    route rule made that supplier primary for all three). The fal
+    pages are read opportunistically (their prices update when the
+    pages parse, and the weekly margin report is the backstop
+    until they do). Runs on CPU; no key needed, the pages are
+    public."""
     import re as _re
 
     import requests as _requests
@@ -3684,14 +3915,19 @@ def refresh_provider_rates():
         return pairs
 
     fal_pages = {
-        "wan3": [("alibaba/wan-3.0/text-to-video", pricing.RESOLUTIONS)],
-        "wan3_prime": [("alibaba/wan-3.0-prime/text-to-video", pricing.RESOLUTIONS)],
         "veo3": [("fal-ai/veo3.1", ("720p", "1080p"))],
         "veo3_fast": [("fal-ai/veo3.1/fast", ("720p", "1080p"))],
-        "kling3": [
-            ("fal-ai/kling-video/v3/standard/text-to-video", ("720p",)),
-            ("fal-ai/kling-video/v3/pro/text-to-video", ("1080p",)),
+        "veo3_lite": [("fal-ai/veo3.1/lite", ("720p", "1080p"))],
+        "kling3_omni": [
+            ("fal-ai/kling-video/o3/standard/text-to-video", ("720p",)),
+            ("fal-ai/kling-video/o3/pro/text-to-video", ("1080p",)),
         ],
+        "hailuo23": [
+            ("minimax/hailuo-2.3/standard/text-to-video", ("720p",)),
+            ("minimax/hailuo-2.3/pro/text-to-video", ("1080p",)),
+        ],
+        "ltx25": [("lightricks/ltx-2.5/text-to-video", ("720p", "1080p"))],
+        "ltx25_fast": [("lightricks/ltx-2.5/text-to-video/fast", ("720p", "1080p"))],
     }
     found = {}
     for model, page_specs in fal_pages.items():
@@ -3715,39 +3951,52 @@ def refresh_provider_rates():
         if expected and expected.issubset(pairs):
             found[model] = {res: pairs[res] for res in sorted(expected)}
 
-    # Seedance 2.5's supplier publishes per-clip prices for 8-second
-    # clips on the model's own page; per-second is price / 8. The
-    # rows used are the no-video-input ones, the same basis as the
-    # seeded table. The page carries them as structured-data offers
-    # ("name": "... 8 sec · 720p · no video input", "price": 1.5633)
-    # and as a rendered table; try both shapes.
-    try:
-        resp = _requests.get(
-            "https://beatapi.io/seedance-2.5-api",
-            headers={"User-Agent": "Mozilla/5.0"},
-            timeout=30,
-        )
-        if resp.status_code == 200:
+    # The BeatAPI supplier publishes per-clip prices for 8-second
+    # clips on each model's own page; per-second is price / 8.
+    # Seedance's rows used are the no-video-input ones, the same
+    # basis as the seeded table; the Wan pages carry a single rate
+    # per resolution. The pages carry the rows as structured-data
+    # offers ("name": "... 8 sec · 720p ...", "price": 1.5633) and
+    # as a rendered table; try both shapes. The offers pattern is
+    # pinned to the page's own URL so a cross-sold model's rows on
+    # the same page can never land in the wrong lane.
+    beatapi_pages = {
+        "seedance": ("https://beatapi.io/seedance-2.5-api", " · no video input"),
+        "wan3": ("https://beatapi.io/wan-3-0-api", ""),
+        "wan3_prime": ("https://beatapi.io/wan-3-0-prime-api", ""),
+    }
+    for beat_model, (beat_url, qualifier) in beatapi_pages.items():
+        try:
+            resp = _requests.get(
+                beat_url,
+                headers={"User-Agent": "Mozilla/5.0"},
+                timeout=30,
+            )
+            if resp.status_code != 200:
+                continue
             text = resp.text.replace("\\u00b7", "·").replace("\\", "")
             pairs = {}
             for res, price in _re.findall(
-                r"8 sec · (480p|720p|1080p) · no video input\",\"url\":\"[^\"]*\",\"price\":(\d+\.\d+)",
+                r"8 sec · (480p|720p|1080p)" + _re.escape(qualifier)
+                + r"\",\"url\":\"" + _re.escape(beat_url)
+                + r"\",\"price\":(\d+\.\d+)",
                 text,
             ):
                 pairs[res] = round(float(price) / 8 * 100, 3)
             if len(pairs) < 3:
                 pairs = {}
                 for res, price in _re.findall(
-                    r"8 sec · (480p|720p|1080p) · no video input[^$\d]{0,80}\$(\d+\.\d+)",
+                    r"8 sec · (480p|720p|1080p)" + _re.escape(qualifier)
+                    + r"[^$\d]{0,80}\$(\d+\.\d+)",
                     text,
                 ):
                     pairs[res] = round(float(price) / 8 * 100, 3)
             if len(pairs) == 3:
-                found["seedance"] = {
+                found[beat_model] = {
                     res: pairs[res] for res in pricing.RESOLUTIONS
                 }
-    except Exception:
-        pass
+        except Exception:
+            continue
 
     required = {"wan3", "wan3_prime", "seedance"}
     if not required.issubset(found):
@@ -3908,7 +4157,13 @@ document.getElementById('hero-go').onclick = () => {
 // never hand-written: names, order, prices, lengths and sizes all
 // come from the served data.
 const LANDING_DURATIONS = { wan3: [5, 10, 15, 20, 30], wan3_prime: [5, 10, 15, 20, 30],
-  seedance: [5, 10, 15, 20, 30], veo3: [4, 6, 8], veo3_fast: [4, 6, 8], kling3: [5, 10, 15] };
+  seedance: [5, 10, 15, 20, 30], veo3: [4, 6, 8], veo3_fast: [4, 6, 8], kling3: [5, 10, 15],
+  kling4: [5, 10, 15, 20, 30], kling3_omni: [5, 10, 15],
+  seedance2: [5, 10, 15], seedance2_fast: [5, 10, 15], seedance2_mini: [5, 10, 15],
+  veo3_lite: [4, 6, 8], omni12: [5, 10, 15], omni11: [5, 10], hailuo23: [6, 10],
+  minimax_h3: [5, 10, 15], grok: [5, 10, 15], luma_ray32: [5, 10],
+  ltx25: [6, 10, 15, 20], ltx25_fast: [6, 10, 15, 20], happyhorse: [5, 10, 15],
+  pika22: [5, 10], vidu_q2: [4, 6, 8] };
 let landingCfg = null, landingPricing = null;
 function money(c) { return '$' + (c / 100).toFixed(2); }
 function renderLandingCatalog() {
@@ -3947,7 +4202,10 @@ fetch('/api/pricing').then(r => r.json()).then(p => { landingPricing = p; render
   const secs = p.creator_included_production_seconds;
   let perSecond = '';
   if (p.api_lanes) {
-    const order = ['wan3', 'wan3_prime', 'seedance', 'veo3', 'veo3_fast', 'kling3'];
+    const order = ['wan3', 'wan3_prime', 'seedance', 'veo3', 'veo3_fast', 'kling3',
+      'kling4', 'kling3_omni', 'seedance2', 'seedance2_fast', 'seedance2_mini',
+      'veo3_lite', 'omni12', 'omni11', 'hailuo23', 'minimax_h3', 'grok',
+      'luma_ray32', 'ltx25', 'ltx25_fast', 'happyhorse', 'pika22', 'vidu_q2'];
     const parts = [];
     for (const id of order) {
       const lane = p.api_lanes[id];
@@ -4046,6 +4304,23 @@ APP_HTML = (
       <option value="veo3">Veo 3.1</option>
       <option value="veo3_fast">Veo 3.1 Fast</option>
       <option value="kling3">Kling 3.0</option>
+      <option value="kling4">Kling 4.0</option>
+      <option value="kling3_omni">Kling 3.0 Omni</option>
+      <option value="seedance2">Seedance 2.0</option>
+      <option value="seedance2_fast">Seedance 2.0 Fast</option>
+      <option value="seedance2_mini">Seedance 2.0 Mini</option>
+      <option value="veo3_lite">Veo 3.1 Lite</option>
+      <option value="omni12">Gemini Omni 1.2 Flash</option>
+      <option value="omni11">Gemini Omni 1.1 Flash</option>
+      <option value="hailuo23">Hailuo 2.3</option>
+      <option value="minimax_h3">MiniMax H3</option>
+      <option value="grok">Grok Imagine Video 1.5</option>
+      <option value="luma_ray32">Luma Ray 3.2</option>
+      <option value="ltx25">LTX-2.5</option>
+      <option value="ltx25_fast">LTX-2.5 Fast</option>
+      <option value="happyhorse">HappyHorse 1.1</option>
+      <option value="pika22">Pika 2.2</option>
+      <option value="vidu_q2">Vidu Q2</option>
     </select>
     <p class="muted" id="model-note"></p>
     <div id="lane-wrap">
@@ -4525,7 +4800,24 @@ const MODEL_OPTS = {
   seedance: { durations: [5, 10, 15, 20, 30], resolutions: ['480p', '720p', '1080p'] },
   veo3: { durations: [4, 6, 8], resolutions: ['720p', '1080p'] },
   veo3_fast: { durations: [4, 6, 8], resolutions: ['720p', '1080p'] },
-  kling3: { durations: [5, 10, 15], resolutions: ['720p', '1080p'] }
+  kling3: { durations: [5, 10, 15], resolutions: ['720p', '1080p'] },
+  kling4: { durations: [5, 10, 15, 20, 30], resolutions: ['720p', '1080p'] },
+  kling3_omni: { durations: [5, 10, 15], resolutions: ['720p', '1080p'] },
+  seedance2: { durations: [5, 10, 15], resolutions: ['480p', '720p', '1080p'] },
+  seedance2_fast: { durations: [5, 10, 15], resolutions: ['480p', '720p'] },
+  seedance2_mini: { durations: [5, 10, 15], resolutions: ['480p', '720p'] },
+  veo3_lite: { durations: [4, 6, 8], resolutions: ['720p', '1080p'] },
+  omni12: { durations: [5, 10, 15], resolutions: ['720p', '1080p'] },
+  omni11: { durations: [5, 10], resolutions: ['720p', '1080p'] },
+  hailuo23: { durations: [6, 10], resolutions: ['720p', '1080p'] },
+  minimax_h3: { durations: [5, 10, 15], resolutions: ['480p', '720p', '1080p'] },
+  grok: { durations: [5, 10, 15], resolutions: ['480p', '720p', '1080p'] },
+  luma_ray32: { durations: [5, 10], resolutions: ['480p', '720p', '1080p'] },
+  ltx25: { durations: [6, 10, 15, 20], resolutions: ['720p', '1080p'] },
+  ltx25_fast: { durations: [6, 10, 15, 20], resolutions: ['720p', '1080p'] },
+  happyhorse: { durations: [5, 10, 15], resolutions: ['720p', '1080p'] },
+  pika22: { durations: [5, 10], resolutions: ['720p', '1080p'] },
+  vidu_q2: { durations: [4, 6, 8], resolutions: ['720p', '1080p'] }
 };
 function fillSelect(sel, values, label) {
   const keep = sel.value;
