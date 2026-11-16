@@ -1413,8 +1413,14 @@ def api():
     # -- pages -------------------------------------------------------------
 
     @web.get("/", response_class=HTMLResponse)
-    def landing():
-        return HTMLResponse(INDEX_HTML)
+    def landing(request: Request, mf_session: str = Cookie(default="")):
+        # Session-aware (Direction C rebuild, 2026-11-16): a
+        # signed-in paid member never sees Try It on the landing;
+        # their top block sends them straight to Create. Everyone
+        # else gets the Try It framing with the sign-in-first rule.
+        user = current_user(request, mf_session)
+        top = _LANDING_TOP_MEMBER if (user and is_paid(user)) else _LANDING_TOP_GUEST
+        return HTMLResponse(INDEX_HTML.replace("__LANDING_TOP__", top))
 
     @web.get("/app", response_class=HTMLResponse)
     def studio():
@@ -5316,238 +5322,233 @@ def refresh_provider_rates():
 
 _CSS = """
 <style>
-  body { font-family: system-ui, sans-serif; margin: 0; color: #1a1a1a; background: #fafafa; }
-  main { max-width: 880px; margin: 0 auto; padding: 24px 16px 64px; }
-  header { display: flex; justify-content: space-between; align-items: baseline; }
-  h1 { font-size: 28px; margin: 8px 0; } h2 { font-size: 20px; margin-top: 36px; }
-  a { color: #6a1fd0; } .btn { display: inline-block; background: #6a1fd0; color: #fff;
-    padding: 10px 18px; border-radius: 8px; text-decoration: none; border: 0; cursor: pointer; font-size: 15px; }
-  .btn.secondary { background: #e6e0f5; color: #33135e; }
-  .card { background: #fff; border: 1px solid #ddd; border-radius: 10px; padding: 16px; margin: 12px 0; }
-  input, textarea, select { width: 100%; box-sizing: border-box; padding: 9px; margin: 6px 0 12px;
-    border: 1px solid #bbb; border-radius: 6px; font-size: 15px; }
-  label { font-weight: 600; font-size: 14px; }
-  .muted { color: #555; font-size: 14px; } .err { color: #b00020; } .ok { color: #0a6a2a; }
-  video { width: 100%; max-width: 360px; border-radius: 8px; background: #000; }
-  table { border-collapse: collapse; } td, th { border: 1px solid #ddd; padding: 8px 10px; text-align: left; }
-  .chip { display: inline-block; border: 1px solid #bbb; background: #fff; color: #1a1a1a;
-    border-radius: 999px; padding: 5px 12px; cursor: pointer; font-size: 13px; margin: 0 6px 6px 0; width: auto; }
-  .chip.on { background: #6a1fd0; color: #fff; border-color: #6a1fd0; }
-  .chip:disabled { opacity: .45; cursor: default; }
-  #looks { display: flex; flex-wrap: wrap; gap: 8px 14px; margin-bottom: 12px; }
-  #looks label { font-weight: 400; font-size: 13px; }
-  #looks select { width: auto; margin: 2px 0 0; display: block; }
-  .tabs { display: flex; gap: 8px; margin-bottom: 14px; }
-  .group-label { font-size: 13px; text-transform: uppercase; letter-spacing: .04em;
-    color: #555; margin: 20px 0 4px; font-weight: 700; }
-  .model-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-    gap: 8px; margin: 6px 0 4px; }
-  .model-card { text-align: left; border: 1px solid #bbb; background: #fff; color: #1a1a1a;
-    border-radius: 10px; padding: 10px 12px; cursor: pointer; font-size: 13px;
-    width: 100%; box-sizing: border-box; margin: 0; }
-  .model-card.on { border-color: #6a1fd0; box-shadow: 0 0 0 2px #6a1fd0 inset; }
-  .model-card:disabled { opacity: .55; cursor: default; }
-  .model-card.static { cursor: default; }
-  .model-card .mc-name { font-weight: 700; font-size: 15px; display: block; }
-  .model-card .mc-price { color: #33135e; font-weight: 600; display: block; margin: 2px 0; }
-  .model-card .mc-meta { color: #555; display: block; }
-  .composer-prompt { font-size: 16px; }
-  #items { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
-  #items .card { margin: 0; }
+  :root{
+    --ink:#f4f4f1; --gray:#b8b8c0; --faint:#92929c;
+    --line:#26262e; --bg:#0c0c0f; --card:#17171d;
+    --accent:#6366f1; --accent-bright:#818cf8;
+    --inset:#101014; --seg-on:#2b2b34; --seg-bg:#1b1b21;
+    --err:#ff8a8a; --ok:#7ddba3;
+  }
+  *{box-sizing:border-box}
+  body{font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;margin:0;color:var(--ink);background:var(--bg);-webkit-font-smoothing:antialiased}
+  main{max-width:960px;margin:0 auto;padding:26px 24px 90px}
+  header{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+  .logo{font-weight:800;font-size:19px;letter-spacing:-.02em;text-decoration:none;color:var(--ink);display:flex;align-items:center;gap:9px}
+  .logo svg{flex:none;display:block}
+  .logo em{font-style:normal;color:var(--accent-bright)}
+  header nav{display:flex;gap:26px;align-items:center}
+  header nav a{text-decoration:none;color:var(--gray);font-size:15px}
+  header nav a:hover{color:var(--ink)}
+  header nav .who{color:var(--faint);font-size:14px}
+  h1{font-size:46px;line-height:1.12;letter-spacing:-.03em;font-weight:800;margin:0}
+  h2{font-size:26px;letter-spacing:-.02em;margin:0 0 6px}
+  a{color:var(--accent-bright)}
+  .btn{display:inline-block;background:var(--accent);color:#fff;padding:11px 20px;border-radius:12px;text-decoration:none;border:0;cursor:pointer;font:inherit;font-size:15px;font-weight:600;transition:.15s}
+  .btn:hover{background:var(--accent-bright)}
+  .btn.secondary{background:var(--seg-on);color:var(--ink)}
+  .btn.secondary:hover{background:#3a3a46}
+  .btn:disabled{opacity:.45;cursor:default}
+  .btn.gen{width:100%;margin-top:24px;border-radius:14px;font-size:17px;font-weight:700;padding:16px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:26px;margin:18px 0}
+  input,textarea,select{width:100%;padding:12px 14px;margin:6px 0 12px;border:1px solid var(--line);border-radius:12px;font:inherit;font-size:15px;background:var(--inset);color:var(--ink)}
+  textarea{line-height:1.5;resize:vertical}
+  textarea:focus,select:focus,input:focus{outline:2px solid var(--accent);outline-offset:0;border-color:transparent}
+  textarea::placeholder,input::placeholder{color:var(--faint)}
+  select{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23a1a1aa' stroke-width='2' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 14px center;padding-right:36px}
+  label{font-weight:600;font-size:14px;color:var(--gray);display:block}
+  label.flabel{font-size:13px;margin-bottom:7px}
+  .muted{color:var(--faint);font-size:14px;line-height:1.6}
+  .err{color:var(--err)} .ok{color:var(--ok)}
+  video{width:100%;border-radius:14px;background:#000}
+  table{border-collapse:collapse} td,th{border:1px solid var(--line);padding:8px 10px;text-align:left}
+  .chip{display:inline-block;border:1px solid var(--line);background:var(--inset);color:var(--ink);border-radius:999px;padding:6px 13px;cursor:pointer;font-size:13px;margin:0 6px 6px 0;width:auto}
+  .chip.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .chip:disabled{opacity:.45;cursor:default}
+  #looks{display:flex;flex-wrap:wrap;gap:8px 14px;margin-bottom:12px}
+  #looks label{font-weight:400;font-size:13px}
+  #looks select{width:auto;margin:2px 0 0;display:block;padding:8px 30px 8px 10px}
+  .tabs{display:flex;justify-content:center;margin:18px 0 6px}
+  .tabs .seg{display:flex;background:var(--seg-bg);border-radius:999px;padding:3px;gap:2px}
+  .tabs .btn{background:transparent;color:var(--gray);padding:8px 20px;border-radius:999px;font-size:14px;box-shadow:none}
+  .tabs .btn:hover{background:transparent;color:var(--ink)}
+  .tabs .btn:not(.secondary){background:var(--seg-on);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.4)}
+  .tabs .btn:not(.secondary):hover{background:var(--seg-on)}
+  .group-label{font-size:13px;color:var(--faint);font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin:22px 0 8px}
+  .composer-prompt{font-size:16px;min-height:84px}
+  .row{display:flex;gap:12px;margin-top:16px}
+  .row .grow{flex:1}
+  .dur{display:flex;background:var(--inset);border-radius:12px;padding:3px;gap:2px;flex-wrap:wrap}
+  .dur button{flex:1;border:0;background:transparent;padding:9px 10px;border-radius:9px;font:inherit;font-size:15px;font-weight:600;color:var(--gray);cursor:pointer;white-space:nowrap}
+  .dur button.on{background:var(--seg-on);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.4)}
+  .dur.off{opacity:.45;pointer-events:none}
+  .drop{border:1.5px dashed #34343e;border-radius:14px;padding:30px 20px;text-align:center;color:var(--gray);cursor:pointer;transition:.15s;background:var(--inset)}
+  .drop:hover,.drop.over{border-color:var(--accent);color:var(--ink)}
+  .drop svg{display:block;margin:0 auto 10px}
+  .drop .big{font-size:15.5px;font-weight:600;color:var(--ink)}
+  .drop .small{font-size:13px;margin-top:3px}
+  .drop.filled{border-style:solid;border-color:var(--line);padding:14px;display:flex;align-items:center;gap:14px;text-align:left;cursor:default}
+  .drop .thumb{max-width:52px;max-height:70px;border-radius:9px;flex:none}
+  .drop .fname{font-weight:600;color:var(--ink);font-size:14.5px}
+  .drop .fmeta{color:var(--faint);font-size:13px}
+  .drop .remove{margin-left:auto;border:0;background:none;color:var(--faint);font-size:20px;cursor:pointer;line-height:1;padding:6px}
+  .drop .remove:hover{color:var(--ink)}
+  details.more{margin-top:20px;border-top:1px solid var(--line);padding-top:16px}
+  details.more summary{cursor:pointer;color:var(--gray);font-size:14.5px;font-weight:600;list-style:none}
+  details.more summary::-webkit-details-marker{display:none}
+  details.more summary:hover{color:var(--ink)}
+  .under{margin-top:14px;text-align:center;color:var(--faint);font-size:13.5px;line-height:1.6}
+  .badge{font-size:12px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#a5b4fc;background:#1e1e38;border-radius:999px;padding:5px 11px}
+  .create-head{display:flex;align-items:center;gap:12px;margin-top:8px}
+  .paywall p{color:var(--gray);font-size:15.5px;line-height:1.6}
+  .hero{max-width:680px;margin:64px auto 0;text-align:center}
+  .hero p{margin:18px auto 0;color:var(--gray);font-size:18px;line-height:1.55;max-width:520px}
+  .hero-entry{max-width:640px;margin:40px auto 0;background:var(--card);border:1px solid var(--line);border-radius:20px;padding:26px}
+  .hero-entry .row2{display:flex;gap:12px}
+  .hero-entry input{margin:0;flex:1}
+  .hero-entry .btn{flex:none}
+  .strip-label{max-width:880px;margin:72px auto 14px;color:var(--faint);font-size:13px;letter-spacing:.06em;text-transform:uppercase;font-weight:700}
+  .strip{max-width:880px;margin:0 auto;display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+  .pricing-line{max-width:680px;margin:64px auto 0;text-align:center;color:var(--gray);font-size:15.5px;line-height:1.7}
+  .pricing-line b{color:var(--ink)}
+  .grid{max-width:880px;margin:0 auto;display:grid;grid-template-columns:repeat(3,1fr);gap:22px 16px}
+  .tile .frame{aspect-ratio:9/16;border-radius:16px;overflow:hidden;background:var(--card)}
+  .tile .frame video{width:100%;height:100%;object-fit:cover;border-radius:0}
+  .tile .handle{margin-top:9px;font-size:14px;color:var(--gray)}
+  .tile .report{margin-top:6px;background:none;border:0;color:var(--faint);font:inherit;font-size:13px;cursor:pointer;padding:0}
+  .tile .report:hover{color:var(--ink)}
+  .tile .report:disabled{color:var(--faint);cursor:default}
+  .job video{max-width:360px}
+  .job img.thumb{width:140px;border-radius:10px}
+  footer{max-width:960px;margin:0 auto;padding:0 24px 44px;color:var(--faint);font-size:13.5px;display:flex;justify-content:space-between}
+  @media(max-width:700px){
+    h1{font-size:34px}
+    .strip{grid-template-columns:repeat(2,1fr)}
+    .grid{grid-template-columns:repeat(2,1fr)}
+    .row{flex-direction:column}
+    .hero-entry .row2{flex-direction:column}
+  }
 </style>
 """
+
+# ------------------------------------------------------------------
+# Landing top blocks: the landing is session-aware (Direction C
+# rebuild, 2026-11-16). A signed-in paid member never sees Try It:
+# their top block sends them straight to Create. Everyone else gets
+# the Try It framing with the sign-in-first rule stated. landing()
+# swaps the block into INDEX_HTML at the __LANDING_TOP__ token.
+# ------------------------------------------------------------------
+
+_LANDING_TOP_GUEST = """<header>
+  <a class="logo" href="/"><svg width="27" height="27" viewBox="0 0 48 48" aria-hidden="true"><path fill="#818cf8" d="M23.3 8A16 16 0 1 0 32.6 37.5A16.5 16.5 0 0 1 23.3 8Z"/><path fill="#f5d67a" stroke="#f5d67a" stroke-width="1.6" stroke-linejoin="round" d="M24 18.5L24 27.5L31.5 23Z"/></svg><span>Moon<em>factory</em></span></a>
+  <nav><a href="/gallery">Gallery</a><a href="/app" style="color:#f4f4f1;font-weight:600">Sign in</a></nav>
+</header>
+<div class="hero">
+  <h1>Turn one image into<br>a short video.</h1>
+  <p>Upload a photo, describe what happens, and get a vertical clip
+  with sound: music, and a voice whenever someone is talking.
+  Your first 5 clips are free.</p>
+</div>
+<div class="hero-entry">
+  <div class="row2">
+    <input id="hero-prompt" type="text" maxlength="500"
+      placeholder="Describe your video: a red hot air balloon rising over green hills">
+    <button class="btn" id="hero-go" type="button">Try It free</button>
+  </div>
+  <p class="under" style="margin-top:12px">Trying anything takes an account:
+  sign up free, verify your email, and Try It gives you 5 clips, total.
+  No card.</p>
+</div>"""
+
+_LANDING_TOP_MEMBER = """<header>
+  <a class="logo" href="/"><svg width="27" height="27" viewBox="0 0 48 48" aria-hidden="true"><path fill="#818cf8" d="M23.3 8A16 16 0 1 0 32.6 37.5A16.5 16.5 0 0 1 23.3 8Z"/><path fill="#f5d67a" stroke="#f5d67a" stroke-width="1.6" stroke-linejoin="round" d="M24 18.5L24 27.5L31.5 23Z"/></svg><span>Moon<em>factory</em></span></a>
+  <nav><a href="/gallery">Gallery</a><a href="/app" style="color:#f4f4f1;font-weight:600">Open Create</a></nav>
+</header>
+<div class="hero">
+  <h1>Turn one image into<br>a short video.</h1>
+  <p>Welcome back. Create is your studio: every model, custom sound,
+  the full shelf. It is one click away.</p>
+</div>
+<div class="hero-entry">
+  <div class="row2">
+    <input id="hero-prompt" type="text" maxlength="500"
+      placeholder="Describe your video: a red hot air balloon rising over green hills">
+    <button class="btn" id="hero-go" type="button">Open Create</button>
+  </div>
+  <p class="under" style="margin-top:12px">Members open straight into Create.
+  Try It is for people who have not paid yet, so it is not in your way.</p>
+</div>"""
 
 INDEX_HTML = (
     """<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Moonfactory: AI video generation for creators</title>"""
     + _CSS
-    + """</head><body><main>
-<header><strong>Moonfactory</strong><span><a href="/gallery">Gallery</a> &nbsp; <a href="/app">Try It</a></span></header>
-<h1>Turn a still image into a short video, with music.</h1>
-<p>Moonfactory takes a start image and a prompt and renders a vertical
-short video with a music track included. It is built for TikTok, Reels,
-and X: 9:16, captioned by you, ready to post.</p>
-<p><input id="hero-prompt" type="text" maxlength="500"
-placeholder="Describe your video: a red hot air balloon rising over green hills">
-<button class="btn" id="hero-go" type="button">Try It free</button></p>
-<p class="muted">Trying anything takes an account: sign up free, verify
-your email, and Try It gives you 5 Draft clips, total. Create, the full
-studio, opens with any payment.</p>
+    + """<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Cpath fill='%23818cf8' d='M23.3 8A16 16 0 1 0 32.6 37.5A16.5 16.5 0 0 1 23.3 8Z'/%3E%3Cpath fill='%23f5d67a' stroke='%23f5d67a' stroke-width='1.6' stroke-linejoin='round' d='M24 18.5L24 27.5L31.5 23Z'/%3E%3C/svg%3E">
+</head><body><main>
+__LANDING_TOP__
 
-<h2>How it works</h2>
-<ol>
-  <li>Bring a start image, or just describe the scene for a text-only video on the Draft lane.</li>
-  <li>Write the prompt: what moves, where the camera goes, the mood.</li>
-  <li>Pick a model and render. Every account starts on Wan 2.2;
-      paying customers can switch models in Create.</li>
-</ol>
+<div class="strip-label" id="strip-label" style="display:none">Fresh from the community</div>
+<div class="strip" id="strip"></div>
 
-<h2>Models</h2>
-<div id="models-catalog" class="model-grid"><p class="muted">Loading models...</p></div>
-<p class="muted">Paying customers can join up to 12 Wan 2.2 segments
-into one video of about a minute and steer Production renders to a
-chosen end frame. The per-second models make their sound with the
-picture.</p>
-<p class="muted">Every model beyond Wan 2.2 is priced per second.
-The exact price for your video is always shown before it runs.
-Creator members can pay from their included monthly budget;
-everyone else pays per video from prepaid balance. Nothing ever
-runs at a price you have not seen first.</p>
-
-<h2>Effects</h2>
-<p>Paying customers can pick one of 24 one-tap effects for a start
-image instead of a plain render: Cakeify, Explode, Inflate, Squish,
-Bullet Time, a hydraulic press, money rain, a 360 orbit, and more.
-Each effect renders about 5 seconds at 480p class and is delivered
-with the usual music bed, priced like a Production segment.</p>
-
-<h2>Pricing</h2>
-<p>Two ways to pay, side by side. <strong>Pay per video:</strong>
-top up a prepaid balance and pay per clip, no subscription.
-<strong>Creator:</strong> a monthly plan with an included
-generation budget, plus top-ups whenever you want more. Any
-payment, either way, unlocks every model, custom music, and
-hiding your clips from the gallery.</p>
-<div id="pricing"><p class="muted">Loading prices...</p></div>
-<p class="muted">Wan 2.2 prices come from one formula: worst-case
-measured generation cost, times three, with card fees included.
-The per-second models are priced against what the
-big credit platforms effectively charge for the same clip, and
-never below our own cost plus a margin, so no video ever runs at
-a loss. If our costs drop, the included time goes up on its own.</p>
-
-<h2>Try It: the free plan, honestly</h2>
-<p>Try It is the free plan, and it is small on purpose: <span id="free-limit">5</span> Draft
-clips per account, total. Not per month and never resetting: five,
-ever, watermarked, lowest queue priority. Each free clip costs real
-GPU time, so the whole platform also has a hard total budget for free
-work; when it is used up, free jobs pause. Paid work is never crowded
-out by free work.</p>
-
-<h2>Gallery</h2>
-<p>Finished clips show in the <a href="/gallery">public gallery</a>
-under the creator's handle, never an email address. Paying
-customers can opt out in Create; clips from accounts that have
-never paid are always listed. Every
-gallery item has a report button, and anything reported gets
-reviewed and removed when it should not be there.</p>
-
-<h2>FAQ</h2>
-<p><strong>Does every video have sound?</strong> Yes. A music track is
-mixed onto every finished video. Silent output is not a thing here.
-Paying customers can also describe the music they want and have it
-generated for that video; other clips use the house track.</p>
-<p><strong>Can I use the videos commercially?</strong> Yes, on either
-paid path: the Creator plan or pay per video. Free clips are for
-trying things out.</p>
-<p><strong>What if a render fails?</strong> If the failure is on our
-side, the charge goes back to your balance automatically and you can
-re-run it.</p>
-<p><strong>Do unused plan minutes roll over?</strong> No. Included time
-resets each month, which is part of how the price stays at $20.</p>
-
-<p style="margin-top:40px"><a class="btn" href="/app">Try It free</a></p>
+<p class="pricing-line"><b>Free</b> — 5 clips, no card. &nbsp;<b>Creator</b> —
+<span id="creator-price">$20</span>/mo with an included budget. &nbsp;<b>Pay per clip</b> —
+the exact price is on the button before anything runs. No credits, no conversion math.</p>
 </main>
+<footer><span>Moonfactory</span><span><a href="/gallery">Gallery</a></span></footer>
 <script>
 document.getElementById('hero-go').onclick = () => {
   const v = document.getElementById('hero-prompt').value.trim();
   location.href = '/app' + (v ? '?prompt=' + encodeURIComponent(v) : '');
 };
-// The model shelf is rendered from /api/config and /api/pricing,
-// never hand-written: names, order, prices, lengths and sizes all
-// come from the served data.
-const LANDING_DURATIONS = { wan3: [5, 10, 15, 20, 30], wan3_prime: [5, 10, 15, 20, 30],
-  seedance: [5, 10, 15, 20, 30], veo3: [4, 6, 8], veo3_fast: [4, 6, 8], kling3: [5, 10, 15],
-  kling4: [5, 10, 15, 20, 30], kling3_omni: [5, 10, 15],
-  seedance2: [5, 10, 15], seedance2_fast: [5, 10, 15], seedance2_mini: [5, 10, 15],
-  veo3_lite: [4, 6, 8], omni12: [5, 10, 15], omni11: [5, 10], hailuo23: [6, 10],
-  minimax_h3: [5, 10, 15], grok: [5, 10, 15], luma_ray32: [5, 10],
-  ltx25: [6, 10, 15, 20], ltx25_fast: [6, 10, 15, 20], happyhorse: [5, 10, 15],
-  pika22: [5, 10], vidu_q2: [4, 6, 8] };
-let landingCfg = null, landingPricing = null;
-function money(c) { return '$' + (c / 100).toFixed(2); }
-function renderLandingCatalog() {
-  const box = document.getElementById('models-catalog');
-  if (!box || !landingCfg || !landingPricing) return;
-  box.innerHTML = '';
-  for (const m of landingCfg.models) {
-    const d = document.createElement('div');
-    d.className = 'model-card static';
-    let price = '', meta = '';
-    if (m.id === 'wan2.2') {
-      const jp = landingPricing.job_price_cents || {};
-      const seg = Math.round(landingPricing.segment_seconds || 5);
-      price = 'Draft ' + money(jp.draft || 0) + ' · Production ' + money(jp.production || 0) + ' per segment';
-      const hl = landingCfg.house_lanes || {};
-      meta = 'Segments of about ' + seg + ' seconds, up to ' + (hl.max_segments || 12) +
-        ' joined · ' + ((hl.aspects || []).join(', ') || '9:16');
-    } else {
-      const lane = (landingPricing.api_lanes || {})[m.id];
-      const per = lane ? lane.balance_debit_cents_per_second : {};
-      const res = Object.keys(per);
-      price = res.map(r => money(per[r]) + '/sec at ' + r).join(' · ');
-      meta = 'Lengths: ' + (LANDING_DURATIONS[m.id] || []).join(', ') + ' seconds · ' + res.join(', ');
-      if (!m.available) meta += ' · Temporarily unavailable';
-    }
-    const name = document.createElement('span'); name.className = 'mc-name'; name.textContent = m.label;
-    const pr = document.createElement('span'); pr.className = 'mc-price'; pr.textContent = price;
-    const mt = document.createElement('span'); mt.className = 'mc-meta';
-    mt.textContent = meta + (m.paid_only ? ' · Any paying customer' : ' · Everyone');
-    d.appendChild(name); d.appendChild(pr); d.appendChild(mt);
-    box.appendChild(d);
+// The community strip is the public gallery's newest clips, shown
+// the same plain way the gallery shows them: clip, handle, nothing
+// else.
+fetch('/api/gallery').then(r => r.json()).then(d => {
+  const items = (d.items || []).slice(0, 4);
+  if (!items.length) return;
+  const box = document.getElementById('strip');
+  for (const item of items) {
+    const t = document.createElement('div'); t.className = 'tile';
+    const f = document.createElement('div'); f.className = 'frame';
+    const v = document.createElement('video');
+    v.src = item.file_url; v.preload = 'metadata'; v.muted = true;
+    v.setAttribute('playsinline', '');
+    f.appendChild(v);
+    const h = document.createElement('div'); h.className = 'handle';
+    h.textContent = item.handle;
+    t.appendChild(f); t.appendChild(h);
+    box.appendChild(t);
   }
-}
-fetch('/api/config').then(r => r.json()).then(c => { landingCfg = c; renderLandingCatalog(); }).catch(() => {});
-fetch('/api/pricing').then(r => r.json()).then(p => { landingPricing = p; renderLandingCatalog();
-  const secs = p.creator_included_production_seconds;
-  let perSecond = '';
-  if (p.api_lanes) {
-    const order = ['wan3', 'wan3_prime', 'seedance', 'veo3', 'veo3_fast', 'kling3',
-      'kling4', 'kling3_omni', 'seedance2', 'seedance2_fast', 'seedance2_mini',
-      'veo3_lite', 'omni12', 'omni11', 'hailuo23', 'minimax_h3', 'grok',
-      'luma_ray32', 'ltx25', 'ltx25_fast', 'happyhorse', 'pika22', 'vidu_q2'];
-    const parts = [];
-    for (const id of order) {
-      const lane = p.api_lanes[id];
-      if (lane && lane.balance_debit_cents_per_second['720p'] != null) {
-        parts.push(lane.label + ' $' +
-          (lane.balance_debit_cents_per_second['720p']/100).toFixed(2));
-      }
-    }
-    if (parts.length) {
-      perSecond = ' Per-second models at 720p, per second: ' + parts.join(', ') +
-        '. The exact price for your length and size is shown before the job runs.';
-    }
+  document.getElementById('strip-label').style.display = '';
+}).catch(() => {});
+// The one pricing line takes its Creator figure from /api/pricing,
+// never hand-written.
+fetch('/api/pricing').then(r => r.json()).then(p => {
+  if (p && p.creator_price_cents) {
+    document.getElementById('creator-price').textContent =
+      '$' + (p.creator_price_cents / 100).toFixed(0);
   }
-  let html =
-    '<div class="card"><strong>Pay per video</strong>: no subscription. Top up $5 / $10 / $20 of prepaid balance and pay per clip. ' +
-    'A Draft clip costs $' + (p.job_price_cents.draft/100).toFixed(2) +
-    ' and a Production render $' + (p.job_price_cents.production/100).toFixed(2) + '.' +
-    perSecond + '</div>' +
-    '<div class="card"><strong>Creator</strong>: $' + (p.creator_price_cents/100).toFixed(2) +
-    '/month. An included monthly budget, about ' + secs +
-    ' seconds of Production time at current generation costs, and the same budget also pays for seconds on the per-second models. ' +
-    'Top-ups work on top of the plan whenever you want more.</div>' +
-    '<div class="card"><strong>Free</strong>: $0. Wan 2.2 Draft lane, 5 clips per account total, watermarked.</div>';
-  document.getElementById('pricing').innerHTML = html;
-});
+}).catch(() => {});
 </script>
 </body></html>"""
 )
+
 
 APP_HTML = (
     """<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Moonfactory studio</title>"""
     + _CSS
-    + """<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+    + """<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Cpath fill='%23818cf8' d='M23.3 8A16 16 0 1 0 32.6 37.5A16.5 16.5 0 0 1 23.3 8Z'/%3E%3Cpath fill='%23f5d67a' stroke='%23f5d67a' stroke-width='1.6' stroke-linejoin='round' d='M24 18.5L24 27.5L31.5 23Z'/%3E%3C/svg%3E">
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
 </head><body><main>
-<header><strong><a href="/" style="color:#1a1a1a;text-decoration:none">Moonfactory</a></strong>
-<span><a href="/gallery">Gallery</a> &nbsp; <span id="who"></span></span></header>
+<header>
+  <a class="logo" href="/"><svg width="27" height="27" viewBox="0 0 48 48" aria-hidden="true"><path fill="#818cf8" d="M23.3 8A16 16 0 1 0 32.6 37.5A16.5 16.5 0 0 1 23.3 8Z"/><path fill="#f5d67a" stroke="#f5d67a" stroke-width="1.6" stroke-linejoin="round" d="M24 18.5L24 27.5L31.5 23Z"/></svg><span>Moon<em>factory</em></span></a>
+  <nav><a href="/gallery">Gallery</a><span class="who" id="who"></span></nav>
+</header>
 
-<div id="auth" class="card">
-  <h2 style="margin-top:0">Sign in or create an account</h2>
+<div id="auth" class="card" style="max-width:640px;margin-left:auto;margin-right:auto">
+  <h2>Sign in or create an account</h2>
   <label>Email</label><input id="email" type="email" autocomplete="email">
   <label>Password (8+ characters)</label><input id="password" type="password" autocomplete="current-password">
   <div id="botcheck"></div>
@@ -5561,13 +5562,238 @@ APP_HTML = (
 </div>
 
 <div id="studio" style="display:none">
-  <div class="tabs">
+  <div class="tabs"><div class="seg">
     <button class="btn" id="tab-tryit">Try It</button>
     <button class="btn secondary" id="tab-create">Create</button>
     <button class="btn secondary" id="tab-clip">Clip</button>
+  </div></div>
+
+  <div id="create-pane">
+  <div class="card" style="max-width:640px;margin-left:auto;margin-right:auto">
+    <div class="create-head">
+      <h2 id="composer-heading">Try It</h2>
+      <span class="badge" id="composer-badge" style="display:none">Members · Creator</span>
+    </div>
+    <p class="muted" id="composer-note"></p>
+
+    <div class="drop" id="dropzone" tabindex="0" role="button" aria-label="Add a start image" style="margin-top:14px">
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#9c9ca6" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5-9 9"/></svg>
+      <div class="big">Add a start image</div>
+      <div class="small">Drop it here, or click to browse. Optional on the Draft lane: text-only works too.</div>
+    </div>
+    <label class="flabel" for="start-source" style="margin-top:14px">Start image</label>
+    <select id="start-source">
+      <option value="none" selected>None: text only (Draft lane)</option>
+      <option value="upload">Upload an image</option>
+      <option value="generate">Describe it and we make it</option>
+    </select>
+    <div id="start-upload-wrap" style="display:none">
+      <label>Start image file (PNG or JPEG)</label>
+      <input id="startimg" type="file" accept="image/png,image/jpeg">
+    </div>
+    <div id="start-gen-wrap" style="display:none">
+      <label>Describe the first frame</label>
+      <textarea id="image-prompt" rows="2" maxlength="1000" placeholder="a red hot air balloon over rolling green hills at sunrise, bright daylight"></textarea>
+      <button class="btn secondary" id="gen-image" type="button">Make the first frame</button>
+      <p class="muted" id="image-note">We make the opening frame at the aspect ratio picked for the video. Check it here, and it attaches to your video with one click. Every frame we make is charged like a small render; the exact price shows before it runs. Not happy with it? Make another.</p>
+      <div id="image-preview"></div>
+    </div>
+
+    <label class="flabel" for="prompt" style="margin-top:6px">Prompt</label>
+    <textarea id="prompt" rows="4" class="composer-prompt" placeholder="Describe what happens… e.g. a red hot air balloon rising over green hills, gentle forward camera movement, bright daylight"></textarea>
+
+    <div class="row">
+      <div class="grow">
+        <label class="flabel" for="model">Model</label>
+        <select id="model">
+          <option value="wan2.2">Wan 2.2</option>
+        </select>
+      </div>
+      <div id="length-house">
+        <label class="flabel">Length</label>
+        <div class="dur" id="segments-seg"></div>
+        <select id="segments" style="display:none">
+          <option value="1" selected>1 segment, about 5 seconds</option>
+          <option value="2">2 segments, about 10 seconds</option>
+          <option value="3">3 segments, about 15 seconds</option>
+          <option value="4">4 segments, about 20 seconds</option>
+          <option value="6">6 segments, about 30 seconds</option>
+          <option value="8">8 segments, about 40 seconds</option>
+          <option value="12">12 segments, about 60 seconds</option>
+        </select>
+      </div>
+      <div id="length-api" style="display:none">
+        <label class="flabel">Length</label>
+        <div class="dur" id="duration-seg"></div>
+        <select id="duration" style="display:none">
+          <option value="5">5 seconds</option>
+          <option value="10">10 seconds</option>
+          <option value="15">15 seconds</option>
+          <option value="20">20 seconds</option>
+          <option value="30">30 seconds</option>
+        </select>
+      </div>
+    </div>
+    <p class="muted" id="model-note"></p>
+    <p class="muted" id="segments-note"></p>
+
+    <details class="more">
+      <summary>More options</summary>
+
+      <div id="lane-wrap">
+        <label>Lane</label>
+        <select id="lane">
+          <option value="draft">Draft: fast preview, about 5 seconds</option>
+          <option value="production">Production: 720x1280, Creator plan or balance</option>
+        </select>
+        <p class="muted" id="lane-note"></p>
+      </div>
+
+      <div id="resolution-wrap" style="display:none">
+        <label>Resolution</label>
+        <select id="resolution">
+          <option value="480p">480p</option>
+          <option value="720p" selected>720p</option>
+          <option value="1080p">1080p</option>
+        </select>
+      </div>
+
+      <div id="house-more">
+        <label>Aspect ratio</label>
+        <select id="aspect">
+          <option value="9:16" selected>9:16 vertical</option>
+          <option value="16:9">16:9 wide</option>
+          <option value="1:1">1:1 square</option>
+        </select>
+        <label>End image (PNG, optional, Production lane: the video steers to this final frame)</label>
+        <input id="endimg" type="file" accept="image/png">
+      </div>
+
+      <p class="group-label">Camera and look</p>
+      <label>Camera moves (optional, up to 3, applied in the order you pick them)</label>
+      <div id="presets"><p class="muted">Loading camera presets...</p></div>
+      <p class="muted" id="preset-chain"></p>
+      <label>Film look (optional)</label>
+      <div id="looks"></div>
+      <label>Effect (optional, one per video)</label>
+      <div id="effects"><p class="muted">Loading effects...</p></div>
+      <p class="muted" id="effect-note"></p>
+
+      <p class="group-label">Sound</p>
+      <label>Music prompt (optional)</label>
+      <textarea id="music" rows="2" maxlength="300" placeholder="lo-fi piano with soft rain, slow and dreamy"></textarea>
+      <p class="muted" id="music-note"></p>
+      <label>Spoken line (optional)</label>
+      <textarea id="speech" rows="2" maxlength="1000" placeholder="the words a voice should say in this video"></textarea>
+      <p class="muted" id="speech-note"></p>
+
+      <p class="group-label">Details</p>
+      <label>Anything to avoid (optional)</label>
+      <input id="negative" type="text" maxlength="500" placeholder="e.g. no text, no extra people">
+      <label>Seed (optional)</label>
+      <input id="seed" type="number" min="0" step="1" placeholder="Random">
+    </details>
+
+    <div id="botcheck2"></div>
+    <button class="btn gen" id="create">Create video</button>
+    <div id="api-opts" style="display:none"><p class="under" id="quote"></p></div>
+    <p class="under" id="house-price"></p>
+    <p id="job-msg"></p>
   </div>
-  <div class="card">
-    <h2 style="margin-top:0">Your account</h2>
+  </div>
+
+  <div id="upgrade-pane" style="display:none">
+  <div class="card" style="max-width:640px;margin-left:auto;margin-right:auto">
+    <div class="create-head">
+      <h2>Create</h2>
+      <span class="badge">Members · Creator</span>
+    </div>
+    <div class="paywall">
+      <p>Try It is the free plan: Wan 2.2 Draft clips, 5 per account total,
+      watermarked. Nothing on Create is free: every model beyond Wan 2.2,
+      the Production lane, custom music and voiceover, effects,
+      multi-segment videos, clipping, and hiding your clips from the
+      gallery all live here, and the server keeps them locked until an
+      account has paid.</p>
+      <p>Any payment opens Create, two ways: Creator, a monthly plan with
+      an included generation budget, or a one-time top-up and pay per
+      video, no subscription. Once you have paid, Try It disappears and
+      you open straight into Create.</p>
+    </div>
+    <p>
+      <button class="btn" id="upgrade-creator">Get Creator, $20/month</button>
+      <button class="btn secondary" id="upgrade-topup">Top up $10</button>
+    </p>
+    <p class="muted">Both buttons use the same checkout as the account
+    card below.</p>
+  </div>
+  </div>
+
+  <div id="clip-pane" style="display:none">
+  <div class="card" style="max-width:640px;margin-left:auto;margin-right:auto">
+    <div class="create-head">
+      <h2>Clip</h2>
+      <span class="badge">Members · Creator</span>
+    </div>
+    <p class="muted">Paste a YouTube, Twitch or Kick link, or upload a file. You get vertical clips with captions and a hook on each one.</p>
+    <label>Video link</label>
+    <input id="clip-url" type="url" placeholder="https://www.youtube.com/watch?v=...">
+    <label>Or upload a video file</label>
+    <input id="clip-file" type="file" accept="video/*">
+    <div class="row">
+      <div class="grow">
+        <label>How many clips</label>
+        <select id="clip-count">
+          <option value="1">1</option>
+          <option value="2">2</option>
+          <option value="3" selected>3</option>
+          <option value="4">4</option>
+          <option value="5">5</option>
+          <option value="6">6</option>
+        </select>
+      </div>
+      <div class="grow">
+        <label>Clip length</label>
+        <select id="clip-length">
+          <option value="short">Short</option>
+          <option value="medium" selected>Medium</option>
+          <option value="long">Long</option>
+        </select>
+      </div>
+    </div>
+    <div class="row">
+      <div class="grow">
+        <label>Caption style</label>
+        <select id="clip-style">
+          <option value="bounce">Bounce</option>
+          <option value="hype">Hype</option>
+          <option value="clean">Clean</option>
+        </select>
+      </div>
+      <div class="grow">
+        <label>Layout</label>
+        <select id="clip-layout">
+          <option value="blur">Fill with blur</option>
+          <option value="zoom">Zoom</option>
+          <option value="crop">Crop</option>
+        </select>
+      </div>
+    </div>
+    <p id="clip-charge" class="muted"></p>
+    <div id="botcheck3"></div>
+    <button class="btn gen" id="make-clips">Make clips</button>
+    <p id="clip-msg"></p>
+    <p class="muted">Clip only content you own or have permission to use. Clipping is a paid feature: Creator plans use included clipping minutes, or pay 5 cents per source minute from your balance.</p>
+  </div>
+  <h2 style="max-width:640px;margin:26px auto 6px">Your clips</h2>
+  <div id="clip-results" style="max-width:640px;margin:0 auto"><p class="muted">No clips yet. Paste a link above and your clips will show up here.</p></div>
+  </div>
+
+  <h2 style="max-width:640px;margin:30px auto 6px">Your videos</h2>
+  <div id="jobs" style="max-width:640px;margin:0 auto"><p class="muted">Loading...</p></div>
+
+  <div class="card" style="max-width:640px;margin-left:auto;margin-right:auto">
+    <h2>Your account</h2>
     <p id="account"></p>
     <label>Public handle (the only name the gallery ever shows)</label>
     <input id="handle" maxlength="20">
@@ -5590,203 +5816,9 @@ APP_HTML = (
     plus top-ups. Any payment unlocks every model, custom music,
     and hiding your clips from the gallery.</p>
   </div>
-
-  <div id="create-pane">
-  <div class="card">
-    <h2 style="margin-top:0" id="composer-heading">Try It</h2>
-    <p class="muted" id="composer-note"></p>
-    <label>Prompt</label>
-    <textarea id="prompt" rows="4" class="composer-prompt" placeholder="a red hot air balloon rising over green hills, gentle forward camera movement, bright daylight"></textarea>
-    <p class="group-label">Model</p>
-    <div id="model-catalog" class="model-grid"><p class="muted">Loading models...</p></div>
-    <select id="model" style="display:none">
-      <option value="wan2.2">Wan 2.2</option>
-      <option value="wan3">Wan 3.0</option>
-      <option value="wan3_prime">Wan 3.0 Prime</option>
-      <option value="seedance">Seedance 2.5</option>
-      <option value="veo3">Veo 3.1</option>
-      <option value="veo3_fast">Veo 3.1 Fast</option>
-      <option value="kling3">Kling 3.0</option>
-      <option value="kling4">Kling 4.0</option>
-      <option value="kling3_omni">Kling 3.0 Omni</option>
-      <option value="seedance2">Seedance 2.0</option>
-      <option value="seedance2_fast">Seedance 2.0 Fast</option>
-      <option value="seedance2_mini">Seedance 2.0 Mini</option>
-      <option value="veo3_lite">Veo 3.1 Lite</option>
-      <option value="omni12">Gemini Omni 1.2 Flash</option>
-      <option value="omni11">Gemini Omni 1.1 Flash</option>
-      <option value="hailuo23">Hailuo 2.3</option>
-      <option value="minimax_h3">MiniMax H3</option>
-      <option value="grok">Grok Imagine Video 1.5</option>
-      <option value="luma_ray32">Luma Ray 3.2</option>
-      <option value="ltx25">LTX-2.5</option>
-      <option value="ltx25_fast">LTX-2.5 Fast</option>
-      <option value="happyhorse">HappyHorse 1.1</option>
-      <option value="pika22">Pika 2.2</option>
-      <option value="vidu_q2">Vidu Q2</option>
-    </select>
-    <p class="muted" id="model-note"></p>
-    <div id="lane-wrap">
-    <label>Lane</label>
-    <select id="lane">
-      <option value="draft">Draft: fast preview, about 5 seconds</option>
-      <option value="production">Production: 720x1280, Creator plan or balance</option>
-    </select>
-    <p class="muted" id="lane-note"></p>
-    </div>
-    <div id="api-opts" style="display:none">
-    <label>Length</label>
-    <select id="duration">
-      <option value="5">5 seconds</option>
-      <option value="10">10 seconds</option>
-      <option value="15">15 seconds</option>
-      <option value="20">20 seconds</option>
-      <option value="30">30 seconds</option>
-    </select>
-    <label>Resolution</label>
-    <select id="resolution">
-      <option value="480p">480p</option>
-      <option value="720p" selected>720p</option>
-      <option value="1080p">1080p</option>
-    </select>
-    <p class="muted" id="quote"></p>
-    </div>
-    <p class="group-label">Start image</p>
-    <label>Start image (the first frame of your video)</label>
-    <select id="start-source">
-      <option value="none" selected>None: text only (Draft lane)</option>
-      <option value="upload">Upload an image</option>
-      <option value="generate">Describe it and we make it</option>
-    </select>
-    <div id="start-upload-wrap" style="display:none">
-      <label>Start image file (PNG or JPEG)</label>
-      <input id="startimg" type="file" accept="image/png,image/jpeg">
-    </div>
-    <div id="start-gen-wrap" style="display:none">
-      <label>Describe the first frame</label>
-      <textarea id="image-prompt" rows="2" maxlength="1000" placeholder="a red hot air balloon over rolling green hills at sunrise, bright daylight"></textarea>
-      <button class="btn secondary" id="gen-image" type="button">Make the first frame</button>
-      <p class="muted" id="image-note">We make the opening frame at the aspect ratio picked for the video. Check it here, and it attaches to your video with one click. Every frame we make is charged like a small render; the exact price shows before it runs. Not happy with it? Make another.</p>
-      <div id="image-preview"></div>
-    </div>
-    <p class="group-label">Camera and look</p>
-    <label>Camera moves (optional, up to 3, applied in the order you pick them)</label>
-    <div id="presets"><p class="muted">Loading camera presets...</p></div>
-    <p class="muted" id="preset-chain"></p>
-    <label>Film look (optional)</label>
-    <div id="looks"></div>
-    <label>Effect (optional, one per video)</label>
-    <div id="effects"><p class="muted">Loading effects...</p></div>
-    <p class="muted" id="effect-note"></p>
-    <p class="group-label">Sound</p>
-    <label>Music prompt (optional)</label>
-    <textarea id="music" rows="2" maxlength="300" placeholder="lo-fi piano with soft rain, slow and dreamy"></textarea>
-    <p class="muted" id="music-note"></p>
-    <label>Spoken line (optional)</label>
-    <textarea id="speech" rows="2" maxlength="1000" placeholder="the words a voice should say in this video"></textarea>
-    <p class="muted" id="speech-note"></p>
-    <div id="house-opts">
-    <p class="group-label" style="margin-top:4px">Length and shape</p>
-    <label>Aspect ratio</label>
-    <select id="aspect">
-      <option value="9:16" selected>9:16 vertical</option>
-      <option value="16:9">16:9 wide</option>
-      <option value="1:1">1:1 square</option>
-    </select>
-    <label>Length (segments of about 5 seconds, joined into one video)</label>
-    <select id="segments">
-      <option value="1" selected>1 segment, about 5 seconds</option>
-      <option value="2">2 segments, about 10 seconds</option>
-      <option value="3">3 segments, about 15 seconds</option>
-      <option value="4">4 segments, about 20 seconds</option>
-      <option value="6">6 segments, about 30 seconds</option>
-      <option value="8">8 segments, about 40 seconds</option>
-      <option value="12">12 segments, about 60 seconds</option>
-    </select>
-    <p class="muted" id="segments-note"></p>
-    <label>End image (PNG, optional, Production lane: the video steers to this final frame)</label>
-    <input id="endimg" type="file" accept="image/png">
-    </div>
-    <div id="botcheck2"></div>
-    <button class="btn" id="create">Create video</button>
-    <p class="muted" id="house-price"></p>
-    <p id="job-msg"></p>
-  </div>
-
-  </div>
-  </div>
-
-  <div id="upgrade-pane" style="display:none">
-  <div class="card">
-    <h2 style="margin-top:0">Create is the paid studio</h2>
-    <p>Try It is the free plan: Wan 2.2 Draft clips, 5 per account total,
-    watermarked. Nothing on Create is free: every model beyond Wan 2.2,
-    the Production lane, custom music and voiceover, effects,
-    multi-segment videos, clipping, and hiding your clips from the
-    gallery all live here, and the server keeps them locked until an
-    account has paid.</p>
-    <p>Any payment opens Create, two ways: Creator, a monthly plan with
-    an included generation budget, or a one-time top-up and pay per
-    video, no subscription. Once you have paid, Try It disappears and
-    you open straight into Create.</p>
-    <p>
-      <button class="btn" id="upgrade-creator">Get Creator, $20/month</button>
-      <button class="btn secondary" id="upgrade-topup">Top up $10</button>
-    </p>
-    <p class="muted">Both buttons use the same checkout as the account
-    card above.</p>
-  </div>
-  </div>
-
-  <div id="clip-pane" style="display:none">
-  <div class="card">
-    <h2 style="margin-top:0">Make clips</h2>
-    <p class="muted">Paste a YouTube, Twitch or Kick link, or upload a file. You get vertical clips with captions and a hook on each one.</p>
-    <label>Video link</label>
-    <input id="clip-url" type="url" placeholder="https://www.youtube.com/watch?v=...">
-    <label>Or upload a video file</label>
-    <input id="clip-file" type="file" accept="video/*">
-    <label>How many clips</label>
-    <select id="clip-count">
-      <option value="1">1</option>
-      <option value="2">2</option>
-      <option value="3" selected>3</option>
-      <option value="4">4</option>
-      <option value="5">5</option>
-      <option value="6">6</option>
-    </select>
-    <label>Clip length</label>
-    <select id="clip-length">
-      <option value="short">Short</option>
-      <option value="medium" selected>Medium</option>
-      <option value="long">Long</option>
-    </select>
-    <label>Caption style</label>
-    <select id="clip-style">
-      <option value="bounce">Bounce</option>
-      <option value="hype">Hype</option>
-      <option value="clean">Clean</option>
-    </select>
-    <label>Layout</label>
-    <select id="clip-layout">
-      <option value="blur">Fill with blur</option>
-      <option value="zoom">Zoom</option>
-      <option value="crop">Crop</option>
-    </select>
-    <p id="clip-charge" class="muted"></p>
-    <div id="botcheck3"></div>
-    <button class="btn" id="make-clips">Make clips</button>
-    <p id="clip-msg"></p>
-    <p class="muted">Clip only content you own or have permission to use. Clipping is a paid feature: Creator plans use included clipping minutes, or pay 5 cents per source minute from your balance.</p>
-  </div>
-  <h2>Your clips</h2>
-  <div id="clip-results"><p class="muted">No clips yet. Paste a link above and your clips will show up here.</p></div>
-  </div>
-
-  <h2>Your videos</h2>
-  <div id="jobs"><p class="muted">Loading...</p></div>
 </div>
 </main>
+<footer><span>Moonfactory</span><span><a href="/gallery">Gallery</a></span></footer>
 <script>
 const $ = id => document.getElementById(id);
 let cfg = { pow_required: true, pow_difficulty_bits: 18, turnstile_site_key: null };
@@ -5833,23 +5865,63 @@ async function api(path, opts) {
 }
 function msg(id, text, cls) { const el = $(id); el.textContent = text; el.className = cls || ''; }
 
-$('startimg').addEventListener('change', e => {
-  const f = e.target.files[0]; if (!f) { startImageB64 = null; return; }
+// Start image: one reader path for the file input, the drop zone's
+// click, and drag-and-drop, so all three set the same state.
+function readStartFile(f) {
+  if (!f) { startImageB64 = null; renderDrop(); return; }
   generatedImageJobId = null;
   const reader = new FileReader();
-  reader.onload = () => { startImageB64 = String(reader.result).split(',')[1]; };
+  reader.onload = () => { startImageB64 = String(reader.result).split(',')[1]; renderDrop(f); };
   reader.readAsDataURL(f);
+}
+function renderDrop(f) {
+  const dz = $('dropzone');
+  if (startImageB64) {
+    dz.classList.add('filled');
+    dz.innerHTML = '<img class="thumb" alt="Your start frame">' +
+      '<div><div class="fname">' + (f ? f.name : 'start-image') + '</div>' +
+      '<div class="fmeta">Your start frame</div></div>' +
+      '<button type="button" class="remove" aria-label="Remove image">×</button>';
+    dz.querySelector('img.thumb').src = 'data:image/png;base64,' + startImageB64;
+    dz.querySelector('.remove').addEventListener('click', e => {
+      e.stopPropagation();
+      startImageB64 = null; $('startimg').value = '';
+      if ($('start-source').value === 'upload') { $('start-source').value = 'none'; syncStartSource(); }
+      renderDrop();
+    });
+  } else {
+    dz.classList.remove('filled');
+    dz.innerHTML = '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#9c9ca6" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5-9 9"/></svg>' +
+      '<div class="big">Add a start image</div>' +
+      '<div class="small">Drop it here, or click to browse. Optional on the Draft lane: text-only works too.</div>';
+  }
+}
+$('startimg').addEventListener('change', e => { readStartFile(e.target.files[0]); });
+$('dropzone').addEventListener('click', () => {
+  if (startImageB64) return;
+  if ($('start-source').value !== 'upload') { $('start-source').value = 'upload'; syncStartSource(); }
+  $('startimg').click();
+});
+$('dropzone').addEventListener('dragover', e => { e.preventDefault(); $('dropzone').classList.add('over'); });
+$('dropzone').addEventListener('dragleave', () => $('dropzone').classList.remove('over'));
+$('dropzone').addEventListener('drop', e => {
+  e.preventDefault(); $('dropzone').classList.remove('over');
+  const f = e.dataTransfer.files && e.dataTransfer.files[0];
+  if (!f) return;
+  if ($('start-source').value !== 'upload') { $('start-source').value = 'upload'; syncStartSource(); }
+  readStartFile(f);
 });
 // Start image source choice: upload your own, go text-only, or
 // describe the first frame and have it made. A made frame attaches
 // to the video job by its job id, resolved on the server.
-$('start-source').addEventListener('change', () => {
+function syncStartSource() {
   const src = $('start-source').value;
   $('start-upload-wrap').style.display = src === 'upload' ? 'block' : 'none';
   $('start-gen-wrap').style.display = src === 'generate' ? 'block' : 'none';
-  if (src !== 'upload') startImageB64 = null;
+  if (src !== 'upload') { startImageB64 = null; renderDrop(); }
   if (src !== 'generate') generatedImageJobId = null;
-});
+}
+$('start-source').addEventListener('change', syncStartSource);
 $('gen-image').onclick = async () => {
   try {
     const prompt = $('image-prompt').value.trim();
@@ -5873,7 +5945,7 @@ $('gen-image').onclick = async () => {
       if (j.status === 'done') {
         generatedImageJobId = imageJobId;
         $('image-preview').innerHTML =
-          '<img src="/api/jobs/' + imageJobId + '/file" style="width:180px;border-radius:8px" alt="Your first frame">' +
+          '<img src="/api/jobs/' + imageJobId + '/file" style="width:180px;border-radius:14px" alt="Your first frame">' +
           '<p class="muted">This frame is attached as your start image. Create your video when you are ready, or make another frame first.</p>';
         msg('image-note', 'Your first frame is ready and attached.', 'ok');
         loadJobs();
@@ -5966,7 +6038,7 @@ function renderChain() {
     b.textContent = (i >= 0 ? (i + 1) + '. ' : '') + b.dataset.name;
   });
   $('preset-chain').textContent = selectedPresets.length
-    ? 'Camera: ' + selectedPresets.map(id => names[id] || id).join(' \\u2192 ')
+    ? 'Camera: ' + selectedPresets.map(id => names[id] || id).join(' \u2192 ')
     : 'No camera move picked: the camera follows your prompt.';
   $('preset-chain').className = 'muted';
 }
@@ -6058,6 +6130,14 @@ function isPaidSurface() {
     ? currentUser.access_surface === 'create'
     : !!currentUser.paid_customer;
 }
+// The Generate button carries the exact price, Direction C style:
+// the button is the quote. The line under it keeps the detail.
+function genLabel(priceCents) {
+  const b = $('create');
+  if (!isPaidSurface()) { b.textContent = 'Make a free clip'; return; }
+  if (priceCents === null || priceCents === undefined) { b.textContent = 'Generate'; return; }
+  b.textContent = 'Generate · $' + (priceCents / 100).toFixed(2);
+}
 function showStudio(u) {
   currentUser = u;
   $('auth').style.display = 'none'; $('studio').style.display = 'block';
@@ -6065,10 +6145,11 @@ function showStudio(u) {
   const paidSurface = isPaidSurface();
   $('tab-tryit').style.display = paidSurface ? 'none' : '';
   $('composer-heading').textContent = paidSurface ? 'Create' : 'Try It';
+  $('composer-badge').style.display = paidSurface ? '' : 'none';
   $('composer-note').textContent = paidSurface
-    ? ''
+    ? 'The full studio — every model, custom sound, longer clips. Nothing in here is free.'
     : 'Try It is the free plan: Wan 2.2, Draft lane, watermarked. Create, the full studio, opens with any payment.';
-  $('create').textContent = paidSurface ? 'Create video' : 'Make a free clip';
+  genLabel(null);
   const inc = u.plan === 'creator'
     ? ('Included production time: ' + Math.max(0, u.included_seconds_total - u.included_seconds_used).toFixed(0) + 's left of ' + u.included_seconds_total + 's. ')
     : (u.paid_customer
@@ -6080,14 +6161,11 @@ function showStudio(u) {
   $('handle').value = u.handle || '';
   const opt = $('gallery-optout');
   const prodOption = document.querySelector('#lane option[value="production"]');
-  const paidModels = document.querySelectorAll('#model option:not([value="wan2.2"])');
   if (u.paid_customer) {
     opt.disabled = false; opt.checked = !!u.gallery_opt_out;
     $('gallery-note').textContent = '';
     prodOption.disabled = false;
     $('lane-note').textContent = '';
-    paidModels.forEach(o => { o.disabled = false; });
-    $('model-note').textContent = '';
     $('music').disabled = false;
     $('music-note').textContent = 'Describe the music and it is generated for this video.';
     $('speech').disabled = false;
@@ -6098,8 +6176,7 @@ function showStudio(u) {
     $('gallery-note').textContent = 'Clips from accounts that have never paid always show in the gallery. Hiding them unlocks with any payment.';
     prodOption.disabled = true;
     $('lane-note').textContent = '';
-    paidModels.forEach(o => { o.disabled = true; });
-    $('model').value = 'wan2.2';
+    if ([...$('model').options].some(o => o.value === 'wan2.2')) $('model').value = 'wan2.2';
     $('model-note').textContent = 'Model switching unlocks with any payment. Accounts that have never paid render on Wan 2.2 Draft.';
     $('music').disabled = true; $('music').value = '';
     $('music-note').textContent = 'Custom audio unlocks with any payment. Free clips get the house music track.';
@@ -6108,6 +6185,7 @@ function showStudio(u) {
     selectedEffect = null;
     applyEffectGate();
   }
+  applyModelGates();
   const segSel = $('segments');
   if (u.paid_customer) {
     segSel.disabled = false;
@@ -6116,6 +6194,7 @@ function showStudio(u) {
     segSel.disabled = true; segSel.value = '1';
     $('segments-note').textContent = 'Multi-segment videos unlock with any payment. Free accounts make single Draft clips.';
   }
+  buildSegmentsSeg();
   updateModelUI();
   showTab(paidSurface ? 'create' : 'tryit');
   loadJobs();
@@ -6127,17 +6206,20 @@ async function fetchQuote() {
     const r = await api('/api/jobs/quote', { method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ model: $('model').value,
         duration_seconds: Number($('duration').value), resolution: $('resolution').value }) });
-    if (r.lane_paused) { q.textContent = 'This model is temporarily unavailable.'; return; }
-    if (!r.ceiling_ok) { q.textContent = 'Exact price: $' + (r.balance_debit_cents / 100).toFixed(2) + '. This job would exceed the total generation your payments cover.'; return; }
+    if (r.lane_paused) { q.textContent = 'This model is temporarily unavailable.'; genLabel(null); return; }
+    if (!r.ceiling_ok) { q.textContent = 'Exact price: $' + (r.balance_debit_cents / 100).toFixed(2) + '. This job would exceed the total generation your payments cover.'; genLabel(r.balance_debit_cents); return; }
     const p = r.payment || {};
     if (p.method === 'included') {
       q.textContent = 'Exact price: $' + (p.included_debit_cents / 100).toFixed(2) +
         ' of your included budget ($' + (p.included_budget_remaining_cents / 100).toFixed(2) + ' left). Nothing is charged to your balance.';
+      genLabel(p.included_debit_cents);
     } else if (p.method === 'balance') {
       q.textContent = 'Exact price: $' + (p.charge_cents / 100).toFixed(2) + ' from your prepaid balance.';
+      genLabel(p.charge_cents);
     } else {
       q.textContent = 'Exact price: $' + ((p.charge_cents || 0) / 100).toFixed(2) +
         '. Your included budget is used up and your balance is $' + ((p.balance_cents || 0) / 100).toFixed(2) + ', so top up to run this.';
+      genLabel(p.charge_cents || null);
     }
   } catch (e) { q.textContent = ''; }
 }
@@ -6184,57 +6266,55 @@ function fillSelect(sel, values, label) {
   }
   if (values.map(String).includes(keep)) sel.value = keep;
 }
-// The model catalog: cards rendered from /api/config (names,
-// order, who can use each model, whether it can run right now)
-// and /api/pricing (the per-second and per-segment prices, and
-// the sizes each per-second model sells). Picking a card sets the
-// hidden select the rest of the form already reads. Lengths come
-// from the one MODEL_OPTS table that also fills the length and
-// size selects, so the cards and the selects can never disagree.
+// Segmented length controls (Direction C): a pill row that drives
+// the hidden select the rest of the form already reads.
+function buildSegButtons(box, sel, values, labelFn, onPick) {
+  box.innerHTML = '';
+  for (const v of values) {
+    const b = document.createElement('button');
+    b.type = 'button'; b.textContent = labelFn(v); b.dataset.val = v;
+    if (String(v) === String(sel.value)) b.className = 'on';
+    b.onclick = () => {
+      if (sel.disabled) return;
+      sel.value = v;
+      box.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+      if (onPick) onPick();
+    };
+    box.appendChild(b);
+  }
+  box.classList.toggle('off', !!sel.disabled);
+}
+function buildSegmentsSeg() {
+  buildSegButtons($('segments-seg'), $('segments'), [1, 2, 3, 4, 6, 8, 12],
+    v => (v * 5) + 's', updateHousePrice);
+}
+// The model dropdown is fed from /api/config at runtime (names,
+// order, availability), never a hand-written subset: the config is
+// the shelf. Picking a model drives the same hidden state the form
+// has always read; /api/pricing supplies the lengths and sizes.
 let catalogCfg = null;
 let pricingData = null;
 function moneyC(c) { return '$' + (c / 100).toFixed(2); }
 function buildCatalog() {
-  const box = $('model-catalog');
-  if (!box || !catalogCfg || !pricingData) return;
-  box.innerHTML = '';
+  const sel = $('model');
+  if (!sel || !catalogCfg) return;
+  const keep = sel.value || 'wan2.2';
+  sel.innerHTML = '';
   for (const m of catalogCfg.models) {
-    const b = document.createElement('button');
-    b.type = 'button'; b.className = 'model-card'; b.dataset.mid = m.id;
-    let price = '', meta = '';
-    if (m.id === 'wan2.2') {
-      const jp = pricingData.job_price_cents || {};
-      const seg = Math.round(pricingData.segment_seconds || 5);
-      price = 'Draft ' + moneyC(jp.draft || 0) + ' · Production ' + moneyC(jp.production || 0) + ' per segment';
-      const hl = catalogCfg.house_lanes || {};
-      meta = 'Segments of about ' + seg + ' seconds, up to ' + (hl.max_segments || 12) +
-        ' joined · ' + ((hl.aspects || []).join(', ') || '9:16');
-    } else {
-      const lane = (pricingData.api_lanes || {})[m.id];
-      const per = lane ? lane.balance_debit_cents_per_second : {};
-      const res = Object.keys(per);
-      price = res.map(r => moneyC(per[r]) + '/sec at ' + r).join(' · ');
-      meta = 'Lengths: ' + ((MODEL_OPTS[m.id] || {}).durations || []).join(', ') +
-        ' seconds · ' + res.join(', ');
-      if (!m.available) meta += ' · Temporarily unavailable';
-    }
-    const name = document.createElement('span'); name.className = 'mc-name'; name.textContent = m.label;
-    const pr = document.createElement('span'); pr.className = 'mc-price'; pr.textContent = price;
-    const mt = document.createElement('span'); mt.className = 'mc-meta';
-    mt.textContent = meta + (m.paid_only ? ' · Paying customers' : ' · Everyone');
-    b.appendChild(name); b.appendChild(pr); b.appendChild(mt);
-    b.onclick = () => { $('model').value = m.id; updateModelUI(); };
-    box.appendChild(b);
+    const o = document.createElement('option');
+    o.value = m.id;
+    o.textContent = m.label + (m.available ? '' : ' (unavailable)');
+    sel.appendChild(o);
   }
+  if ([...sel.options].some(o => o.value === keep)) sel.value = keep;
   applyModelGates();
+  updateModelUI();
 }
 function applyModelGates() {
   const sel = $('model');
-  document.querySelectorAll('#model-catalog .model-card').forEach(card => {
-    const opt = sel.querySelector('option[value="' + card.dataset.mid + '"]');
-    card.disabled = !!(opt && opt.disabled);
-    card.classList.toggle('on', sel.value === card.dataset.mid);
-  });
+  const paid = !!(currentUser && currentUser.paid_customer);
+  [...sel.options].forEach(o => { if (o.value !== 'wan2.2') o.disabled = !paid; });
+  if (!paid && sel.value !== 'wan2.2' && [...sel.options].some(o => o.value === 'wan2.2')) sel.value = 'wan2.2';
 }
 // The price of the house-lane job being composed, from the served
 // pricing data, shown under the Create button before anything runs.
@@ -6245,11 +6325,13 @@ function updateHousePrice() {
   const jp = pricingData.job_price_cents || {};
   if (!currentUser.paid_customer) {
     el.textContent = 'Free plan: a Draft video uses one of your free clips.';
+    genLabel(null);
     return;
   }
   if (selectedEffect) {
     el.textContent = 'Price: ' + moneyC(jp.effects || 0) +
       ' from your balance for this effect video. Creator members pay from their included budget instead.';
+    genLabel(jp.effects || null);
     return;
   }
   const segs = Number($('segments').value) || 1;
@@ -6257,18 +6339,23 @@ function updateHousePrice() {
   el.textContent = 'Price: ' + moneyC(per * segs) + ' from your balance for ' +
     segs + (segs === 1 ? ' segment' : ' segments') + ' at ' + moneyC(per) +
     ' per segment. Creator members pay from their included budget instead.';
+  genLabel(per * segs);
 }
 function updateModelUI() {
   const m = $('model').value;
   const api = m !== 'wan2.2';
-  $('lane-wrap').style.display = api ? 'none' : 'block';
-  $('house-opts').style.display = api ? 'none' : 'block';
-  $('api-opts').style.display = api ? 'block' : 'none';
+  $('length-api').style.display = api ? '' : 'none';
+  $('length-house').style.display = api ? 'none' : '';
+  $('lane-wrap').style.display = api ? 'none' : '';
+  $('house-more').style.display = api ? 'none' : '';
+  $('resolution-wrap').style.display = api ? '' : 'none';
+  $('api-opts').style.display = api ? '' : 'none';
   if (api) {
     const opts = MODEL_OPTS[m];
     if (opts) {
       fillSelect($('duration'), opts.durations, v => v + ' seconds');
-      const lane = pricingData ? (pricingData.api_lanes || {})[m.id] : null;
+      buildSegButtons($('duration-seg'), $('duration'), opts.durations, v => v + 's', fetchQuote);
+      const lane = pricingData ? (pricingData.api_lanes || {})[m] : null;
       const res = lane ? Object.keys(lane.balance_debit_cents_per_second) : opts.resolutions;
       fillSelect($('resolution'), res.length ? res : opts.resolutions, v => v);
     }
@@ -6319,6 +6406,13 @@ $('create').onclick = async () => {
     const startFields = $('start-source').value === 'generate' && generatedImageJobId
       ? { start_image_job_id: generatedImageJobId }
       : { start_image_png_b64: startImageB64 };
+    const neg = $('negative').value.trim();
+    const seedRaw = $('seed').value.trim();
+    const seedNum = seedRaw === '' ? null : Number(seedRaw);
+    const detailFields = {
+      ...(neg ? { negative_prompt: neg } : {}),
+      ...(seedNum !== null && Number.isInteger(seedNum) ? { seed: seedNum } : {})
+    };
     const jobBody = model === 'wan2.2'
       ? { model: model, lane: selectedEffect ? 'effects' : $('lane').value, prompt: $('prompt').value,
           music_prompt: $('music').disabled ? '' : $('music').value,
@@ -6326,12 +6420,12 @@ $('create').onclick = async () => {
           effect: selectedEffect || undefined,
           ...startFields, end_image_png_b64: selectedEffect ? null : endImageB64,
           aspect_ratio: $('aspect').value, segments: selectedEffect ? 1 : Number($('segments').value),
-          ...(selectedEffect ? {} : camera), ...bot }
+          ...(selectedEffect ? {} : camera), ...detailFields, ...bot }
       : { model: model, prompt: $('prompt').value,
           music_prompt: $('music').disabled ? '' : $('music').value,
           speech_script: $('speech').disabled ? '' : $('speech').value,
           duration_seconds: Number($('duration').value), resolution: $('resolution').value,
-          ...startFields, ...camera, ...bot };
+          ...startFields, ...camera, ...detailFields, ...bot };
     const r = await api('/api/jobs', { method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(jobBody) });
     msg('job-msg', model === 'wan2.2'
@@ -6357,7 +6451,7 @@ async function loadJobs() {
     box.innerHTML = '';
     let active = false;
     for (const j of r.jobs) {
-      const div = document.createElement('div'); div.className = 'card';
+      const div = document.createElement('div'); div.className = 'card job';
       const isClipOut = j.kind === 'clip_output';
       const isClipJob = j.kind === 'clip_job';
       const title = isClipOut ? (j.hook || 'Clip') : ((j.model || 'Wan 2.2') + (j.model_id === 'wan2.2' ? ' · ' + j.lane : ''));
@@ -6370,17 +6464,17 @@ async function loadJobs() {
       if ((j.status === 'queued' || j.status === 'running') && j.queue_position) html += '<br><span class="muted">In flight: #' + j.queue_position + ' of your running videos</span>';
       if (j.partial) html += '<br><span class="muted">Finished shorter than planned: the later segments could not render, and you were charged only for the segments in this file.</span>';
       if (isClipOut && j.score !== null && j.score !== undefined) html += '<br><span class="muted">Score: ' + j.score + '</span>';
-      if (isClipOut && j.has_thumb) html += '<br><img src="/api/jobs/' + j.id + '/thumb" style="width:120px;border-radius:8px" alt="">';
+      if (isClipOut && j.has_thumb) html += '<br><img class="thumb" src="/api/jobs/' + j.id + '/thumb" alt="">';
       if (isClipJob && j.stage && (j.status === 'queued' || j.status === 'running')) html += '<br><span class="muted">' + j.stage + '</span>';
       if (j.camera_presets && j.camera_presets.length) html +=
-        '<br><span class="muted">Camera: ' + j.camera_presets.join(' \\u2192 ') + '</span>';
+        '<br><span class="muted">Camera: ' + j.camera_presets.join(' \u2192 ') + '</span>';
       if (j.effect) html +=
         '<br><span class="muted">Effect: ' + j.effect + '</span>';
       if (j.camera_look && Object.keys(j.camera_look).length) html +=
         '<br><span class="muted">Look: ' + Object.values(j.camera_look).join(' · ') + '</span>';
       if (j.has_custom_audio) html +=
         '<br><span class="muted">Music: made for this video from its music prompt</span>';
-      if (j.status === 'done' && j.kind === 'image') html += '<br><img src="/api/jobs/' + j.id + '/file" style="width:160px;border-radius:8px" alt="">';
+      if (j.status === 'done' && j.kind === 'image') html += '<br><img class="thumb" src="/api/jobs/' + j.id + '/file" alt="">';
       if (j.status === 'done' && j.kind !== 'image') html += '<br><video controls src="/api/jobs/' + j.id + '/file"></video>' +
         '<br><a href="/api/jobs/' + j.id + '/file" download>Download</a>';
       if (j.status === 'error') html += '<br><span class="err">' + (j.error || 'failed') + '</span>';
@@ -6412,7 +6506,7 @@ function renderClipResults(jobs) {
     const d = document.createElement('div'); d.className = 'card';
     let h = '<strong>' + (j.hook || 'Clip') + '</strong> · ' + (j.duration_seconds || '') + 's';
     if (j.score !== null && j.score !== undefined) h += ' · Score: ' + j.score;
-    if (j.has_thumb) h += '<br><img src="/api/jobs/' + j.id + '/thumb" style="width:140px;border-radius:8px" alt="">';
+    if (j.has_thumb) h += '<br><img class="thumb" src="/api/jobs/' + j.id + '/thumb" alt="">';
     h += '<br><video controls src="/api/jobs/' + j.id + '/file"></video>' +
       '<br><a href="/api/jobs/' + j.id + '/file" download>Download</a>';
     d.innerHTML = h; box.appendChild(d);
@@ -6509,6 +6603,7 @@ fetch('/api/config').then(r => r.json()).then(c => { cfg = c; catalogCfg = c; re
 fetch('/api/pricing').then(r => r.json()).then(p => { pricingData = p; buildCatalog(); updateHousePrice(); }).catch(() => {});
 const prefillPrompt = new URLSearchParams(location.search).get('prompt');
 if (prefillPrompt) $('prompt').value = prefillPrompt;
+buildSegmentsSeg();
 loadPresets();
 loadEffects();
 if (new URLSearchParams(location.search).get('verified')) {
@@ -6519,21 +6614,28 @@ refreshMe();
 </body></html>"""
 )
 
+
 GALLERY_HTML = (
     """<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Moonfactory gallery</title>"""
     + _CSS
-    + """</head><body><main>
-<header><strong><a href="/" style="color:#1a1a1a;text-decoration:none">Moonfactory</a></strong>
-<a href="/app">Try It</a></header>
-<h1>Community gallery</h1>
-<p class="muted">Finished clips from Moonfactory creators, shown under
-the creator's handle only. Clips are public by default; paying
-customers can opt out in Create. If a clip should not be here, use
-its Report button and it will be reviewed.</p>
-<div id="items"><p class="muted">Loading...</p></div>
+    + """<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Cpath fill='%23818cf8' d='M23.3 8A16 16 0 1 0 32.6 37.5A16.5 16.5 0 0 1 23.3 8Z'/%3E%3Cpath fill='%23f5d67a' stroke='%23f5d67a' stroke-width='1.6' stroke-linejoin='round' d='M24 18.5L24 27.5L31.5 23Z'/%3E%3C/svg%3E">
+</head><body><main>
+<header>
+  <a class="logo" href="/"><svg width="27" height="27" viewBox="0 0 48 48" aria-hidden="true"><path fill="#818cf8" d="M23.3 8A16 16 0 1 0 32.6 37.5A16.5 16.5 0 0 1 23.3 8Z"/><path fill="#f5d67a" stroke="#f5d67a" stroke-width="1.6" stroke-linejoin="round" d="M24 18.5L24 27.5L31.5 23Z"/></svg><span>Moon<em>factory</em></span></a>
+  <nav><a href="/app">Studio</a></nav>
+</header>
+<div style="max-width:880px;margin:56px auto 22px">
+  <h2>Community gallery</h2>
+  <p class="muted">Made with Moonfactory, shared by their creators under
+  their handles only. Clips are public by default; paying customers can
+  opt out in the studio. If a clip should not be here, use its Report
+  button and it will be reviewed.</p>
+</div>
+<div class="grid" id="items"><p class="muted">Loading...</p></div>
 </main>
+<footer><span>Moonfactory</span><span><a href="/app">Studio</a></span></footer>
 <script>
 async function loadGallery() {
   const box = document.getElementById('items');
@@ -6546,43 +6648,15 @@ async function loadGallery() {
       return;
     }
     for (const item of data.items) {
-      const div = document.createElement('div'); div.className = 'card';
-      const head = document.createElement('div');
-      const who = document.createElement('strong'); who.textContent = item.handle;
-      const lane = document.createElement('span'); lane.className = 'muted';
-      lane.textContent = ' · ' + (item.model || item.lane);
-      head.appendChild(who); head.appendChild(lane);
-      if (item.camera_presets && item.camera_presets.length) {
-        const cam = document.createElement('span'); cam.className = 'muted';
-        cam.textContent = ' · Camera: ' + item.camera_presets.join(', ');
-        head.appendChild(cam);
-      }
-      if (item.effect) {
-        const fx = document.createElement('span'); fx.className = 'muted';
-        fx.textContent = ' · Effect: ' + item.effect;
-        head.appendChild(fx);
-      }
-      const specBits = [];
-      if (item.duration_seconds) specBits.push(item.duration_seconds + 's');
-      if (item.resolution) specBits.push(item.resolution);
-      if (item.aspect_ratio) specBits.push(item.aspect_ratio);
-      if (item.segments_total > 1) specBits.push(item.segments_total + ' segments');
-      const lookVals = item.camera_look ? Object.values(item.camera_look) : [];
-      if (lookVals.length) specBits.push('Look: ' + lookVals.join(', '));
-      if (item.cost_cents !== null && item.cost_cents !== undefined) {
-        specBits.push(item.cost_cents > 0 ? 'Cost: $' + (item.cost_cents / 100).toFixed(2) : 'Free clip');
-      }
-      if (specBits.length) {
-        const spec = document.createElement('span'); spec.className = 'muted';
-        spec.textContent = ' · ' + specBits.join(' · ');
-        head.appendChild(spec);
-      }
-      const desc = document.createElement('p'); desc.className = 'muted';
-      desc.textContent = item.prompt;
+      const t = document.createElement('div'); t.className = 'tile';
+      const f = document.createElement('div'); f.className = 'frame';
       const video = document.createElement('video');
       video.controls = true; video.src = item.file_url; video.preload = 'metadata';
+      f.appendChild(video);
+      const h = document.createElement('div'); h.className = 'handle';
+      h.textContent = item.handle;
       const report = document.createElement('button');
-      report.className = 'btn secondary'; report.textContent = 'Report';
+      report.className = 'report'; report.textContent = 'Report';
       report.onclick = async () => {
         const reason = window.prompt('Why are you reporting this clip? (optional)');
         if (reason === null) return;
@@ -6595,10 +6669,8 @@ async function loadGallery() {
           report.disabled = true;
         } catch (e) { report.textContent = 'Report failed, try again'; }
       };
-      div.appendChild(head); div.appendChild(desc);
-      div.appendChild(video); div.appendChild(document.createElement('br'));
-      div.appendChild(report);
-      box.appendChild(div);
+      t.appendChild(f); t.appendChild(h); t.appendChild(report);
+      box.appendChild(t);
     }
   } catch (e) {
     box.innerHTML = '<p class="err">The gallery could not load. Try again in a moment.</p>';
