@@ -1,0 +1,14 @@
+# secrets and local state: never commit these
+api-key.txt
+admin-key.txt
+*.env
+*secrets*.json
+*.keypair
+makefun-keypair.json
+.modal.toml
+credentials
+__pycache__/
+*.pyc
+*.log
+outputs/
+modal-venv/
