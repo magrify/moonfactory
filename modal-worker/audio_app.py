@@ -10,10 +10,19 @@ The project is installed at image build time with uv (its documented
 install route); generation runs through the project's own venv python as
 a subprocess so dependency quirks stay inside the project's environment.
 
+generate_bed(caption, seed) is the callable the Moonfactory platform
+uses for per-job custom audio (a Creator-plan feature): pass a music
+description, get back wav bytes. Called with no arguments it produces
+the house bed, exactly as before. Every (caption, seed) pair is cached
+in the Volume, so a repeat call costs a container start, not a render.
+
 Usage:
-  modal run audio_app.py             # generate the bed, save wav locally
+  modal run audio_app.py             # generate the house bed, save locally
+  modal run audio_app.py --caption "lofi piano, soft rain" --seed 42
 """
 
+import hashlib
+import json
 import subprocess
 from pathlib import Path
 
@@ -36,12 +45,24 @@ ace_image = (
     )
 )
 
+HOUSE_CAPTION = (
+    "gentle uplifting instrumental background music, soft piano melody, "
+    "warm strings, light airy pads, calm and dreamy, floating over "
+    "green hills under a bright sky, cinematic ambient bed, no vocals"
+)
+HOUSE_SEED = 12345
+
 GEN_SCRIPT = r'''
-import sys, traceback
+import json, sys, traceback
 sys.path.insert(0, "/opt/acestep")
 
 from acestep.handler import AceStepHandler
 from acestep.inference import GenerationParams, GenerationConfig, generate_music
+
+with open("/tmp/ace_params.json") as fh:
+    spec = json.load(fh)
+caption = spec["caption"]
+seed = int(spec["seed"])
 
 handler = AceStepHandler()
 handler.initialize_service(
@@ -51,11 +72,7 @@ handler.initialize_service(
 )
 
 params = GenerationParams(
-    caption=(
-        "gentle uplifting instrumental background music, soft piano melody, "
-        "warm strings, light airy pads, calm and dreamy, floating over "
-        "green hills under a bright sky, cinematic ambient bed, no vocals"
-    ),
+    caption=caption,
     lyrics="[Instrumental]",
     instrumental=True,
     bpm=92,
@@ -64,14 +81,14 @@ params = GenerationParams(
     duration=10,
     inference_steps=8,
     shift=3.0,
-    seed=12345,
+    seed=seed,
     thinking=False,
     use_cot_metas=False,
     use_cot_caption=False,
     use_cot_lyrics=False,
     use_cot_language=False,
 )
-config = GenerationConfig(batch_size=1, audio_format="wav", use_random_seed=False, seeds=[12345])
+config = GenerationConfig(batch_size=1, audio_format="wav", use_random_seed=False, seeds=[seed])
 
 try:
     result = generate_music(handler, None, params, config, save_dir="/tmp/ace_out")
@@ -86,13 +103,31 @@ print(f"GENERATED {path}", flush=True)
 '''
 
 
+def _bed_key(caption: str, seed: int) -> str:
+    return hashlib.sha256(f"{caption}|{seed}".encode()).hexdigest()[:16]
+
+
 @app.function(
     image=ace_image,
     gpu="A10G",
     volumes={"/sinclip-models": volume},
     timeout=1800,
 )
-def generate_bed() -> bytes:
+def generate_bed(caption: str = HOUSE_CAPTION, seed: int = HOUSE_SEED) -> bytes:
+    """Generate (or fetch from the Volume cache) a 10 s instrumental
+    bed for the given caption. The house bed keeps its original path;
+    custom beds are cached under audio/custom/ by caption+seed hash."""
+    is_house = caption == HOUSE_CAPTION and seed == HOUSE_SEED
+    dest_dir = Path("/sinclip-models/audio")
+    dest = (dest_dir / "music_bed_first.wav") if is_house else (
+        dest_dir / "custom" / f"{_bed_key(caption, seed)}.wav"
+    )
+    if dest.exists():
+        print(f"cache hit {dest}", flush=True)
+        return dest.read_bytes()
+    Path("/tmp/ace_params.json").write_text(
+        json.dumps({"caption": caption, "seed": seed})
+    )
     script_path = Path("/tmp/gen_bed.py")
     script_path.write_text(GEN_SCRIPT)
     proc = subprocess.run(
@@ -108,9 +143,7 @@ def generate_bed() -> bytes:
     if not wavs:
         raise RuntimeError(f"no wav produced; /tmp/ace_out contains: {list(out_dir.rglob('*'))}")
     data = wavs[0].read_bytes()
-    dest_dir = Path("/sinclip-models/audio")
-    dest_dir.mkdir(parents=True, exist_ok=True)
-    dest = dest_dir / "music_bed_first.wav"
+    dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_bytes(data)
     volume.commit()
     print(f"persisted {dest} ({len(data)} bytes)", flush=True)
@@ -118,9 +151,14 @@ def generate_bed() -> bytes:
 
 
 @app.local_entrypoint()
-def main():
-    data = generate_bed.remote()
-    out = Path(__file__).parent.parent / "outputs" / "music_bed_first.wav"
+def main(caption: str = "", seed: int = 0):
+    if caption:
+        use_seed = seed or 12345
+        data = generate_bed.remote(caption, use_seed)
+        out = Path(__file__).parent.parent / "outputs" / "custom_bed_test.wav"
+    else:
+        data = generate_bed.remote()
+        out = Path(__file__).parent.parent / "outputs" / "music_bed_first.wav"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_bytes(data)
     print(f"saved {out} ({len(data)} bytes)")

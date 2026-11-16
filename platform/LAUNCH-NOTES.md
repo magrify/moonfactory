@@ -22,6 +22,23 @@ to finish the launch. Nothing in this file is a secret value.
   provisioned for the platform hostname and live. A proof-of-work
   challenge stays accepted as a fallback for clients without a
   browser.
+- Public gallery (Jack's decision, 2026-11-16): every finished clip
+  lists at /gallery under the creator's handle only (a handle the
+  user picks, or a neutral derived creator-XXXXXX; never an email
+  or real name, no identifying job metadata). Creator-plan users
+  get an opt-out checkbox in the studio; free clips always list.
+  Every item has a Report button (stored for the operator), owners
+  can delete their own clips at any time (which unlists them), and
+  the operator can remove or restore any item with the admin key
+  (GET /api/admin/reports, POST /api/admin/gallery/{id}/remove).
+- Paid-only features, enforced server-side (Jack, 2026-11-16):
+  custom audio (a per-job music prompt, up to 300 characters; the
+  ACE-Step stage generates that job's bed at delivery time and the
+  platform muxes it; free accounts keep the house bed and get a
+  403 if they submit a music prompt) and model switching (choosing
+  the Production lane; free accounts are locked to Draft with a
+  403). The studio shows both controls locked with a plan note on
+  free accounts.
 
 ## Switched off, with the exact remaining step for each
 
@@ -111,8 +128,12 @@ then) and the trademark screen from the original decision list.
   multi-segment videos are proven in the worker (see BUILD-LOG run 3)
   but are not wired into the public job form yet; that is the next
   product step, not a hidden gap.
-- Every delivered video carries the house music bed generated during
-  the test phase. Per-prompt music generation is a later step; the
-  audio app accepts a fixed caption today.
+- Every delivered video carries a music bed: the house bed by
+  default, or a bed generated from the job's own music prompt for
+  Creator-plan jobs (live since 2026-11-16; the audio app takes any
+  caption now and caches per caption+seed). If the audio stage ever
+  fails at delivery time, the file falls back to the house bed and
+  the job record is flagged (audio_fallback) rather than breaking
+  delivery.
 - Production renders take about 25 minutes and Draft about 6 to 13.
   The studio says so up front; there is no queue position display yet.

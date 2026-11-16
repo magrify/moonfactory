@@ -6,10 +6,16 @@ below), dispatches generation jobs to the private worker endpoint, and
 receives Stripe webhooks. The worker API key lives only in this app's
 Modal Secret and is never sent to a browser.
 
-The worker returns silent video. Every delivered file gets the house
-music bed (ACE-Step, stored in the shared worker Volume) muxed on here,
-on CPU, and free-tier files also get a Moonfactory watermark burned in.
-GPU work stays inside the worker; everything here is CPU.
+The worker returns silent video. Every delivered file gets a music
+bed muxed on here, on CPU: the ACE-Step house bed by default, or a
+bed generated from the job's own music prompt for Creator-plan jobs
+(custom audio is paid-only, gated at job creation). Free-tier files
+also get a Moonfactory watermark burned in. GPU work stays inside
+the worker apps; everything here is CPU.
+
+Finished clips list in a public gallery by default (handles only,
+never emails; Creator users can opt out; reports and an admin
+removal path keep it moderated).
 
 State: Modal Dicts (users, jobs, meta, outbox). Finished files are
 cached on the moonfactory-data Volume.
@@ -19,6 +25,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import secrets as pysecrets
 import subprocess
 import sys
@@ -65,6 +72,11 @@ FREE_PLATFORM_TOTAL_CEILING = int(
 MAX_FREE_RETRIES = 2
 POW_DIFFICULTY_BITS = 18
 SEGMENT_SECONDS = pricing.SEGMENT_SECONDS
+# Creator-plan feature gates (Jack, 2026-11-16): custom audio and
+# model/lane switching are paid-only, enforced server-side in
+# create_job and the settings endpoints below, not just in the UI.
+CUSTOM_AUDIO_MAX_CHARS = 300
+HANDLE_RE = re.compile(r"[A-Za-z0-9_-]{3,20}")
 
 BED_PATH = Path("/worker-models/audio/music_bed_first.wav")
 FILES_DIR = Path("/data/files")
@@ -322,12 +334,23 @@ def api():
             user["free_jobs_total"] = total
         return int(total)
 
+    def display_handle(user: dict) -> str:
+        """The only name the public gallery ever shows. A handle the
+        user picked, or a neutral derived one (creator-XXXXXX from the
+        account id). Never the email, never a real name."""
+        handle = (user.get("handle") or "").strip()
+        if handle:
+            return handle
+        return "creator-" + user["id"][:6]
+
     def public_user(user: dict) -> dict:
         u = usage(user)
         return {
             "email": user["email"],
             "verified": user["verified"],
             "plan": user["plan"],
+            "handle": display_handle(user),
+            "gallery_opt_out": bool(user.get("gallery_opt_out")),
             "past_due": user.get("past_due", False),
             "balance_cents": user.get("balance_cents", 0),
             "free_jobs_used": free_jobs_total(user),
@@ -407,6 +430,8 @@ def api():
             "verified": False,
             "created_at": _now(),
             "plan": "free",
+            "handle": None,
+            "gallery_opt_out": False,
             "past_due": False,
             "balance_cents": 0,
             "free_jobs_total": 0,
@@ -469,6 +494,41 @@ def api():
         user = require_user(request, mf_session)
         return public_user(user)
 
+    @web.post("/api/me/handle")
+    async def set_handle(request: Request, mf_session: str = Cookie(default="")):
+        user = require_user(request, mf_session)
+        body = await request.json()
+        handle = (body.get("handle") or "").strip()
+        if not HANDLE_RE.fullmatch(handle):
+            raise HTTPException(
+                status_code=422,
+                detail="handle must be 3-20 characters: letters, numbers, _ or -",
+            )
+        for key in list(users.keys()):
+            if not key.startswith("id:"):
+                continue
+            other = users.get(key)
+            if (other and other["id"] != user["id"]
+                    and (other.get("handle") or "").lower() == handle.lower()):
+                raise HTTPException(status_code=409, detail="that handle is taken")
+        user["handle"] = handle
+        save_user(user)
+        return {"handle": handle}
+
+    @web.post("/api/me/gallery-optout")
+    async def set_gallery_optout(request: Request, mf_session: str = Cookie(default="")):
+        user = require_user(request, mf_session)
+        body = await request.json()
+        opt_out = bool(body.get("opt_out"))
+        if opt_out and user["plan"] == "free":
+            raise HTTPException(
+                status_code=403,
+                detail="gallery opt-out is a Creator plan feature",
+            )
+        user["gallery_opt_out"] = opt_out
+        save_user(user)
+        return {"gallery_opt_out": opt_out}
+
     # -- jobs ---------------------------------------------------------------
 
     def mirror_status(job: dict) -> dict:
@@ -506,6 +566,7 @@ def api():
             "created_at": job["created_at"],
             "charged_cents": job.get("charged_cents", 0),
             "has_file": job["status"] == "done",
+            "has_custom_audio": bool(job.get("music_prompt")),
         }
 
     @web.post("/api/jobs")
@@ -528,6 +589,19 @@ def api():
         prompt = (body.get("prompt") or "").strip()
         if not prompt or len(prompt) > 2000:
             raise HTTPException(status_code=422, detail="a prompt of up to 2000 characters is required")
+        # Custom audio is a Creator-plan feature (Jack, 2026-11-16),
+        # enforced here on the server: a free account that submits a
+        # music prompt gets a clean rejection before any dispatch.
+        music_prompt = (body.get("music_prompt") or "").strip()
+        if len(music_prompt) > CUSTOM_AUDIO_MAX_CHARS:
+            raise HTTPException(
+                status_code=422,
+                detail=f"music prompt must be {CUSTOM_AUDIO_MAX_CHARS} characters or fewer",
+            )
+        if music_prompt and user["plan"] == "free":
+            raise HTTPException(
+                status_code=403, detail="custom audio is a Creator plan feature"
+            )
         u = usage(user)
         charged = 0
         used_included = 0.0
@@ -597,6 +671,7 @@ def api():
             "created_at": _now(),
             "charged_cents": charged,
             "included_seconds": used_included,
+            "music_prompt": music_prompt or None,
             "plan_at_job": user["plan"],
             "retry_of": body.get("retry_of"),
             "last_poll": 0,
@@ -636,6 +711,7 @@ def api():
         new_body = {
             "lane": parent["lane"],
             "prompt": parent["prompt"],
+            "music_prompt": parent.get("music_prompt"),
             "retry_of": root_id,
             "challenge_id": body.get("challenge_id"),
             "challenge_nonce": body.get("challenge_nonce"),
@@ -657,15 +733,36 @@ def api():
                 created["charged_cents"] = 0
         return created
 
-    @web.get("/api/jobs/{job_id}/file")
-    def job_file(job_id: str, request: Request, mf_session: str = Cookie(default="")):
-        user = require_user(request, mf_session)
-        job = jobs.get(job_id)
-        if not job or job.get("user_id") != user["id"]:
-            raise HTTPException(status_code=404, detail="unknown job")
-        job = mirror_status(job)
-        if job["status"] != "done":
-            raise HTTPException(status_code=409, detail=f"job status is {job['status']}")
+    def _bed_for_job(job: dict):
+        """The music bed for a job's delivery. Jobs without a music
+        prompt get the house bed. Jobs with one (Creator only, gated
+        at creation) get an ACE-Step bed generated from the prompt,
+        cached per job on the data Volume. Any audio-stage failure
+        falls back to the house bed and is flagged on the job record,
+        so delivery never breaks on the music stage."""
+        prompt = (job.get("music_prompt") or "").strip()
+        if not prompt:
+            return BED_PATH if BED_PATH.exists() else None
+        bed_file = FILES_DIR / "beds" / f"{job['id']}.wav"
+        if bed_file.exists():
+            return bed_file
+        try:
+            seed = int(hashlib.sha256(job["id"].encode()).hexdigest()[:8], 16) % 90000 + 10000
+            caption = f"{prompt}, instrumental, no vocals"
+            generate_bed = modal.Function.from_name("sinclip-audio", "generate_bed")
+            data = generate_bed.remote(caption, seed)
+            bed_file.parent.mkdir(parents=True, exist_ok=True)
+            bed_file.write_bytes(data)
+            return bed_file
+        except Exception:
+            job["audio_fallback"] = True
+            jobs[job["id"]] = job
+            return BED_PATH if BED_PATH.exists() else None
+
+    def ensure_processed(job: dict) -> Path:
+        """Fetch the worker's silent file if needed and produce the
+        delivered file (music muxed, watermark for free-tier jobs)."""
+        job_id = job["id"]
         FILES_DIR.mkdir(parents=True, exist_ok=True)
         out_path = FILES_DIR / f"{job_id}.mp4"
         if not out_path.exists():
@@ -678,10 +775,112 @@ def api():
                 if resp.status_code != 200:
                     raise HTTPException(status_code=502, detail="finished file is not available yet")
                 raw_path.write_bytes(resp.content)
-            _process_file(raw_path, out_path, watermark=(job.get("plan_at_job") == "free"))
+            _process_file(raw_path, out_path,
+                          watermark=(job.get("plan_at_job") == "free"),
+                          bed_path=_bed_for_job(job))
             data_volume.commit()
+        return out_path
+
+    @web.get("/api/jobs/{job_id}/file")
+    def job_file(job_id: str, request: Request, mf_session: str = Cookie(default="")):
+        user = require_user(request, mf_session)
+        job = jobs.get(job_id)
+        if not job or job.get("user_id") != user["id"]:
+            raise HTTPException(status_code=404, detail="unknown job")
+        job = mirror_status(job)
+        if job["status"] != "done":
+            raise HTTPException(status_code=409, detail=f"job status is {job['status']}")
+        out_path = ensure_processed(job)
         return FileResponse(out_path, media_type="video/mp4",
                             filename=f"moonfactory-{job_id}.mp4")
+
+    @web.delete("/api/jobs/{job_id}")
+    def delete_job(job_id: str, request: Request, mf_session: str = Cookie(default="")):
+        user = require_user(request, mf_session)
+        job = jobs.get(job_id)
+        if not job or job.get("user_id") != user["id"]:
+            raise HTTPException(status_code=404, detail="unknown job")
+        del jobs[job_id]
+        for path in (FILES_DIR / f"{job_id}.mp4",
+                     FILES_DIR / f"{job_id}.raw.mp4",
+                     FILES_DIR / "beds" / f"{job_id}.wav"):
+            try:
+                path.unlink(missing_ok=True)
+            except Exception:
+                pass
+        data_volume.commit()
+        return {"status": "deleted"}
+
+    # -- public gallery -----------------------------------------------------
+    # Every finished clip is listed by default (Jack, 2026-11-16).
+    # Safety shape: only the owner's handle is shown (never an email
+    # or real name), no identifying job metadata, every item carries
+    # a report control, owners can delete their clips at any time
+    # (which removes them here), and an admin can remove any item.
+    # Opting out is a Creator-plan feature; free clips always list.
+
+    def gallery_visible(job: dict) -> bool:
+        if job.get("status") != "done" or job.get("removed"):
+            return False
+        owner = users.get(f"id:{job.get('user_id')}")
+        if not owner:
+            return False
+        if owner.get("plan") != "free" and owner.get("gallery_opt_out"):
+            return False
+        return True
+
+    def public_gallery_item(job: dict) -> dict:
+        owner = users.get(f"id:{job.get('user_id')}") or {}
+        return {
+            "id": job["id"],
+            "handle": display_handle(owner),
+            "lane": job["lane"],
+            "prompt": (job.get("prompt") or "")[:200],
+            "created_at": job["created_at"],
+            "file_url": f"/gallery/{job['id']}/file",
+        }
+
+    @web.get("/gallery", response_class=HTMLResponse)
+    def gallery_page():
+        return HTMLResponse(GALLERY_HTML)
+
+    @web.get("/api/gallery")
+    def gallery_list():
+        items = []
+        for key in list(jobs.keys()):
+            job = jobs.get(key)
+            if job and gallery_visible(job):
+                items.append(public_gallery_item(job))
+        items.sort(key=lambda i: i["created_at"], reverse=True)
+        return {"items": items[:100]}
+
+    @web.get("/gallery/{job_id}/file")
+    def gallery_file(job_id: str):
+        job = jobs.get(job_id)
+        if not job or not gallery_visible(job):
+            raise HTTPException(status_code=404, detail="not in the gallery")
+        out_path = ensure_processed(job)
+        return FileResponse(out_path, media_type="video/mp4",
+                            filename=f"moonfactory-{job_id}.mp4")
+
+    @web.post("/api/gallery/{job_id}/report")
+    async def report_gallery_item(job_id: str, request: Request):
+        if _rate_limited("report", client_ip(request), 20):
+            raise HTTPException(status_code=429, detail="too many reports, slow down")
+        job = jobs.get(job_id)
+        if not job or not gallery_visible(job):
+            raise HTTPException(status_code=404, detail="not in the gallery")
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        reason = ""
+        if isinstance(body, dict):
+            reason = (body.get("reason") or "").strip()[:500]
+        reports = meta.get("reports") or []
+        reports.append({"job_id": job_id, "reason": reason, "at": _now()})
+        meta["reports"] = reports[-500:]
+        return {"status": "reported"}
 
     # -- stripe -------------------------------------------------------------
 
@@ -843,19 +1042,50 @@ def api():
 
     # -- operator -----------------------------------------------------------
 
-    @web.get("/api/admin/outbox")
-    def admin_outbox(x_admin_key: str = Header(default="")):
+    def require_admin(x_admin_key: str):
         if not hmac.compare_digest(x_admin_key, os.environ.get("ADMIN_KEY", "\0")):
             raise HTTPException(status_code=401, detail="bad admin key")
+
+    @web.get("/api/admin/outbox")
+    def admin_outbox(x_admin_key: str = Header(default="")):
+        require_admin(x_admin_key)
         return {"items": outbox.get("items") or []}
+
+    @web.get("/api/admin/reports")
+    def admin_reports(x_admin_key: str = Header(default="")):
+        require_admin(x_admin_key)
+        return {"reports": meta.get("reports") or []}
+
+    @web.post("/api/admin/gallery/{job_id}/remove")
+    def admin_gallery_remove(job_id: str, x_admin_key: str = Header(default="")):
+        require_admin(x_admin_key)
+        job = jobs.get(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="unknown job")
+        job["removed"] = True
+        jobs[job_id] = job
+        return {"status": "removed"}
+
+    @web.post("/api/admin/gallery/{job_id}/restore")
+    def admin_gallery_restore(job_id: str, x_admin_key: str = Header(default="")):
+        require_admin(x_admin_key)
+        job = jobs.get(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="unknown job")
+        job["removed"] = False
+        jobs[job_id] = job
+        return {"status": "restored"}
 
     return web
 
 
-def _process_file(raw_path: Path, out_path: Path, watermark: bool):
-    """Mux the house music bed onto the video (CPU). Free-tier files
-    also get the watermark burned in, which needs a re-encode."""
-    bed = BED_PATH if BED_PATH.exists() else None
+def _process_file(raw_path: Path, out_path: Path, watermark: bool, bed_path=None):
+    """Mux a music bed onto the video (CPU): the job's custom bed
+    when one is passed, else the house bed. Free-tier files also get
+    the watermark burned in, which needs a re-encode."""
+    if bed_path is None:
+        bed_path = BED_PATH
+    bed = bed_path if bed_path and Path(bed_path).exists() else None
     audio_in = ["-i", str(bed)] if bed else []
     audio_map = ["-map", "0:v:0", "-map", "1:a:0"] if bed else ["-map", "0:v:0"]
     audio_codec = ["-c:a", "aac", "-b:a", "160k",
@@ -906,7 +1136,7 @@ INDEX_HTML = (
 <title>Moonfactory: AI video generation for creators</title>"""
     + _CSS
     + """</head><body><main>
-<header><strong>Moonfactory</strong><a href="/app">Open the studio</a></header>
+<header><strong>Moonfactory</strong><span><a href="/gallery">Gallery</a> &nbsp; <a href="/app">Open the studio</a></span></header>
 <h1>Turn a still image into a short video, with music.</h1>
 <p>Moonfactory takes a start image and a prompt and renders a vertical
 short video with a music track included. It is built for TikTok, Reels,
@@ -945,9 +1175,18 @@ GPU time, so the whole platform also has a hard total budget for free
 work; when it is used up, free jobs pause. Paid work is never crowded
 out by free work.</p>
 
+<h2>Gallery</h2>
+<p>Finished clips show in the <a href="/gallery">public gallery</a>
+under the creator's handle, never an email address. Creator members
+can opt out in the studio; free clips are always listed. Every
+gallery item has a report button, and anything reported gets
+reviewed and removed when it should not be there.</p>
+
 <h2>FAQ</h2>
 <p><strong>Does every video have sound?</strong> Yes. A music track is
-mixed onto every finished video. Silent output is not a thing here.</p>
+mixed onto every finished video. Silent output is not a thing here.
+Creator members can also describe the music they want and have it
+generated for that video; free clips use the house track.</p>
 <p><strong>Can I use the videos commercially?</strong> Yes, on the
 Creator plan. Free clips are for trying things out.</p>
 <p><strong>What if a render fails?</strong> If the failure is on our
@@ -1003,6 +1242,14 @@ APP_HTML = (
   <div class="card">
     <h2 style="margin-top:0">Your account</h2>
     <p id="account"></p>
+    <label>Public handle (the only name the gallery ever shows)</label>
+    <input id="handle" maxlength="20">
+    <button class="btn secondary" id="save-handle">Save handle</button>
+    <label style="font-weight:400;display:block;margin-top:12px">
+      <input type="checkbox" id="gallery-optout" style="width:auto;margin:0 6px 0 0">
+      Hide my clips from the public gallery</label>
+    <p class="muted" id="gallery-note"></p>
+    <p id="profile-msg"></p>
     <p>
       <button class="btn secondary" id="buy-creator">Get Creator, $20/month</button>
       <button class="btn secondary" data-topup="500">Top up $5</button>
@@ -1020,8 +1267,12 @@ APP_HTML = (
       <option value="draft">Draft: fast preview, about 5 seconds</option>
       <option value="production">Production: 720x1280, Creator plan or balance</option>
     </select>
+    <p class="muted" id="lane-note"></p>
     <label>Prompt</label>
     <textarea id="prompt" rows="3" placeholder="a red hot air balloon rising over green hills, clouds drifting, gentle forward camera movement"></textarea>
+    <label>Music prompt (optional)</label>
+    <textarea id="music" rows="2" maxlength="300" placeholder="lo-fi piano with soft rain, slow and dreamy"></textarea>
+    <p class="muted" id="music-note"></p>
     <label>Start image (PNG, optional)</label>
     <input id="startimg" type="file" accept="image/png">
     <div id="botcheck2"></div>
@@ -1110,8 +1361,40 @@ function showStudio(u) {
   $('account').textContent = 'Plan: ' + u.plan + '. ' + inc +
     'Prepaid balance: $' + (u.balance_cents / 100).toFixed(2) + '.' +
     (u.verified ? '' : ' Your email is not verified yet, so creating is off.');
+  $('handle').value = u.handle || '';
+  const opt = $('gallery-optout');
+  const prodOption = document.querySelector('#lane option[value="production"]');
+  if (u.plan === 'creator') {
+    opt.disabled = false; opt.checked = !!u.gallery_opt_out;
+    $('gallery-note').textContent = '';
+    prodOption.disabled = false;
+    $('lane-note').textContent = '';
+    $('music').disabled = false;
+    $('music-note').textContent = 'Describe the music and it is generated for this video.';
+  } else {
+    opt.disabled = true; opt.checked = false;
+    $('gallery-note').textContent = 'Free clips always show in the gallery. Hiding them is a Creator feature.';
+    prodOption.disabled = true;
+    $('lane-note').textContent = 'Model switching is a Creator feature. Free accounts render on the Draft lane.';
+    $('music').disabled = true; $('music').value = '';
+    $('music-note').textContent = 'Custom audio is a Creator feature. Free clips get the house music track.';
+  }
   loadJobs();
 }
+$('save-handle').onclick = async () => {
+  try {
+    const r = await api('/api/me/handle', { method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ handle: $('handle').value }) });
+    msg('profile-msg', 'Handle saved: ' + r.handle, 'ok');
+  } catch (e) { msg('profile-msg', e.message, 'err'); }
+};
+$('gallery-optout').addEventListener('change', async () => {
+  try {
+    const r = await api('/api/me/gallery-optout', { method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ opt_out: $('gallery-optout').checked }) });
+    msg('profile-msg', r.gallery_opt_out ? 'Your clips are hidden from the gallery.' : 'Your clips show in the gallery.', 'ok');
+  } catch (e) { msg('profile-msg', e.message, 'err'); $('gallery-optout').checked = false; }
+});
 async function refreshMe() {
   try { const u = await api('/api/me'); showStudio(u); } catch (e) { /* signed out */ }
 }
@@ -1132,6 +1415,7 @@ $('create').onclick = async () => {
     const bot = await botFields('botcheck2');
     const r = await api('/api/jobs', { method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ lane: $('lane').value, prompt: $('prompt').value,
+        music_prompt: $('music').disabled ? '' : $('music').value,
         start_image_png_b64: startImageB64, ...bot }) });
     msg('job-msg', 'Job queued. Draft renders take roughly 6 to 13 minutes; production about 25.', 'ok');
     loadJobs();
@@ -1151,17 +1435,91 @@ async function loadJobs() {
       if (j.status === 'done') html += '<br><video controls src="/api/jobs/' + j.id + '/file"></video>' +
         '<br><a href="/api/jobs/' + j.id + '/file" download>Download</a>';
       if (j.status === 'error') html += '<br><span class="err">' + (j.error || 'failed') + '</span>';
+      if (j.status === 'done' || j.status === 'error') html +=
+        '<br><button class="btn secondary" data-del="' + j.id + '">Delete</button>';
       if (j.status === 'queued' || j.status === 'running') active = true;
       div.innerHTML = html; box.appendChild(div);
     }
     if (active) setTimeout(loadJobs, 10000);
   } catch (e) { /* signed out */ }
 }
+$('jobs').addEventListener('click', async e => {
+  const b = e.target.closest('[data-del]');
+  if (!b) return;
+  if (!confirm('Delete this video? It is removed from your studio and from the gallery.')) return;
+  try { await api('/api/jobs/' + b.dataset.del, { method: 'DELETE' }); loadJobs(); }
+  catch (err) { alert(err.message); }
+});
 fetch('/api/config').then(r => r.json()).then(c => { cfg = c; renderBotChecks(); });
 if (new URLSearchParams(location.search).get('verified')) {
   msg('auth-msg', 'Email verified. You can sign in now.', 'ok');
 }
 refreshMe();
+</script>
+</body></html>"""
+)
+
+GALLERY_HTML = (
+    """<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Moonfactory gallery</title>"""
+    + _CSS
+    + """</head><body><main>
+<header><strong><a href="/" style="color:#1a1a1a;text-decoration:none">Moonfactory</a></strong>
+<a href="/app">Open the studio</a></header>
+<h1>Community gallery</h1>
+<p class="muted">Finished clips from Moonfactory creators, shown under
+the creator's handle only. Clips are public by default; Creator
+members can opt out in the studio. If a clip should not be here, use
+its Report button and it will be reviewed.</p>
+<div id="items"><p class="muted">Loading...</p></div>
+</main>
+<script>
+async function loadGallery() {
+  const box = document.getElementById('items');
+  try {
+    const r = await fetch('/api/gallery');
+    const data = await r.json();
+    box.innerHTML = '';
+    if (!data.items.length) {
+      box.innerHTML = '<p class="muted">No clips yet. The first ones are on their way.</p>';
+      return;
+    }
+    for (const item of data.items) {
+      const div = document.createElement('div'); div.className = 'card';
+      const head = document.createElement('div');
+      const who = document.createElement('strong'); who.textContent = item.handle;
+      const lane = document.createElement('span'); lane.className = 'muted';
+      lane.textContent = ' · ' + item.lane;
+      head.appendChild(who); head.appendChild(lane);
+      const desc = document.createElement('p'); desc.className = 'muted';
+      desc.textContent = item.prompt;
+      const video = document.createElement('video');
+      video.controls = true; video.src = item.file_url; video.preload = 'metadata';
+      const report = document.createElement('button');
+      report.className = 'btn secondary'; report.textContent = 'Report';
+      report.onclick = async () => {
+        const reason = window.prompt('Why are you reporting this clip? (optional)');
+        if (reason === null) return;
+        try {
+          const resp = await fetch('/api/gallery/' + item.id + '/report', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ reason: reason || '' }) });
+          if (!resp.ok) throw new Error('report failed');
+          report.textContent = 'Reported, thank you';
+          report.disabled = true;
+        } catch (e) { report.textContent = 'Report failed, try again'; }
+      };
+      div.appendChild(head); div.appendChild(desc);
+      div.appendChild(video); div.appendChild(document.createElement('br'));
+      div.appendChild(report);
+      box.appendChild(div);
+    }
+  } catch (e) {
+    box.innerHTML = '<p class="err">The gallery could not load. Try again in a moment.</p>';
+  }
+}
+loadGallery();
 </script>
 </body></html>"""
 )

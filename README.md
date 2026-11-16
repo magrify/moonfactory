@@ -14,6 +14,14 @@ Live app: https://magrify--moonfactory-api.us-east.modal.run
   - Production: Wan 2.2 A14B at 720x1280.
 - Every finished video gets a music bed (ACE-Step 1.5) mixed on before
   delivery. Free-tier videos also carry a watermark.
+- Creator-plan features, enforced server-side: custom audio (describe
+  the music per job and it is generated for that video) and model
+  switching (the Production lane). Free accounts stay on the Draft
+  lane with the house music bed, and see both controls locked.
+- A public gallery lists every finished clip under the creator's
+  handle (never an email address). Creator members can opt out;
+  every item has a report button, owners can delete their own clips,
+  and the operator can remove items with the admin key.
 - A post chain (RIFE interpolation to 30 fps, SeedVR2 upscale to
   1080x1920) and two-segment chaining are proven in the worker and
   shown in modal-worker/STATUS.md. The public job form renders one
