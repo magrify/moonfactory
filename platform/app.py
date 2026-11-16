@@ -1281,6 +1281,18 @@ def api():
             or float(user.get("net_paid_cents") or 0.0) > 0
         )
 
+    def is_owner(user: dict) -> bool:
+        """Jack's owner pricing exemption (2026-11-16): the owner
+        account (support@magrify.com) is the ONLY account that pays
+        no markup. The exemption is keyed on the explicit is_owner
+        flag on the account record, set on that one record in the
+        users Dict, never on the email string in pricing logic.
+        Owner quotes and charges resolve to raw cost on the cheapest
+        route via the owner= paths in pricing.py; every other
+        account's prices, gates, holds and settle logic are
+        untouched."""
+        return bool(user and user.get("is_owner"))
+
     def ceiling_allows(user: dict, worst_case_cost_cents: float) -> bool:
         """Rule 3, Amendment 2: the hard per-account cost ceiling.
         An account is never served more generation cost (settled
@@ -1462,14 +1474,21 @@ def api():
         }
 
     @web.get("/api/pricing")
-    def get_pricing():
-        data = pricing.public_pricing()
+    def get_pricing(request: Request, mf_session: str = Cookie(default="")):
+        # Anonymous and ordinary sessions see the standard marked-up
+        # prices. The owner account's own session sees its at-cost
+        # prices (owner pricing exemption, Jack 2026-11-16); the
+        # session is resolved optionally, never required, here.
+        session_user = current_user(request, mf_session)
+        owner = is_owner(session_user)
+        data = pricing.public_pricing(owner=owner)
         table = rate_table()
         lanes = {}
         for model in PER_SECOND_MODELS:
             state = api_lane_state(model)
             frontier = {
-                res: pricing.frontier_lane(model, res, table["rates"])
+                res: pricing.frontier_lane(model, res, table["rates"],
+                                           owner=owner)
                 for res in state["rates_cents_per_second"]
             }
             lanes[model] = {
@@ -1498,7 +1517,7 @@ def api():
             }
         data["clipping"] = {
             "included_cents_per_source_minute": pricing.CLIP_INCLUDED_CENTS_PER_MINUTE,
-            "balance_cents_per_source_minute": pricing.CLIP_BALANCE_CENTS_PER_MINUTE,
+            "balance_cents_per_source_minute": pricing.clip_balance_rate_cents(owner),
             "cost_cents_per_source_minute": pricing.CLIP_COST_CENTS_PER_MINUTE,
             "max_source_seconds": pricing.CLIP_MAX_SOURCE_SECONDS,
             "max_upload_bytes": pricing.CLIP_MAX_UPLOAD_BYTES,
@@ -1756,9 +1775,11 @@ def api():
         if owner:
             if job.get("hold_kind") == "balance":
                 # Settle at the Amendment 3 sell rate for the lane,
-                # never above the hold the user saw.
+                # never above the hold the user saw. The owner
+                # account settles at raw cost (owner exemption).
                 debit = pricing.per_second_balance_debit_cents(
-                    job["model"], job["resolution"], billed, table["rates"]
+                    job["model"], job["resolution"], billed, table["rates"],
+                    owner=bool(owner.get("is_owner")),
                 )
                 debit = min(debit, int(hold))
                 refund = int(hold) - debit
@@ -2002,9 +2023,15 @@ def api():
                         done_segs = int(job.get("segments_done") or 0)
                         missing = max(0, total - done_segs)
                         if missing and job.get("charged_cents"):
-                            per_seg = pricing.JOB_PRICE_CENTS[job["lane"]]
-                            refund = per_seg * missing
                             owner = users.get(f"id:{job['user_id']}")
+                            # Refund at the rate the job was charged:
+                            # the owner was charged raw cost per
+                            # segment, everyone else the job price.
+                            per_seg = pricing.job_price_cents(
+                                job["lane"],
+                                owner=bool(owner and owner.get("is_owner")),
+                            )
+                            refund = per_seg * missing
                             if owner:
                                 owner["balance_cents"] = (
                                     owner.get("balance_cents", 0) + refund)
@@ -2255,6 +2282,7 @@ def api():
         est = pricing.per_second_estimate(
             model, params["resolution"], params["duration"],
             params["reference_video_seconds"], rate_table()["rates"],
+            owner=is_owner(user),
         )
         remaining = included_budget_remaining(user)
         ceiling_ok = ceiling_allows(user, est["cap_raw_cents"])
@@ -2307,7 +2335,7 @@ def api():
         return {
             "model": model,
             "model_label": MODEL_LABELS[model],
-            "job_price_cents": pricing.JOB_PRICE_CENTS,
+            "job_price_cents": pricing.job_price_table(owner=is_owner(user)),
             "included_budget_cents_total": round(pricing.included_budget_cents(), 2),
             "included_budget_cents_remaining": round(included_budget_remaining(user), 2),
         }
@@ -3447,6 +3475,7 @@ def api():
         est = pricing.per_second_estimate(
             model, params["resolution"], params["duration"],
             params["reference_video_seconds"], rate_table()["rates"],
+            owner=is_owner(user),
         )
         if not ceiling_allows(user, est["cap_raw_cents"]):
             raise HTTPException(
@@ -3811,7 +3840,8 @@ def api():
                 used_included = SEGMENT_SECONDS * segments
                 used_budget = float(included_unit) * segments
             else:
-                price = pricing.JOB_PRICE_CENTS[lane] * segments
+                price = pricing.job_price_cents(
+                    lane, owner=is_owner(user)) * segments
                 if user.get("balance_cents", 0) < price:
                     detail = (
                         f"included time used up; this job costs {price} cents of prepaid balance"
@@ -3968,9 +3998,10 @@ def api():
                 and included_budget_remaining(user) >= pricing.IMAGE_MEASURED_COST_CENTS):
             return {"method": "included",
                     "included_debit_cents": pricing.IMAGE_MEASURED_COST_CENTS}
-        if int(user.get("balance_cents", 0)) >= pricing.IMAGE_PRICE_CENTS:
-            return {"method": "balance", "charge_cents": pricing.IMAGE_PRICE_CENTS}
-        return {"method": "insufficient", "charge_cents": pricing.IMAGE_PRICE_CENTS,
+        charge = pricing.image_price_cents(owner=is_owner(user))
+        if int(user.get("balance_cents", 0)) >= charge:
+            return {"method": "balance", "charge_cents": charge}
+        return {"method": "insufficient", "charge_cents": charge,
                 "balance_cents": int(user.get("balance_cents", 0))}
 
     @web.post("/api/images/quote")
@@ -3979,7 +4010,7 @@ def api():
         body = await request.json()
         _image_params(body)
         return {
-            **pricing.image_quote(),
+            **pricing.image_quote(owner=is_owner(user)),
             "payment": _image_payment(user),
             "ceiling_ok": (
                 True if not is_paid(user) and user["plan"] == "free"
@@ -4041,11 +4072,11 @@ def api():
             if payment["method"] == "included":
                 used_budget = float(pricing.IMAGE_MEASURED_COST_CENTS)
             elif payment["method"] == "balance":
-                charged = pricing.IMAGE_PRICE_CENTS
+                charged = payment["charge_cents"]
             else:
                 raise HTTPException(
                     status_code=402,
-                    detail=f"included budget used up; a first frame costs {pricing.IMAGE_PRICE_CENTS} cents of prepaid balance")
+                    detail=f"included budget used up; a first frame costs {payment['charge_cents']} cents of prepaid balance")
             job_cost_cents = float(pricing.IMAGE_MEASURED_COST_CENTS)
         try:
             resp = requests.post(
@@ -4108,7 +4139,7 @@ def api():
         }
         jobs[job["id"]] = job
         return JSONResponse(
-            {**public_job(job), "quote": pricing.image_quote()},
+            {**public_job(job), "quote": pricing.image_quote(owner=is_owner(user))},
             status_code=202)
 
     @web.post("/api/jobs/{job_id}/regenerate")
@@ -4181,11 +4212,14 @@ def api():
         (Apache-2.0, the shippable TTS) and cache the wav per job
         on the data Volume. The synthesis callable lives in the
         sinclip-audio app (generate_voiceover in
-        modal-worker/audio_app.py). Until that app is redeployed
-        with the function, the lookup fails cleanly here: the job
-        is flagged voiceover_status "unavailable", delivery
-        proceeds with the lane's own audio and any music bed, and
-        nothing is charged or blocked. A music bed is never
+        modal-worker/audio_app.py). Since the parallel-audio change
+        (2026-11-16) the synthesis is normally spawned at dispatch
+        and only collected here; the synchronous call below remains
+        as the fallback for jobs with no spawned call. If the stage
+        cannot produce the wav either way, the lookup fails cleanly
+        here: the job is flagged voiceover_status "unavailable",
+        delivery proceeds with the lane's own audio and any music
+        bed, and nothing is charged or blocked. A music bed is never
         silently passed off as speech: the flag on the job record
         says exactly what happened."""
         script = (job.get("speech_script") or "").strip()
@@ -4384,7 +4418,7 @@ def api():
     # duration rounded up to whole minutes.
 
     def _clip_quote_for(user: dict, duration_seconds: float) -> dict:
-        q = pricing.clip_quote(duration_seconds)
+        q = pricing.clip_quote(duration_seconds, owner=is_owner(user))
         remaining = included_budget_remaining(user)
         if user["plan"] == "creator" and remaining >= q["included_debit_cents"]:
             method = "included"
@@ -4548,7 +4582,7 @@ def api():
             raise HTTPException(status_code=422, detail="paste a link or upload a file")
         if duration > pricing.CLIP_MAX_SOURCE_SECONDS:
             raise HTTPException(status_code=422, detail="this video is longer than the 3 hour clipping limit")
-        q = pricing.clip_quote(duration)
+        q = pricing.clip_quote(duration, owner=is_owner(user))
         if not ceiling_allows(user, q["worst_case_cost_cents"]):
             raise HTTPException(
                 status_code=402,
