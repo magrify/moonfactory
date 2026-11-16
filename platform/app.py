@@ -1366,6 +1366,17 @@ def api():
             "verified": user["verified"],
             "plan": user["plan"],
             "paid_customer": is_paid(user),
+            # The access model (Jack, 2026-11-16): the free,
+            # pre-payment surface is "Try It"; the paid studio is
+            # "Create". A paid account's surface is Create and Try
+            # It disappears from its navigation entirely; a free
+            # account's surface is Try It, and Create is an upgrade
+            # prompt. The server gates behind this split are the
+            # is_paid checks at job creation (Draft lane only,
+            # model switching, custom audio, voiceover, effects,
+            # multi-segment, clipping, gallery opt-out).
+            "access_surface": "create" if is_paid(user) else "tryit",
+            "surface_label": "Create" if is_paid(user) else "Try It",
             "handle": display_handle(user),
             "gallery_opt_out": bool(user.get("gallery_opt_out")),
             "past_due": user.get("past_due", False),
@@ -5318,21 +5329,24 @@ INDEX_HTML = (
 <title>Moonfactory: AI video generation for creators</title>"""
     + _CSS
     + """</head><body><main>
-<header><strong>Moonfactory</strong><span><a href="/gallery">Gallery</a> &nbsp; <a href="/app">Open the studio</a></span></header>
+<header><strong>Moonfactory</strong><span><a href="/gallery">Gallery</a> &nbsp; <a href="/app">Try It</a></span></header>
 <h1>Turn a still image into a short video, with music.</h1>
 <p>Moonfactory takes a start image and a prompt and renders a vertical
 short video with a music track included. It is built for TikTok, Reels,
 and X: 9:16, captioned by you, ready to post.</p>
 <p><input id="hero-prompt" type="text" maxlength="500"
 placeholder="Describe your video: a red hot air balloon rising over green hills">
-<button class="btn" id="hero-go" type="button">Start creating</button></p>
+<button class="btn" id="hero-go" type="button">Try It free</button></p>
+<p class="muted">Trying anything takes an account: sign up free, verify
+your email, and Try It gives you 5 Draft clips, total. Create, the full
+studio, opens with any payment.</p>
 
 <h2>How it works</h2>
 <ol>
   <li>Bring a start image, or just describe the scene for a text-only video on the Draft lane.</li>
   <li>Write the prompt: what moves, where the camera goes, the mood.</li>
   <li>Pick a model and render. Every account starts on Wan 2.2;
-      paying customers can switch models in the studio.</li>
+      paying customers can switch models in Create.</li>
 </ol>
 
 <h2>Models</h2>
@@ -5369,8 +5383,8 @@ big credit platforms effectively charge for the same clip, and
 never below our own cost plus a margin, so no video ever runs at
 a loss. If our costs drop, the included time goes up on its own.</p>
 
-<h2>Free plan, honestly</h2>
-<p>The free plan is small on purpose: <span id="free-limit">5</span> Draft
+<h2>Try It: the free plan, honestly</h2>
+<p>Try It is the free plan, and it is small on purpose: <span id="free-limit">5</span> Draft
 clips per account, total. Not per month and never resetting: five,
 ever, watermarked, lowest queue priority. Each free clip costs real
 GPU time, so the whole platform also has a hard total budget for free
@@ -5380,7 +5394,7 @@ out by free work.</p>
 <h2>Gallery</h2>
 <p>Finished clips show in the <a href="/gallery">public gallery</a>
 under the creator's handle, never an email address. Paying
-customers can opt out in the studio; clips from accounts that have
+customers can opt out in Create; clips from accounts that have
 never paid are always listed. Every
 gallery item has a report button, and anything reported gets
 reviewed and removed when it should not be there.</p>
@@ -5399,7 +5413,7 @@ re-run it.</p>
 <p><strong>Do unused plan minutes roll over?</strong> No. Included time
 resets each month, which is part of how the price stays at $20.</p>
 
-<p style="margin-top:40px"><a class="btn" href="/app">Open the studio</a></p>
+<p style="margin-top:40px"><a class="btn" href="/app">Try It free</a></p>
 </main>
 <script>
 document.getElementById('hero-go').onclick = () => {
@@ -5514,7 +5528,8 @@ APP_HTML = (
 
 <div id="studio" style="display:none">
   <div class="tabs">
-    <button class="btn" id="tab-create">Create</button>
+    <button class="btn" id="tab-tryit">Try It</button>
+    <button class="btn secondary" id="tab-create">Create</button>
     <button class="btn secondary" id="tab-clip">Clip</button>
   </div>
   <div class="card">
@@ -5544,7 +5559,8 @@ APP_HTML = (
 
   <div id="create-pane">
   <div class="card">
-    <h2 style="margin-top:0">New video</h2>
+    <h2 style="margin-top:0" id="composer-heading">Try It</h2>
+    <p class="muted" id="composer-note"></p>
     <label>Prompt</label>
     <textarea id="prompt" rows="4" class="composer-prompt" placeholder="a red hot air balloon rising over green hills, gentle forward camera movement, bright daylight"></textarea>
     <p class="group-label">Model</p>
@@ -5663,6 +5679,28 @@ APP_HTML = (
     <p id="job-msg"></p>
   </div>
 
+  </div>
+  </div>
+
+  <div id="upgrade-pane" style="display:none">
+  <div class="card">
+    <h2 style="margin-top:0">Create is the paid studio</h2>
+    <p>Try It is the free plan: Wan 2.2 Draft clips, 5 per account total,
+    watermarked. Nothing on Create is free: every model beyond Wan 2.2,
+    the Production lane, custom music and voiceover, effects,
+    multi-segment videos, clipping, and hiding your clips from the
+    gallery all live here, and the server keeps them locked until an
+    account has paid.</p>
+    <p>Any payment opens Create, two ways: Creator, a monthly plan with
+    an included generation budget, or a one-time top-up and pay per
+    video, no subscription. Once you have paid, Try It disappears and
+    you open straight into Create.</p>
+    <p>
+      <button class="btn" id="upgrade-creator">Get Creator, $20/month</button>
+      <button class="btn secondary" id="upgrade-topup">Top up $10</button>
+    </p>
+    <p class="muted">Both buttons use the same checkout as the account
+    card above.</p>
   </div>
   </div>
 
@@ -5976,16 +6014,33 @@ $('login').onclick = async () => {
 $('logout').onclick = async () => { await api('/api/logout', { method: 'POST' }); location.reload(); };
 
 let currentUser = null;
+// The access model: a paid account's surface is Create (Try It is
+// gone from its navigation); a free account's surface is Try It,
+// and Create is an upgrade prompt. The server reports the surface
+// on /api/me; paid_customer is the same fact under its older name.
+function isPaidSurface() {
+  if (!currentUser) return false;
+  return currentUser.access_surface
+    ? currentUser.access_surface === 'create'
+    : !!currentUser.paid_customer;
+}
 function showStudio(u) {
   currentUser = u;
   $('auth').style.display = 'none'; $('studio').style.display = 'block';
   $('who').textContent = u.email;
+  const paidSurface = isPaidSurface();
+  $('tab-tryit').style.display = paidSurface ? 'none' : '';
+  $('composer-heading').textContent = paidSurface ? 'Create' : 'Try It';
+  $('composer-note').textContent = paidSurface
+    ? ''
+    : 'Try It is the free plan: Wan 2.2, Draft lane, watermarked. Create, the full studio, opens with any payment.';
+  $('create').textContent = paidSurface ? 'Create video' : 'Make a free clip';
   const inc = u.plan === 'creator'
     ? ('Included production time: ' + Math.max(0, u.included_seconds_total - u.included_seconds_used).toFixed(0) + 's left of ' + u.included_seconds_total + 's. ')
     : (u.paid_customer
       ? 'Pay per video: you pay per clip from your balance, and every paid feature is unlocked. '
       : ('Free clips: ' + u.free_jobs_used + ' of ' + u.free_jobs_limit + ' used, total. The free plan never refills. '));
-  $('account').textContent = 'Plan: ' + u.plan + '. ' + inc +
+  $('account').textContent = 'Plan: ' + u.plan + ' · ' + (paidSurface ? 'Create' : 'Try It') + '. ' + inc +
     'Prepaid balance: $' + (u.balance_cents / 100).toFixed(2) + '.' +
     (u.verified ? '' : ' Your email is not verified yet, so creating is off.');
   $('handle').value = u.handle || '';
@@ -6028,6 +6083,7 @@ function showStudio(u) {
     $('segments-note').textContent = 'Multi-segment videos unlock with any payment. Free accounts make single Draft clips.';
   }
   updateModelUI();
+  showTab(paidSurface ? 'create' : 'tryit');
   loadJobs();
 }
 async function fetchQuote() {
@@ -6340,13 +6396,30 @@ $('jobs').addEventListener('click', async e => {
 let clipUploadId = null;
 let clipQuote = null;
 function showTab(which) {
-  $('create-pane').style.display = which === 'create' ? 'block' : 'none';
-  $('clip-pane').style.display = which === 'clip' ? 'block' : 'none';
+  // Try It always opens the composer (for a free account it is the
+  // Draft-only Try It composer; the tab itself is hidden once an
+  // account has paid). Create and Clip are the paid studio: a paid
+  // account opens them directly, a free account gets the upgrade
+  // prompt in their place.
+  const paidSurface = isPaidSurface();
+  const pane = which === 'tryit' ? 'create'
+    : which === 'clip' ? (paidSurface ? 'clip' : 'upgrade')
+    : (paidSurface ? 'create' : 'upgrade');
+  $('create-pane').style.display = pane === 'create' ? 'block' : 'none';
+  $('clip-pane').style.display = pane === 'clip' ? 'block' : 'none';
+  $('upgrade-pane').style.display = pane === 'upgrade' ? 'block' : 'none';
+  $('tab-tryit').className = which === 'tryit' ? 'btn' : 'btn secondary';
   $('tab-create').className = which === 'create' ? 'btn' : 'btn secondary';
   $('tab-clip').className = which === 'clip' ? 'btn' : 'btn secondary';
 }
+$('tab-tryit').onclick = () => showTab('tryit');
 $('tab-create').onclick = () => showTab('create');
 $('tab-clip').onclick = () => showTab('clip');
+$('upgrade-creator').onclick = () => $('buy-creator').click();
+$('upgrade-topup').onclick = () => {
+  const b = document.querySelector('[data-topup="1000"]');
+  if (b) b.click();
+};
 function clipChargeLine(q) {
   if (!q) { $('clip-charge').textContent = ''; return; }
   clipQuote = q;
@@ -6419,11 +6492,11 @@ GALLERY_HTML = (
     + _CSS
     + """</head><body><main>
 <header><strong><a href="/" style="color:#1a1a1a;text-decoration:none">Moonfactory</a></strong>
-<a href="/app">Open the studio</a></header>
+<a href="/app">Try It</a></header>
 <h1>Community gallery</h1>
 <p class="muted">Finished clips from Moonfactory creators, shown under
 the creator's handle only. Clips are public by default; paying
-customers can opt out in the studio. If a clip should not be here, use
+customers can opt out in Create. If a clip should not be here, use
 its Report button and it will be reviewed.</p>
 <div id="items"><p class="muted">Loading...</p></div>
 </main>
