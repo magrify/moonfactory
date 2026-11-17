@@ -198,8 +198,8 @@ INVIDIOUS_INSTANCES = (
 )
 _INVIDIOUS_UA = {"User-Agent": "Mozilla/5.0 (Moonfactory clip fetch)"}
 LINK_DEAD_MESSAGE = (
-    "that link could not be read from our servers right now; "
-    "upload the video file instead, uploads always work"
+    "that link could not be read from our servers right now. "
+    "Upload the video file instead, uploads always work"
 )
 
 
@@ -780,7 +780,7 @@ def find_clips(words, db, duration, title="", uploader="", max_clips=6,
     clips.sort(key=lambda c: c["start"])
     if not clips:
         clips = fallback_by_loudness(db, words, max_clips, max_len, duration, min_len)
-        return clips, {"mode": "loudness", "note": "No strong moments found; loudness picks shown."}
+        return clips, {"mode": "loudness", "note": "No strong moments found. Loudness picks shown."}
     return clips, {"mode": "ai", "note": note}
 
 

@@ -332,11 +332,11 @@ def process_clip_job(job_id: str):
     except Exception as exc:  # noqa: BLE001
         job["status"] = "error"
         job["error"] = "clipping failed, nothing was charged"
-        if clipping.LINK_DEAD_MESSAGE.split(";")[0] in str(exc):
+        if clipping.LINK_DEAD_MESSAGE.split(". ")[0] in str(exc):
             # A dead link is the one failure the user can act on:
             # surface the working alternative, not the generic line.
             job["error"] = (clipping.LINK_DEAD_MESSAGE
-                            + "; nothing was charged")
+                            + ". Nothing was charged")
         job["internal_error"] = str(exc)[:300]
         jobs[job_id] = job
         _clip_release_hold(job)
@@ -5952,7 +5952,7 @@ def api():
         if in_flight >= limit:
             raise HTTPException(
                 status_code=429,
-                detail=f"you already have {in_flight} videos in flight (your plan allows {limit} at a time); one needs to finish before the next starts")
+                detail=f"you already have {in_flight} videos in flight. Your plan allows {limit} at a time, and one needs to finish before the next starts")
         if model in PER_SECOND_MODELS:
             # Model switching is paid-only (Amendment 3: any paying
             # customer), enforced here on the server before any
@@ -6306,7 +6306,7 @@ def api():
             if not is_owner(user) and not ceiling_allows(user, raw):
                 raise HTTPException(
                     status_code=402,
-                    detail=reload_fail_detail(reload_state, "this image would pass what you have paid in; top up first"))
+                    detail=reload_fail_detail(reload_state, "this image would pass what you have paid in. Top up first"))
             charge = int(round(debit))
             # The owner never balance blocks (Jack, 2026-11-17):
             # no reload attempt and no refusal; the charge below
@@ -6317,7 +6317,7 @@ def api():
                 if int(user.get("balance_cents", 0)) < charge:
                     raise HTTPException(
                         status_code=402,
-                        detail=reload_fail_detail(reload_state, "your balance is too low for this image; top up first"))
+                        detail=reload_fail_detail(reload_state, "your balance is too low for this image. Top up first"))
             job_id = uuid.uuid4().hex[:16]
             job = {
                 "id": job_id, "user_id": user["id"], "kind": "image",
@@ -6355,7 +6355,7 @@ def api():
         if in_flight >= limit:
             raise HTTPException(
                 status_code=429,
-                detail=f"you already have {in_flight} jobs in flight (your plan allows {limit} at a time); one needs to finish before the next starts")
+                detail=f"you already have {in_flight} jobs in flight. Your plan allows {limit} at a time, and one needs to finish before the next starts")
         u = usage(user)
         charged = 0
         used_budget = 0.0
@@ -6386,7 +6386,7 @@ def api():
             else:
                 raise HTTPException(
                     status_code=402,
-                    detail=f"included budget used up; a first frame costs {payment['charge_cents']} cents of prepaid balance")
+                    detail=f"included budget used up. A first frame costs {payment['charge_cents']} cents of prepaid balance")
             job_cost_cents = float(pricing.IMAGE_MEASURED_COST_CENTS)
         try:
             resp = requests.post(
@@ -6797,6 +6797,52 @@ def api():
             data_volume.commit()
         return out_path
 
+    def ensure_poster(job: dict) -> Path:
+        """The preview picture for a finished video, its first
+        frame, cut with ffmpeg the first time anyone needs it and
+        cached beside the job's files under the same name the
+        clipping pipeline already uses for its thumbnails. Later
+        calls serve the cached picture."""
+        poster_path = FILES_DIR / f"{job['id']}.jpg"
+        if not poster_path.exists():
+            try:
+                data_volume.reload()
+            except Exception:
+                pass
+        if poster_path.exists():
+            return poster_path
+        src = ensure_processed(job)
+        tmp_path = FILES_DIR / f"{job['id']}.poster.tmp.jpg"
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+        for seek in ("0.5", None):
+            cmd = ["ffmpeg", "-y"]
+            if seek:
+                cmd += ["-ss", seek]
+            cmd += ["-i", str(src), "-vframes", "1", "-q:v", "3",
+                    str(tmp_path)]
+            try:
+                proc = subprocess.run(cmd, capture_output=True,
+                                      text=True, timeout=120)
+            except Exception:
+                proc = None
+            if (proc is not None and proc.returncode == 0
+                    and tmp_path.exists()
+                    and tmp_path.stat().st_size > 0):
+                break
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+        if not tmp_path.exists():
+            raise HTTPException(status_code=404,
+                                detail="no preview picture")
+        tmp_path.replace(poster_path)
+        data_volume.commit()
+        return poster_path
+
     def ensure_image_file(job: dict) -> Path:
         """Fetch a finished start image from the worker once and
         cache it on the data Volume. Images are delivered as made:
@@ -6834,6 +6880,12 @@ def api():
         if job.get("kind") == "clip_job":
             raise HTTPException(status_code=409, detail="this clip job made several clips, open one of them")
         out_path = ensure_processed(job)
+        try:
+            # The finished file exists now, so its gallery preview
+            # picture can be cut and cached with it.
+            ensure_poster(job)
+        except Exception:
+            pass
         return FileResponse(out_path, media_type="video/mp4",
                             filename=f"moonfactory-{job_id}.mp4")
 
@@ -7136,10 +7188,9 @@ def api():
     # accounts that have never paid always list.
 
     def gallery_visible(job: dict) -> bool:
-        if job.get("kind") == "image":
-            # Start images are ingredients, not finished clips: they
-            # never list in the gallery.
-            return False
+        # Finished images list alongside finished clips (Jack,
+        # 2026-11-17): an image a customer made is finished work
+        # the same way a clip is, under the same rules.
         if job.get("status") != "done" or job.get("removed"):
             return False
         owner = users.get(f"id:{job.get('user_id')}")
@@ -7149,17 +7200,60 @@ def api():
             return False
         return True
 
+    def gallery_file_ready(job: dict) -> bool:
+        """Whether the gallery file route can actually serve this
+        job's file. The feed lists only ready items, so a job whose
+        file is gone never shows as a dead tile. Mirrors what
+        ensure_processed and ensure_image_file can reach: the
+        finished file itself, a raw file to finish from, chained
+        segment results, a provider result URL, or the worker copy.
+        Clip outputs have no rebuild path, so their finished file
+        has to be on the volume."""
+        FILES_DIR.mkdir(parents=True, exist_ok=True)
+        job_id = job["id"]
+        if job.get("kind") == "image":
+            if (FILES_DIR / f"{job_id}.png").exists():
+                return True
+            return bool(job.get("worker_job_id"))
+        if (FILES_DIR / f"{job_id}.mp4").exists():
+            return True
+        if job.get("provider") == "clip":
+            return False
+        if (FILES_DIR / f"{job_id}.raw.mp4").exists():
+            return True
+        if len(job.get("chain_results") or []) > 1:
+            return True
+        if job.get("provider") in URL_RESULT_PROVIDERS:
+            return bool(job.get("result_url"))
+        return bool(job.get("worker_job_id"))
+
     def public_gallery_item(job: dict) -> dict:
         owner = users.get(f"id:{job.get('user_id')}") or {}
-        return {
-            "id": job["id"],
-            "handle": display_handle(owner),
-            "lane": job["lane"],
-            "model": (
+        is_image = job.get("kind") == "image"
+        if is_image:
+            lane = pricing.IMAGE_LANES.get(
+                job.get("image_model") or "") or {}
+            model_label = lane.get("label") or "Moonfactory's own image maker"
+            cost_cents = int(job.get("image_charge_cents")
+                             or job.get("charged_cents") or 0)
+        else:
+            model_label = (
                 "Clip" if job.get("kind") in ("clip_job", "clip_output")
                 else "Effects" if job.get("effect")
                 else MODEL_LABELS.get(job.get("model") or DEFAULT_MODEL, "Wan 2.2")
-            ),
+            )
+            cost_cents = (
+                None if job.get("kind") in ("clip_job", "clip_output")
+                else int(job.get("charged_cents") or 0)
+                + float(job.get("included_cost_cents")
+                        or job.get("budget_cost_cents") or 0)
+            )
+        return {
+            "id": job["id"],
+            "kind": "image" if is_image else "video",
+            "handle": display_handle(owner),
+            "lane": job["lane"],
+            "model": model_label,
             "prompt": (job.get("prompt") or "")[:200],
             "camera_presets": job.get("camera_preset_names") or [],
             "camera_look": job.get("camera_look") or {},
@@ -7168,14 +7262,11 @@ def api():
             "resolution": job.get("resolution"),
             "aspect_ratio": job.get("aspect_ratio") or "9:16",
             "segments_total": int(job.get("segments_total") or 1),
-            "cost_cents": (
-                None if job.get("kind") in ("clip_job", "clip_output")
-                else int(job.get("charged_cents") or 0)
-                + float(job.get("included_cost_cents")
-                        or job.get("budget_cost_cents") or 0)
-            ),
+            "cost_cents": cost_cents,
             "created_at": job["created_at"],
             "file_url": f"/gallery/{job['id']}/file",
+            "poster_url": (
+                None if is_image else f"/gallery/{job['id']}/poster"),
         }
 
     @web.get("/gallery", response_class=HTMLResponse)
@@ -7184,22 +7275,72 @@ def api():
 
     @web.get("/api/gallery")
     def gallery_list():
+        try:
+            data_volume.reload()
+        except Exception:
+            pass
         items = []
         for key in list(jobs.keys()):
             job = jobs.get(key)
-            if job and gallery_visible(job):
+            if (job and gallery_visible(job)
+                    and gallery_file_ready(job)):
                 items.append(public_gallery_item(job))
         items.sort(key=lambda i: i["created_at"], reverse=True)
         return {"items": items[:100]}
+
+    def _image_media_type(path: Path) -> str:
+        """The real type of a finished image from its first bytes.
+        Providers hand back more than one format under the same
+        stored name, and the gallery serves the true one."""
+        try:
+            with path.open("rb") as fh:
+                head = fh.read(16)
+        except Exception:
+            return "image/png"
+        if head.startswith(b"\xff\xd8"):
+            return "image/jpeg"
+        if head.startswith(b"RIFF") and head[8:12] == b"WEBP":
+            return "image/webp"
+        if head.startswith(b"GIF8"):
+            return "image/gif"
+        return "image/png"
 
     @web.get("/gallery/{job_id}/file")
     def gallery_file(job_id: str):
         job = jobs.get(job_id)
         if not job or not gallery_visible(job):
             raise HTTPException(status_code=404, detail="not in the gallery")
+        if job.get("kind") == "image":
+            path = FILES_DIR / f"{job_id}.png"
+            if not path.exists():
+                try:
+                    data_volume.reload()
+                except Exception:
+                    pass
+            if not path.exists() and job.get("worker_job_id"):
+                path = ensure_image_file(job)
+            if not path.exists():
+                raise HTTPException(status_code=404,
+                                    detail="file is not available")
+            return FileResponse(path,
+                                media_type=_image_media_type(path),
+                                filename=f"moonfactory-{job_id}.png")
         out_path = ensure_processed(job)
+        try:
+            ensure_poster(job)
+        except Exception:
+            pass
         return FileResponse(out_path, media_type="video/mp4",
                             filename=f"moonfactory-{job_id}.mp4")
+
+    @web.get("/gallery/{job_id}/poster")
+    def gallery_poster(job_id: str):
+        job = jobs.get(job_id)
+        if (not job or not gallery_visible(job)
+                or job.get("kind") == "image"):
+            raise HTTPException(status_code=404, detail="not in the gallery")
+        return FileResponse(ensure_poster(job), media_type="image/jpeg",
+                            filename=f"moonfactory-{job_id}.jpg")
 
     @web.post("/api/gallery/{job_id}/report")
     async def report_gallery_item(job_id: str, request: Request):
@@ -8078,7 +8219,7 @@ _CSS = """
   .pricing-line b{color:var(--ink)}
   .grid{max-width:880px;margin:0 auto;display:grid;grid-template-columns:repeat(3,1fr);gap:22px 16px}
   .tile .frame{aspect-ratio:9/16;border-radius:16px;overflow:hidden;background:var(--card)}
-  .tile .frame video{width:100%;height:100%;object-fit:cover;border-radius:0}
+  .tile .frame video,.tile .frame img{width:100%;height:100%;object-fit:cover;border-radius:0}
   .tile .handle{margin-top:9px;font-size:14px;color:var(--gray)}
   .tile .report{margin-top:6px;background:none;border:0;color:var(--faint);font:inherit;font-size:13px;cursor:pointer;padding:0}
   .tile .report:hover{color:var(--ink)}
@@ -8348,7 +8489,7 @@ a generation authorizes the charge or balance debit shown.</li>
 balance is restored in credits. Refunds are issued in credits, not
 cash, except where the law requires otherwise.</li>
 <li>Creator renews monthly until cancelled. Cancelling stops the
-next renewal; it does not refund the current month.</li>
+next renewal. It does not refund the current month.</li>
 </ul>
 
 <h2>Auto reload</h2>
@@ -8393,12 +8534,12 @@ or other rights.</li>
 and no abuse of the free tier.</li>
 </ul>
 <p>We can remove content and close accounts that break these rules.
-Anyone can report a gallery clip with its Report button; reports are
+Anyone can report a gallery clip with its Report button. Reports are
 reviewed by a person.</p>
 
 <h2>Availability and changes</h2>
 <p>The service is provided as is. Models, prices, and features can
-change; a price change never applies to a generation that already
+change. A price change never applies to a generation that already
 ran. We can update these terms and will note the date above when we
 do. Continued use after an update means you accept it.</p>
 
@@ -8430,7 +8571,7 @@ pick.</li>
 <li>Your work: prompts, uploaded images and videos, spoken lines and
 music prompts, and the files we generate for you.</li>
 <li>Payment records: what you bought and what it cost. Card payments
-are processed by Stripe; we never see or store your full card
+are processed by Stripe. We never see or store your full card
 number.</li>
 <li>Basic technical records needed to run jobs and stop abuse,
 including a session cookie that keeps you signed in and a bot check
@@ -8493,7 +8634,7 @@ the fastest.</p>
 <li>The email address on your account.</li>
 <li>For a video problem, include the model's name, roughly when you ran it,
 and what went wrong. If a generation failed on our side, the balance
-is restored in credits; tell us and we will check the job record.</li>
+is restored in credits. Tell us and we will check the job record.</li>
 <li>For a payment question, include the date and amount on your Stripe
 receipt. We can see purchases and balances, never your full card
 number.</li>
@@ -8533,7 +8674,7 @@ if you want one, a start image. Five things, in order.</p>
 describe one and we make it, or skip it and write text only.</li>
 <li><strong>Prompt.</strong> Say what happens in the video.</li>
 <li><strong>Model.</strong> Pick how it gets made. Moonfactory's own
-Wan 2.2 lane is the free one; the rest open with any payment.</li>
+Wan 2.2 lane is the free one. The rest open with any payment.</li>
 <li><strong>Length.</strong> Pick how long. Every model starts at
 its own shortest clip.</li>
 <li><strong>Create.</strong> The exact price shows on the button
@@ -8602,7 +8743,7 @@ second across the segments, exactly like separate clips.</p>
 <h2>Why models start at different lengths</h2>
 <p>Each model makes clips in its own real lengths, and the picker
 shows exactly those. One model might make 4, 6, or 8 second clips
-and nothing between; another makes any whole second from 4 to 30.
+and nothing between. Another makes any whole second from 4 to 30.
 Nothing is padded and nothing is trimmed. The length you pick is
 the length you get.</p>
 <h2>Longer videos</h2>
@@ -8665,7 +8806,7 @@ so the same face shows up from video to video.</p>
 <p>With 10 reference images saved, you can train the character.
 Training is one flat charge, shown on the button before it starts,
 and it locks the identity in much harder than references alone.
-It runs in the background; the character shows as trained when it
+It runs in the background. The character shows as trained when it
 is ready. If training does not finish, the charge is refunded in
 full.</p>
 <h2>Limits</h2>
@@ -8712,7 +8853,7 @@ maker, and a few uncensored variants, marked with dollar signs
 so you can see the price class before you pick.</p>
 <h2>Pricing</h2>
 <p>Images are priced per image at the size you pick. The charge
-lands only when your image is delivered; if it fails, the charge
+lands only when your image is delivered. If it fails, the charge
 comes back in full.</p>
 <h2>Use an image in a video</h2>
 <p>Every image you make is saved in your library. From the result,
@@ -8857,10 +8998,17 @@ fetch('/api/gallery').then(r => r.json()).then(d => {
   for (const item of items) {
     const t = document.createElement('div'); t.className = 'tile';
     const f = document.createElement('div'); f.className = 'frame';
-    const v = document.createElement('video');
-    v.src = item.file_url; v.preload = 'metadata'; v.muted = true;
-    v.setAttribute('playsinline', '');
-    f.appendChild(v);
+    if (item.kind === 'image') {
+      const img = document.createElement('img');
+      img.src = item.file_url; img.alt = ''; img.loading = 'lazy';
+      f.appendChild(img);
+    } else {
+      const v = document.createElement('video');
+      v.src = item.file_url; v.preload = 'metadata'; v.muted = true;
+      if (item.poster_url) v.poster = item.poster_url;
+      v.setAttribute('playsinline', '');
+      f.appendChild(v);
+    }
     const h = document.createElement('div'); h.className = 'handle';
     h.textContent = item.handle;
     t.appendChild(f); t.appendChild(h);
@@ -8964,7 +9112,7 @@ APP_HTML = (
       <label>Describe the first frame</label>
       <textarea id="image-prompt" rows="2" maxlength="1000" placeholder="a red hot air balloon over rolling green hills at sunrise, bright daylight"></textarea>
       <button class="btn secondary" id="gen-image" type="button">Make the first frame</button>
-      <p class="muted" id="image-note">We make the opening frame at the aspect ratio picked for the video. Check it here, and it attaches to your video with one click. Every frame we make is charged like a small render; the exact price shows before it runs. Not happy with it? Make another.</p>
+      <p class="muted" id="image-note">We make the opening frame at the aspect ratio picked for the video. Check it here, and it attaches to your video with one click. Every frame we make is charged like a small render. The exact price shows before it runs. Not happy with it? Make another.</p>
       <div id="image-preview"></div>
     </div>
 
@@ -10127,7 +10275,7 @@ $('create').onclick = async () => {
     const r = await api('/api/jobs', { method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(jobBody) });
     msg('job-msg', model === 'wan2.2'
-      ? 'Job queued. Draft renders take roughly 6 to 13 minutes; production about 25.'
+      ? 'Job queued. Draft renders take roughly 6 to 13 minutes. Production takes about 25.'
       : 'Job queued. This model usually finishes in a few minutes.', 'ok');
     loadJobs();
   } catch (e) { msg('job-msg', e.message, 'err'); }
@@ -10320,7 +10468,7 @@ function updateCharacterUI() {
   const train = $('character-train');
   train.style.display = 'none';
   if (!c) { note.textContent = 'Pick a saved character and it appears in this video. Its first image becomes the start image, and its images ride as references on models that take them.'; return; }
-  if (c.train_status === 'training') note.textContent = c.name + ' is training. Training takes a while; the trained identity appears here when it is ready.';
+  if (c.train_status === 'training') note.textContent = c.name + ' is training. Training takes a while. The trained identity appears here when it is ready.';
   else if (c.train_status === 'ready' || c.has_lora) note.textContent = c.name + ' is trained. Its identity is locked in and reused on every job.';
   else if (c.train_status === 'failed') note.textContent = 'Training did not finish for ' + c.name + ' and the charge was refunded. You can train again.';
   else note.textContent = c.name + ' is saved and ready to use.';
@@ -10518,9 +10666,9 @@ GALLERY_HTML = (
     """<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Moonfactory gallery</title>
-<meta name="description" content="Short AI videos made with Moonfactory, shared by their creators under their handles only.">
+<meta name="description" content="Short AI videos made with Moonfactory, shared by our creators under their handles only.">
 <meta property="og:title" content="Moonfactory gallery">
-<meta property="og:description" content="Short AI videos made with Moonfactory, shared by their creators.">
+<meta property="og:description" content="Short AI videos made with Moonfactory, shared by our creators.">
 <meta property="og:type" content="website">"""
     + _CSS
     + """<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Cpath fill='%23818cf8' d='M23.3 8A16 16 0 1 0 32.6 37.5A16.5 16.5 0 0 1 23.3 8Z'/%3E%3Cpath fill='%23f5d67a' stroke='%23f5d67a' stroke-width='1.6' stroke-linejoin='round' d='M24 18.5L24 27.5L31.5 23Z'/%3E%3C/svg%3E">
@@ -10538,8 +10686,8 @@ GALLERY_HTML = (
 </header>
 <div style="max-width:880px;margin:56px auto 22px">
   <h2>Community gallery</h2>
-  <p class="muted">Made with Moonfactory, shared by their creators under
-  their handles only. Clips are public by default; paying customers can
+  <p class="muted">Made with Moonfactory, shared by our creators under
+  their handles only. Clips are public by default. Paying customers can
   opt out in the studio. If a clip should not be here, use its Report
   button and it will be reviewed.</p>
 </div>
@@ -10560,9 +10708,17 @@ async function loadGallery() {
     for (const item of data.items) {
       const t = document.createElement('div'); t.className = 'tile';
       const f = document.createElement('div'); f.className = 'frame';
-      const video = document.createElement('video');
-      video.controls = true; video.src = item.file_url; video.preload = 'metadata';
-      f.appendChild(video);
+      if (item.kind === 'image') {
+        const img = document.createElement('img');
+        img.src = item.file_url; img.alt = ''; img.loading = 'lazy';
+        f.appendChild(img);
+      } else {
+        const video = document.createElement('video');
+        video.controls = true; video.src = item.file_url; video.preload = 'none';
+        if (item.poster_url) video.poster = item.poster_url;
+        video.setAttribute('playsinline', '');
+        f.appendChild(video);
+      }
       const h = document.createElement('div'); h.className = 'handle';
       h.textContent = item.handle;
       const report = document.createElement('button');
