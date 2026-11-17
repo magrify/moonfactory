@@ -451,7 +451,7 @@ MODELS = [
     {"id": "omni11", "label": "Gemini Omni 1.1 Flash", "paid_only": True},
     {"id": "hailuo23", "label": "Hailuo 2.3", "paid_only": True},
     {"id": "minimax_h3", "label": "MiniMax H3", "paid_only": True},
-    {"id": "grok", "label": "Grok Imagine Video 1.5", "paid_only": True},
+    {"id": "grok", "label": "Grok Imagine Video", "paid_only": True},
     # Grok Imagine 1.5 family as their own lanes (2026-11-17,
     # Jack's approval): the 1.5 on its documented Kie preview
     # model id, and the 1.5 Lite on fal. Lite sells only its
