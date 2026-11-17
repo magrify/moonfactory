@@ -341,11 +341,13 @@ PROVIDER_RATES_CENTS_PER_SECOND = {
     "minimax_h3": {"480p": 2.0, "720p": 3.0, "1080p": 4.7},
     # Grok Imagine Video 1.5 via Kie (follow-up pass, 2026-11-16):
     # Kie publishes $0.012/s at 480p and $0.0225/s at 720p, the
-    # cheapest route at both resolutions; no 1080p price is
-    # published, so the lane drops its 1080p tier
-    # (MODEL_RESOLUTIONS below). BeatAPI's rates ($0.20 / $0.40 /
-    # $0.72 per 8-second clip) are in DISPLACED_RATES below.
-    "grok": {"480p": 1.2, "720p": 2.25},
+    # cheapest route at both resolutions. BeatAPI's rates ($0.20 /
+    # $0.40 / $0.72 per 8-second clip) are in DISPLACED_RATES below.
+    # 1080p tier added 2026-11-17 (Jack's order): Kie now publishes
+    # 8 credits ($0.04/s) at 1080p on its own Grok Imagine Video 1.5
+    # page (re-verified live 2026-11-17); no 1080p price existed
+    # when the lane was first wired, so the tier was dropped then.
+    "grok": {"480p": 1.2, "720p": 2.25, "1080p": 4.0},
     # Luma Ray 3.2 via fal is priced per clip ($0.50 / $1.00 /
     # $2.00 at 5 s, double at 10 s): a flat per-second rate at
     # every duration, carried as published.
@@ -548,7 +550,7 @@ MODEL_RESOLUTIONS = {
     "ltx25_fast": ("720p", "1080p", "4K"),
     "happyhorse": ("720p", "1080p"),
     "pika22": ("720p", "1080p"),
-    "grok": ("480p", "720p"),
+    "grok": ("480p", "720p", "1080p"),
     "vidu_q3": ("480p", "720p"),
     "vidu_q4": ("720p", "1080p"),
     "seedance25_flash": ("480p", "720p"),

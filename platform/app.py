@@ -4133,6 +4133,13 @@ def api():
                 inp["mode"] = "4K"
             elif model == "kling3_omni":
                 inp["resolution"] = "4k"
+        if model == "grok" and params.get("resolution") == "1080p":
+            # Grok 1080p tier (2026-11-17): Kie's own Grok page
+            # documents a resolution parameter (480p default /
+            # 720p / 1080p, chosen per job). The lower tiers send
+            # nothing, exactly as before; payload-unverified like
+            # the rest of this submit until the funded pass.
+            inp["resolution"] = "1080p"
         try:
             if mode == "image":
                 inp["first_frame"] = _beatapi_media_url(
@@ -9142,7 +9149,7 @@ const MODEL_OPTS = {
   omni11: { durations: LENGTHS, resolutions: ['720p', '1080p'] },
   hailuo23: { durations: LENGTHS, resolutions: ['720p'] },
   minimax_h3: { durations: LENGTHS, resolutions: ['480p', '720p', '1080p'] },
-  grok: { durations: LENGTHS, resolutions: ['480p', '720p'] },
+  grok: { durations: LENGTHS, resolutions: ['480p', '720p', '1080p'] },
   luma_ray32: { durations: LENGTHS, resolutions: ['480p', '720p', '1080p'] },
   ltx25: { durations: LENGTHS, resolutions: ['720p', '1080p', '4K'] },
   ltx25_fast: { durations: LENGTHS, resolutions: ['720p', '1080p', '4K'] },
