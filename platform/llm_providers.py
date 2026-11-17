@@ -31,9 +31,14 @@ Provider state at wiring time (2026-11-17):
   picking fallback. Recorded in BUILD-LOG.
 - venice: models enumerated from Venice's public models endpoint
   (https://api.venice.ai/api/v1/models), filtered to the entries
-  Venice itself flags "uncensored": true. Account + API key are a
-  browser signup step (free tier, no card); until VENICE_API_KEY
-  lands in the secret this provider is registered dark.
+  Venice itself flags "uncensored": true. Key stored
+  (VENICE_API_KEY): the browser signup was Turnstile-walled, so
+  Jack created the account and key himself and supplied the key
+  in chat 2026-11-17; stored via SDK Secret.update() per-key
+  merge (key names 18 -> 19, nothing lost). Verified live the
+  same day (free read): GET /api/v1/models 200, 143 models, all
+  15 registered uncensored ids present. Lane is live as the
+  second picking fallback. Recorded in BUILD-LOG.
 - refuseless: pay-as-you-go per-token (their pricing page: "no
   subscription and no monthly minimum"). Model ids from their own
   model pages. Account + key are a browser signup step; a key may
@@ -72,7 +77,7 @@ LLM_PROVIDERS = [
         "label": "Venice",
         "base_url": "https://api.venice.ai/api/v1",
         "key_env": "VENICE_API_KEY",
-        "access": "awaiting_signup",
+        "access": "key_stored",
         "models": [
             {"id": "venice-uncensored-1-2", "label": "Venice Uncensored 1.2"},
             {"id": "venice-uncensored-role-play",

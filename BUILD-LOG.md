@@ -2978,3 +2978,26 @@ and config read-backs only. No subscriptions anywhere.
   already computed live from key presence. No deploy in this
   pass (secret + source only); the label takes effect on the
   next platform deploy.
+
+## Venice key stored — 2026-11-17
+
+- The browser signup for Venice was blocked by Venice's
+  Cloudflare Turnstile check, so Jack created the Venice account
+  and API key himself and supplied the key in chat. Stored as
+  VENICE_API_KEY in moonfactory-providers via SDK Secret.update()
+  (per-key merge; no full-secret overwrite). Key value passed via
+  stdin only, never printed or written to a file or log.
+- Key-NAME list read before and after: 18 names before, the same
+  18 plus VENICE_API_KEY after (19 total), nothing lost.
+- Verified with the key (free read): GET
+  https://api.venice.ai/api/v1/models 200, 143 models, and all
+  15 registered uncensored ids present, including
+  venice-uncensored-1-2 (the chain's Venice pick). The Venice
+  lane is live as the second uncensored picking fallback
+  whenever the Gemini chain and OpenRouter have failed.
+- platform/llm_providers.py: the venice entry's static access
+  state updated "awaiting_signup" -> "key_stored" and the
+  module docstring's venice note rewritten to match. The access
+  string is config metadata only; call behavior is computed live
+  from key presence. No deploy in this pass (secret + source
+  only); the label takes effect on the next platform deploy.
