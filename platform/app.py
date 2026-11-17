@@ -1032,6 +1032,34 @@ def _first_image_url(node):
     return None
 
 
+def _spicyapi_result_url(data):
+    """Result URL from a SpicyAPI recordInfo payload. The real
+    envelope (verified live 2026-11-17 against real jobs) is
+    data.output.assets[]: one presigned URL per asset. The
+    Kie-shaped resultJson/resultUrl forms stay as fallbacks.
+    The explicit output path matters: an edit job's payload
+    also carries the SOURCE image URL under data.input, which
+    a blind recursive scan could mistake for the result."""
+    output = data.get("output") or {}
+    assets = output.get("assets") or []
+    for asset in assets:
+        if isinstance(asset, dict):
+            url = asset.get("url")
+            if isinstance(url, str) and url.startswith("http"):
+                return url
+    raw = data.get("resultJson")
+    if raw:
+        try:
+            urls = (json.loads(raw) or {}).get("resultUrls") or []
+            if urls:
+                return urls[0]
+        except Exception:
+            pass
+    if isinstance(data.get("resultUrl"), str) and data["resultUrl"]:
+        return data["resultUrl"]
+    return _first_image_url(output)
+
+
 def _step_composition(steps: list, total: int):
     """Fewest native steps summing EXACTLY to total, or None.
     Stepped lanes (Veo's 4/6/8, Hailuo's 6/10) may only ever
@@ -3142,6 +3170,16 @@ def api():
         is charged only for a delivered image."""
         if job["status"] not in ("queued", "running"):
             return job
+        if _now() - float(job.get("created_at") or _now()) > 1800:
+            # No image model takes half an hour (SpicyAPI's real
+            # jobs finish in ~15 seconds). A job still
+            # non-terminal here is orphaned: the provider never
+            # answered, or its answer never parsed. Fail it clean
+            # with a full refund rather than spin forever (the
+            # video lanes' _poll_retry_or_fail give-up pattern).
+            _fail_provider_image(
+                job, "the image took too long, nothing was charged")
+            return job
         if _now() - job.get("last_poll", 0) <= 8:
             return job
         job["last_poll"] = _now()
@@ -3198,15 +3236,23 @@ def api():
                     headers=_api_headers("spicyapi"), timeout=15)
                 if resp.status_code == 200:
                     data = (resp.json() or {}).get("data") or {}
-                    state = data.get("state") or data.get("status")
-                    if state == "success":
-                        url = _first_image_url(data)
+                    # SpicyAPI's real terminal state is
+                    # "succeeded", not the Kie-shaped "success"
+                    # this branch was written against (verified
+                    # live 2026-11-17: every real job sat at
+                    # "succeeded" while this check waited for
+                    # "success", so no image job ever resolved).
+                    state = str(data.get("state")
+                                or data.get("status") or "").lower()
+                    if state in ("succeeded", "success"):
+                        url = _spicyapi_result_url(data)
                         if url:
                             _settle_provider_image(job, url)
                         else:
                             _fail_provider_image(
                                 job, "the image came back empty, nothing was charged")
-                    elif state in ("failure", "failed", "error"):
+                    elif state in ("failure", "failed", "fail",
+                                   "error", "cancelled", "canceled"):
                         _fail_provider_image(
                             job, "the image could not be made, nothing was charged")
                     else:
@@ -5153,8 +5199,14 @@ def api():
                 headers=_api_headers("spicyapi"), timeout=15)
             if resp.status_code == 200:
                 data = (resp.json() or {}).get("data") or {}
-                state = data.get("state") or data.get("status")
-                if state == "success":
+                state = str(data.get("state")
+                            or data.get("status") or "").lower()
+                if state in ("success", "succeeded"):
+                    # SpicyAPI's real envelope (verified live
+                    # 2026-11-17 on image jobs) reports state
+                    # "succeeded" and carries results under
+                    # output.assets; the resultJson/resultUrl
+                    # forms stay as fallbacks.
                     urls = []
                     raw = data.get("resultJson")
                     if raw:
@@ -5163,13 +5215,19 @@ def api():
                                 "resultUrls") or []
                         except Exception:
                             urls = []
+                    if not urls:
+                        for asset in (data.get("output")
+                                      or {}).get("assets") or []:
+                            if isinstance(asset, dict) \
+                                    and asset.get("url"):
+                                urls.append(asset["url"])
                     if not urls and data.get("resultUrl"):
                         urls = [data["resultUrl"]]
                     if urls:
                         _poll_done(job, urls[0])
                     else:
                         _poll_retry_or_fail(job)
-                elif state == "fail":
+                elif state in ("fail", "failed", "failure"):
                     _poll_fail(
                         job, f"{data.get('failCode')}: {data.get('failMsg')}")
                 else:
