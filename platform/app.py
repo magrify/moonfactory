@@ -756,15 +756,22 @@ MODEL_DURATION_BOUNDS = {
     "omni12": (3, 15),
     "omni11": (3, 10),
     "minimax_h3": (4, 15),
-    "grok": (3, 15),
+    # Maker-documented minimums (duration verification,
+    # 2026-11-17): Grok Imagine takes 1 to 15 seconds (xAI
+    # docs), PixVerse V6 takes 1 to 15, Vidu Q3 takes 1 to 16
+    # (Vidu's API model map), Runway Gen-4.5 takes 2 to 10
+    # (Runway's guide), Wan 3.0 takes 2 to 30 (Alibaba Model
+    # Studio).
+    "wan3": (2, 30),
+    "grok": (1, 15),
     "happyhorse": (3, 15),
     "ltx25": (6, 20),
     "ltx25_fast": (6, 20),
-    "vidu_q3": (3, 16),
+    "vidu_q3": (1, 16),
     "vidu_q4": (3, 16),
     "seedance25_flash": (4, 30),
-    "pixverse_v6": (3, 15),
-    "runway_gen45": (3, 10),
+    "pixverse_v6": (1, 15),
+    "runway_gen45": (2, 10),
     # Uncensored lanes (2026-11-17), from each route's own
     # published schema or model page.
     "wan22_unc": (5, 5),
@@ -798,13 +805,15 @@ MODEL_DURATION_STEPS = {
     "wan27_unc": (5, 10, 15),
     "wan3pro_unc": (5, 10, 15, 20, 25, 30),
 }
-# The length menu (Jack, 2026-11-17): every model offers the
-# same nine lengths. A length at or inside the lane's native
-# range is one native generation; below the native minimum the
-# shortest native clip is generated and trimmed to size in the
-# finishing stage; beyond the native maximum the lane chains
-# native segments, each starting from the previous segment's
-# last frame, and the segments join into one finished video.
+# The length menu (Jack, 2026-11-17; no-trim rule the same
+# day): every model offers every length starting at its own
+# shortest clip. A length inside the lane's native range is one
+# native generation; a length below the model's real minimum is
+# not offered on that model at all, and nothing is ever trimmed;
+# beyond the native maximum the lane chains native segments
+# that sum exactly to the ordered length, each starting from
+# the previous segment's last frame, and the segments join
+# into one finished video.
 # Price follows the generated seconds across all segments (the
 # existing per-second rules), and the pre-dispatch ceiling
 # check runs on that full cost.
@@ -862,13 +871,34 @@ def ref_caps_for(model: str):
     return MODEL_REF_CAPS.get(model, (10, 5, 5))
 
 
+def _step_composition(steps: list, total: int):
+    """Fewest native steps summing EXACTLY to total, or None.
+    Stepped lanes (Veo's 4/6/8, Hailuo's 6/10) may only ever
+    deliver lengths their own clips add up to: nothing is
+    trimmed, ever (Jack's rule, 2026-11-17)."""
+    best = {0: []}
+    for amount in range(1, total + 1):
+        for step in steps:
+            if step <= amount and (amount - step) in best:
+                candidate = best[amount - step] + [step]
+                if amount not in best or len(candidate) < len(best[amount]):
+                    best[amount] = candidate
+    return best.get(total)
+
+
 def duration_plan(model: str, requested: int) -> dict:
     """How one of the nine menu lengths is produced on a
     per-second lane: the native segment durations to generate,
-    in order. generated_seconds is what the job is priced on;
-    the delivered file is deliver_seconds long (the finishing
-    stage trims any overhang). Raises ValueError for a length
-    that is not on the menu or a lane with no way to make it."""
+    in order. NO TRIMMING, ever (Jack's rule, 2026-11-17): each
+    model uses its real minimum and maximum single-clip lengths
+    from the maker's documentation. A length below the model's
+    real minimum is not offered on that model; inside the native
+    range the generation is native; past the maximum, native
+    segments that sum EXACTLY to the ordered length are joined
+    into one finished video, priced per second across the total.
+    generated_seconds therefore always equals the ordered
+    length. Raises ValueError for a length the model cannot
+    make exactly."""
     if requested not in LENGTH_OPTIONS:
         raise ValueError(
             "length must be one of: "
@@ -881,19 +911,24 @@ def duration_plan(model: str, requested: int) -> dict:
     else:
         native_min, native_max = low, high
     if requested < native_min:
-        # Below the lane's shortest clip: generate the shortest
-        # native segment and trim it to size in post.
-        segments = [native_min]
-    elif not steps and requested <= native_max:
-        segments = [requested]
-    elif steps and requested in native:
-        segments = [requested]
-    elif steps and any(s >= requested for s in native):
-        # A stepped lane with no exact step at this length (Veo
-        # at 5s, say): the smallest step that covers it, trimmed.
-        segments = [min(s for s in native if s >= requested)]
+        raise ValueError(
+            f"this model's shortest clip is {native_min} seconds")
+    if requested <= native_max:
+        if not steps:
+            segments = [requested]
+        elif requested in native:
+            segments = [requested]
+        else:
+            segments = _step_composition(native, requested)
+            if segments is None:
+                raise ValueError(
+                    "this model makes clips of "
+                    + ", ".join(f"{s}" for s in native)
+                    + f" seconds; {requested} seconds is not a "
+                    "length it can make exactly")
     else:
-        # Beyond the native maximum: chain native segments.
+        # Beyond the native maximum: chain native segments that
+        # sum exactly to the ordered length.
         if model not in CHAIN_CONTINUATION_MODELS:
             raise ValueError(
                 "this model makes single clips of up to "
@@ -901,14 +936,23 @@ def duration_plan(model: str, requested: int) -> dict:
                 "route for longer videos")
         import math as _math
 
-        count = _math.ceil(requested / native_max)
         if steps:
-            segments = [native_max] * count
+            segments = _step_composition(native, requested)
+            if segments is None:
+                raise ValueError(
+                    "this model makes clips of "
+                    + ", ".join(f"{s}" for s in native)
+                    + f" seconds; {requested} seconds is not a "
+                    "length it can make exactly")
         else:
-            segments = [native_max] * (count - 1)
-            remainder = requested - native_max * (count - 1)
-            segments.append(
-                remainder if remainder >= native_min else native_max)
+            count = _math.ceil(requested / native_max)
+            base = requested // count
+            extra = requested - base * count
+            segments = [base + 1] * extra + [base] * (count - extra)
+            if any(s < native_min or s > native_max for s in segments):
+                raise ValueError(
+                    f"this model cannot make {requested} seconds "
+                    "in exact segments")
     generated = sum(segments)
     return {
         "requested": requested,
@@ -916,10 +960,25 @@ def duration_plan(model: str, requested: int) -> dict:
         "generated_seconds": generated,
         "deliver_seconds": requested,
         "chained": len(segments) > 1,
-        "trim": generated > requested,
         "native_min": native_min,
         "native_max": native_max,
     }
+
+
+def offered_lengths(model: str) -> list:
+    """The menu lengths this model can actually make under the
+    no-trim rule: every length from its own shortest clip up
+    that its native segments sum to exactly. The studio picker
+    is served from this list, so a length a model cannot make
+    is simply not offered on it."""
+    out = []
+    for length in LENGTH_OPTIONS:
+        try:
+            duration_plan(model, length)
+            out.append(length)
+        except ValueError:
+            pass
+    return out
 
 
 def model_display_name(model: dict) -> str:
@@ -1861,6 +1920,12 @@ def api():
                     ref_caps_for(m["id"]))),
                 "ref_video_seconds_cap": MODEL_REF_VIDEO_SECONDS_CAP.get(
                     m["id"], 15.0),
+                # The lengths this model can actually make
+                # (no-trim rule): the picker offers exactly
+                # these, starting at the model's shortest clip.
+                "lengths": (
+                    offered_lengths(m["id"])
+                    if m["id"] in PER_SECOND_MODELS else []),
                 "available": (
                     True if m["id"] == DEFAULT_MODEL
                     else not api_lane_state(m["id"])["paused"]
@@ -2780,7 +2845,7 @@ def api():
             "requested_duration": duration,
             "generated_seconds": plan["generated_seconds"],
             "plan_segments": plan["segments"],
-            "plan_trim": plan["trim"],
+            "plan_trim": False,
             "resolution": resolution,
             "aspect_ratio": aspect_ratio,
             "mode": mode,
@@ -4592,10 +4657,9 @@ def api():
             "resolution": params["resolution"],
             "aspect_ratio": params["aspect_ratio"],
             # Length plan (2026-11-17): the native segments
-            # behind the requested length, the chain driver's
-            # state, and the finishing stage's trim target. The
-            # hold above was taken on generated_seconds, the
-            # full multi-segment cost.
+            # behind the requested length and the chain driver's
+            # state. The hold above was taken on
+            # generated_seconds, the full multi-segment cost.
             "generated_seconds": params["generated_seconds"],
             "chain_plan": list(params["plan_segments"]),
             "chain_index": 0,
@@ -4604,13 +4668,14 @@ def api():
             "chain_cost_seen": False,
             "segments_total": len(params["plan_segments"]),
             "segments_done": 0,
-            "trim_to_seconds": (
-                params["requested_duration"] if params["plan_trim"]
-                else None),
+            # No trimming, ever (Jack's rule, 2026-11-17):
+            # generated seconds always equal the ordered length,
+            # so there is no trim target; chained jobs bill the
+            # generated total, which is the ordered total.
+            "trim_to_seconds": None,
             "bill_generated_seconds": (
                 float(params["generated_seconds"])
-                if len(params["plan_segments"]) > 1
-                or params["plan_trim"] else None),
+                if len(params["plan_segments"]) > 1 else None),
             "base_url": base,
             "chain_seed": (
                 body.get("seed") if isinstance(body.get("seed"), int)
@@ -5502,32 +5567,6 @@ def api():
         data_volume.commit()
         return joined
 
-    def _trim_raw(job: dict, raw_path: Path) -> Path:
-        """Cut a generated file down to the length the customer
-        ordered (CPU re-encode for a frame-exact cut): the plan
-        generated more than the menu length, either the lane's
-        shortest native segment behind a shorter order or the
-        overhang of a chained length."""
-        job_id = job["id"]
-        trimmed = FILES_DIR / f"{job_id}.trim.mp4"
-        if trimmed.exists():
-            return trimmed
-        target = float(job["trim_to_seconds"])
-        audio = ["-c:a", "aac", "-b:a", "160k"] \
-            if _has_audio_stream(raw_path) else ["-an"]
-        cmd = ["ffmpeg", "-y", "-i", str(raw_path),
-               "-t", f"{target:.3f}",
-               "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
-               *audio, str(trimmed)]
-        proc = subprocess.run(cmd, capture_output=True, text=True,
-                              timeout=1800)
-        if proc.returncode != 0 or not trimmed.exists():
-            raise HTTPException(
-                status_code=502,
-                detail="finished file is not available yet")
-        data_volume.commit()
-        return trimmed
-
     def ensure_processed(job: dict) -> Path:
         """Fetch the finished file if needed and produce the
         delivered file (music muxed, watermark for free-tier jobs;
@@ -5567,13 +5606,6 @@ def api():
                     if resp.status_code != 200:
                         raise HTTPException(status_code=502, detail="finished file is not available yet")
                     raw_path.write_bytes(resp.content)
-            if job.get("trim_to_seconds") and not job.get("partial"):
-                # The plan generated past the ordered length
-                # (a shortest-native segment behind a shorter
-                # order, or a chain overhang): deliver exactly
-                # the ordered length. A partial chain delivers
-                # what it has, untrimmed.
-                raw_path = _trim_raw(job, raw_path)
             # Voiceover resolution (Jack's correction, 2026-11-16):
             # a speech script on a speech-native lane is performed
             # by the model itself; on any other lane the Kokoro
@@ -7179,7 +7211,7 @@ APP_HTML = (
           <option value="20">20 seconds</option>
           <option value="30">30 seconds</option>
         </select>
-        <p class="muted">Every length is on every model. Past a model's longest single clip, the video is made in segments and joined into one finished video, priced per second across the segments. Shorter than a model's shortest clip, the shortest clip is made and trimmed to size.</p>
+        <p class="muted">Every model offers every length, starting at its own shortest clip. Longer than one single clip, your video is made in segments and joined into one finished video. Longer videos are priced per second across the segments, exactly like separate clips.</p>
       </div>
     </div>
     <p class="muted" id="model-note"></p>
@@ -7834,13 +7866,15 @@ async function fetchQuote() {
     genLabel(null);
   }
 }
-// The length menu is the same nine lengths on every model
-// (Jack, 2026-11-17): inside the model's native range it is
-// one native generation, below its shortest clip the shortest
-// clip is made and trimmed to size, and past its longest clip
-// the video is chained from native segments and joined. The
-// server plans and prices it (duration_plan in this file's
-// Python), so this list only keeps the form honest.
+// The length menu (Jack, 2026-11-17, no-trim rule): every
+// model offers every length starting at its own shortest clip;
+// nothing is ever trimmed. Inside the model's native range the
+// length is one native generation; past its longest clip the
+// video is made in segments that add up to exactly the ordered
+// length and joined into one finished video. The picker is fed
+// each model's real offered lengths from /api/config (computed
+// by duration_plan in this file's Python); this list is the
+// full menu and the fallback.
 const LENGTHS = [1, 5, 10, 15, 30, 45, 60, 90, 120];
 const LEN_LABEL = { 1: '1s', 5: '5s', 10: '10s', 15: '15s', 30: '30s', 45: '45s', 60: '1m', 90: '1.5m', 120: '2m' };
 const LEN_WORDS = { 1: '1 second', 5: '5 seconds', 10: '10 seconds', 15: '15 seconds', 30: '30 seconds', 45: '45 seconds', 60: '1 minute', 90: '1.5 minutes', 120: '2 minutes' };
@@ -7997,8 +8031,10 @@ function updateModelUI() {
   if (api) {
     const opts = MODEL_OPTS[m];
     if (opts) {
-      fillSelect($('duration'), opts.durations, v => LEN_WORDS[v] || (v + ' seconds'));
-      buildSegButtons($('duration-seg'), $('duration'), opts.durations, v => LEN_LABEL[v] || (v + 's'), fetchQuote);
+      const entry = ((catalogCfg && catalogCfg.models) || []).find(x => x.id === m);
+      const durs = (entry && entry.lengths && entry.lengths.length) ? entry.lengths : opts.durations;
+      fillSelect($('duration'), durs, v => LEN_WORDS[v] || (v + ' seconds'));
+      buildSegButtons($('duration-seg'), $('duration'), durs, v => LEN_LABEL[v] || (v + 's'), fetchQuote);
       const lane = pricingData ? (pricingData.api_lanes || {})[m] : null;
       const res = lane ? Object.keys(lane.balance_debit_cents_per_second) : opts.resolutions;
       fillSelect($('resolution'), res.length ? res : opts.resolutions, v => v);

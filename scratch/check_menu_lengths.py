@@ -75,7 +75,12 @@ for base, unc in pairs:
     check(abs(ids.index(base) - ids.index(unc)) == 1,
           f"{base} and {unc} are not adjacent")
 
-# -- 2. Length plans ----------------------------------------------------
+# -- 2. Length plans (no-trim rule, 2026-11-17) --------------------------
+# Every offered length is generated EXACTLY: segments sum to the
+# ordered length, nothing is trimmed, nothing over-generates. A
+# length a model cannot make (below its real minimum, or a
+# stepped lane whose clips cannot sum to it) is refused by the
+# plan and absent from offered_lengths.
 table = {}
 for model in app.PER_SECOND_MODELS:
     low, high = app.MODEL_DURATION_BOUNDS.get(model, (3, 30))
@@ -83,8 +88,23 @@ for model in app.PER_SECOND_MODELS:
     native_min = min(steps) if steps else low
     native_max = max(steps) if steps else high
     table[model] = (native_min, native_max)
+    offered = app.offered_lengths(model)
+    check(offered == sorted(offered) and offered,
+          f"{model}: offered lengths empty or unsorted {offered}")
+    check(all(L >= native_min for L in offered),
+          f"{model}: an offered length sits below the native minimum")
     for length in app.LENGTH_OPTIONS:
-        plan = app.duration_plan(model, length)
+        try:
+            plan = app.duration_plan(model, length)
+        except ValueError:
+            check(length not in offered,
+                  f"{model} {length}s: refused but still offered")
+            check(length < native_min or bool(steps),
+                  f"{model} {length}s: continuous lane refused a "
+                  "length at or above its minimum")
+            continue
+        check(length in offered,
+              f"{model} {length}s: planned but not offered")
         segs = plan["segments"]
         check(all(isinstance(s, int) and s > 0 for s in segs),
               f"{model} {length}s: bad segments {segs}")
@@ -94,16 +114,14 @@ for model in app.PER_SECOND_MODELS:
         else:
             check(all(low <= s <= high for s in segs),
                   f"{model} {length}s: segment outside native range {segs}")
-        check(plan["generated_seconds"] == sum(segs),
-              f"{model} {length}s: generated != sum(segments)")
-        check(plan["generated_seconds"] >= length,
-              f"{model} {length}s: generated below requested")
-        check(plan["generated_seconds"] - length < native_max,
-              f"{model} {length}s: over-generation {plan['generated_seconds']}")
+        check(plan["generated_seconds"] == sum(segs) == length,
+              f"{model} {length}s: generated != ordered length "
+              f"({plan['generated_seconds']})")
+        check("trim" not in plan, f"{model} {length}s: plan still trims")
         check(plan["chained"] == (len(segs) > 1),
               f"{model} {length}s: chained flag wrong")
         if length <= native_max and length >= native_min and not steps:
-            check(segs == [length] and not plan["trim"],
+            check(segs == [length],
                   f"{model} {length}s: in-range length not a single native pass")
 
 try:
@@ -141,6 +159,6 @@ print("ALL CHECKS PASSED")
 for model in app.PER_SECOND_MODELS:
     nmin, nmax = table[model]
     plans = {L: app.duration_plan(model, L)["segments"]
-             for L in app.LENGTH_OPTIONS}
+             for L in app.offered_lengths(model)}
     print(f"PLAN {model} native {nmin}-{nmax} :: "
-          + " | ".join(f"{L}s={plans[L]}" for L in app.LENGTH_OPTIONS))
+          + " | ".join(f"{L}s={plans[L]}" for L in plans))
