@@ -2009,6 +2009,9 @@ def api():
             "gallery_opt_out": bool(user.get("gallery_opt_out")),
             "past_due": user.get("past_due", False),
             "balance_cents": user.get("balance_cents", 0),
+            "has_saved_card": bool(user.get("stripe_payment_method_id")),
+            "auto_reload_enabled": bool((user.get("auto_reload") or {}).get("enabled")),
+            "auto_reload_amount_cents": int((user.get("auto_reload") or {}).get("amount_cents") or 0),
             "free_jobs_used": free_jobs_total(user),
             "free_jobs_limit": FREE_CLIPS_TOTAL,
             "default_model": DEFAULT_MODEL,
@@ -2447,7 +2450,7 @@ def api():
             email,
             "Verify your Moonfactory account",
             "Welcome to Moonfactory.\n\n"
-            "Verify your email to start creating:\n"
+            "Open the link below to verify your email.\n"
             f"{link}\n\n"
             "The link works for 24 hours. If you did not sign up, ignore this email.\n",
         )
@@ -2503,7 +2506,7 @@ def api():
         if not HANDLE_RE.fullmatch(handle):
             raise HTTPException(
                 status_code=422,
-                detail="handle must be 3-20 characters: letters, numbers, _ or -",
+                detail="handle must be 3 to 20 characters, using letters, numbers, _ or -",
             )
         for key in list(users.keys()):
             if not key.startswith("id:"):
@@ -2524,7 +2527,7 @@ def api():
         if opt_out and not is_paid(user):
             raise HTTPException(
                 status_code=403,
-                detail="gallery opt-out is a paid feature",
+                detail="hiding your clips from the gallery is a paid feature",
             )
         user["gallery_opt_out"] = opt_out
         save_user(user)
@@ -2710,10 +2713,13 @@ def api():
         charge = int(pricing.CHARACTER_TRAIN_RAW_CENTS) if is_owner(user) \
             else int(pricing.CHARACTER_TRAIN_RAW_CENTS
                      * pricing.FRONTIER_MIN_MARKUP)
+        reload_state = {}
+        if int(user.get("balance_cents", 0)) < charge:
+            attempt_auto_reload(user, reload_state)
         if int(user.get("balance_cents", 0)) < charge:
             raise HTTPException(
                 status_code=402,
-                detail=f"training this character costs {charge} cents of prepaid balance")
+                detail=reload_fail_detail(reload_state, f"training this character costs {charge} cents of prepaid balance"))
         import io
         import zipfile
 
@@ -3533,7 +3539,7 @@ def api():
         if resolution not in allowed_res:
             raise HTTPException(
                 status_code=422,
-                detail="resolution for this model must be one of: "
+                detail="resolution for this model must be one of "
                 + ", ".join(allowed_res),
             )
         ref_images = body.get("reference_image_urls") or []
@@ -3666,7 +3672,7 @@ def api():
         if aspect_ratio not in HOUSE_ASPECTS:
             raise HTTPException(
                 status_code=422,
-                detail="aspect_ratio must be one of: "
+                detail="aspect_ratio must be one of "
                 + ", ".join(HOUSE_ASPECTS))
         return {
             "duration": plan["segments"][0],
@@ -5520,6 +5526,7 @@ def api():
         message and the hold fully released: no charge, nothing
         stuck."""
         params = _api_job_params(body, model)
+        reload_state = {}
         state = api_lane_state(model)
         if state["paused"]:
             raise HTTPException(status_code=503, detail=MODEL_UNAVAILABLE)
@@ -5533,9 +5540,11 @@ def api():
             lip_sync=lip_sync_applies(model, speech_script),
         )
         if not ceiling_allows(user, est["cap_raw_cents"]):
+            attempt_auto_reload(user, reload_state)
+        if not ceiling_allows(user, est["cap_raw_cents"]):
             raise HTTPException(
                 status_code=402,
-                detail="this job would exceed the total generation your payments cover",
+                detail=reload_fail_detail(reload_state, "this job would exceed the total generation your payments cover"),
             )
         # Hold the cap before the provider call exists (Rule 1).
         # Included budget pays first for subscribers only;
@@ -5550,10 +5559,14 @@ def api():
             hold_kind = "balance"
             hold_amount = est["cap_balance_cents"]
             user["balance_cents"] = int(user.get("balance_cents", 0)) - int(hold_amount)
+        elif attempt_auto_reload(user, reload_state) and int(user.get("balance_cents", 0)) >= est["cap_balance_cents"]:
+            hold_kind = "balance"
+            hold_amount = est["cap_balance_cents"]
+            user["balance_cents"] = int(user.get("balance_cents", 0)) - int(hold_amount)
         else:
             raise HTTPException(
                 status_code=402,
-                detail=f"included budget used up; this job costs {est['balance_debit_cents']} cents of prepaid balance",
+                detail=reload_fail_detail(reload_state, f"included budget used up; this job costs {est['balance_debit_cents']} cents of prepaid balance"),
             )
         save_user(user)
         job = {
@@ -5737,7 +5750,7 @@ def api():
         if aspect not in HOUSE_ASPECTS:
             raise HTTPException(
                 status_code=422,
-                detail="aspect_ratio must be one of: " + ", ".join(HOUSE_ASPECTS))
+                detail="aspect_ratio must be one of " + ", ".join(HOUSE_ASPECTS))
         start_image = body.get("start_image_png_b64") or None
         end_image = body.get("end_image_png_b64") or None
         if body.get("start_image_job_id") and not start_image:
@@ -5857,7 +5870,7 @@ def api():
             if not start_image:
                 raise HTTPException(
                     status_code=422,
-                    detail="effects need a start image: pick an effect and upload the photo it acts on")
+                    detail="effects need a start image. Pick an effect and upload the photo it acts on")
             if segments > 1:
                 raise HTTPException(
                     status_code=422,
@@ -5894,11 +5907,11 @@ def api():
             if lane == "production" and not start_image:
                 raise HTTPException(
                     status_code=422,
-                    detail="Production needs a start image; text-only videos run on the Draft lane")
+                    detail="Production needs a start image. Videos from text alone run on the Draft lane")
             if segments > 1 and not is_paid(user):
                 raise HTTPException(
                     status_code=403,
-                    detail="multi-segment videos are a paid feature; free accounts make single Draft clips")
+                    detail="videos with more than one segment are a paid feature. Free accounts make single Draft clips")
         # Per-plan concurrency: a user can have several jobs in
         # flight at once, up to their plan limit, and the studio
         # list shows each one's position. No serial babysitting.
@@ -5940,7 +5953,7 @@ def api():
             if free_jobs_total(user) >= FREE_CLIPS_TOTAL:
                 raise HTTPException(
                     status_code=403,
-                    detail=f"free clip limit reached: the free plan is {FREE_CLIPS_TOTAL} clips total",
+                    detail=f"your free clips are used up. The free plan is {FREE_CLIPS_TOTAL} clips in total",
                 )
             if int(meta.get("freecount:total") or 0) >= FREE_PLATFORM_TOTAL_CEILING:
                 raise HTTPException(status_code=503, detail="the free tier is paused")
@@ -5952,10 +5965,13 @@ def api():
             # anything is dispatched: this job's measured cost must
             # fit inside what the account has paid in.
             job_cost = float(pricing.MEASURED_COST_CENTS[lane]) * segments
+            reload_state = {}
+            if not ceiling_allows(user, job_cost):
+                attempt_auto_reload(user, reload_state)
             if not ceiling_allows(user, job_cost):
                 raise HTTPException(
                     status_code=402,
-                    detail="this job would exceed the total generation your payments cover",
+                    detail=reload_fail_detail(reload_state, "this job would exceed the total generation your payments cover"),
                 )
             # Inside the ceiling, a subscriber's included budget
             # pays first (production-segment cost per segment, the
@@ -5977,12 +5993,14 @@ def api():
                 price = pricing.job_price_cents(
                     lane, owner=is_owner(user)) * segments
                 if user.get("balance_cents", 0) < price:
+                    attempt_auto_reload(user, reload_state)
+                if user.get("balance_cents", 0) < price:
                     detail = (
                         f"included time used up; this job costs {price} cents of prepaid balance"
                         if user["plan"] == "creator"
                         else f"this job costs {price} cents of prepaid balance"
                     )
-                    raise HTTPException(status_code=402, detail=detail)
+                    raise HTTPException(status_code=402, detail=reload_fail_detail(reload_state, detail))
                 charged = price
             job_cost_cents = job_cost
         try:
@@ -6153,7 +6171,7 @@ def api():
         if aspect not in HOUSE_ASPECTS:
             raise HTTPException(
                 status_code=422,
-                detail="aspect_ratio must be one of: " + ", ".join(HOUSE_ASPECTS))
+                detail="aspect_ratio must be one of " + ", ".join(HOUSE_ASPECTS))
         return prompt, aspect
 
     def _image_payment(user: dict) -> dict:
@@ -6228,7 +6246,7 @@ def api():
             if not is_paid(user):
                 raise HTTPException(
                     status_code=402,
-                    detail="image models are for paid accounts; the built-in image maker stays free to try")
+                    detail="image models are for paid accounts. The image maker built into Moonfactory stays free to try")
             size = str(body.get("image_size") or "")
             if size not in lane["raw_cents"]:
                 raise HTTPException(
@@ -6247,18 +6265,23 @@ def api():
                         or len(source_image) > 14_000_000):
                     raise HTTPException(
                         status_code=400,
-                        detail="this model edits one image: add the image you want edited first")
+                        detail="this model edits one image. Add the image you want edited first")
             raw, debit = pricing.image_lane_price(
                 lane_id, size, owner=is_owner(user))
+            reload_state = {}
+            if not is_owner(user) and not ceiling_allows(user, raw):
+                attempt_auto_reload(user, reload_state)
             if not is_owner(user) and not ceiling_allows(user, raw):
                 raise HTTPException(
                     status_code=402,
-                    detail="this image would pass what you have paid in; top up first")
+                    detail=reload_fail_detail(reload_state, "this image would pass what you have paid in; top up first"))
             charge = int(round(debit))
+            if int(user.get("balance_cents", 0)) < charge:
+                attempt_auto_reload(user, reload_state)
             if int(user.get("balance_cents", 0)) < charge:
                 raise HTTPException(
                     status_code=402,
-                    detail="your balance is too low for this image; top up first")
+                    detail=reload_fail_detail(reload_state, "your balance is too low for this image; top up first"))
             job_id = uuid.uuid4().hex[:16]
             job = {
                 "id": job_id, "user_id": user["id"], "kind": "image",
@@ -6306,7 +6329,7 @@ def api():
             if free_jobs_total(user) >= FREE_CLIPS_TOTAL:
                 raise HTTPException(
                     status_code=403,
-                    detail=f"free clip limit reached: the free plan is {FREE_CLIPS_TOTAL} clips total",
+                    detail=f"your free clips are used up. The free plan is {FREE_CLIPS_TOTAL} clips in total",
                 )
             if int(meta.get("freecount:total") or 0) >= FREE_PLATFORM_TOTAL_CEILING:
                 raise HTTPException(status_code=503, detail="the free tier is paused")
@@ -6935,13 +6958,13 @@ def api():
         if caption_style not in clipping.STYLES:
             raise HTTPException(
                 status_code=422,
-                detail="caption style must be one of: "
+                detail="caption style must be one of "
                 + ", ".join(clipping.STYLE_NAMES.values()))
         layout = body.get("layout") or "blur"
         if layout not in clipping.LAYOUTS:
             raise HTTPException(
                 status_code=422,
-                detail="layout must be one of: "
+                detail="layout must be one of "
                 + ", ".join(clipping.LAYOUTS.values()))
         upload_path = None
         source_url = None
@@ -6974,10 +6997,13 @@ def api():
         if duration > pricing.CLIP_MAX_SOURCE_SECONDS:
             raise HTTPException(status_code=422, detail="this video is longer than the 3 hour clipping limit")
         q = pricing.clip_quote(duration, owner=is_owner(user))
+        reload_state = {}
+        if not ceiling_allows(user, q["worst_case_cost_cents"]):
+            attempt_auto_reload(user, reload_state)
         if not ceiling_allows(user, q["worst_case_cost_cents"]):
             raise HTTPException(
                 status_code=402,
-                detail="this job would exceed the total generation your payments cover")
+                detail=reload_fail_detail(reload_state, "this job would exceed the total generation your payments cover"))
         # Hold the exact charge before dispatch (Rule 1). Included
         # budget pays first for subscribers; balance is the other rail.
         u = usage(user)
@@ -6990,10 +7016,14 @@ def api():
             hold_kind = "balance"
             hold_amount = q["balance_charge_cents"]
             user["balance_cents"] = int(user.get("balance_cents", 0)) - int(hold_amount)
+        elif attempt_auto_reload(user, reload_state) and int(user.get("balance_cents", 0)) >= q["balance_charge_cents"]:
+            hold_kind = "balance"
+            hold_amount = q["balance_charge_cents"]
+            user["balance_cents"] = int(user.get("balance_cents", 0)) - int(hold_amount)
         else:
             raise HTTPException(
                 status_code=402,
-                detail=f"included budget used up; clipping this video costs {q['balance_charge_cents']} cents of prepaid balance")
+                detail=reload_fail_detail(reload_state, f"included budget used up; clipping this video costs {q['balance_charge_cents']} cents of prepaid balance"))
         save_user(user)
         job = {
             "id": pysecrets.token_hex(8),
@@ -7143,6 +7173,82 @@ def api():
         meta["reports"] = reports[-500:]
         return {"status": "reported"}
 
+    def add_net_paid(user: dict, gross_cents) -> None:
+        """Amendment 2 accounting: cumulative payments, net of
+        card fees, are the account's cost ceiling."""
+        if gross_cents:
+            user["net_paid_cents"] = (
+                float(user.get("net_paid_cents") or 0.0)
+                + pricing.net_of(int(gross_cents))
+            )
+
+    def credit_topup(user: dict, credit_cents, gross_cents) -> None:
+        """The one balance credit path, shared by manual top ups
+        (credited by the webhook) and auto reload charges, so both
+        raise the balance and the net paid ceiling the same way."""
+        user["balance_cents"] = int(user.get("balance_cents", 0)) + int(credit_cents)
+        add_net_paid(user, gross_cents)
+
+    def attempt_auto_reload(user: dict, state: dict) -> bool:
+        """Auto reload (Jack, 2026-11-17). When a job is blocked
+        because the balance can no longer cover it, charge the
+        saved card once for the reload amount the customer picked,
+        credit the balance through the top up path, and let the
+        job proceed. The state dict is per job, so there is never
+        more than one attempt per blocked job. A failed charge
+        changes nothing; the job then fails the way it already
+        did, with the reload named in the message. Only the Stripe
+        customer id and payment method id are ever stored, never
+        card numbers."""
+        if state.get("tried"):
+            return bool(state.get("ok"))
+        cfg = user.get("auto_reload") or {}
+        amount = int(cfg.get("amount_cents") or 0)
+        if (not cfg.get("enabled")
+                or amount not in pricing.TOPUP_PACKS_CENTS
+                or not user.get("stripe_customer_id")
+                or not user.get("stripe_payment_method_id")):
+            return False
+        state["tried"] = True
+        state["attempted"] = True
+        stripe, err = stripe_client()
+        if err:
+            state["ok"] = False
+            return False
+        try:
+            pi = stripe.PaymentIntent.create(
+                amount=amount,
+                currency="usd",
+                customer=user["stripe_customer_id"],
+                payment_method=user["stripe_payment_method_id"],
+                off_session=True,
+                confirm=True,
+                metadata={"user_id": user["id"], "kind": "auto_reload",
+                          "credit_cents": str(amount)},
+            )
+        except Exception:
+            state["ok"] = False
+            return False
+        if getattr(pi, "status", None) != "succeeded":
+            state["ok"] = False
+            return False
+        credited = meta.get("reload_credited") or {}
+        if pi.id not in credited:
+            credited[pi.id] = True
+            meta["reload_credited"] = credited
+            credit_topup(user, amount, pi.amount_received or amount)
+            save_user(user)
+        state["ok"] = True
+        return True
+
+    def reload_fail_detail(state: dict, plain_detail: str) -> str:
+        """The failure message for a blocked job. When an auto
+        reload was attempted and the charge did not go through,
+        the message says so, in plain words."""
+        if state.get("attempted") and not state.get("ok"):
+            return plain_detail + ", and the reload did not go through"
+        return plain_detail
+
     # -- stripe -------------------------------------------------------------
 
     def stripe_mode() -> str:
@@ -7211,7 +7317,7 @@ def api():
         body = await request.json()
         pack = int(body.get("pack_cents") or 0)
         if pack not in pricing.TOPUP_PACKS_CENTS:
-            raise HTTPException(status_code=422, detail="unknown top-up pack")
+            raise HTTPException(status_code=422, detail="unknown top up pack")
         base = base_url(request)
         price_id = os.environ.get(f"STRIPE_PRICE_TOPUP_{pack}", "")
         if price_id:
@@ -7235,6 +7341,57 @@ def api():
             cancel_url=f"{base}/app?checkout=cancel",
         )
         return {"url": session.url}
+
+    @web.post("/api/billing/setup-card")
+    async def billing_setup_card(request: Request, mf_session: str = Cookie(default="")):
+        user = require_user(request, mf_session)
+        stripe, err = stripe_client()
+        if err:
+            raise HTTPException(status_code=503, detail=err)
+        if not user.get("stripe_customer_id"):
+            customer = stripe.Customer.create(
+                email=user["email"],
+                metadata={"user_id": user["id"]},
+            )
+            user["stripe_customer_id"] = customer.id
+            save_user(user)
+        base = base_url(request)
+        session = stripe.checkout.Session.create(
+            mode="setup",
+            payment_method_types=["card"],
+            customer=user["stripe_customer_id"],
+            setup_intent_data={"metadata": {"user_id": user["id"]}},
+            metadata={"user_id": user["id"]},
+            success_url=f"{base}/app?checkout=success",
+            cancel_url=f"{base}/app?checkout=cancel",
+        )
+        return {"url": session.url}
+
+    @web.post("/api/billing/autoreload")
+    async def billing_autoreload(request: Request, mf_session: str = Cookie(default="")):
+        user = require_user(request, mf_session)
+        body = await request.json()
+        enabled = bool(body.get("enabled"))
+        amount = int(body.get("amount_cents") or 0)
+        if enabled:
+            if amount not in pricing.TOPUP_PACKS_CENTS:
+                raise HTTPException(
+                    status_code=422,
+                    detail="pick a reload amount of $5, $10, or $20")
+            if not user.get("stripe_payment_method_id"):
+                raise HTTPException(
+                    status_code=422,
+                    detail="save a card first, then turn auto reload on")
+            user["auto_reload"] = {"enabled": True, "amount_cents": amount}
+        else:
+            cfg = dict(user.get("auto_reload") or {})
+            cfg["enabled"] = False
+            user["auto_reload"] = cfg
+        save_user(user)
+        cfg = user.get("auto_reload") or {}
+        return {"auto_reload_enabled": bool(cfg.get("enabled")),
+                "auto_reload_amount_cents": int(cfg.get("amount_cents") or 0),
+                "has_saved_card": bool(user.get("stripe_payment_method_id"))}
 
     @web.post("/api/stripe/webhook")
     async def stripe_webhook(request: Request):
@@ -7264,20 +7421,21 @@ def api():
         etype = event["type"]
         obj = event["data"]["object"]
 
-        def add_net_paid(user: dict, gross_cents) -> None:
-            """Amendment 2 accounting: cumulative payments, net of
-            card fees, are the account's cost ceiling."""
-            if gross_cents:
-                user["net_paid_cents"] = (
-                    float(user.get("net_paid_cents") or 0.0)
-                    + pricing.net_of(int(gross_cents))
-                )
-
         if etype == "checkout.session.completed":
             uid = (obj.get("metadata") or {}).get("user_id") or obj.get("client_reference_id")
             user = users.get(f"id:{uid}") if uid else None
             if user:
-                if obj.get("mode") == "subscription":
+                if obj.get("mode") == "setup":
+                    user["stripe_customer_id"] = obj.get("customer") or user.get("stripe_customer_id")
+                    si_id = obj.get("setup_intent")
+                    if si_id:
+                        try:
+                            si = stripe.SetupIntent.retrieve(si_id)
+                            if si and si.payment_method:
+                                user["stripe_payment_method_id"] = si.payment_method
+                        except Exception:
+                            pass
+                elif obj.get("mode") == "subscription":
                     user["plan"] = "creator"
                     user["past_due"] = False
                     user["stripe_customer_id"] = obj.get("customer")
@@ -7291,8 +7449,7 @@ def api():
                     # too; counting it here as well would double it.
                 elif obj.get("mode") == "payment":
                     credit = int((obj.get("metadata") or {}).get("credit_cents") or 0)
-                    user["balance_cents"] = user.get("balance_cents", 0) + credit
-                    add_net_paid(user, obj.get("amount_total") or credit)
+                    credit_topup(user, credit, obj.get("amount_total") or credit)
                 save_user(user)
         elif etype == "invoice.paid":
             counted = meta.get("net_counted_invoices") or {}
@@ -7334,6 +7491,27 @@ def api():
                     user["plan"] = "free"
                     user["stripe_subscription_id"] = None
                     save_user(user)
+        elif etype == "setup_intent.succeeded":
+            uid = (obj.get("metadata") or {}).get("user_id")
+            user = users.get(f"id:{uid}") if uid else None
+            if user and obj.get("payment_method"):
+                user["stripe_payment_method_id"] = obj.get("payment_method")
+                if obj.get("customer"):
+                    user["stripe_customer_id"] = obj.get("customer")
+                save_user(user)
+        elif etype == "payment_intent.succeeded":
+            md = obj.get("metadata") or {}
+            if md.get("kind") == "auto_reload":
+                credited = meta.get("reload_credited") or {}
+                if obj.get("id") not in credited:
+                    uid = md.get("user_id")
+                    user = users.get(f"id:{uid}") if uid else None
+                    if user:
+                        credited[obj["id"]] = True
+                        meta["reload_credited"] = credited
+                        credit_topup(user, int(md.get("credit_cents") or 0),
+                                      obj.get("amount_received") or obj.get("amount") or 0)
+                        save_user(user)
         return {"received": True}
 
     # -- per-second lane completion callback ----------------------------
@@ -7738,6 +7916,10 @@ _CSS = """
   .menu a,.menu button{display:block;width:100%;box-sizing:border-box;text-align:left;background:none;border:0;color:var(--ink);font:inherit;font-size:14.5px;padding:9px 10px;border-radius:9px;cursor:pointer;text-decoration:none}
   .menu a:hover,.menu button:hover{background:var(--seg-on)}
   .menu-email{display:block;color:var(--faint);font-size:13px;padding:8px 10px 9px;border-bottom:1px solid var(--line);margin-bottom:6px;word-break:break-all}
+  .overlay{position:fixed;inset:0;background:rgba(6,6,9,.72);z-index:80;display:flex;align-items:flex-start;justify-content:center;padding:22px 14px;overflow-y:auto}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:16px;max-width:560px;width:100%;padding:22px;margin-top:4vh}
+  .panel-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+  .panel-close{background:var(--seg-on);color:var(--ink);border:0;width:34px;height:34px;border-radius:50%;font-size:17px;cursor:pointer;line-height:1;flex:none}
   h1{font-size:46px;line-height:1.12;letter-spacing:-.03em;font-weight:800;margin:0}
   h2{font-size:26px;letter-spacing:-.02em;margin:0 0 6px}
   a{color:var(--accent-bright)}
@@ -7843,17 +8025,17 @@ _LANDING_TOP_GUEST = """<header>
 <div class="hero">
   <h1>Turn one image into<br>a short video.</h1>
   <p>Upload a photo, describe what happens, and get a vertical clip
-  with sound: music, and a voice whenever someone is talking.
+  with sound. Music, and a voice whenever someone is talking.
   Your first 5 clips are free.</p>
 </div>
 <div class="hero-entry">
   <div class="row2">
     <input id="hero-prompt" type="text" maxlength="500"
-      placeholder="Describe your video: a red hot air balloon rising over green hills">
+      placeholder="Describe your video, like a red hot air balloon rising over green hills">
     <button class="btn" id="hero-go" type="button">Try It free</button>
   </div>
-  <p class="under" style="margin-top:12px">Trying anything takes an account:
-  sign up free, verify your email, and Try It gives you 5 clips, total.
+  <p class="under" style="margin-top:12px">Trying anything takes an account.
+  Sign up free, verify your email, and Try It gives you 5 clips total.
   No card.</p>
 </div>"""
 
@@ -7863,13 +8045,13 @@ _LANDING_TOP_MEMBER = """<header>
 </header>
 <div class="hero">
   <h1>Turn one image into<br>a short video.</h1>
-  <p>Welcome back. Create is your studio: every model, custom sound,
-  the full shelf. It is one click away.</p>
+  <p>Welcome back. Create is your studio, with every model, custom sound,
+  and the full shelf. It is one click away.</p>
 </div>
 <div class="hero-entry">
   <div class="row2">
     <input id="hero-prompt" type="text" maxlength="500"
-      placeholder="Describe your video: a red hot air balloon rising over green hills">
+      placeholder="Describe your video, like a red hot air balloon rising over green hills">
     <button class="btn" id="hero-go" type="button">Open Create</button>
   </div>
   <p class="under" style="margin-top:12px">Members open straight into Create.
@@ -8040,7 +8222,7 @@ def _info_page(title: str, description: str, body: str) -> str:
 
 TERMS_HTML = _info_page(
     "Moonfactory terms of service",
-    "The terms for using Moonfactory: accounts, the free tier, payments, your content, the public gallery, and the rules for generated video.",
+    "The terms for using Moonfactory, covering accounts, the free tier, payments, your content, the public gallery, and the rules for generated video.",
     """
 <h1 style="font-size:34px">Terms of service</h1>
 <p>Last updated: November 17, 2026. By creating an account or using
@@ -8208,10 +8390,10 @@ the fastest.</p>
 <h2>What to include</h2>
 <ul>
 <li>The email address on your account.</li>
-<li>For a video problem: the model's name, roughly when you ran it,
+<li>For a video problem, include the model's name, roughly when you ran it,
 and what went wrong. If a generation failed on our side, the balance
 is restored in credits; tell us and we will check the job record.</li>
-<li>For a payment question: the date and amount on your Stripe
+<li>For a payment question, include the date and amount on your Stripe
 receipt. We can see purchases and balances, never your full card
 number.</li>
 </ul>
@@ -8219,7 +8401,7 @@ number.</li>
 <h2>Common answers</h2>
 <ul>
 <li>The free tier is 5 clips per account, total. It does not refill.
-Any payment, a Creator plan or a one-time top-up, opens the full
+Any payment, a Creator plan or a single top-up, opens the full
 studio.</li>
 <li>Clips are public in the <a href="/gallery">gallery</a> by
 default, under your handle only. Paying customers can opt out in the
@@ -8240,16 +8422,16 @@ service</a>.</p>
 HELP_PAGES = {
     "getting-started": (
         "Getting started",
-        "How Moonfactory works: sign up, your free clips, and your first video.",
+        "How Moonfactory works, from sign up and your free clips to your first video.",
         """
 <h1 style="font-size:34px">Getting started</h1>
 <p>Moonfactory makes short AI videos with sound from a prompt and,
-if you want one, a start image. Five things, in order:</p>
+if you want one, a start image. Five things, in order.</p>
 <ol>
 <li><strong>Start image (optional).</strong> Upload a picture, or
 describe one and we make it, or skip it and write text only.</li>
 <li><strong>Prompt.</strong> Say what happens in the video.</li>
-<li><strong>Model.</strong> Pick how it gets made. The built-in
+<li><strong>Model.</strong> Pick how it gets made. Moonfactory's own
 Wan 2.2 lane is the free one; the rest open with any payment.</li>
 <li><strong>Length.</strong> Pick how long. Every model starts at
 its own shortest clip.</li>
@@ -8260,28 +8442,28 @@ before anything runs.</li>
 <p>You need an account, with a verified email, before anything
 runs. The free tier is 5 clips per account, total, and it does not
 refill. Any payment, the Creator plan or a one-time top-up, opens
-the full studio: every model, longer videos, images, characters,
+the full studio. Every model, longer videos, images, characters,
 and the rest of this help center.</p>
 <h2>Your library</h2>
 <p>Everything you make lands in your library in the studio, ready
 to download. Clips are public in the <a href="/gallery">gallery</a>
 by default, under your handle only. Paying customers can opt out,
 and you can delete your own clips at any time.</p>
-<p>Next: <a href="/help/pricing">how pricing and billing work</a>.</p>
+<p>Next, read <a href="/help/pricing">how pricing and billing work</a>.</p>
 """,
     ),
     "pricing": (
         "Pricing and billing",
-        "What Moonfactory costs: the Creator plan, top-ups, per-second pricing, and refunds.",
+        "What Moonfactory costs. The Creator plan, top ups, pricing per second, and refunds.",
         """
 <h1 style="font-size:34px">Pricing and billing</h1>
 <h2>The short version</h2>
 <ul>
 <li>The free tier is 5 clips per account, total.</li>
 <li>The Creator plan is $20 a month and opens everything, with an
-included monthly budget for the built-in lane.</li>
-<li>Top-ups are one-time balance: $5, $10, or $20. Balance never
-expires.</li>
+included monthly budget for Moonfactory's own lane.</li>
+<li>A top up is a single payment of $5, $10, or $20 added to your
+balance. Balance never expires.</li>
 <li>Frontier models are priced per second of video. The exact
 price for your exact settings shows on the Create button before
 anything runs.</li>
@@ -8309,7 +8491,7 @@ the date and amount on your Stripe receipt.</p>
     ),
     "lengths": (
         "Lengths and segments",
-        "How video lengths work on Moonfactory: real model lengths, and segments for longer videos.",
+        "How video lengths work on Moonfactory. Real model lengths, and segments for longer videos.",
         """
 <h1 style="font-size:34px">Lengths and segments</h1>
 <p>Every model offers every length, starting at its own shortest
@@ -8320,7 +8502,7 @@ second across the segments, exactly like separate clips.</p>
 <p>Each model makes clips in its own real lengths, and the picker
 shows exactly those. One model might make 4, 6, or 8 second clips
 and nothing between; another makes any whole second from 4 to 30.
-Nothing is padded and nothing is trimmed: the length you pick is
+Nothing is padded and nothing is trimmed. The length you pick is
 the length you get.</p>
 <h2>Longer videos</h2>
 <p>Past a model's longest single clip, the standard longer lengths
@@ -8328,9 +8510,9 @@ the length you get.</p>
 starts from the last frame of the one before it, so the finished
 video plays as one piece. A segment that fails partway still
 delivers the finished part, charged for what was made.</p>
-<h2>The built-in lane</h2>
-<p>The built-in Wan 2.2 lane works in segments of about 5 seconds
-each, up to 12 segments. Pick the number of segments and the price
+<h2>Moonfactory's own lane</h2>
+<p>The Wan 2.2 lane built into Moonfactory works in segments of about
+5 seconds each, up to 12 segments. Pick the number of segments and the price
 follows the total length, the same rule as every other model.</p>
 """,
     ),
@@ -8341,23 +8523,23 @@ follows the total length, the same rule as every other model.</p>
 <h1 style="font-size:34px">Audio and lip sync</h1>
 <h2>Sound on everything</h2>
 <p>Every video is delivered with sound. Two fields in More options
-shape it:</p>
+shape it.</p>
 <ul>
-<li><strong>Music prompt:</strong> describe the music and mood,
+<li><strong>Music prompt.</strong> Describe the music and mood,
 and a music bed is made alongside your video.</li>
-<li><strong>Spoken line:</strong> the words a voice should say in
+<li><strong>Spoken line.</strong> The words a voice should say in
 the video.</li>
 </ul>
 <h2>Talking and lip sync</h2>
-<p>Some models speak natively: the voice and the picture are made
+<p>Some models speak natively. The voice and the picture are made
 together, so the mouth already matches. On models that do not
 speak, a voiceover is made from your spoken line, and lip sync is
 applied automatically so the mouth on screen matches the words.
-Lip sync is built in, never an add-on: whenever a job carries
+Lip sync is built in, never an extra. Whenever a job carries
 speech, the quote already includes it.</p>
 <h2>Dubbing</h2>
-<p>The same rule covers dubbing: the voice track is your spoken
-line, and the mouth is matched to it. One honest limit: the voice
+<p>The same rule covers dubbing. The voice track is your spoken
+line, and the mouth is matched to it. One honest limit. The voice
 is a generated voice. Moonfactory does not clone a real person's
 voice.</p>
 <h2>If audio fails</h2>
@@ -8371,7 +8553,7 @@ so you can see what happened, and support can check the record.</p>
         "Save a character once and reuse it across videos, with optional training.",
         """
 <h1 style="font-size:34px">Characters</h1>
-<p>A character is a saved identity: a name plus reference images,
+<p>A character is a saved identity, a name plus reference images,
 saved once in More options and reused on any job.</p>
 <h2>Using a character</h2>
 <p>Pick the character in More options before you create. Its first
@@ -8395,7 +8577,7 @@ images you have the right to use.</p>
         "Copy the motion from a reference video onto your subject image.",
         """
 <h1 style="font-size:34px">Motion transfer</h1>
-<p>Motion transfer takes two things: a subject image, and a short
+<p>Motion transfer takes two things. A subject image, and a short
 video whose motion you want to copy. Your subject performs that
 video's motion.</p>
 <h2>How to run it</h2>
@@ -8415,18 +8597,18 @@ camera, in good light.</p>
     ),
     "images": (
         "Images",
-        "The image shelf: a few of the best image models, priced per image.",
+        "The image shelf. A few of the best image models, priced per image.",
         """
 <h1 style="font-size:34px">Images</h1>
 <p>The studio has two modes, Video and Image, at the top of the
-composer. Image mode is the same five things: a prompt, a model,
+composer. Image mode is the same five things. A prompt, a model,
 a size, one button with the price on it.</p>
 <h2>The shelf</h2>
-<p>The shelf is small on purpose: a few of the best image models,
+<p>The shelf is small on purpose. A few of the best image models,
 not a wall of them. It carries the current Nano Banana models,
-OpenAI's current image model, the built-in Moonfactory image
-maker, and a few uncensored variants, marked with a dollar-sign
-tier so the price class is clear before you pick.</p>
+OpenAI's current image model, Moonfactory's own image
+maker, and a few uncensored variants, marked with dollar signs
+so you can see the price class before you pick.</p>
 <h2>Pricing</h2>
 <p>Images are priced per image at the size you pick. The charge
 lands only when your image is delivered; if it fails, the charge
@@ -8438,7 +8620,7 @@ one click attaches it as the start image of a new video.</p>
     ),
     "faq": (
         "FAQ",
-        "Quick answers about Moonfactory: free clips, refunds, the gallery, and 4K.",
+        "Quick answers about Moonfactory. Free clips, refunds, the gallery, and 4K.",
         """
 <h1 style="font-size:34px">FAQ</h1>
 <h2>How many free clips do I get?</h2>
@@ -8462,8 +8644,8 @@ its picker says so. Nothing is labeled 4K that is not 4K.</p>
 model's longest single clip. See
 <a href="/help/lengths">lengths and segments</a>.</p>
 <h2>Can I use my videos commercially?</h2>
-<p>The terms of service cover what you can do with what you make:
-<a href="/terms">terms</a>.</p>
+<p>The terms of service cover what you can do with what you make.
+See the <a href="/terms">terms</a>.</p>
 <h2>How do I reach a person?</h2>
 <p>Email <a href="mailto:support@magrify.com">support@magrify.com</a>.
 Support answers the same business day.</p>
@@ -8473,28 +8655,28 @@ Support answers the same business day.</p>
 
 HELP_INDEX_HTML = _info_page(
     "Moonfactory help center",
-    "Guides and answers for Moonfactory: getting started, pricing, lengths, audio, characters, motion transfer, and images.",
+    "Guides and answers for Moonfactory. Getting started, pricing, lengths, audio, characters, motion transfer, and images.",
     """
 <h1 style="font-size:34px">Help center</h1>
 <p>Plain guides, one page per topic. If you cannot find your
-answer, email us: contact is email only for now, and support
+answer, email us. Contact is email only for now, and support
 answers the same business day.</p>
 <ul>
-<li><a href="/help/getting-started">Getting started</a>: accounts,
+<li><a href="/help/getting-started">Getting started</a>, accounts,
 free clips, and your first video.</li>
-<li><a href="/help/pricing">Pricing and billing</a>: plans,
+<li><a href="/help/pricing">Pricing and billing</a>, plans,
 top-ups, per-second pricing, and refunds.</li>
-<li><a href="/help/lengths">Lengths and segments</a>: how lengths
+<li><a href="/help/lengths">Lengths and segments</a>, how lengths
 work, and how longer videos are joined.</li>
-<li><a href="/help/audio">Audio and lip sync</a>: music, spoken
+<li><a href="/help/audio">Audio and lip sync</a>, music, spoken
 lines, voiceover, and dubbing.</li>
-<li><a href="/help/characters">Characters</a>: save an identity
+<li><a href="/help/characters">Characters</a>, save an identity
 once, reuse it, train it.</li>
-<li><a href="/help/motion-transfer">Motion transfer</a>: copy a
+<li><a href="/help/motion-transfer">Motion transfer</a>, copy a
 video's motion onto your subject.</li>
-<li><a href="/help/images">Images</a>: the image shelf and
-per-image pricing.</li>
-<li><a href="/help/faq">FAQ</a>: the quick answers.</li>
+<li><a href="/help/images">Images</a>, the image shelf and
+what images cost.</li>
+<li><a href="/help/faq">FAQ</a>, the quick answers.</li>
 </ul>
 <h2>Contact support</h2>
 <p>Email <a href="mailto:support@magrify.com">support@magrify.com</a>,
@@ -8523,7 +8705,7 @@ document.getElementById('help-contact').addEventListener('submit', async (e) => 
     if (!r.ok) throw new Error(data.detail || 'send failed');
     note.textContent = 'Sent. Support answers the same business day.';
     document.getElementById('hc-message').value = '';
-  } catch (err) { note.textContent = 'Could not send: ' + err.message + '. Email support@magrify.com instead.'; }
+  } catch (err) { note.textContent = 'Could not send (' + err.message + '). Email support@magrify.com instead.'; }
 });
 </script>
 """,
@@ -8533,9 +8715,9 @@ document.getElementById('help-contact').addEventListener('submit', async (e) => 
 INDEX_HTML = (
     """<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Moonfactory: AI video generation for creators</title>
+<title>Moonfactory AI video generation for creators</title>
 <meta name="description" content="Turn one image into a short video with sound. Your first 5 clips are free, no card. Creator is $20/mo with an included budget, or pay per clip.">
-<meta property="og:title" content="Moonfactory: AI video generation for creators">
+<meta property="og:title" content="Moonfactory AI video generation for creators">
 <meta property="og:description" content="Turn one image into a short video with sound. Your first 5 clips are free, no card.">
 <meta property="og:type" content="website">"""
     + _CSS
@@ -8553,9 +8735,10 @@ __LANDING_TOP__
 <div class="strip-label" id="strip-label" style="display:none">Fresh from the community</div>
 <div class="strip" id="strip"></div>
 
-<p class="pricing-line"><b>Free</b>: 5 clips, no card. &nbsp;<b>Creator</b>:
-<span id="creator-price">$20</span>/mo with an included budget. &nbsp;<b>Pay per clip</b>:
-the exact price is on the button before anything runs. No credits, no conversion math.</p>
+<p class="pricing-line">Your first 5 clips are <b>free</b>, no card needed.
+<b>Creator</b> is <span id="creator-price">$20</span>/mo with an included
+budget. Or <b>pay per clip</b>, with the exact price on the button before
+anything runs. No credits and no conversion math.</p>
 </main>
 <footer><span>Moonfactory</span><span><a href="/gallery">Gallery</a> &nbsp;<a href="/help">Help</a> &nbsp;<a href="/terms">Terms</a> &nbsp;<a href="/privacy">Privacy</a> &nbsp;<a href="/support">Support</a></span></footer>
 <script>
@@ -8608,7 +8791,7 @@ APP_HTML = (
     """<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Moonfactory studio</title>
-<meta name="description" content="The Moonfactory studio: create short AI videos with sound from a single image, or cut long videos into captioned clips.">
+<meta name="description" content="The Moonfactory studio. Create short AI videos with sound from a single image, or cut long videos into captioned clips.">
 <meta property="og:title" content="Moonfactory studio">
 <meta property="og:description" content="Create short AI videos with sound from a single image.">
 <meta property="og:type" content="website">"""
@@ -8625,7 +8808,7 @@ APP_HTML = (
 </head><body><main>
 <header>
   <a class="logo" href="/"><svg width="27" height="27" viewBox="0 0 48 48" aria-hidden="true"><path fill="#818cf8" d="M23.3 8A16 16 0 1 0 32.6 37.5A16.5 16.5 0 0 1 23.3 8Z"/><path fill="#f5d67a" stroke="#f5d67a" stroke-width="1.6" stroke-linejoin="round" d="M24 18.5L24 27.5L31.5 23Z"/></svg><span>Moon<em>factory</em></span></a>
-  <nav><a href="/gallery">Gallery</a><span class="profile" id="profile" style="display:none"><button class="avatar" id="avatar" type="button" aria-haspopup="true" aria-expanded="false" aria-label="Account menu"></button><span class="menu" id="profile-menu" style="display:none"><span class="menu-email" id="menu-email"></span><a href="#account-card" id="menu-account">Account</a><a href="#billing" id="menu-billing">Billing</a><a href="/help">Help</a><button type="button" id="menu-logout">Log out</button></span></span></nav>
+  <nav><a href="/gallery">Gallery</a><span class="profile" id="profile" style="display:none"><button class="avatar" id="avatar" type="button" aria-haspopup="true" aria-expanded="false" aria-label="Account menu"></button><span class="menu" id="profile-menu" style="display:none"><span class="menu-email" id="menu-email"></span><a href="#" id="menu-account">Account</a><a href="#" id="menu-billing">Billing</a><a href="/help">Help</a><button type="button" id="menu-logout">Log out</button></span></span></nav>
 </header>
 
 <div id="auth" class="card" style="max-width:640px;margin-left:auto;margin-right:auto">
@@ -8668,7 +8851,7 @@ APP_HTML = (
     </div>
     <label class="flabel" for="start-source" style="margin-top:14px">Start image</label>
     <select id="start-source">
-      <option value="none" selected>No start image — text only</option>
+      <option value="none" selected>No start image, text only</option>
       <option value="upload">Upload an image</option>
       <option value="generate">Describe it and we make it</option>
     </select>
@@ -8754,8 +8937,8 @@ APP_HTML = (
       <div id="lane-wrap">
         <label>Lane</label>
         <select id="lane">
-          <option value="draft">Draft: fast preview, about 5 seconds</option>
-          <option value="production">Production: 720x1280, Creator plan or balance</option>
+          <option value="draft">Draft, fast preview, about 5 seconds</option>
+          <option value="production">Production, 720x1280, Creator plan or balance</option>
         </select>
         <p class="muted" id="lane-note"></p>
       </div>
@@ -8779,7 +8962,7 @@ APP_HTML = (
       </div>
 
       <div id="house-more">
-        <label>End image (PNG, optional, Production lane: the video steers to this final frame)</label>
+        <label>End image (PNG, optional, Production lane, the video steers to this final frame)</label>
         <input id="endimg" type="file" accept="image/png">
       </div>
 
@@ -8860,14 +9043,14 @@ APP_HTML = (
       <h2>Create</h2>
     </div>
     <div class="paywall">
-      <p>Try It is the free plan: Wan 2.2 Draft clips, 5 per account total,
+      <p>Try It is the free plan. Wan 2.2 Draft clips, 5 per account total,
       watermarked. Every model beyond Wan 2.2, the Production lane,
-      custom music and voiceover, effects, multi-segment videos,
+      custom music and voiceover, effects, longer videos in segments,
       clipping, and hiding your clips from the gallery live here,
       locked until an account has paid.</p>
-      <p>Any payment opens Create, two ways: Creator, a monthly plan with
-      an included generation budget, or a one-time top-up and pay per
-      video, no subscription. Once you have paid, Try It disappears and
+      <p>Any payment opens Create, in one of two ways. Creator, a monthly
+      plan with an included generation budget. Or a single top up and
+      pay per video, no subscription. Once you have paid, Try It disappears and
       you open straight into Create.</p>
     </div>
     <p>
@@ -8882,7 +9065,7 @@ APP_HTML = (
     <div class="create-head">
       <h2>Clip</h2>
     </div>
-    <p class="muted">Paste a YouTube, Twitch or Kick link, or upload a file. You get vertical clips with captions and a hook on each one. If a link ever refuses to read, upload the file instead: uploads always work.</p>
+    <p class="muted">Paste a YouTube, Twitch or Kick link, or upload a file. You get vertical clips with captions and a hook on each one. If a link ever refuses to read, upload the file instead. Uploads always work.</p>
     <label>Video link</label>
     <input id="clip-url" type="url" placeholder="https://www.youtube.com/watch?v=...">
     <label>Or upload a video file</label>
@@ -8930,7 +9113,7 @@ APP_HTML = (
     <div id="botcheck3"></div>
     <button class="btn gen" id="make-clips">Make clips</button>
     <p id="clip-msg"></p>
-    <p class="muted">Clip only content you own or have permission to use. Clipping is a paid feature: Creator plans use included clipping minutes, or pay 5 cents per source minute from your balance.</p>
+    <p class="muted">Clip only content you own or have permission to use. Clipping is a paid feature. Creator plans use included clipping minutes, or you pay 5 cents per source minute from your balance.</p>
   </div>
   <h2 style="max-width:640px;margin:26px auto 6px">Your clips</h2>
   <div id="clip-results" style="max-width:640px;margin:0 auto"><p class="muted">No clips yet. Paste a link above and your clips will show up here.</p></div>
@@ -8939,29 +9122,56 @@ APP_HTML = (
   <h2 style="max-width:640px;margin:30px auto 6px">Your videos</h2>
   <div id="jobs" style="max-width:640px;margin:0 auto"><p class="muted">Loading...</p></div>
 
-  <div class="card" id="account-card" style="max-width:640px;margin-left:auto;margin-right:auto">
-    <h2>Your account</h2>
-    <p id="account"></p>
-    <label>Public handle (the only name the gallery ever shows)</label>
-    <input id="handle" maxlength="20">
-    <button class="btn secondary" id="save-handle">Save handle</button>
-    <label style="font-weight:400;display:block;margin-top:12px">
-      <input type="checkbox" id="gallery-optout" style="width:auto;margin:0 6px 0 0">
-      Hide my clips from the public gallery</label>
-    <p class="muted" id="gallery-note"></p>
-    <p id="profile-msg"></p>
-    <p id="billing">
-      <button class="btn secondary" id="buy-creator">Get Creator, $20/month</button>
-      <button class="btn secondary" data-topup="500">Top up $5</button>
-      <button class="btn secondary" data-topup="1000">Top up $10</button>
-      <button class="btn secondary" data-topup="2000">Top up $20</button>
-      <button class="btn secondary" id="logout">Sign out</button>
-    </p>
-    <p id="pay-msg"></p>
-    <p class="muted">Two ways to pay: top up and pay per video with
-    no subscription, or get Creator for a monthly included budget
-    plus top-ups. Any payment unlocks every model, custom music,
-    and hiding your clips from the gallery.</p>
+  <div class="overlay" id="panel-account" style="display:none">
+    <div class="panel" role="dialog" aria-label="Account">
+      <div class="panel-head"><h2>Account</h2><button type="button" class="panel-close" data-close-panel aria-label="Close">×</button></div>
+      <p id="account-email" style="margin:0 0 4px"></p>
+      <p id="account" style="margin-top:0"></p>
+      <label>Public handle (the only name the gallery ever shows)</label>
+      <input id="handle" maxlength="20">
+      <button class="btn secondary" id="save-handle">Save handle</button>
+      <label style="font-weight:400;display:block;margin-top:12px">
+        <input type="checkbox" id="gallery-optout" style="width:auto;margin:0 6px 0 0">
+        Hide my clips from the public gallery</label>
+      <p class="muted" id="gallery-note"></p>
+      <p id="profile-msg"></p>
+    </div>
+  </div>
+  <div class="overlay" id="panel-billing" style="display:none">
+    <div class="panel" role="dialog" aria-label="Billing">
+      <div class="panel-head"><h2>Billing</h2><button type="button" class="panel-close" data-close-panel aria-label="Close">×</button></div>
+      <p class="group-label">Monthly plan</p>
+      <p>
+        <button class="btn" id="buy-creator">Get Creator, $20/month</button>
+      </p>
+      <p class="muted">Creator opens every model and includes a monthly budget for making videos.</p>
+      <p class="group-label">Credits</p>
+      <p>
+        <button class="btn secondary" data-topup="500">Top up $5</button>
+        <button class="btn secondary" data-topup="1000">Top up $10</button>
+        <button class="btn secondary" data-topup="2000">Top up $20</button>
+      </p>
+      <p class="muted">Top up once and pay per video from your balance. Your balance never expires.</p>
+      <p class="group-label">Auto reload</p>
+      <p class="muted" id="autoreload-note"></p>
+      <p>
+        <button class="btn secondary" id="save-card" type="button">Save a card</button>
+      </p>
+      <div id="autoreload-controls" style="display:none">
+        <label>Reload amount</label>
+        <select id="autoreload-amount">
+          <option value="500">$5</option>
+          <option value="1000" selected>$10</option>
+          <option value="2000">$20</option>
+        </select>
+        <p>
+          <button class="btn secondary" id="autoreload-save" type="button">Save auto reload</button>
+          <button class="btn secondary" id="autoreload-off" type="button" style="display:none">Turn auto reload off</button>
+        </p>
+      </div>
+      <p id="pay-msg"></p>
+      <p class="muted">Any payment unlocks every model, custom music, and hiding your clips from the gallery.</p>
+    </div>
   </div>
 </div>
 </main>
@@ -9062,7 +9272,7 @@ function renderDrop(f) {
   if (startImageB64) {
     dz.classList.add('filled');
     dz.innerHTML = '<img class="thumb" alt="Your start frame">' +
-      '<div><div class="fname">' + (f ? f.name : 'start-image') + '</div>' +
+      '<div><div class="fname">' + (f ? f.name : 'start image') + '</div>' +
       '<div class="fmeta">Your start frame</div></div>' +
       '<button type="button" class="remove" aria-label="Remove image">×</button>';
     dz.querySelector('img.thumb').src = 'data:image/png;base64,' + startImageB64;
@@ -9116,7 +9326,7 @@ $('gen-image').onclick = async () => {
     const priceText = p.method === 'free' ? 'it counts as one of your free clips'
       : p.method === 'included' ? 'it debits $' + ((p.included_debit_cents || 0) / 100).toFixed(2) + ' of your included budget'
       : 'it costs $' + ((q.price_cents || 0) / 100).toFixed(2) + ' from your prepaid balance';
-    msg('image-note', 'Making your first frame: ' + priceText + '...');
+    msg('image-note', 'Making your first frame, ' + priceText + '...');
     const bot = await botFields('botcheck2');
     const r = await api('/api/images', { method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ prompt: prompt, aspect_ratio: $('aspect').value, ...bot }) });
@@ -9228,8 +9438,8 @@ function renderChain() {
     b.textContent = (i >= 0 ? (i + 1) + '. ' : '') + b.dataset.name;
   });
   $('preset-chain').textContent = selectedPresets.length
-    ? 'Camera: ' + selectedPresets.map(id => names[id] || id).join(' \u2192 ')
-    : 'No camera move picked: the camera follows your prompt.';
+    ? selectedPresets.map(id => names[id] || id).join(' \u2192 ')
+    : 'No camera move picked. The camera follows your prompt.';
   $('preset-chain').className = 'muted';
   // Camera speed applies to Fun Camera presets only: the control
   // shows when one is picked, and only then is a speed sent.
@@ -9282,7 +9492,7 @@ function renderEffects() {
   });
   if (!currentUser || !currentUser.paid_customer) return;
   $('effect-note').textContent = selectedEffect
-    ? 'This effect acts on your start image: pick one in the Start image section above. Your prompt above is who or what is in the photo. Effects price as a Production segment and render at 480p class, delivered with the usual music bed.'
+    ? 'This effect acts on your start image. Pick one in the Start image section above. Your prompt above is who or what is in the photo. Effects price as a Production segment and render at 480p, delivered with the usual music bed.'
     : 'Pick one effect and it transforms your start image into a short clip. Effects are a paid feature and price as a Production segment.';
 }
 function selectedLook() {
@@ -9310,12 +9520,11 @@ $('login').onclick = async () => {
     showStudio(r.user);
   } catch (e) { msg('auth-msg', e.message, 'err'); }
 };
-$('logout').onclick = async () => { await api('/api/logout', { method: 'POST' }); location.reload(); };
 
 // Profile menu: the header avatar opens the account menu. Account
-// and Billing scroll to the account card at the bottom of the
-// studio (Billing is that card's payment row; the settings, the
-// public handle and the gallery opt-out, live on the same card).
+// and Billing each open their own panel in place. The account
+// settings (public handle, gallery opt-out) live in the Account
+// panel; the payment controls live in the Billing panel.
 function closeProfileMenu() {
   $('profile-menu').style.display = 'none';
   $('avatar').setAttribute('aria-expanded', 'false');
@@ -9329,15 +9538,27 @@ $('avatar').onclick = e => {
 document.addEventListener('click', e => {
   if ($('profile-menu').style.display !== 'none' && !$('profile').contains(e.target)) closeProfileMenu();
 });
-document.addEventListener('keydown', e => { if (e.key === 'Escape') closeProfileMenu(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeProfileMenu(); closePanels(); } });
+function openPanel(id) {
+  closePanels();
+  $(id).style.display = 'flex';
+}
+function closePanels() {
+  $('panel-account').style.display = 'none';
+  $('panel-billing').style.display = 'none';
+}
 $('menu-account').onclick = e => {
-  e.preventDefault(); closeProfileMenu();
-  $('account-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  e.preventDefault(); closeProfileMenu(); openPanel('panel-account');
 };
 $('menu-billing').onclick = e => {
-  e.preventDefault(); closeProfileMenu();
-  $('billing').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  e.preventDefault(); closeProfileMenu(); openPanel('panel-billing');
 };
+document.querySelectorAll('[data-close-panel]').forEach(b => {
+  b.onclick = () => closePanels();
+});
+for (const pid of ['panel-account', 'panel-billing']) {
+  $(pid).addEventListener('click', e => { if (e.target === $(pid)) closePanels(); });
+}
 $('menu-logout').onclick = async () => { await api('/api/logout', { method: 'POST' }); location.reload(); };
 
 let currentUser = null;
@@ -9365,20 +9586,22 @@ function showStudio(u) {
   $('profile').style.display = 'inline-block';
   $('avatar').textContent = (u.email || '?').trim().charAt(0).toUpperCase();
   $('menu-email').textContent = u.email;
+  $('account-email').textContent = u.email;
+  renderAutoReload(u);
   const paidSurface = isPaidSurface();
   $('tab-tryit').style.display = paidSurface ? 'none' : '';
   $('composer-heading').textContent = paidSurface ? 'Create' : 'Try It';
   $('composer-note').textContent = paidSurface
-    ? 'The full studio: every model, custom sound, longer clips.'
-    : 'Try It is the free plan: Wan 2.2, Draft lane, watermarked. Create, the full studio, opens with any payment.';
+    ? 'The full studio. Every model, custom sound, longer clips.'
+    : 'Try It is the free plan. Wan 2.2, Draft lane, watermarked. Create, the full studio, opens with any payment.';
   genLabel(null);
   const inc = u.plan === 'creator'
-    ? ('Included production time: ' + Math.max(0, u.included_seconds_total - u.included_seconds_used).toFixed(0) + 's left of ' + u.included_seconds_total + 's. ')
+    ? ('Included production time, ' + Math.max(0, u.included_seconds_total - u.included_seconds_used).toFixed(0) + 's left of ' + u.included_seconds_total + 's. ')
     : (u.paid_customer
-      ? 'Pay per video: you pay per clip from your balance, and every paid feature is unlocked. '
-      : ('Free clips: ' + u.free_jobs_used + ' of ' + u.free_jobs_limit + ' used, total. The free plan never refills. '));
-  $('account').textContent = 'Plan: ' + u.plan + ' · ' + (paidSurface ? 'Create' : 'Try It') + '. ' + inc +
-    'Prepaid balance: $' + (u.balance_cents / 100).toFixed(2) + '.' +
+      ? 'Pay per video. You pay per clip from your balance, and every paid feature is unlocked. '
+      : ('Free clips, ' + u.free_jobs_used + ' of ' + u.free_jobs_limit + ' used in total. The free plan never refills. '));
+  $('account').textContent = 'Your plan is ' + u.plan + ' · ' + (paidSurface ? 'Create' : 'Try It') + '. ' + inc +
+    'Your prepaid balance is $' + (u.balance_cents / 100).toFixed(2) + '.' +
     (u.verified ? '' : ' Your email is not verified yet, so creating is off.');
   $('handle').value = u.handle || '';
   const opt = $('gallery-optout');
@@ -9414,7 +9637,7 @@ function showStudio(u) {
     $('segments-note').textContent = 'Longer videos are priced per segment, exactly like separate clips, and the segments join into one finished video.';
   } else {
     segSel.disabled = true; segSel.value = '1';
-    $('segments-note').textContent = 'Multi-segment videos unlock with any payment. Free accounts make single Draft clips.';
+    $('segments-note').textContent = 'Videos with more than one segment unlock with any payment. Free accounts make single Draft clips.';
   }
   buildSegmentsSeg();
   updateModelUI();
@@ -9455,17 +9678,17 @@ async function fetchQuote() {
         || Number($('duration').value) !== want.duration_seconds
         || $('resolution').value !== want.resolution) return;
     if (r.lane_paused) { q.textContent = 'This model is temporarily unavailable.'; genLabel(null); return; }
-    if (!r.ceiling_ok) { q.textContent = 'Exact price: $' + (r.balance_debit_cents / 100).toFixed(2) + '. This job would exceed the total generation your payments cover.'; genLabel(r.balance_debit_cents); return; }
+    if (!r.ceiling_ok) { q.textContent = 'The exact price is $' + (r.balance_debit_cents / 100).toFixed(2) + '. This job would exceed the total generation your payments cover.'; genLabel(r.balance_debit_cents); return; }
     const p = r.payment || {};
     if (p.method === 'included') {
-      q.textContent = 'Exact price: $' + (p.included_debit_cents / 100).toFixed(2) +
-        ' of your included budget ($' + (p.included_budget_remaining_cents / 100).toFixed(2) + ' left). Nothing is charged to your balance.';
+      q.textContent = 'The exact price is $' + (p.included_debit_cents / 100).toFixed(2) +
+        ' of your included budget, with $' + (p.included_budget_remaining_cents / 100).toFixed(2) + ' left. Nothing is charged to your balance.';
       genLabel(p.included_debit_cents);
     } else if (p.method === 'balance') {
-      q.textContent = 'Exact price: $' + (p.charge_cents / 100).toFixed(2) + ' from your prepaid balance.';
+      q.textContent = 'The exact price is $' + (p.charge_cents / 100).toFixed(2) + ' from your prepaid balance.';
       genLabel(p.charge_cents);
     } else {
-      q.textContent = 'Exact price: $' + ((p.charge_cents || 0) / 100).toFixed(2) +
+      q.textContent = 'The exact price is $' + ((p.charge_cents || 0) / 100).toFixed(2) +
         '. Your included budget is used up and your balance is $' + ((p.balance_cents || 0) / 100).toFixed(2) + ', so top up to run this.';
       genLabel(p.charge_cents || null);
     }
@@ -9632,19 +9855,19 @@ function updateHousePrice() {
   if (!pricingData || !currentUser || $('model').value !== 'wan2.2') { el.textContent = ''; return; }
   const jp = pricingData.job_price_cents || {};
   if (!currentUser.paid_customer) {
-    el.textContent = 'Free plan: a Draft video uses one of your free clips.';
+    el.textContent = 'Free plan. A Draft video uses one of your free clips.';
     genLabel(null);
     return;
   }
   if (selectedEffect) {
-    el.textContent = 'Price: ' + moneyC(jp.effects || 0) +
+    el.textContent = 'It costs ' + moneyC(jp.effects || 0) +
       ' from your balance for this effect video. Creator members pay from their included budget instead.';
     genLabel(jp.effects || null);
     return;
   }
   const segs = Number($('segments').value) || 1;
   const per = $('lane').value === 'production' ? (jp.production || 0) : (jp.draft || 0);
-  el.textContent = 'Price: ' + moneyC(per * segs) + ' from your balance for ' +
+  el.textContent = 'It costs ' + moneyC(per * segs) + ' from your balance for ' +
     segs + (segs === 1 ? ' segment' : ' segments') + ' at ' + moneyC(per) +
     ' per segment. Creator members pay from their included budget instead.';
   genLabel(per * segs);
@@ -9663,10 +9886,10 @@ function updateModelUI() {
   if (api) {
     const entry = ((catalogCfg && catalogCfg.models) || []).find(x => x.id === m);
     if (m === 'wan_motion') {
-      $('model-note').textContent = 'Motion transfer: add a subject image above, then paste a motion video link in More options. The result follows the motion video\u2019s length.';
+      $('model-note').textContent = 'Motion transfer. Add a subject image above, then paste a motion video link in More options. The result follows the motion video\u2019s length.';
     } else if (entry && entry.ref_caps) {
       const c = entry.ref_caps;
-      $('model-note').textContent = 'References: up to ' + c.images + ' images, ' + c.videos + ' videos, ' + c.audios + ' audio files.';
+      $('model-note').textContent = 'You can add up to ' + c.images + ' images, ' + c.videos + ' videos, and ' + c.audios + ' audio files as references.';
     }
   }
   if (api) {
@@ -9702,7 +9925,7 @@ $('save-handle').onclick = async () => {
   try {
     const r = await api('/api/me/handle', { method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ handle: $('handle').value }) });
-    msg('profile-msg', 'Handle saved: ' + r.handle, 'ok');
+    msg('profile-msg', 'Your handle is saved as ' + r.handle, 'ok');
   } catch (e) { msg('profile-msg', e.message, 'err'); }
 };
 $('gallery-optout').addEventListener('change', async () => {
@@ -9718,6 +9941,39 @@ async function refreshMe() {
 $('buy-creator').onclick = async () => {
   try { const r = await api('/api/checkout/subscription', { method: 'POST' }); location.href = r.url; }
   catch (e) { msg('pay-msg', e.message, 'err'); }
+};
+function renderAutoReload(s) {
+  if (!$('save-card')) return;
+  const has = !!s.has_saved_card;
+  $('save-card').style.display = has ? 'none' : '';
+  $('autoreload-controls').style.display = has ? '' : 'none';
+  if (s.auto_reload_amount_cents) $('autoreload-amount').value = String(s.auto_reload_amount_cents);
+  $('autoreload-off').style.display = s.auto_reload_enabled ? '' : 'none';
+  $('autoreload-note').textContent = !has
+    ? 'Save a card and you can turn on auto reload.'
+    : s.auto_reload_enabled
+      ? 'Auto reload is on. If your balance cannot cover a job, your saved card is charged once for the amount below and the job goes ahead.'
+      : 'Auto reload is off. Pick an amount and save to turn it on.';
+}
+$('save-card').onclick = async () => {
+  try { const r = await api('/api/billing/setup-card', { method: 'POST' }); location.href = r.url; }
+  catch (e) { msg('pay-msg', e.message, 'err'); }
+};
+$('autoreload-save').onclick = async () => {
+  try {
+    const r = await api('/api/billing/autoreload', { method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ enabled: true, amount_cents: Number($('autoreload-amount').value) }) });
+    renderAutoReload(r);
+    msg('pay-msg', 'Auto reload is on.', 'ok');
+  } catch (e) { msg('pay-msg', e.message, 'err'); }
+};
+$('autoreload-off').onclick = async () => {
+  try {
+    const r = await api('/api/billing/autoreload', { method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ enabled: false }) });
+    renderAutoReload(r);
+    msg('pay-msg', 'Auto reload is off.', 'ok');
+  } catch (e) { msg('pay-msg', e.message, 'err'); }
 };
 document.querySelectorAll('[data-topup]').forEach(b => b.onclick = async () => {
   try {
@@ -9776,9 +10032,9 @@ function costLine(j) {
   if (j.kind === 'clip_output' || j.status === 'error') return '';
   const bal = j.charged_cents || 0;
   const inc = j.included_cost_cents || 0;
-  if (bal > 0) return '<br><span class="muted">Cost: $' + (bal / 100).toFixed(2) + ' from your balance</span>';
-  if (inc > 0) return '<br><span class="muted">Cost: $' + (inc / 100).toFixed(2) + ' of your included budget</span>';
-  if (j.free_tier) return '<br><span class="muted">Cost: free clip</span>';
+  if (bal > 0) return '<br><span class="muted">It cost $' + (bal / 100).toFixed(2) + ' from your balance</span>';
+  if (inc > 0) return '<br><span class="muted">It cost $' + (inc / 100).toFixed(2) + ' of your included budget</span>';
+  if (j.free_tier) return '<br><span class="muted">Free clip, nothing charged</span>';
   return '';
 }
 async function loadJobs() {
@@ -9797,21 +10053,21 @@ async function loadJobs() {
       let html = '<strong>' + title + '</strong>' + spec + ' · ' + j.status + '<br><span class="muted">' +
         j.prompt.slice(0, 120) + '</span>';
       html += costLine(j);
-      if (j.aspect_ratio && j.model_id === 'wan2.2') html += '<br><span class="muted">Aspect: ' + j.aspect_ratio + '</span>';
+      if (j.aspect_ratio && j.model_id === 'wan2.2') html += '<br><span class="muted">Shape ' + j.aspect_ratio + '</span>';
       if (j.segments_total > 1) html += '<br><span class="muted">Segment ' + Math.min(j.segments_done + (j.status === 'done' ? 0 : 1), j.segments_total) + ' of ' + j.segments_total + (j.status === 'done' ? ' joined into one video' : '') + '</span>';
-      if ((j.status === 'queued' || j.status === 'running') && j.queue_position) html += '<br><span class="muted">In flight: #' + j.queue_position + ' of your running videos</span>';
-      if (j.partial) html += '<br><span class="muted">Finished shorter than planned: the later segments could not render, and you were charged only for the segments in this file.</span>';
-      if (isClipOut && j.score !== null && j.score !== undefined) html += '<br><span class="muted">Score: ' + j.score + '</span>';
+      if ((j.status === 'queued' || j.status === 'running') && j.queue_position) html += '<br><span class="muted">In line at #' + j.queue_position + ' of your running videos</span>';
+      if (j.partial) html += '<br><span class="muted">Finished shorter than planned. The later segments could not render, and you were charged only for the segments in this file.</span>';
+      if (isClipOut && j.score !== null && j.score !== undefined) html += '<br><span class="muted">Score ' + j.score + '</span>';
       if (isClipOut && j.has_thumb) html += '<br><img class="thumb" src="/api/jobs/' + j.id + '/thumb" alt="">';
       if (isClipJob && j.stage && (j.status === 'queued' || j.status === 'running')) html += '<br><span class="muted">' + j.stage + '</span>';
       if (j.camera_presets && j.camera_presets.length) html +=
-        '<br><span class="muted">Camera: ' + j.camera_presets.join(' \u2192 ') + '</span>';
+        '<br><span class="muted">Camera moves ' + j.camera_presets.join(' \u2192 ') + '</span>';
       if (j.effect) html +=
-        '<br><span class="muted">Effect: ' + j.effect + '</span>';
+        '<br><span class="muted">Effect ' + j.effect + '</span>';
       if (j.camera_look && Object.keys(j.camera_look).length) html +=
-        '<br><span class="muted">Look: ' + Object.values(j.camera_look).join(' · ') + '</span>';
+        '<br><span class="muted">Look ' + Object.values(j.camera_look).join(' · ') + '</span>';
       if (j.has_custom_audio) html +=
-        '<br><span class="muted">Music: made for this video from its music prompt</span>';
+        '<br><span class="muted">Music made for this video from its music prompt</span>';
       if (j.status === 'done' && j.kind === 'image') html += '<br><img class="thumb" src="/api/jobs/' + j.id + '/file" alt="">';
       if (j.status === 'done' && j.kind !== 'image') html += '<br><video controls src="/api/jobs/' + j.id + '/file"></video>' +
         '<br><a href="/api/jobs/' + j.id + '/file" download>Download</a>';
@@ -9843,7 +10099,7 @@ function renderClipResults(jobs) {
   for (const j of clips) {
     const d = document.createElement('div'); d.className = 'card';
     let h = '<strong>' + (j.hook || 'Clip') + '</strong> · ' + (j.duration_seconds || '') + 's';
-    if (j.score !== null && j.score !== undefined) h += ' · Score: ' + j.score;
+    if (j.score !== null && j.score !== undefined) h += ' · Score ' + j.score;
     if (j.has_thumb) h += '<br><img class="thumb" src="/api/jobs/' + j.id + '/thumb" alt="">';
     h += '<br><video controls src="/api/jobs/' + j.id + '/file"></video>' +
       '<br><a href="/api/jobs/' + j.id + '/file" download>Download</a>';
@@ -9905,7 +10161,7 @@ $('clip-url').addEventListener('change', async () => {
     const q = await api('/api/clips/quote', { method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ url }) });
     clipChargeLine(q);
-    msg('clip-msg', q.title ? 'Found: ' + q.title : '', '');
+    msg('clip-msg', q.title ? 'Found it. ' + q.title : '', '');
   } catch (e) { msg('clip-msg', e.message, 'err'); $('clip-charge').textContent = ''; }
 });
 $('clip-file').addEventListener('change', async () => {
@@ -9933,7 +10189,7 @@ $('make-clips').onclick = async () => {
     else { msg('clip-msg', 'Paste a link or upload a file first.', 'err'); return; }
     const r = await api('/api/clips', { method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(payload) });
-    msg('clip-msg', 'Clipping started. Stages: Getting the video, Listening and transcribing, Picking the moments, Cutting your clips.', 'ok');
+    msg('clip-msg', 'Clipping started. First we get the video, then we listen and transcribe it, pick the moments, and cut your clips.', 'ok');
     loadJobs();
   } catch (e) { msg('clip-msg', e.message, 'err'); }
 };
@@ -9959,9 +10215,9 @@ function updateCharacterUI() {
   const note = $('character-note');
   const train = $('character-train');
   train.style.display = 'none';
-  if (!c) { note.textContent = 'Pick a saved character and it appears in this video: its first image becomes the start image, and its images ride as references on models that take them.'; return; }
+  if (!c) { note.textContent = 'Pick a saved character and it appears in this video. Its first image becomes the start image, and its images ride as references on models that take them.'; return; }
   if (c.train_status === 'training') note.textContent = c.name + ' is training. Training takes a while; the trained identity appears here when it is ready.';
-  else if (c.train_status === 'ready' || c.has_lora) note.textContent = c.name + ' is trained: its identity is locked in and reused on every job.';
+  else if (c.train_status === 'ready' || c.has_lora) note.textContent = c.name + ' is trained. Its identity is locked in and reused on every job.';
   else if (c.train_status === 'failed') note.textContent = 'Training did not finish for ' + c.name + ' and the charge was refunded. You can train again.';
   else note.textContent = c.name + ' is saved and ready to use.';
   if (c.image_count >= 10 && c.train_status !== 'training' && !c.has_lora) train.style.display = '';
@@ -9987,7 +10243,7 @@ $('character-save').onclick = async () => {
     }
     const c = await api('/api/characters', { method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ name: $('character-name').value, images }) });
-    msg('job-msg', 'Character saved: ' + c.name, 'ok');
+    msg('job-msg', 'Your character ' + c.name + ' is saved.', 'ok');
     $('character-new').style.display = 'none';
     await loadCharacters();
     $('character').value = c.id; updateCharacterUI();

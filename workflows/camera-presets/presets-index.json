@@ -22,7 +22,7 @@
       "tempo": "",
       "genre": "",
       "era": "",
-      "camera_body": "Full-Frame Cine Digital",
+      "camera_body": "Full Frame Cine Digital",
       "lens": "Classic Anamorphic",
       "focal": "35 mm",
       "aperture": "f/1.4",
@@ -44,7 +44,7 @@
       "Horror": " from a horror film",
       "Action": " from an action film",
       "Epic": " from an epic",
-      "Sci-fi": " from a science-fiction film",
+      "Science fiction": " from a science-fiction film",
       "Western": " from a western"
     },
     "era": {
@@ -60,7 +60,7 @@
     },
     "camera_body": {
       "Modular 8K Digital": "the crisp, clean detail of 8K digital cinema",
-      "Full-Frame Cine Digital": "the full-frame digital cinema look, natural and smooth",
+      "Full Frame Cine Digital": "the full-frame digital cinema look, natural and smooth",
       "Grand Format 70mm Film": "the rich detail and fine grain of large-format 70mm film",
       "Studio Digital S35": "the polished Super 35 digital studio look",
       "Classic 16mm Film": "the soft, grainy texture of 16mm film",
@@ -135,7 +135,7 @@
       "name": "Static shot",
       "group": "camera-moves",
       "source": "Freefield (neuregex/freefield, MIT), adapted to Moonfactory's Wan 2.2 worker",
-      "description": "Locked-off tripod frame. Only the subject and scene move.",
+      "description": "A locked off tripod frame. Only the subject and scene move.",
       "mechanism": "prompt",
       "lanes": [
         "draft",
@@ -258,7 +258,7 @@
       "name": "Crash zoom",
       "group": "camera-moves",
       "source": "Freefield (neuregex/freefield, MIT), adapted to Moonfactory's Wan 2.2 worker",
-      "description": "A sudden, fast punch-in on the subject. Comic or shock emphasis.",
+      "description": "A sudden, fast zoom in on the subject. Comic or shock emphasis.",
       "mechanism": "prompt",
       "lanes": [
         "draft",
@@ -293,7 +293,7 @@
       "name": "Dolly zoom",
       "group": "camera-moves",
       "source": "Freefield (neuregex/freefield, MIT), adapted to Moonfactory's Wan 2.2 worker",
-      "description": "The vertigo effect: dolly in while zooming out, subject holds size while the background warps.",
+      "description": "The vertigo effect. The camera dollies in while zooming out, so the subject holds its size while the background warps.",
       "mechanism": "prompt",
       "lanes": [
         "draft",
@@ -813,7 +813,7 @@
       "name": "Snorricam",
       "group": "camera-moves",
       "source": "Freefield (neuregex/freefield, MIT), adapted to Moonfactory's Wan 2.2 worker",
-      "description": "Body-mounted rig: the face stays locked in frame while the world sways behind it.",
+      "description": "A rig mounted on the body. The face stays locked in frame while the world sways behind it.",
       "mechanism": "prompt",
       "lanes": [
         "draft",
@@ -831,7 +831,7 @@
       "name": "Robot arm",
       "group": "camera-moves",
       "source": "Freefield (neuregex/freefield, MIT), adapted to Moonfactory's Wan 2.2 worker",
-      "description": "One fast, precise robotic-arm sweep around the subject. Product-shot energy.",
+      "description": "One fast, precise sweep around the subject by a robotic arm. Product shot energy.",
       "mechanism": "prompt",
       "lanes": [
         "draft",
@@ -867,7 +867,7 @@
       "name": "Drone orbit",
       "group": "camera-moves",
       "source": "Freefield (neuregex/freefield, MIT), adapted to Moonfactory's Wan 2.2 worker",
-      "description": "A drone-style orbit above the scene.",
+      "description": "An orbit above the scene, in the style of a drone shot.",
       "mechanism": "prompt",
       "lanes": [
         "draft",
@@ -921,7 +921,7 @@
       "name": "Bullet time",
       "group": "camera-moves",
       "source": "Freefield (neuregex/freefield, MIT), adapted to Moonfactory's Wan 2.2 worker",
-      "description": "The camera circles a near-frozen moment in slow motion. Prompt approximation on Wan 2.2; the true version is a dedicated LoRA route (see inventory).",
+      "description": "The camera circles a moment that is almost frozen, in slow motion. On Wan 2.2 the prompt makes this, so it is an approximation.",
       "mechanism": "prompt",
       "lanes": [
         "draft",
@@ -1265,10 +1265,10 @@
     },
     {
       "id": "fun-rotate-acw",
-      "name": "Rotate counter-clockwise (Fun Camera)",
+      "name": "Rotate counterclockwise (Fun Camera)",
       "group": "camera-moves-fun-camera",
       "source": "Freefield camera-moves app (neuregex/freefield, MIT), workflow adapted to Moonfactory conventions",
-      "description": "Conditioned counter-clockwise roll.",
+      "description": "Conditioned counterclockwise roll.",
       "mechanism": "workflow_patch",
       "lanes": [
         "production"
