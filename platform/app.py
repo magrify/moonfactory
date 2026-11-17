@@ -819,6 +819,24 @@ API_POLL_PROVIDERS = (
     "wavespeed", "eachlabs", "runway", "vidu", "minimax",
     "spicyapi", "hotapi", "wiro",
 )
+# Bounded poll lifetimes, in seconds from job creation (the
+# universal safety net, 2026-11-17). The SpicyAPI lesson: a
+# mirror written against a guessed envelope can read a finished
+# job as "still running" forever, and an error-count give-up
+# never fires on a provider that keeps answering politely. So
+# every job family also carries a wall-clock bound: past it the
+# job fails clean, the hold releases, and the charge refunds in
+# full (mirror_status enforces it on every read). Video bounds
+# are generous because chained lengths submit their segments
+# one after another inside one job; no single generation takes
+# anywhere near these limits. The clip bound sits just past
+# process_clip_job's own 3600 second function timeout: a clip
+# job still marked running beyond it is dead by construction.
+PROVIDER_POLL_LIMIT_SECONDS = 7200
+HOUSE_POLL_LIMIT_SECONDS = 7200
+IMAGE_POLL_LIMIT_SECONDS = 1800
+CLIP_POLL_LIMIT_SECONDS = 3900
+TRAINING_POLL_LIMIT_SECONDS = 3600
 # Per-model duration bounds in seconds (the global form range is
 # 3-30; these narrow it to what each model actually accepts).
 MODEL_DURATION_BOUNDS = {
@@ -2582,6 +2600,26 @@ def api():
         refunds the charge in full."""
         if character.get("train_status") != "training":
             return
+        started = character.get("train_started_at")
+        if not started:
+            # Trainings submitted before the bound existed carry
+            # no stamp; start their clock at first sight rather
+            # than failing them over a missing field.
+            character["train_started_at"] = _now()
+            save_user(user)
+            started = character["train_started_at"]
+        if _now() - float(started) > TRAINING_POLL_LIMIT_SECONDS:
+            # fal training takes minutes, not hours: a job still
+            # "training" past the bound is orphaned (its queue
+            # answer never parsed, or the job died supplier
+            # side). Fail it and refund the charge in full, the
+            # same shape as the FAILED branch below.
+            character["train_status"] = "failed"
+            user["balance_cents"] = int(
+                user.get("balance_cents", 0)) + int(
+                character.get("train_charge_cents") or 0)
+            save_user(user)
+            return
         try:
             resp = requests.get(
                 character["train_status_url"],
@@ -2748,6 +2786,7 @@ def api():
         user["balance_cents"] = int(user.get("balance_cents", 0)) - charge
         character["train_charge_cents"] = charge
         character["train_status"] = "training"
+        character["train_started_at"] = _now()
         save_user(user)
         try:
             resp = requests.post(
@@ -2936,7 +2975,7 @@ def api():
                 if resp.status_code == 200:
                     data = resp.json()
                     status = data.get("status")
-                    if status == "IN_PROGRESS":
+                    if status in ("IN_QUEUE", "IN_PROGRESS"):
                         job["status"] = "running"
                         jobs[job["id"]] = job
                     elif status == "COMPLETED":
@@ -2967,6 +3006,8 @@ def api():
                                     fail_fal_job(job)
                                 else:
                                     jobs[job["id"]] = job
+                    else:
+                        _note_unparsed(job, "fal", status, data)
             except Exception:
                 pass
         return job
@@ -2993,7 +3034,7 @@ def api():
                 if resp.status_code == 200:
                     task = (resp.json() or {}).get("data") or {}
                     status = task.get("status")
-                    if status == "processing":
+                    if status in ("queued", "processing"):
                         job["status"] = "running"
                         jobs[job["id"]] = job
                     elif status == "succeeded":
@@ -3030,6 +3071,8 @@ def api():
                             f"{task.get('error_code')}: {task.get('error_message')}"
                         )[:200]
                         fail_fal_job(job)
+                    else:
+                        _note_unparsed(job, "beatapi", status, task)
             except Exception:
                 pass
         return job
@@ -3214,7 +3257,18 @@ def api():
                             job["fal_response_url"],
                             headers=_fal_headers(), timeout=30)
                         body = got.json() or {}
-                        url = _first_image_url(body.get("data") or body)
+                        # fal's documented image result location
+                        # first (the response payload's images
+                        # list); the payload scan stays as a
+                        # fallback for shapes like a single
+                        # top-level image object.
+                        payload = body.get("data") or body
+                        url = None
+                        images = payload.get("images") or []
+                        if images and isinstance(images[0], dict):
+                            url = images[0].get("url")
+                        if not url:
+                            url = _first_image_url(payload)
                         if url:
                             _settle_provider_image(job, url)
                         else:
@@ -3234,7 +3288,24 @@ def api():
                     task = (resp.json() or {}).get("data") or {}
                     status = task.get("status")
                     if status == "succeeded":
-                        url = _first_image_url(task)
+                        # Documented result location first (the
+                        # task's output media, the same envelope
+                        # the video lanes read); the whole-payload
+                        # scan stays as a fallback only, so a URL
+                        # echoed anywhere else in the payload can
+                        # never be mistaken for the result ahead
+                        # of it.
+                        url = None
+                        media = (
+                            (task.get("output") or {}).get("media")
+                            or [])
+                        for entry in media:
+                            if isinstance(entry, dict) \
+                                    and entry.get("url"):
+                                url = entry["url"]
+                                break
+                        if not url:
+                            url = _first_image_url(task)
                         if url:
                             _settle_provider_image(job, url)
                         else:
@@ -3285,12 +3356,33 @@ def api():
                     headers=_wiro_headers(), json=poll_body, timeout=15)
                 if resp.status_code == 200:
                     data = resp.json() or {}
-                    url = _first_image_url(data)
-                    state = str(data.get("status") or "").lower()
-                    if url:
-                        _settle_provider_image(job, url)
-                    elif any(word in state for word in
-                             ("fail", "error", "cancel")):
+                    # Wiro's documented Task/Detail envelope, the
+                    # same one the video lanes read: the result
+                    # rides tasklist[0].outputs, and the task is
+                    # finished only at task_postprocess_end, with
+                    # pexit "0" for success. The old branch
+                    # scanned the whole payload for any image URL
+                    # and settled on sight, without ever reading
+                    # the task state: the SpicyAPI loose-scan
+                    # trap, on the one image lane that had it.
+                    tasks = data.get("tasklist") or []
+                    task = tasks[0] if tasks else {}
+                    state = str(task.get("status") or "")
+                    if state == "task_postprocess_end":
+                        if str(task.get("pexit")) == "0":
+                            outputs = task.get("outputs") or []
+                            first = outputs[0] if outputs else {}
+                            url = first.get("url") if isinstance(
+                                first, dict) else None
+                            if url:
+                                _settle_provider_image(job, url)
+                            else:
+                                _fail_provider_image(
+                                    job, "the image came back empty, nothing was charged")
+                        else:
+                            _fail_provider_image(
+                                job, "the image could not be made, nothing was charged")
+                    elif state == "task_cancel":
                         _fail_provider_image(
                             job, "the image could not be made, nothing was charged")
                     else:
@@ -3323,27 +3415,7 @@ def api():
                         job["error"] = (
                             "the first frame could not be made, nothing was charged"
                         )
-                        owner = users.get(f"id:{job['user_id']}")
-                        if owner:
-                            if job.get("charged_cents") and not job.get("refunded"):
-                                owner["balance_cents"] = (
-                                    owner.get("balance_cents", 0)
-                                    + job["charged_cents"])
-                                job["refunded"] = True
-                            if job.get("included_cost_cents") and not job.get("included_released"):
-                                u = usage(owner)
-                                u["included_cost_cents"] = max(
-                                    0.0, included_cost_used(owner)
-                                    - float(job["included_cost_cents"]))
-                                owner["usage"] = u
-                                job["included_released"] = True
-                            if job.get("cost_cents") and not job.get("cost_released"):
-                                owner["cost_settled_cents"] = max(
-                                    0.0,
-                                    float(owner.get("cost_settled_cents") or 0.0)
-                                    - float(job["cost_cents"]))
-                                job["cost_released"] = True
-                            save_user(owner)
+                        _restore_house_image(job)
             except Exception:
                 pass
             job["last_poll"] = _now()
@@ -3352,6 +3424,30 @@ def api():
 
     def mirror_status(job: dict) -> dict:
         if job.get("provider") == "clip":
+            # Clip jobs run inside process_clip_job, whose runner
+            # carries a 3600 second function timeout. A clip job
+            # still marked running past the bound below is dead:
+            # the runner was killed before its own failure path
+            # could release the hold. Fail it here and release
+            # the hold in full.
+            if job.get("kind") == "clip_job" and \
+                    job["status"] in ("queued", "running") and \
+                    _now() - float(job.get("created_at") or _now()) \
+                    > CLIP_POLL_LIMIT_SECONDS:
+                job["status"] = "error"
+                job["error"] = "clipping failed, nothing was charged"
+                job["internal_error"] = (
+                    "clip job passed its runner time limit")
+                jobs[job["id"]] = job
+                _clip_release_hold(job)
+            return job
+        if job["status"] in ("queued", "running") and \
+                _now() - float(job.get("created_at") or _now()) \
+                > _poll_limit_for(job):
+            # The universal bound: whatever the mirrors below
+            # make of a provider's answers, no job stays in a
+            # running state past its family's poll lifetime.
+            _fail_stale_job(job)
             return job
         if job.get("kind") == "image" and job.get("image_model"):
             return mirror_provider_image(job)
@@ -4301,6 +4397,119 @@ def api():
         else:
             jobs[job["id"]] = job
 
+    def _note_unparsed(job: dict, provider: str, status_word,
+                       payload=None):
+        """A provider answered 200 with a status word that is in
+        none of its documented sets (success, failure, running).
+        That is the SpicyAPI failure shape: the envelope moved
+        and the mirror cannot understand the answer. One odd
+        answer can be a hiccup, so the job keeps running; a
+        steady diet of them (the same 30-strike bound the
+        poll-error path uses) fails the job clean with a full
+        refund, and the last payload shape stays on the job for
+        the record. Transport failures (non-200, exceptions) do
+        NOT count here: a provider outage should not kill jobs
+        that would land when it recovers; the wall-clock poll
+        limit in mirror_status is their catch."""
+        job["unparsed_polls"] = int(job.get("unparsed_polls") or 0) + 1
+        job["unparsed_status"] = str(status_word)[:80]
+        if payload is not None:
+            try:
+                job["unparsed_payload"] = json.dumps(payload)[:400]
+            except Exception:
+                job["unparsed_payload"] = str(payload)[:400]
+        if job["unparsed_polls"] > 30:
+            job["provider_error"] = (
+                f"{provider} sent a status this platform does not "
+                f"recognise: {job['unparsed_status']}")
+            fail_fal_job(job)
+        else:
+            job["status"] = "running"
+            jobs[job["id"]] = job
+
+    def _restore_house_image(job: dict):
+        """Rule 8 restore for a failed house (worker) image job:
+        the balance charge returns, the included-budget debit
+        returns, and the dispatch-time settled cost comes back
+        off the account's ceiling total. Shared by the worker
+        error path in mirror_image_status and the stale-job
+        path in _fail_stale_job; the per-leg flags keep it
+        idempotent."""
+        owner = users.get(f"id:{job['user_id']}")
+        if not owner:
+            return
+        if job.get("charged_cents") and not job.get("refunded"):
+            owner["balance_cents"] = (
+                owner.get("balance_cents", 0) + job["charged_cents"])
+            job["refunded"] = True
+        if job.get("included_cost_cents") \
+                and not job.get("included_released"):
+            u = usage(owner)
+            u["included_cost_cents"] = max(
+                0.0, included_cost_used(owner)
+                - float(job["included_cost_cents"]))
+            owner["usage"] = u
+            job["included_released"] = True
+        if job.get("cost_cents") and not job.get("cost_released"):
+            owner["cost_settled_cents"] = max(
+                0.0,
+                float(owner.get("cost_settled_cents") or 0.0)
+                - float(job["cost_cents"]))
+            job["cost_released"] = True
+        save_user(owner)
+
+    def _poll_limit_for(job: dict):
+        """The bounded poll lifetime for a job's family."""
+        if job.get("kind") == "image":
+            return IMAGE_POLL_LIMIT_SECONDS
+        if job.get("provider") in URL_RESULT_PROVIDERS:
+            return PROVIDER_POLL_LIMIT_SECONDS
+        return HOUSE_POLL_LIMIT_SECONDS
+
+    def _fail_stale_job(job: dict):
+        """A job that outlived its poll bound fails clean on the
+        spot: per-second provider lanes fail through fail_fal_job
+        (hold released in full; a chained job with finished
+        segments still delivers them as a partial, per Rule 8),
+        shelf images refund through their own path, and house
+        jobs restore exactly what their own error paths restore.
+        No job may sit in a running state past its bound."""
+        if job.get("kind") == "image" and job.get("image_model"):
+            _fail_provider_image(
+                job, "the image took too long, nothing was charged")
+            return
+        if job.get("kind") == "image":
+            job["status"] = "error"
+            job["internal_error"] = "house image job passed its time limit"
+            job["error"] = (
+                "the first frame could not be made, nothing was charged")
+            _restore_house_image(job)
+            jobs[job["id"]] = job
+            return
+        if job.get("provider") in URL_RESULT_PROVIDERS:
+            job["provider_error"] = "provider job passed its poll time limit"
+            fail_fal_job(job)
+            return
+        # House worker video job: the worker never reported back.
+        job["status"] = "error"
+        job["error"] = "the video took too long, nothing was charged"
+        owner = users.get(f"id:{job['user_id']}")
+        if owner and job.get("charged_cents") \
+                and not job.get("refunded"):
+            owner["balance_cents"] = (
+                owner.get("balance_cents", 0) + job["charged_cents"])
+            job["refunded"] = True
+            save_user(owner)
+        if owner and job.get("cost_cents") \
+                and not job.get("cost_released"):
+            owner["cost_settled_cents"] = max(
+                0.0,
+                float(owner.get("cost_settled_cents") or 0.0)
+                - float(job["cost_cents"]))
+            job["cost_released"] = True
+            save_user(owner)
+        jobs[job["id"]] = job
+
     # -- Kie ------------------------------------------------------------
     def submit_kie_job(job: dict, body: dict, params: dict, prompt: str):
         """Kie task API: POST /api/v1/jobs/createTask {model, input},
@@ -4451,9 +4660,11 @@ def api():
                 elif state == "fail":
                     _poll_fail(
                         job, f"{data.get('failCode')}: {data.get('failMsg')}")
-                else:
+                elif state in ("waiting", "queuing", "generating"):
                     job["status"] = "running"
                     jobs[job["id"]] = job
+                else:
+                    _note_unparsed(job, "kie", state, data)
         except Exception:
             pass
         return job
@@ -4519,19 +4730,30 @@ def api():
                 data = resp.json() or {}
                 status = str(data.get("status") or "").lower()
                 if status in ("completed", "succeeded", "success"):
-                    url = (data.get("video_url") or data.get("url")
-                           or (data.get("output") or {}).get("url")
-                           if isinstance(data.get("output"), dict)
-                           else data.get("output"))
+                    # The old one-line expression parsed as
+                    # (video_url or url or output.url) when output
+                    # was a dict, else output itself: a non-dict
+                    # output silently discarded a present
+                    # video_url, and a list output would have been
+                    # handed to _poll_done as the "URL". Read the
+                    # documented spots in order instead.
+                    output = data.get("output")
+                    url = data.get("video_url") or data.get("url")
+                    if not url and isinstance(output, dict):
+                        url = output.get("url")
+                    if not url and isinstance(output, str):
+                        url = output
                     if url:
                         _poll_done(job, url)
                     else:
                         _poll_retry_or_fail(job)
                 elif status in ("failed", "error", "cancelled"):
                     _poll_fail(job, str(data.get("error"))[:200])
-                else:
+                elif status in ("queued", "in_progress", "pending"):
                     job["status"] = "running"
                     jobs[job["id"]] = job
+                else:
+                    _note_unparsed(job, "cometapi", status, data)
         except Exception:
             pass
         return job
@@ -4579,7 +4801,8 @@ def api():
             if resp.status_code == 200:
                 data = (resp.json() or {}).get("data") or {}
                 status = str(data.get("status") or "").lower()
-                if status in ("completed", "success", "succeeded"):
+                if status in ("completed", "complete", "success",
+                              "succeeded"):
                     output = data.get("output") or {}
                     url = output.get("video") if isinstance(
                         output, dict) else output
@@ -4589,13 +4812,17 @@ def api():
                         _poll_done(job, url)
                     else:
                         _poll_retry_or_fail(job)
-                elif status in ("failed", "error", "cancelled"):
+                elif status in ("failed", "failure", "error",
+                                "cancelled", "canceled", "rejected"):
                     _poll_fail(
                         job, str(data.get("error")
                                  or data.get("message"))[:200])
-                else:
+                elif status in ("pending", "processing", "running",
+                                "staged"):
                     job["status"] = "running"
                     jobs[job["id"]] = job
+                else:
+                    _note_unparsed(job, "piapi", status, data)
         except Exception:
             pass
         return job
@@ -4661,9 +4888,11 @@ def api():
                             _poll_retry_or_fail(job)
                 elif status in ("failed", "cancelled", "expired"):
                     _poll_fail(job, str(data.get("error"))[:200])
-                else:
+                elif status in ("pending", "in_progress", "queued"):
                     job["status"] = "running"
                     jobs[job["id"]] = job
+                else:
+                    _note_unparsed(job, "openrouter", status, data)
         except Exception:
             pass
         return job
@@ -4744,9 +4973,13 @@ def api():
                 elif "FAIL" in status or status in ("failed", "error"):
                     _poll_fail(job, str(task.get("reason")
                                         or status)[:200])
-                else:
+                elif status in ("TASK_STATUS_QUEUED",
+                                "TASK_STATUS_RUNNING", "queued",
+                                "running", "processing", "pending"):
                     job["status"] = "running"
                     jobs[job["id"]] = job
+                else:
+                    _note_unparsed(job, "novita", status, data)
         except Exception:
             pass
         return job
@@ -4840,9 +5073,11 @@ def api():
                 elif status in ("failed", "cancelled", "timeout",
                                 "deleted"):
                     _poll_fail(job, str(data.get("error"))[:200])
-                else:
+                elif status in ("created", "processing"):
                     job["status"] = "running"
                     jobs[job["id"]] = job
+                else:
+                    _note_unparsed(job, "wavespeed", status, data)
         except Exception:
             pass
         return job
@@ -4889,7 +5124,7 @@ def api():
                 data = resp.json() or {}
                 payload = data.get("data") or data
                 status = str(payload.get("status") or "").lower()
-                if status == "success":
+                if status in ("success", "succeeded", "completed"):
                     output = payload.get("output")
                     url = output[0] if isinstance(output, list) \
                         and output else output
@@ -4901,9 +5136,11 @@ def api():
                         _poll_retry_or_fail(job)
                 elif status in ("failed", "error", "cancelled"):
                     _poll_fail(job, str(payload.get("error"))[:200])
-                else:
+                elif status in ("created", "starting", "processing"):
                     job["status"] = "running"
                     jobs[job["id"]] = job
+                else:
+                    _note_unparsed(job, "eachlabs", status, payload)
         except Exception:
             pass
         return job
@@ -4965,9 +5202,11 @@ def api():
                         _poll_retry_or_fail(job)
                 elif status in ("FAILED", "ABORTED", "CANCELLED"):
                     _poll_fail(job, str(data.get("error"))[:200])
-                else:
+                elif status in ("PENDING", "THROTTLED", "RUNNING"):
                     job["status"] = "running"
                     jobs[job["id"]] = job
+                else:
+                    _note_unparsed(job, "runway", status, data)
         except Exception:
             pass
         return job
@@ -5041,9 +5280,11 @@ def api():
                         _poll_retry_or_fail(job)
                 elif state in ("failed", "error"):
                     _poll_fail(job, str(data.get("err_code"))[:200])
-                else:
+                elif state in ("created", "queueing", "processing"):
                     job["status"] = "running"
                     jobs[job["id"]] = job
+                else:
+                    _note_unparsed(job, "vidu", state, data)
         except Exception:
             pass
         return job
@@ -5101,13 +5342,23 @@ def api():
                 task = payload.get("task") or {}
                 url = ((task.get("content") or {}).get("url")
                        or payload.get("video_url"))
-                if status in ("Success", "succeeded", "success") and url:
-                    _poll_done(job, url)
+                if status in ("Success", "succeeded", "success"):
+                    if url:
+                        _poll_done(job, url)
+                    else:
+                        # Terminal word with no result URL used
+                        # to fall into the running branch and
+                        # spin forever; count it like every other
+                        # success-without-a-result.
+                        _poll_retry_or_fail(job)
                 elif status in ("Fail", "Failed", "failed", "error"):
                     _poll_fail(job, str(payload.get("error"))[:200])
-                else:
+                elif status in ("Preparing", "Queueing", "Processing",
+                                "Running"):
                     job["status"] = "running"
                     jobs[job["id"]] = job
+                else:
+                    _note_unparsed(job, "minimax", status, payload)
         except Exception:
             pass
         return job
@@ -5229,32 +5480,42 @@ def api():
                     # "succeeded" and carries results under
                     # output.assets; the resultJson/resultUrl
                     # forms stay as fallbacks.
+                    # The verified envelope (live, 2026-11-17)
+                    # carries results under output.assets, so
+                    # read those first, exactly like the image
+                    # mirror's _spicyapi_result_url; the
+                    # Kie-shaped resultJson/resultUrl forms stay
+                    # as fallbacks, in that order.
                     urls = []
-                    raw = data.get("resultJson")
-                    if raw:
-                        try:
-                            urls = (json.loads(raw) or {}).get(
-                                "resultUrls") or []
-                        except Exception:
-                            urls = []
+                    for asset in (data.get("output")
+                                  or {}).get("assets") or []:
+                        if isinstance(asset, dict) \
+                                and asset.get("url"):
+                            urls.append(asset["url"])
                     if not urls:
-                        for asset in (data.get("output")
-                                      or {}).get("assets") or []:
-                            if isinstance(asset, dict) \
-                                    and asset.get("url"):
-                                urls.append(asset["url"])
+                        raw = data.get("resultJson")
+                        if raw:
+                            try:
+                                urls = (json.loads(raw) or {}).get(
+                                    "resultUrls") or []
+                            except Exception:
+                                urls = []
                     if not urls and data.get("resultUrl"):
                         urls = [data["resultUrl"]]
                     if urls:
                         _poll_done(job, urls[0])
                     else:
                         _poll_retry_or_fail(job)
-                elif state in ("fail", "failed", "failure"):
+                elif state in ("fail", "failed", "failure", "error",
+                               "cancelled", "canceled"):
                     _poll_fail(
                         job, f"{data.get('failCode')}: {data.get('failMsg')}")
-                else:
+                elif state in ("waiting", "queuing", "generating",
+                               "running", "processing", "pending"):
                     job["status"] = "running"
                     jobs[job["id"]] = job
+                else:
+                    _note_unparsed(job, "spicyapi", state, data)
         except Exception:
             pass
         return job
@@ -5337,9 +5598,13 @@ def api():
                 elif status in ("failed", "error", "cancelled",
                                 "canceled"):
                     _poll_fail(job, str(payload.get("error"))[:200])
-                else:
+                elif status in ("processing", "running", "pending",
+                                "queued", "in_progress", "created",
+                                "starting"):
                     job["status"] = "running"
                     jobs[job["id"]] = job
+                else:
+                    _note_unparsed(job, "hotapi", status, payload)
         except Exception:
             pass
         return job
@@ -5457,9 +5722,15 @@ def api():
                             f"{str(task.get('debugoutput'))[:150]}")
                 elif status == "task_cancel":
                     _poll_fail(job, "wiro task cancelled")
-                else:
+                elif status.startswith("task_"):
+                    # Every other task_* state is a live stage.
+                    # task_error included: Wiro's own docs say it
+                    # does not close a task (only
+                    # task_postprocess_end and task_cancel do).
                     job["status"] = "running"
                     jobs[job["id"]] = job
+                else:
+                    _note_unparsed(job, "wiro", status, task)
         except Exception:
             pass
         return job
