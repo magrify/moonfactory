@@ -7358,7 +7358,6 @@ def api():
         base = base_url(request)
         session = stripe.checkout.Session.create(
             mode="setup",
-            payment_method_types=["card"],
             customer=user["stripe_customer_id"],
             setup_intent_data={"metadata": {"user_id": user["id"]}},
             metadata={"user_id": user["id"]},
