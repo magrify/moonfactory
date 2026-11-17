@@ -1914,7 +1914,13 @@ def api():
         An account is never served more generation cost (settled
         actuals across all lanes) than it has paid in, net of card
         fees. Checked before dispatch with the job's worst-case
-        cost, so nothing ever starts that would cross the wall."""
+        cost, so nothing ever starts that would cross the wall.
+        The owner is the one exception (Jack, 2026-11-17): his use
+        is not limited by his credits or by what he has paid in,
+        only by the provider itself, so the ceiling never blocks
+        his account. Every other account keeps the wall exactly."""
+        if is_owner(user):
+            return True
         net_paid = float(user.get("net_paid_cents") or 0.0)
         settled = float(user.get("cost_settled_cents") or 0.0)
         return settled + float(worst_case_cost_cents) <= net_paid + 1e-9
@@ -2714,12 +2720,16 @@ def api():
             else int(pricing.CHARACTER_TRAIN_RAW_CENTS
                      * pricing.FRONTIER_MIN_MARKUP)
         reload_state = {}
-        if int(user.get("balance_cents", 0)) < charge:
-            attempt_auto_reload(user, reload_state)
-        if int(user.get("balance_cents", 0)) < charge:
-            raise HTTPException(
-                status_code=402,
-                detail=reload_fail_detail(reload_state, f"training this character costs {charge} cents of prepaid balance"))
+        # The owner never balance blocks (Jack, 2026-11-17): the
+        # charge below is taken from his balance whatever it holds,
+        # and the refund path on a failed submit stays exact.
+        if not is_owner(user):
+            if int(user.get("balance_cents", 0)) < charge:
+                attempt_auto_reload(user, reload_state)
+            if int(user.get("balance_cents", 0)) < charge:
+                raise HTTPException(
+                    status_code=402,
+                    detail=reload_fail_detail(reload_state, f"training this character costs {charge} cents of prepaid balance"))
         import io
         import zipfile
 
@@ -3749,7 +3759,12 @@ def api():
                 "included_debit_cents": round(est["raw_cost_cents"], 2),
                 "included_budget_remaining_cents": round(remaining, 2),
             }
-        elif int(user.get("balance_cents", 0)) >= est["cap_balance_cents"]:
+        elif int(user.get("balance_cents", 0)) >= est["cap_balance_cents"] \
+                or is_owner(user):
+            # The owner pays from balance even when the balance
+            # cannot cover it (Jack, 2026-11-17): create takes the
+            # hold anyway, so the quote names the rail he will
+            # actually use instead of calling him insufficient.
             payment = {
                 "method": "balance",
                 "charge_cents": est["balance_debit_cents"],
@@ -5559,6 +5574,16 @@ def api():
             hold_kind = "balance"
             hold_amount = est["cap_balance_cents"]
             user["balance_cents"] = int(user.get("balance_cents", 0)) - int(hold_amount)
+        elif is_owner(user):
+            # The owner answers to the provider only (Jack,
+            # 2026-11-17): the hold is taken against his balance
+            # whatever it holds, so settle and release keep their
+            # exact accounting and nothing ever blocks him. This
+            # branch sits before the auto reload branch, so a
+            # reload never fires for his account.
+            hold_kind = "balance"
+            hold_amount = est["cap_balance_cents"]
+            user["balance_cents"] = int(user.get("balance_cents", 0)) - int(hold_amount)
         elif attempt_auto_reload(user, reload_state) and int(user.get("balance_cents", 0)) >= est["cap_balance_cents"]:
             hold_kind = "balance"
             hold_amount = est["cap_balance_cents"]
@@ -5992,15 +6017,19 @@ def api():
             else:
                 price = pricing.job_price_cents(
                     lane, owner=is_owner(user)) * segments
-                if user.get("balance_cents", 0) < price:
-                    attempt_auto_reload(user, reload_state)
-                if user.get("balance_cents", 0) < price:
-                    detail = (
-                        f"included time used up; this job costs {price} cents of prepaid balance"
-                        if user["plan"] == "creator"
-                        else f"this job costs {price} cents of prepaid balance"
-                    )
-                    raise HTTPException(status_code=402, detail=reload_fail_detail(reload_state, detail))
+                # The owner never balance blocks (Jack, 2026-11-17):
+                # no reload attempt and no refusal; the charge below
+                # is taken from his balance whatever it holds.
+                if not is_owner(user):
+                    if user.get("balance_cents", 0) < price:
+                        attempt_auto_reload(user, reload_state)
+                    if user.get("balance_cents", 0) < price:
+                        detail = (
+                            f"included time used up; this job costs {price} cents of prepaid balance"
+                            if user["plan"] == "creator"
+                            else f"this job costs {price} cents of prepaid balance"
+                        )
+                        raise HTTPException(status_code=402, detail=reload_fail_detail(reload_state, detail))
                 charged = price
             job_cost_cents = job_cost
         try:
@@ -6186,7 +6215,10 @@ def api():
             return {"method": "included",
                     "included_debit_cents": pricing.IMAGE_MEASURED_COST_CENTS}
         charge = pricing.image_price_cents(owner=is_owner(user))
-        if int(user.get("balance_cents", 0)) >= charge:
+        if int(user.get("balance_cents", 0)) >= charge or is_owner(user):
+            # The owner pays from balance even when the balance
+            # cannot cover it (Jack, 2026-11-17), so the quote
+            # names the rail create will actually use for him.
             return {"method": "balance", "charge_cents": charge}
         return {"method": "insufficient", "charge_cents": charge,
                 "balance_cents": int(user.get("balance_cents", 0))}
@@ -6276,12 +6308,16 @@ def api():
                     status_code=402,
                     detail=reload_fail_detail(reload_state, "this image would pass what you have paid in; top up first"))
             charge = int(round(debit))
-            if int(user.get("balance_cents", 0)) < charge:
-                attempt_auto_reload(user, reload_state)
-            if int(user.get("balance_cents", 0)) < charge:
-                raise HTTPException(
-                    status_code=402,
-                    detail=reload_fail_detail(reload_state, "your balance is too low for this image; top up first"))
+            # The owner never balance blocks (Jack, 2026-11-17):
+            # no reload attempt and no refusal; the charge below
+            # is taken from his balance whatever it holds.
+            if not is_owner(user):
+                if int(user.get("balance_cents", 0)) < charge:
+                    attempt_auto_reload(user, reload_state)
+                if int(user.get("balance_cents", 0)) < charge:
+                    raise HTTPException(
+                        status_code=402,
+                        detail=reload_fail_detail(reload_state, "your balance is too low for this image; top up first"))
             job_id = uuid.uuid4().hex[:16]
             job = {
                 "id": job_id, "user_id": user["id"], "kind": "image",
@@ -6834,7 +6870,10 @@ def api():
         remaining = included_budget_remaining(user)
         if user["plan"] == "creator" and remaining >= q["included_debit_cents"]:
             method = "included"
-        elif int(user.get("balance_cents", 0)) >= q["balance_charge_cents"]:
+        elif int(user.get("balance_cents", 0)) >= q["balance_charge_cents"] \
+                or is_owner(user):
+            # The owner pays from balance even when the balance
+            # cannot cover it (Jack, 2026-11-17), matching create.
             method = "balance"
         else:
             method = "insufficient"
@@ -7013,6 +7052,14 @@ def api():
             u["included_cost_cents"] = included_cost_used(user) + hold_amount
             user["usage"] = u
         elif int(user.get("balance_cents", 0)) >= q["balance_charge_cents"]:
+            hold_kind = "balance"
+            hold_amount = q["balance_charge_cents"]
+            user["balance_cents"] = int(user.get("balance_cents", 0)) - int(hold_amount)
+        elif is_owner(user):
+            # The owner answers to the provider only (Jack,
+            # 2026-11-17): the hold is taken against his balance
+            # whatever it holds, before the auto reload branch, so
+            # a reload never fires for his account.
             hold_kind = "balance"
             hold_amount = q["balance_charge_cents"]
             user["balance_cents"] = int(user.get("balance_cents", 0)) - int(hold_amount)
@@ -7378,7 +7425,7 @@ def api():
             if amount not in pricing.TOPUP_PACKS_CENTS:
                 raise HTTPException(
                     status_code=422,
-                    detail="pick a reload amount of $5, $10, or $20")
+                    detail="pick a reload amount of $1, $5, $10, or $20")
             if not user.get("stripe_payment_method_id"):
                 raise HTTPException(
                     status_code=422,
@@ -8292,8 +8339,8 @@ Uncensored.</li>
 account. Free clips are watermarked. A platform-wide free budget
 also applies.</li>
 <li>Paid access comes two ways: the Creator plan at $20 per month
-with an included generation budget, or one-time top-ups of $5, $10,
-or $20 that you spend per video. Payments are processed by Stripe.
+with an included generation budget, or one-time top-ups of $1, $5,
+$10, or $20 that you spend per video. Payments are processed by Stripe.
 We never see or store your full card number.</li>
 <li>The exact price of a generation is shown before it runs. Starting
 a generation authorizes the charge or balance debit shown.</li>
@@ -8516,7 +8563,7 @@ and you can delete your own clips at any time.</p>
 <li>The free tier is 5 clips per account, total.</li>
 <li>The Creator plan is $20 a month and opens everything, with an
 included monthly budget for Moonfactory's own lane.</li>
-<li>A top up is a single payment of $5, $10, or $20 added to your
+<li>A top up is a single payment of $1, $5, $10, or $20 added to your
 balance. Balance never expires.</li>
 <li>Frontier models are priced per second of video. The exact
 price for your exact settings shows on the Create button before
@@ -9202,6 +9249,7 @@ APP_HTML = (
       <p class="muted">Creator opens every model and includes a monthly budget for making videos.</p>
       <p class="group-label">Credits</p>
       <p>
+        <button class="btn secondary" data-topup="100">Top up $1</button>
         <button class="btn secondary" data-topup="500">Top up $5</button>
         <button class="btn secondary" data-topup="1000">Top up $10</button>
         <button class="btn secondary" data-topup="2000">Top up $20</button>
@@ -9215,6 +9263,7 @@ APP_HTML = (
       <div id="autoreload-controls" style="display:none">
         <label>Reload amount</label>
         <select id="autoreload-amount">
+          <option value="100">$1</option>
           <option value="500">$5</option>
           <option value="1000" selected>$10</option>
           <option value="2000">$20</option>

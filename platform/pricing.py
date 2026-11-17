@@ -42,9 +42,10 @@ MEASURED_COST_CENTS = {
 
 CREATOR_PRICE_CENTS = 2000  # $20/mo
 
-# Top-up packs (Rule 8: a sensible minimum so the fixed fee does not
-# eat the purchase).
-TOPUP_PACKS_CENTS = [500, 1000, 2000]
+# Top-up packs. The $1 pack (Jack, 2026-11-17) is the smallest way
+# to run a real payment through the exact path every customer
+# takes; the bigger packs stay the sensible way to load balance.
+TOPUP_PACKS_CENTS = [100, 500, 1000, 2000]
 
 
 def gross_up(net_cents: float) -> int:
