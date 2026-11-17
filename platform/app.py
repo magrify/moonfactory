@@ -2053,7 +2053,9 @@ def api():
         if name not in ("icon-192.png", "icon-512.png",
                         "icon-maskable-512.png"):
             raise HTTPException(status_code=404, detail="no such icon")
-        path = Path(__file__).parent / "icons" / name
+        path = Path("/platform/icons") / name
+        if not path.exists():
+            path = Path(__file__).parent / "icons" / name
         if not path.exists():
             raise HTTPException(status_code=404, detail="icon missing")
         return FileResponse(path, media_type="image/png",
