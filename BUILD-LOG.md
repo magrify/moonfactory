@@ -3122,3 +3122,22 @@ and config read-backs only. No subscriptions anywhere.
   key itself is not client-retrievable via the Modal SDK (the
   replacement key was verified live earlier on 2026-11-17, GET
   /api/v1/auth/key 200). No deploy in this pass; no Modal spend.
+
+## Dropdown cheapest-first + uncensored lanes deploy — 2026-11-17
+
+- Jack's order: the studio model dropdown is ordered cheapest to
+  most expensive. platform/app.py: the lowest-customer-sell-rate
+  basis was extracted from model_price_tier into
+  model_lowest_sell_rate (identical computation; the $ tier signs
+  are unchanged), and /api/config now emits its models sorted by
+  that rate ascending (stable sort; the 4 price-paused lanes,
+  which have no customer rate, keep their shelf order at the
+  end). The dropdown renders config order verbatim, so no
+  studio JS change was needed.
+- This deploy also carries the already-committed uncensored
+  video lanes (cd8eb29) and the OpenRouter/Venice/Refuseless
+  label fixes live for the first time: the previous HEAD had
+  never been redeployed, so the live dropdown was missing the
+  8 uncensored lanes.
+- Deploy: `modal deploy platform/app.py` (deploy only; no
+  generation, no test renders, MODAL SPEND: NONE AUTHORIZED).

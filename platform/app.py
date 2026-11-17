@@ -1548,30 +1548,37 @@ def api():
     def healthz():
         return {"ok": True}
 
+    def model_lowest_sell_rate(model_id: str, table: dict):
+        """The model's LOWEST customer sell rate across its
+        resolutions, cents per second, from the same live rate
+        table /api/pricing serves. This is the basis for both the
+        $ tier signs and the dropdown order (cheapest first). The
+        house lane is priced per job, so its basis is the
+        Production job price spread over the standard 5-second
+        segment (99c / 5s = 19.8c/s). None when the lane has no
+        customer per-second price (the price-paused lanes)."""
+        if model_id == DEFAULT_MODEL:
+            return pricing.JOB_PRICE_CENTS["production"] / 5.0
+        rates = (table.get("rates") or {}).get(model_id) or {}
+        sells = []
+        for res in rates:
+            try:
+                sells.append(pricing.frontier_lane(
+                    model_id, res, table["rates"]
+                )["sell_cents_per_second"])
+            except Exception:  # noqa: BLE001 - unpriced combo
+                continue
+        return min(sells) if sells else None
+
     def model_price_tier(model_id: str, table: dict):
         """The studio dropdown's price sign for one model: 1-4, or
         None when the lane has no customer per-second price (the
         price-paused lanes, which already read "(unavailable)").
-        Basis: the model's LOWEST customer sell rate across its
-        resolutions, cents per second, from the same live rate
-        table /api/pricing serves. The house lane is priced per
-        job, so its basis is the Production job price spread over
-        the standard 5-second segment (99c / 5s = 19.8c/s)."""
-        if model_id == DEFAULT_MODEL:
-            rate = pricing.JOB_PRICE_CENTS["production"] / 5.0
-        else:
-            rates = (table.get("rates") or {}).get(model_id) or {}
-            sells = []
-            for res in rates:
-                try:
-                    sells.append(pricing.frontier_lane(
-                        model_id, res, table["rates"]
-                    )["sell_cents_per_second"])
-                except Exception:  # noqa: BLE001 - unpriced combo
-                    continue
-            if not sells:
-                return None
-            rate = min(sells)
+        Basis: model_lowest_sell_rate, the same basis the
+        dropdown is sorted by."""
+        rate = model_lowest_sell_rate(model_id, table)
+        if rate is None:
+            return None
         bands = PRICE_TIER_BANDS_CENTS_PER_SECOND
         if rate < bands[0]:
             return 1
@@ -1584,6 +1591,34 @@ def api():
     @web.get("/api/config")
     def config():
         tier_table = rate_table()
+        # Cheapest first (Jack, 2026-11-17): the studio dropdown
+        # renders the models in config order, so the shelf is
+        # sorted here by each model's lowest customer sell rate
+        # ascending — the same basis as the $ tier signs. Lanes
+        # with no customer price (price-paused) keep their shelf
+        # order at the end. The sort is stable, so equal rates
+        # keep their shelf order too.
+        rated_entries = [
+            (model_lowest_sell_rate(m["id"], tier_table), {
+                "id": m["id"],
+                "label": m["label"],
+                "paid_only": m["paid_only"],
+                "uncensored": m["id"] in UNCENSORED_VIDEO_MODELS,
+                "price_tier": model_price_tier(m["id"], tier_table),
+                "audio": {
+                    "native_speech": lane_audio(m["id"])["native_speech"],
+                    "native_audio": lane_audio(m["id"])["native_audio"],
+                },
+                "available": (
+                    True if m["id"] == DEFAULT_MODEL
+                    else not api_lane_state(m["id"])["paused"]
+                ),
+            })
+            for m in MODELS
+        ]
+        rated_entries.sort(key=lambda e: (
+            e[0] is None, e[0] if e[0] is not None else 0.0))
+        model_entries = [entry for _, entry in rated_entries]
         return {
             "turnstile_site_key": os.environ.get("TURNSTILE_SITE_KEY") or None,
             "pow_required": not _turnstile_configured(),
@@ -1613,24 +1648,7 @@ def api():
                     for eid, name in EFFECTS.items()
                 ],
             },
-            "models": [
-                {
-                    "id": m["id"],
-                    "label": m["label"],
-                    "paid_only": m["paid_only"],
-                    "uncensored": m["id"] in UNCENSORED_VIDEO_MODELS,
-                    "price_tier": model_price_tier(m["id"], tier_table),
-                    "audio": {
-                        "native_speech": lane_audio(m["id"])["native_speech"],
-                        "native_audio": lane_audio(m["id"])["native_audio"],
-                    },
-                    "available": (
-                        True if m["id"] == DEFAULT_MODEL
-                        else not api_lane_state(m["id"])["paused"]
-                    ),
-                }
-                for m in MODELS
-            ],
+            "models": model_entries,
             # Text models, separate from the video shelf above:
             # the uncensored LLM providers (llm_providers.py). They
             # never appear in the video model picker; the studio
