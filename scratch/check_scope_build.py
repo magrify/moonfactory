@@ -146,7 +146,7 @@ for mid in app.PER_SECOND_MODELS:
         check(res in rates, f"{mid} missing a rate for {res}")
 
 # --- image shelf (item 1) ------------------------------------------
-check(len(pricing.IMAGE_LANES) == 7, "image shelf has 7 lanes")
+check(len(pricing.IMAGE_LANES) == 9, "image shelf has 9 lanes")
 raw, debit = pricing.image_lane_price("nano_banana_pro", "1K")
 check(raw == 5.0 and abs(debit - 6.25) < 1e-9,
       "Nano Banana Pro: raw $0.05, customer $0.0625 (under Higgsfield $0.098)")
@@ -154,6 +154,23 @@ raw_o, debit_o = pricing.image_lane_price("nano_banana_pro", "1K", owner=True)
 check(debit_o == raw_o == 5.0, "owner pays raw on the image shelf")
 check(pricing.IMAGE_LANES["zimage_unc"]["endpoint"]
       == "alibaba/z-image-spicy/text-to-image", "Z-Image slug from the catalog")
+check(pricing.IMAGE_LANES["zimage_pro_unc"]["endpoint"]
+      == "alibaba/z-image-spicy-pro/text-to-image",
+      "Z-Image Pro slug from the catalog")
+raw, debit = pricing.image_lane_price("zimage_pro_unc", "2048x2048")
+check(raw == 1.9 and abs(debit - 2.375) < 1e-9,
+      "Z-Image Pro: flat raw $0.019, customer $0.02375 at any size")
+check(pricing.IMAGE_LANES["qwen_edit_unc"]["endpoint"]
+      == "alibaba/qwen-image-spicy-edit/edit",
+      "Qwen Image Edit slug from the catalog")
+check(pricing.IMAGE_LANES["qwen_edit_unc"].get("edit") is True,
+      "Qwen Image Edit is flagged as an edit lane")
+raw, debit = pricing.image_lane_price("qwen_edit_unc", "match")
+check(raw == 3.8 and abs(debit - 4.75) < 1e-9,
+      "Qwen Image Edit: flat raw $0.038, customer $0.0475")
+check(pricing.image_size_label("qwen_edit_unc", "match")
+      == "Same size as your image",
+      "Qwen Image Edit picker says the output matches the input size")
 check(app._first_image_url({"data": {"images": [
     {"url": "https://x.test/a.png", "content_type": "image/png"}]}})
     == "https://x.test/a.png", "image URL scan finds nested results")

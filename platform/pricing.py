@@ -1129,8 +1129,10 @@ def image_price_cents(owner: bool = False) -> int:
 # Plus plan ($0.049 per credit) Nano Banana Pro costs 2 credits
 # (about $0.098) per image, which the BeatAPI route undercuts.
 # Every endpoint slug and payload here is PAYLOAD-UNVERIFIED
-# until the funded pass proves it; all provider balances are
-# $0, so the shelf is dark until then.
+# until a real job proves it. Jack funded the SpicyAPI account
+# on 2026-11-17, so the SpicyAPI lanes can run; he tests them
+# himself. The other providers' balances are still $0, so
+# their lanes can only fail clean until funded.
 IMAGE_LANES = {
     "nano_banana_21": {
         "label": "Nano Banana 2.1", "provider": "beatapi",
@@ -1182,8 +1184,38 @@ IMAGE_LANES = {
         # independently, 256-1536 px each, at one flat $0.01235
         # per image. The picker offers four pixel sizes, all at
         # the flat raw price; the submit sends width/height.
+        # Variant verdict (2026-11-17): this endpoint IS the
+        # base "Z-Image Spicy" from Jack's screenshots, not the
+        # Pro; the wired price matches its published $0.01235.
         "raw_cents": {"1024x1024": 1.235, "1024x1536": 1.235,
                       "1536x1024": 1.235, "1536x1536": 1.235},
+    },
+    "zimage_pro_unc": {
+        "label": "Z-Image Pro · Uncensored $", "provider": "spicyapi",
+        "endpoint": "alibaba/z-image-spicy-pro/text-to-image",
+        # SpicyAPI's own model page (read 2026-11-17): the Pro
+        # tier of the Z-Image line. Same shape as the base tier
+        # (width and height set independently, no tiers) but
+        # 256-2560 px each, at one flat $0.019 per image. The
+        # picker offers six pixel sizes at the flat raw price;
+        # the submit sends width/height on the same z-image
+        # branch as the base tier.
+        "raw_cents": {"1024x1024": 1.9, "1024x1536": 1.9,
+                      "1536x1024": 1.9, "2048x2048": 1.9,
+                      "2560x1440": 1.9, "1440x2560": 1.9},
+    },
+    "qwen_edit_unc": {
+        "label": "Qwen Image Edit · Uncensored $",
+        "provider": "spicyapi",
+        "endpoint": "alibaba/qwen-image-spicy-edit/edit",
+        # SpicyAPI's own model page (read 2026-11-17): an EDIT
+        # model, not text-to-image. One source image (image_url)
+        # plus one plain-English edit instruction, $0.038 flat
+        # per edit. The endpoint declares no size fields at
+        # all; the output keeps the source image's size, so the
+        # only size sold is "match" and the picker says so.
+        "edit": True,
+        "raw_cents": {"match": 3.8},
     },
 }
 
@@ -1212,6 +1244,10 @@ IMAGE_SIZE_LABELS = {
                        "2K": "2048 x 2048"},
     "seedream5pro_unc": {"1K": "1024 x 1024", "1.5K": "1536 x 1536",
                          "2K": "2048 x 2048"},
+    # Qwen Image Edit declares no sizes: the output keeps the
+    # source image's dimensions, and the picker says exactly
+    # that instead of inventing pixel sizes.
+    "qwen_edit_unc": {"match": "Same size as your image"},
 }
 
 

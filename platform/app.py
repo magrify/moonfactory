@@ -2157,14 +2157,15 @@ def api():
                  "size_labels": {
                      a: pricing.image_size_label("house", a)
                      for a in HOUSE_ASPECTS},
-                 "paid_only": False},
+                 "paid_only": False, "edit": False},
             ] + [
                 {"id": mid, "label": lane["label"],
                  "sizes": list(lane["raw_cents"].keys()),
                  "size_labels": {
                      s: pricing.image_size_label(mid, s)
                      for s in lane["raw_cents"]},
-                 "paid_only": True}
+                 "paid_only": True,
+                 "edit": bool(lane.get("edit"))}
                 for mid, lane in pricing.IMAGE_LANES.items()
             ],
             "effects": {
@@ -2915,13 +2916,16 @@ def api():
                 pass
         return job
 
-    def _submit_provider_image(job: dict, prompt: str):
+    def _submit_provider_image(job: dict, prompt: str,
+                               source_image: str = None):
         """Submit one shelf image job to its provider, using the
         same transports as the video lanes. Payload shapes are
         the providers' minimal documented forms and are
-        PAYLOAD-UNVERIFIED until the funded pass proves them;
-        every provider balance is $0 today, so a submit can only
-        fail clean, which releases the hold in the caller."""
+        PAYLOAD-UNVERIFIED until a real job proves them; on an
+        unfunded provider a submit can only fail clean, which
+        releases the hold in the caller. Edit lanes pass their
+        source image in at submit time only; it is never stored
+        on the job."""
         lane = pricing.IMAGE_LANES[job["image_model"]]
         provider = lane["provider"]
         endpoint = lane["endpoint"]
@@ -2969,9 +2973,22 @@ def api():
         elif provider == "spicyapi":
             headers = dict(_api_headers("spicyapi"))
             headers["Idempotency-Key"] = job["id"]
-            if "z-image" in endpoint:
+            if "qwen-image" in endpoint:
+                # Qwen Image Edit: one source image as a public
+                # URL plus the edit instruction; that pair is
+                # the endpoint's whole input surface. It declares
+                # no size fields: the output keeps the source
+                # image's size. The upload rides the same media
+                # helper the video lanes use for task inputs.
+                image_input = {
+                    "prompt": prompt,
+                    "image_url": _beatapi_media_url(
+                        source_image, "edit-source")}
+            elif "z-image" in endpoint:
                 # Z-Image has no resolution tiers: SpicyAPI takes
-                # independent width/height (256-1536 px each).
+                # independent width/height (256-1536 px each on
+                # the base tier, 256-2560 on Pro; the picker only
+                # offers sizes inside the lane's own range).
                 w, h = size.split("x", 1)
                 image_input = {"prompt": prompt,
                                "width": int(w), "height": int(h)}
@@ -6008,6 +6025,20 @@ def api():
                 raise HTTPException(
                     status_code=400,
                     detail=f"this image model makes {', '.join(lane['raw_cents'])} images")
+            source_image = None
+            if lane.get("edit"):
+                # Edit lanes take one source image alongside the
+                # instruction: an https URL or an uploaded data
+                # URL, the same forms the video lanes accept.
+                # SpicyAPI caps the source image at 10 MB, which
+                # is about 14M data-URL characters.
+                source_image = str(body.get("source_image") or "")
+                if (not source_image.startswith(("data:image/",
+                                                  "https://"))
+                        or len(source_image) > 14_000_000):
+                    raise HTTPException(
+                        status_code=400,
+                        detail="this model edits one image: add the image you want edited first")
             raw, debit = pricing.image_lane_price(
                 lane_id, size, owner=is_owner(user))
             if not is_owner(user) and not ceiling_allows(user, raw):
@@ -6034,7 +6065,8 @@ def api():
             save_user(user)
             jobs[job_id] = job
             try:
-                _submit_provider_image(job, prompt)
+                _submit_provider_image(job, prompt,
+                                       source_image=source_image)
             except Exception:
                 _fail_provider_image(
                     job, "the image model is unavailable right now, nothing was charged")
@@ -8452,6 +8484,12 @@ APP_HTML = (
           <select id="image-size"></select>
         </div>
       </div>
+      <div id="image-edit-wrap" style="display:none">
+        <label class="flabel" for="image-edit-file">Image to edit (PNG or JPEG)</label>
+        <input id="image-edit-file" type="file" accept="image/png,image/jpeg">
+        <p class="muted">This model edits one image you upload, following the instruction in the prompt. The result comes back at the same size as your image.</p>
+        <div id="image-edit-preview"></div>
+      </div>
       <p class="muted" id="image-shelf-note"></p>
       <div id="image-result-wrap" style="display:none">
         <img id="image-result" style="max-width:100%;border-radius:12px" alt="Your image">
@@ -9720,6 +9758,7 @@ $('character-train').onclick = async () => {
 // same simplicity: a prompt, a model, a size, one button.
 let imageMode = false;
 let shelfImageJobId = null;
+let editSourceDataUrl = null;
 function imageLane() {
   return (cfg.image_models || []).find(m => m.id === $('image-model').value);
 }
@@ -9746,6 +9785,11 @@ function buildImageSizes() {
     o.textContent = (lane.size_labels && lane.size_labels[s]) || s;
     sel.appendChild(o);
   }
+  const isEdit = !!(lane && lane.edit);
+  $('image-edit-wrap').style.display = isEdit ? '' : 'none';
+  if (imageMode) $('prompt').placeholder = isEdit
+    ? 'Describe the edit… e.g. change the jacket to black leather, keep the face, the pose and the room exactly the same'
+    : 'Describe the image… e.g. a lighthouse at dusk, waves crashing, dramatic sky';
   refreshImageQuote();
 }
 async function refreshImageQuote() {
@@ -9762,7 +9806,9 @@ async function refreshImageQuote() {
     btn.textContent = 'Make image · $' + (q.price_cents / 100).toFixed(2);
     $('image-shelf-note').textContent = lane.id === 'house'
       ? 'Made by Moonfactory itself, at the size picked.'
-      : 'One image at the size picked, charged only when it is delivered. If it fails, the charge comes back in full.';
+      : lane.edit
+        ? 'One edit of the image you uploaded, at its own size, charged only when it is delivered. If it fails, the charge comes back in full.'
+        : 'One image at the size picked, charged only when it is delivered. If it fails, the charge comes back in full.';
   } catch (e) {
     btn.textContent = 'Make image';
     $('image-shelf-note').textContent = e.message;
@@ -9788,14 +9834,30 @@ $('mode-video').onclick = () => setImageMode(false);
 $('mode-image').onclick = () => setImageMode(true);
 $('image-model').addEventListener('change', buildImageSizes);
 $('image-size').addEventListener('change', refreshImageQuote);
+$('image-edit-file').addEventListener('change', async () => {
+  const f = $('image-edit-file').files[0];
+  editSourceDataUrl = null;
+  $('image-edit-preview').innerHTML = '';
+  if (!f) return;
+  try {
+    editSourceDataUrl = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(f); });
+    const img = document.createElement('img');
+    img.src = editSourceDataUrl;
+    img.style.maxWidth = '100%'; img.style.borderRadius = '12px';
+    img.alt = 'The image to edit';
+    $('image-edit-preview').appendChild(img);
+  } catch (e) { msg('job-msg', 'That image could not be read.', 'err'); }
+});
 async function makeImage() {
   const lane = imageLane();
   if (!lane) { msg('job-msg', 'Pick an image model first.', 'err'); return; }
+  if (lane.edit && !editSourceDataUrl) { msg('job-msg', 'Add the image you want edited first.', 'err'); return; }
   msg('job-msg', 'Working on the bot check...');
   const bot = await botFields('botcheck2');
   const body = lane.id === 'house'
     ? { prompt: $('prompt').value, aspect_ratio: $('image-size').value, ...bot }
     : { prompt: $('prompt').value, image_model: lane.id, image_size: $('image-size').value, ...bot };
+  if (lane.edit) body.source_image = editSourceDataUrl;
   const r = await api('/api/images', { method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify(body) });
   shelfImageJobId = r.job_id;
