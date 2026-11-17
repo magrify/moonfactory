@@ -6046,6 +6046,31 @@ def api():
             for j in mine[:50]
         ]}
 
+    @web.get("/api/jobs/{job_id}")
+    def get_job(job_id: str, request: Request,
+                mf_session: str = Cookie(default="")):
+        # Single-job status read. The studio's image flow polls here
+        # after POST /api/images returns a job id. This route was
+        # missing until 2026-11-17: the path matched only the DELETE
+        # route below, so every poll answered 405 "Method Not
+        # Allowed" even though the create POST had succeeded, and
+        # the studio printed that 405 text as if the image had
+        # failed. Mirrors list_jobs' shape and ownership rules.
+        user = require_user(request, mf_session)
+        job = jobs.get(job_id)
+        if not job or job.get("user_id") != user["id"]:
+            raise HTTPException(status_code=404, detail="job not found")
+        job = mirror_status(job)
+        position = None
+        if job["status"] in ("queued", "running"):
+            active = sorted(
+                (j for j in (jobs.get(k) for k in list(jobs.keys()))
+                 if j and j.get("user_id") == user["id"]
+                 and j["status"] in ("queued", "running")),
+                key=lambda j: j["created_at"])
+            position = [j["id"] for j in active].index(job["id"]) + 1
+        return public_job(job, queue_position=position)
+
     # -- start-image generation (Pass 3) --------------------------------
     # An image job is a normal platform job record (kind "image"):
     # same accounts, same holds, same Amendment 2 ceiling, same
