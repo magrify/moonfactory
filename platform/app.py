@@ -51,6 +51,7 @@ import modal
 sys.path.insert(0, "/platform")
 import pricing  # noqa: E402
 import clipping  # noqa: E402
+import fun_camera  # noqa: E402
 
 app = modal.App("moonfactory")
 
@@ -68,6 +69,7 @@ image = (
     .pip_install("fastapi[standard]", "requests", "stripe")
     .add_local_file(str(Path(__file__).parent / "pricing.py"), "/platform/pricing.py")
     .add_local_file(str(Path(__file__).parent / "clipping.py"), "/platform/clipping.py")
+    .add_local_file(str(Path(__file__).parent / "fun_camera.py"), "/platform/fun_camera.py")
     .add_local_file(
         str(
             Path(__file__).parent.parent
@@ -93,6 +95,7 @@ clip_image = (
     .pip_install("sherpa-onnx", "yt-dlp", "numpy", "requests")
     .add_local_file(str(Path(__file__).parent / "pricing.py"), "/platform/pricing.py")
     .add_local_file(str(Path(__file__).parent / "clipping.py"), "/platform/clipping.py")
+    .add_local_file(str(Path(__file__).parent / "fun_camera.py"), "/platform/fun_camera.py")
     .add_local_dir(str(Path(__file__).parent / "clip_fonts"), "/platform/clip_fonts")
 )
 
@@ -3707,6 +3710,7 @@ def api():
         # the shapes it cannot take are clean 422s here, before any
         # quote, hold, or dispatch.
         fun_preset = fun_camera_preset(camera_ids)
+        camera_recipe = None
         camera_speed = 1.0
         if body.get("camera_speed") is not None:
             try:
@@ -3714,6 +3718,15 @@ def api():
             except (TypeError, ValueError):
                 raise HTTPException(status_code=422, detail="camera_speed must be a number")
         if fun_preset is not None:
+            # The (recipe, speed) a Fun Camera job runs with is not
+            # the client's choice: the proof renders measured speed
+            # 1.0 as a dead camera in every recipe, and only the
+            # distilled recipe at speed 3.0 actually pans. Every
+            # preset resolves in fun_camera.resolve_fun_camera, the
+            # one place that mapping lives.
+            camera_recipe, camera_speed = fun_camera.resolve_fun_camera(
+                camera_speed
+            )
             if model in PER_SECOND_MODELS:
                 raise HTTPException(
                     status_code=422,
@@ -3900,6 +3913,7 @@ def api():
                         if fun_preset else None
                     ),
                     "camera_speed": camera_speed if fun_preset else None,
+                    "camera_recipe": camera_recipe if fun_preset else None,
                     "effect": effect_id,
                 },
                 timeout=30,
@@ -3944,6 +3958,7 @@ def api():
                 if fun_preset else None
             ),
             "camera_speed": camera_speed if fun_preset else None,
+            "camera_recipe": camera_recipe if fun_preset else None,
             "effect": effect_id,
             "effect_name": EFFECTS.get(effect_id) if effect_id else None,
             "status": "queued",

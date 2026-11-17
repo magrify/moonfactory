@@ -2778,3 +2778,34 @@ outputs/proof-renders-2026-11-16/ in the sinclip workspace.
   audio stages record no separate seconds; their settled platform
   records (15c / 50c) are the measured-cost accounting for the full
   chain. CPU harness time: pennies. No provider spend.
+
+## Finish pass — 2026-11-16 (camera preset fix + completion audit)
+
+MODAL SPEND: NONE AUTHORIZED. No generations, no proof renders.
+
+- CAMERA PRESET FIX. The proof renders (proof-renders-run-2026-11-16.md)
+  completed the recipe/speed matrix: speed 1.0 never pans in ANY recipe
+  (distilled, stock, mid all measured zero drift), stock at speed 3.0
+  measured trace noise only, and only the distilled recipe at speed 3.0
+  produces a real pan (3a: -8.89% of frame width, monotonic, correct
+  direction). But the live product resolved every Fun Camera job to
+  (distilled, 1.0): the studio never sends camera_speed, so the
+  platform default 1.0 applied — a dead camera on every preset.
+  Fix, in ONE place: new platform/fun_camera.py holds the mapping;
+  resolve_fun_camera() returns (distilled, 3.0) for any requested
+  speed, and create_job resolves every Fun Camera preset through it
+  (regenerate re-enters create_job, so retries inherit the fix). The
+  resolved camera_recipe now travels explicitly in the worker payload
+  and the job record; API shape unchanged. Deployed; verified WITHOUT
+  rendering by scratch/camera_fix_probe.py (23/23): resolver asserted
+  for every requested speed, all 9 workflow_patch presets asserted,
+  source routing asserted, live /api/camera-presets serves the same
+  preset ids, live /api/config = 29 models, /healthz ok.
+- COMPLETION AUDIT: FINISH-STATE-2026-11-16.md — 20 verified-working
+  items with evidence sources (smoke 39/39, proof renders, pricing
+  audits rounds 1-3, live read-backs) and the only four open items,
+  all Jack's steps (provider funding + funded verification, Kling
+  at-cost residuals decision, final name/domain, Kaggle API token).
+  No defects found that cost nothing to fix; the one scare (an empty
+  gallery parse) was a probe-side bug — /api/gallery serves its items
+  normally.
