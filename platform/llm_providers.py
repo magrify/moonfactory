@@ -3,11 +3,17 @@ moonfactory").
 
 A registry SEPARATE from the video shelf in app.py's MODELS: these
 are text models, they never appear in the video model picker. They
-are exposed on /api/config under "llm_providers" and they serve one
-job inside the platform today: the Clip AI picking brain tries them
-as fallbacks after every Gemini entry has failed for a window
-(clipping.find_clips), before the loudness fallback. Gemini stays
-the primary brain; default behavior is unchanged.
+are exposed on /api/config under "llm_providers".
+
+Picking-fallback role (narrowed 2026-11-17, Jack's ruling): the
+Clip AI picking brain may use a fallback only if it adds ZERO cost
+to clipping, so the chain (PICK_CHAIN below) holds free OpenRouter
+models only, tried after every Gemini entry has failed for a
+window and before the loudness fallback. The paid uncensored APIs
+in this registry (Venice, Refuseless) are stored-key records only:
+their keys stay in the secret, but nothing in clipping calls them.
+Morph was dropped entirely on 2026-11-17 and its entry removed.
+Gemini stays the primary brain; default behavior is unchanged.
 
 Every model here is uncensored by its provider's own listing
 (abliterated weights or an uncensored fine-tune) and carries the
@@ -27,8 +33,11 @@ Provider state at wiring time (2026-11-17):
   /api/v1/credits) and was replaced 2026-11-17; the replacement
   verifies live (GET /api/v1/auth/key 200, usage 0, no key limit)
   and the model is confirmed listed in OpenRouter's own catalog
-  (435 models, read 2026-11-17). Lane is live as the first
-  picking fallback. Recorded in BUILD-LOG.
+  (435 models, read 2026-11-17). The picking fallback uses
+  OpenRouter FREE models only (the :free ids in PICK_CHAIN,
+  verified $0 prompt + $0 completion against OpenRouter's live
+  catalog, 470 models, read 2026-11-17), so clipping carries
+  zero fallback cost. Recorded in BUILD-LOG.
 - venice: models enumerated from Venice's public models endpoint
   (https://api.venice.ai/api/v1/models), filtered to the entries
   Venice itself flags "uncensored": true. Key stored
@@ -37,8 +46,10 @@ Provider state at wiring time (2026-11-17):
   in chat 2026-11-17; stored via SDK Secret.update() per-key
   merge (key names 18 -> 19, nothing lost). Verified live the
   same day (free read): GET /api/v1/models 200, 143 models, all
-  15 registered uncensored ids present. Lane is live as the
-  second picking fallback. Recorded in BUILD-LOG.
+  15 registered uncensored ids present. NOT in the picking
+  chain: Venice is a paid API, and the 2026-11-17 free-only
+  ruling keeps it out of clipping. Key stays stored; this entry
+  is a record only. Recorded in BUILD-LOG.
 - refuseless: pay-as-you-go per-token (their pricing page: "no
   subscription and no monthly minimum"). Model ids from their own
   model pages. Key stored (REFUSELESS_API_KEY): the browser signup
@@ -47,13 +58,12 @@ Provider state at wiring time (2026-11-17):
   Secret.update() per-key merge (key names 19 -> 20, nothing
   lost). Verified live the same day (free read):
   GET /v1/models 200, 7 models, all 4 registered ids present.
-  Lane is live as the third picking fallback. Recorded in
+  NOT in the picking chain: Refuseless is a paid API, and the
+  2026-11-17 free-only ruling keeps it out of clipping. Key
+  stays stored; this entry is a record only. Recorded in
   BUILD-LOG.
-- morph: access is approved per organization ("Approved teams
-  only", morphllm.com). The account + access application are a
-  browser step for Magrify; no key exists yet, and Morph's API
-  base URL is confirmed at key issuance, so base_url is None and
-  the picking chain skips it until then. Registered dark.
+- morph: DROPPED 2026-11-17 (Jack). The pursuit ended and the
+  registry entry was removed; no key ever existed.
 """
 
 import json
@@ -126,26 +136,20 @@ LLM_PROVIDERS = [
              "label": "DeepSeek V4.1 Flash 1017 Fast Abliterated"},
         ],
     },
-    {
-        "id": "morph",
-        "label": "Morph",
-        "base_url": None,
-        "key_env": "MORPH_API_KEY",
-        "access": "awaiting_org_approval",
-        "models": [
-            {"id": "morph-dsv41flash-abliterated",
-             "label": "DeepSeek V4.1 Flash Abliterated (Morph)"},
-        ],
-    },
 ]
 
-# The picking fallback chain: one model per provider, in registry
-# order, tried only after the Gemini chain has failed for a window.
+# The picking fallback chain (2026-11-17, Jack's free-only
+# ruling): OpenRouter FREE models only, tried only after the
+# Gemini chain has failed for a window. Every id below was
+# verified against OpenRouter's live catalog on 2026-11-17 with
+# pricing prompt = 0 and completion = 0, so the fallback adds
+# zero cost to clipping. The paid providers in the registry
+# above (Venice, Refuseless) are deliberately NOT in this chain;
+# their keys stay stored but clipping never calls them.
 PICK_CHAIN = (
-    ("openrouter", "cognitivecomputations/dolphin-mistral-24b-venice-edition"),
-    ("venice", "venice-uncensored-1-2"),
-    ("refuseless", "glm-5.3-flash-abliterated"),
-    ("morph", "morph-dsv41flash-abliterated"),
+    ("openrouter", "nvidia/nemotron-3-ultra-550b-a55b:free"),
+    ("openrouter", "google/gemma-4-31b-it:free"),
+    ("openrouter", "nvidia/nemotron-3.5-lightning:free"),
 )
 
 
@@ -225,9 +229,10 @@ def _chat_pick(prompt: str, base_url: str, api_key: str, model: str):
 
 
 def pick_fallback(prompt: str):
-    """Try each configured uncensored provider in chain order.
-    Returns a list of candidate dicts from the first that answers;
-    raises RuntimeError when none is configured or all fail."""
+    """Try each free picker in chain order (OpenRouter free
+    models only). Returns a list of candidate dicts from the
+    first that answers; raises RuntimeError when the OpenRouter
+    key is absent or all free models fail."""
     last_exc = None
     for provider_id, model in PICK_CHAIN:
         p = _provider(provider_id)
@@ -236,6 +241,6 @@ def pick_fallback(prompt: str):
             continue
         try:
             return _chat_pick(prompt, p["base_url"], api_key, model)
-        except Exception as exc:  # noqa: BLE001 - next provider
+        except Exception as exc:  # noqa: BLE001 - next picker
             last_exc = exc
-    raise RuntimeError(f"uncensored picking fallback unavailable: {last_exc}")
+    raise RuntimeError(f"free picking fallback unavailable: {last_exc}")

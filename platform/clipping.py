@@ -693,13 +693,15 @@ def _gemini_pick(prompt: str, api_key: str):
 
 
 def _llm_fallback_pick(prompt: str):
-    """Uncensored-LLM picking fallback (2026-11-17): tried only
-    after the Gemini chain has failed for a window. Delegates to
-    llm_providers.pick_fallback, which walks the configured
-    uncensored providers (OpenRouter, Venice, Refuseless, Morph)
-    in order and returns the first answer. Raises when none is
-    configured or all fail, and the window falls through to the
-    loudness fallback exactly as before."""
+    """Free-model picking fallback (2026-11-17): tried only after
+    the Gemini chain has failed for a window. Delegates to
+    llm_providers.pick_fallback, which walks the free OpenRouter
+    models only (zero cost — Jack's ruling: the fallback may stay
+    only if it adds no cost to clipping). The paid uncensored
+    APIs (Venice, Refuseless) are never called from here. Raises
+    when the OpenRouter key is absent or all free models fail,
+    and the window falls through to the loudness fallback exactly
+    as before."""
     import llm_providers
 
     return llm_providers.pick_fallback(prompt)
@@ -752,7 +754,7 @@ def find_clips(words, db, duration, title="", uploader="", max_clips=6,
                 try:
                     out = _llm_fallback_pick(prompt)
                     log(f"picking window {a:.0f}-{b:.0f}s picked by "
-                        "uncensored LLM fallback")
+                        "free LLM fallback")
                 except Exception as exc:  # noqa: BLE001
                     log(f"picking window {a:.0f}-{b:.0f}s failed: {exc}")
             if out is None:

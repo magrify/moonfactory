@@ -3092,3 +3092,33 @@ and config read-backs only. No subscriptions anywhere.
   lane lights. MODAL SPEND: NONE AUTHORIZED was honored
   throughout — secret merges, code and free reads only, no
   generation, no deploy.
+
+## Clip picking fallback: free OpenRouter models only — 2026-11-17
+
+- Jack reversed the same-day removal of the picking fallback
+  with a condition: the chain may stay ONLY if it adds zero cost
+  to clipping, using free models. The chain is now: Gemini chain
+  -> OpenRouter FREE models -> loudness.
+- The Venice, Refuseless, and Morph legs were removed from the
+  picking chain entirely. Venice and Refuseless are paid-only
+  APIs; their accounts and stored keys stay in
+  moonfactory-providers, and their llm_providers.py entries stay
+  as stored-key records, but nothing in clipping calls them.
+  Morph's entry was removed from platform/llm_providers.py and
+  the pursuit is dropped.
+- Free pickers wired in PICK_CHAIN, in order, each verified
+  against OpenRouter's live catalog on 2026-11-17 (470 models;
+  pricing prompt = 0 and completion = 0; the live free list held
+  no DeepSeek/Qwen/Llama :free variants that day):
+  nvidia/nemotron-3-ultra-550b-a55b:free (ctx 1,000,000),
+  google/gemma-4-31b-it:free (ctx 262,144),
+  nvidia/nemotron-3.5-lightning:free (ctx 1,000,000).
+- platform/clipping.py: the fallback plumbing restored as it
+  was; only wording changed (docstring + log line now say "free
+  LLM fallback"). Gemini behavior untouched: _gemini_pick still
+  walks gemini-3.8-flash -> gemini-3.5-flash-lite with the 503
+  retry, and find_clips logic is otherwise unchanged.
+- Note: OpenRouter's models catalog is a public read; the stored
+  key itself is not client-retrievable via the Modal SDK (the
+  replacement key was verified live earlier on 2026-11-17, GET
+  /api/v1/auth/key 200). No deploy in this pass; no Modal spend.
