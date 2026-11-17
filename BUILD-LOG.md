@@ -3001,3 +3001,31 @@ and config read-backs only. No subscriptions anywhere.
   string is config metadata only; call behavior is computed live
   from key presence. No deploy in this pass (secret + source
   only); the label takes effect on the next platform deploy.
+
+## Refuseless key stored — 2026-11-17
+
+- The browser signup for Refuseless cleared Cloudflare and filled
+  the email, but the saved-login service could not fill either
+  password field ("No usable sign-in form was recognized"), so
+  Jack completed the signup himself and supplied the key in chat.
+  Stored as REFUSELESS_API_KEY in moonfactory-providers via SDK
+  Secret.update() (per-key merge; no full-secret overwrite). Key
+  value passed via stdin only, never printed or written to a file
+  or log.
+- Key-NAME list read before and after: 19 names before, the same
+  19 plus REFUSELESS_API_KEY after (20 total), nothing lost.
+- Verified with the key (free read): GET
+  https://api.refuseless.com/v1/models 200, 7 models, and all 4
+  registered ids present (glm-5.3-abliterated,
+  glm-5.3-flash-abliterated, deepseek-v4.1-flash-abliterated,
+  deepseek-v4.1-flash-abliterated-fast), including
+  glm-5.3-flash-abliterated (the chain's Refuseless pick). The
+  Refuseless lane is live as the third uncensored picking
+  fallback whenever the Gemini chain, OpenRouter, and Venice have
+  failed.
+- platform/llm_providers.py: the refuseless entry's static access
+  state updated "awaiting_signup" -> "key_stored" and the module
+  docstring's refuseless note rewritten to match. The access
+  string is config metadata only; call behavior is computed live
+  from key presence. No deploy in this pass (secret + source
+  only); the label takes effect on the next platform deploy.

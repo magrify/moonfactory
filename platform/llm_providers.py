@@ -41,11 +41,14 @@ Provider state at wiring time (2026-11-17):
   second picking fallback. Recorded in BUILD-LOG.
 - refuseless: pay-as-you-go per-token (their pricing page: "no
   subscription and no monthly minimum"). Model ids from their own
-  model pages. Account + key are a browser signup step; a key may
-  require adding credit first (their model pages: "Create an
-  account, add credit by card or crypto, and call it with your own
-  key") — if so, that top-up is Jack's step. Registered dark until
-  REFUSELESS_API_KEY lands.
+  model pages. Key stored (REFUSELESS_API_KEY): the browser signup
+  could not fill the password fields, so Jack completed the signup
+  himself and supplied the key in chat 2026-11-17; stored via SDK
+  Secret.update() per-key merge (key names 19 -> 20, nothing
+  lost). Verified live the same day (free read):
+  GET /v1/models 200, 7 models, all 4 registered ids present.
+  Lane is live as the third picking fallback. Recorded in
+  BUILD-LOG.
 - morph: access is approved per organization ("Approved teams
   only", morphllm.com). The account + access application are a
   browser step for Magrify; no key exists yet, and Morph's API
@@ -112,7 +115,7 @@ LLM_PROVIDERS = [
         "label": "Refuseless",
         "base_url": "https://api.refuseless.com/v1",
         "key_env": "REFUSELESS_API_KEY",
-        "access": "awaiting_signup",
+        "access": "key_stored",
         "models": [
             {"id": "glm-5.3-abliterated", "label": "GLM 5.3 Abliterated"},
             {"id": "glm-5.3-flash-abliterated",
