@@ -3711,19 +3711,24 @@ def api():
         # quote, hold, or dispatch.
         fun_preset = fun_camera_preset(camera_ids)
         camera_recipe = None
-        camera_speed = 1.0
+        # None means the request carried no speed at all; the Fun
+        # Camera resolver below turns that into the default. (The
+        # old code initialized this to 1.0, which silently put every
+        # Fun Camera job on the measured-dead speed.)
+        camera_speed = None
         if body.get("camera_speed") is not None:
             try:
                 camera_speed = float(body["camera_speed"])
             except (TypeError, ValueError):
                 raise HTTPException(status_code=422, detail="camera_speed must be a number")
         if fun_preset is not None:
-            # The (recipe, speed) a Fun Camera job runs with is not
-            # the client's choice: the proof renders measured speed
-            # 1.0 as a dead camera in every recipe, and only the
-            # distilled recipe at speed 3.0 actually pans. Every
-            # preset resolves in fun_camera.resolve_fun_camera, the
-            # one place that mapping lives.
+            # The (recipe, speed) a Fun Camera job runs with resolves
+            # in fun_camera.resolve_fun_camera, the one place that
+            # mapping lives. Speed is the user's choice, honored and
+            # clamped there (3.0 only when the request carries no
+            # speed); the recipe stays on the distilled path, the
+            # only one measured to pan (Jack's correction, 2026-11-16:
+            # the finish-pass lock to 3.0 overshot — people choose).
             camera_recipe, camera_speed = fun_camera.resolve_fun_camera(
                 camera_speed
             )
@@ -5738,6 +5743,17 @@ APP_HTML = (
       <label>Camera moves (optional, up to 3, applied in the order you pick them)</label>
       <div id="presets"><p class="muted">Loading camera presets...</p></div>
       <p class="muted" id="preset-chain"></p>
+      <div id="camspeed-wrap" style="display:none">
+        <label>Camera speed</label>
+        <select id="camera-speed">
+          <option value="0.5">0.5</option>
+          <option value="1">1</option>
+          <option value="1.5">1.5</option>
+          <option value="2">2</option>
+          <option value="2.5">2.5</option>
+          <option value="3" selected>3</option>
+        </select>
+      </div>
       <label>Film look (optional)</label>
       <div id="looks"></div>
       <label>Effect (optional, one per video)</label>
@@ -6093,6 +6109,13 @@ function togglePreset(pid) {
   }
   renderChain();
 }
+function selectedFunPreset() {
+  if (!presetData) return null;
+  for (const p of presetData.presets) {
+    if (p.mechanism === 'workflow_patch' && selectedPresets.indexOf(p.id) >= 0) return p;
+  }
+  return null;
+}
 function renderChain() {
   const names = {};
   if (presetData) for (const p of presetData.presets) names[p.id] = p.name;
@@ -6106,6 +6129,9 @@ function renderChain() {
     ? 'Camera: ' + selectedPresets.map(id => names[id] || id).join(' \u2192 ')
     : 'No camera move picked: the camera follows your prompt.';
   $('preset-chain').className = 'muted';
+  // Camera speed applies to Fun Camera presets only: the control
+  // shows when one is picked, and only then is a speed sent.
+  $('camspeed-wrap').style.display = selectedFunPreset() ? '' : 'none';
 }
 // Effects: the picker is rendered from /api/effects, never
 // hand-built per effect. One effect per video; picking the active
@@ -6468,6 +6494,7 @@ $('create').onclick = async () => {
     const bot = await botFields('botcheck2');
     const model = $('model').value;
     const camera = { camera_presets: selectedPresets, camera_look: selectedLook() };
+    if (selectedFunPreset()) camera.camera_speed = Number($('camera-speed').value);
     const startFields = $('start-source').value === 'generate' && generatedImageJobId
       ? { start_image_job_id: generatedImageJobId }
       : { start_image_png_b64: startImageB64 };

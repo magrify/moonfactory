@@ -2809,3 +2809,39 @@ MODAL SPEND: NONE AUTHORIZED. No generations, no proof renders.
   No defects found that cost nothing to fix; the one scare (an empty
   gallery parse) was a probe-side bug — /api/gallery serves its items
   normally.
+
+## Camera choice correction — 2026-11-16 (Jack: people choose the speed)
+
+- Jack's correction to the finish pass, verbatim: "I don't want every
+  video set at three. I want people to be able to choose." The lock to
+  (distilled, 3.0) overshot: the original defect was that the studio
+  never sent camera_speed at all, so the platform's 1.0 default
+  silently applied. The correct fix is a real user choice, honored
+  end to end.
+- platform/fun_camera.py: resolve_fun_camera() now HONORS the
+  requested speed, clamped to the supported range [0.1, 3.0], and
+  falls back to 3.0 only when the request carries no speed. The
+  recipe stays "distilled" (the only recipe ever measured to pan;
+  an internal test parameter, never a user-facing choice). 3.0
+  remains the default because it is the measured-working speed;
+  the choice is the user's.
+- platform/app.py create_job: "no speed sent" is now tracked as None
+  (was: initialized to 1.0), so the resolver can tell a missing speed
+  from a chosen 1.0. The resolved (recipe, speed) still travels
+  explicitly in the worker payload and the job record; regenerate
+  re-enters create_job and inherits the chosen speed.
+- Studio (/app, More options > Camera and look): a "Camera speed"
+  select (0.5 / 1 / 1.5 / 2 / 2.5 / 3, default 3) that appears only
+  when a Fun Camera preset is selected; the create handler sends
+  camera_speed only in that case. No preset = no speed sent. The
+  five-thing Create screen is unchanged.
+- MODAL SPEND: NONE AUTHORIZED — zero renders. Verified without
+  spend: scratch/camera_choice_probe.py 23/23 (resolver honors six
+  distinct speeds, clamps out-of-range, None -> 3.0, source routing,
+  UI wiring, live read-backs: /api/config = 29 models,
+  /api/camera-presets serves the same 9 Fun Camera ids, live /app
+  markup contains the control) and scratch/camera_choice_gate_app.py
+  11/11 against the live platform (reused strict-free fixture;
+  draft-lane 422 after resolution for speeds 2.0 / 1.0 / 99 / none,
+  non-numeric speed 422, Production free-gate 403 at speed 2.5,
+  invalid-image 422; jobs Dict 58 -> 58, fixture counters unchanged).
