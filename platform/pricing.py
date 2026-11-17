@@ -552,6 +552,18 @@ LIPSYNC_CENTS_PER_SECOND = 5.0
 LIPSYNC_MODEL = "fal-ai/sync-lipsync/v2"
 
 
+# Character identity training (2026-11-17): the Soul ID
+# equivalent is a hosted portrait LoRA trainer on fal
+# (fal-ai/flux-lora-portrait-trainer), $6.00 flat at its default
+# 2,500 steps (fal model page, read 2026-11-17). One-time per
+# character; the customer charge is the raw cost at the standard
+# frontier minimum markup, the owner pays raw cost. Trained
+# stills generate on fal-ai/flux-lora at $0.035 per megapixel.
+CHARACTER_TRAIN_MODEL = "fal-ai/flux-lora-portrait-trainer"
+CHARACTER_TRAIN_RAW_CENTS = 600.0
+CHARACTER_TRAIN_STEPS = 2500
+
+
 def lip_sync_costs(output_seconds: float, owner: bool = False):
     """(raw_cents, balance_debit_cents) for the built-in lip sync
     stage on a job of the given output length."""

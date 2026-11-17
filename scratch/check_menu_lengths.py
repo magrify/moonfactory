@@ -75,58 +75,58 @@ for base, unc in pairs:
     check(abs(ids.index(base) - ids.index(unc)) == 1,
           f"{base} and {unc} are not adjacent")
 
-# -- 2. Length plans (no-trim rule, 2026-11-17) --------------------------
-# Every offered length is generated EXACTLY: segments sum to the
-# ordered length, nothing is trimmed, nothing over-generates. A
-# length a model cannot make (below its real minimum, or a
-# stepped lane whose clips cannot sum to it) is refused by the
-# plan and absent from offered_lengths.
+# -- 2. Length plans (per-model native lists, 2026-11-17) ----------------
+# The picker lists each model's REAL native lengths (every whole
+# second in a maker's range, or exactly its steps), plus the
+# universal long lengths (45/60/90/120) past its maximum where an
+# exact segment composition exists. Every offered length plans
+# EXACTLY: native segments sum to the ordered length, nothing is
+# trimmed, nothing over-generates. Anything else is refused.
 table = {}
+PROBES = [1, 2, 3, 7, 9, 11, 20, 33, 44]
 for model in app.PER_SECOND_MODELS:
-    low, high = app.MODEL_DURATION_BOUNDS.get(model, (3, 30))
-    steps = app.MODEL_DURATION_STEPS.get(model)
-    native_min = min(steps) if steps else low
-    native_max = max(steps) if steps else high
+    natives = app.native_lengths(model)
+    native_min, native_max = natives[0], natives[-1]
     table[model] = (native_min, native_max)
     offered = app.offered_lengths(model)
     check(offered == sorted(offered) and offered,
           f"{model}: offered lengths empty or unsorted {offered}")
-    check(all(L >= native_min for L in offered),
-          f"{model}: an offered length sits below the native minimum")
-    for length in app.LENGTH_OPTIONS:
+    check(offered[:len(natives)] == natives,
+          f"{model}: offered list does not start with its natives")
+    check(all(L in (45, 60, 90, 120) for L in offered[len(natives):]),
+          f"{model}: a non-universal length past the native maximum")
+    for length in sorted(set(natives) | set(app.UNIVERSAL_LONG_LENGTHS)
+                         | set(PROBES)):
         try:
             plan = app.duration_plan(model, length)
         except ValueError:
             check(length not in offered,
                   f"{model} {length}s: refused but still offered")
-            check(length < native_min or bool(steps),
-                  f"{model} {length}s: continuous lane refused a "
-                  "length at or above its minimum")
             continue
         check(length in offered,
               f"{model} {length}s: planned but not offered")
         segs = plan["segments"]
-        check(all(isinstance(s, int) and s > 0 for s in segs),
-              f"{model} {length}s: bad segments {segs}")
-        if steps:
-            check(all(s in steps for s in segs),
-                  f"{model} {length}s: segment not a native step {segs}")
-        else:
-            check(all(low <= s <= high for s in segs),
-                  f"{model} {length}s: segment outside native range {segs}")
+        check(all(s in natives for s in segs),
+              f"{model} {length}s: segment not a native length {segs}")
         check(plan["generated_seconds"] == sum(segs) == length,
               f"{model} {length}s: generated != ordered length "
               f"({plan['generated_seconds']})")
         check("trim" not in plan, f"{model} {length}s: plan still trims")
         check(plan["chained"] == (len(segs) > 1),
               f"{model} {length}s: chained flag wrong")
-        if length <= native_max and length >= native_min and not steps:
+        if length in natives:
             check(segs == [length],
-                  f"{model} {length}s: in-range length not a single native pass")
+                  f"{model} {length}s: native length not a single pass")
 
 try:
-    app.duration_plan("wan3", 7)
-    check(False, "duration_plan accepted a non-menu length (7s)")
+    app.duration_plan("veo3", 7)
+    check(False, "duration_plan accepted a non-native length (7s on Veo)")
+except ValueError:
+    pass
+
+try:
+    app.duration_plan("wan3", 33)
+    check(False, "duration_plan accepted a non-universal long length (33s)")
 except ValueError:
     pass
 
@@ -149,7 +149,7 @@ for model, res in (("wan3", "720p"), ("kling4", "720p"),
 
 print(f"models checked: {len(app.MODELS)} "
       f"({len(app.PER_SECOND_MODELS)} per-second lanes)")
-print(f"lengths per model: {list(app.LENGTH_OPTIONS)}")
+print(f"universal long lengths: {list(app.UNIVERSAL_LONG_LENGTHS)}")
 if failures:
     print("FAILURES:")
     for f in failures:

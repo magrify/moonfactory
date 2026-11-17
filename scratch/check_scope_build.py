@@ -76,33 +76,46 @@ check(app.MODEL_REF_VIDEO_SECONDS_CAP["wan_motion"] == 30.0,
 # --- duration corrections -------------------------------------------------
 check(app.MODEL_DURATION_STEPS["wan22_unc"] == (5,),
       "Wan 2.2 maker cap is 5s fixed")
-check(app.duration_plan("wan22_unc", 10)["segments"] == [5, 5],
-      "Wan 2.2 10s chains two 5s segments")
+check(app.duration_plan("wan22_unc", 45)["segments"] == [5] * 9,
+      "Wan 2.2 45s chains nine 5s segments")
 check(app.duration_plan("kling4", 30)["segments"] == [30], "Kling 4.0 native 30")
 check(app.MODEL_DURATION_BOUNDS["ltx25"] == (6, 20), "LTX-2.5 native cap 20")
-check(app.duration_plan("ltx25", 15)["segments"] == [15], "LTX-2.5 native 15")
+check(app.duration_plan("ltx25", 10)["segments"] == [10], "LTX-2.5 native 10")
 check(app.MODEL_DURATION_BOUNDS["veo3"] == (4, 8), "Veo native cap 8")
-check(all(s in (4, 6, 8) for s in app.duration_plan("veo3", 10)["segments"]),
+check(all(s in (4, 6, 8) for s in app.duration_plan("veo3", 60)["segments"]),
       "Veo chains only its native steps")
 
-# --- no-trim rule: offered lengths ---------------------------------------
-check(app.offered_lengths("grok")[0] == 1, "Grok offers 1s (maker min 1)")
-check(app.offered_lengths("seedance")[0] == 5,
-      "Seedance 2.5 starts at 5s on the menu (maker min 4)")
-check(1 not in app.offered_lengths("seedance"), "no trimmed 1s on Seedance")
-check(app.offered_lengths("veo3") == [10, 30, 60, 90, 120],
-      f"Veo offers only exact step sums, got {app.offered_lengths('veo3')}")
-check(app.offered_lengths("hailuo23") == [10, 30, 60, 90, 120],
-      "Hailuo offers only exact step sums")
-check(app.offered_lengths("luma_ray32") == [5, 10, 15, 30, 45, 60, 90, 120],
-      "Luma offers every menu length from 5s")
-check(app.offered_lengths("wan22_unc") == [5, 10, 15, 30, 45, 60, 90, 120],
-      "Wan 2.2 uncensored offers multiples of its fixed 5s")
+# --- length rule: per-model native lists + universal long lengths --------
+check(app.native_lengths("veo3") == [4, 6, 8], "Veo natives are 4/6/8 only")
+check(app.native_lengths("wan22_unc") == [5], "Wan 2.2 is fixed at 5")
+check(app.native_lengths("hailuo23") == [6, 10], "Hailuo natives are 6/10")
+check(app.native_lengths("ltx25") == [6, 8, 10, 12, 14, 16, 18, 20],
+      "LTX natives are the even lengths to 20")
+check(app.native_lengths("seedance") == list(range(4, 31)),
+      "Seedance 2.5 natives are every whole second 4 to 30")
+check(app.native_lengths("grok") == list(range(1, 16)),
+      "Grok natives are every whole second 1 to 15")
+check(app.offered_lengths("veo3") == [4, 6, 8, 60, 90, 120],
+      f"Veo offered = natives + composable long lengths, got "
+      f"{app.offered_lengths('veo3')}")
+check(45 not in app.offered_lengths("veo3"),
+      "45s has no exact Veo composition (all steps even): not offered")
+check(app.offered_lengths("hailuo23") == [6, 10, 60, 90, 120],
+      "Hailuo offered = 6/10 + composable long lengths")
+check(app.offered_lengths("luma_ray32") == [5, 10, 45, 60, 90, 120],
+      "Luma offered = 5/10 + all long lengths")
+check(app.offered_lengths("wan22_unc") == [5, 45, 60, 90, 120],
+      "Wan 2.2 uncensored offered = its fixed 5 + long lengths")
+check(app.offered_lengths("seedance") == list(range(4, 31)) + [45, 60, 90, 120],
+      "Seedance 2.5 offered = 4..30 + long lengths")
+check(1 not in app.offered_lengths("seedance"), "no 1s on Seedance (min 4)")
 for mid in app.PER_SECOND_MODELS:
     for L in app.offered_lengths(mid):
         p = app.duration_plan(mid, L)
         check(p["generated_seconds"] == L,
               f"{mid} {L}s: generated must equal ordered (no trim)")
+        check(all(s in app.native_lengths(mid) for s in p["segments"]),
+              f"{mid} {L}s: every segment is a native length")
 
 # --- motion transfer lane --------------------------------------------------
 check("wan_motion" in app.PER_SECOND_MODELS, "wan_motion is a per-second lane")

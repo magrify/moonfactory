@@ -793,6 +793,12 @@ MODEL_DURATION_STEPS = {
     "hailuo23": (6, 10),
     "luma_ray32": (5, 10),
     "pika22": (5, 10),
+    # LTX takes only the even lengths: fal's LTX API schema
+    # enumerates duration as 6, 8, 10, 12, 14, 16, 18, 20
+    # (fal's LTX API docs, read 2026-11-17; the maker's facts
+    # page caps the family at 20 seconds).
+    "ltx25": (6, 8, 10, 12, 14, 16, 18, 20),
+    "ltx25_fast": (6, 8, 10, 12, 14, 16, 18, 20),
     # The uncensored builds on the per-run supplier accept only
     # their listed lengths (its published duration options).
     # Wan 2.2 is fixed at 5 seconds in the maker's own
@@ -805,19 +811,24 @@ MODEL_DURATION_STEPS = {
     "wan27_unc": (5, 10, 15),
     "wan3pro_unc": (5, 10, 15, 20, 25, 30),
 }
-# The length menu (Jack, 2026-11-17; no-trim rule the same
-# day): every model offers every length starting at its own
-# shortest clip. A length inside the lane's native range is one
-# native generation; a length below the model's real minimum is
-# not offered on that model at all, and nothing is ever trimmed;
-# beyond the native maximum the lane chains native segments
-# that sum exactly to the ordered length, each starting from
-# the previous segment's last frame, and the segments join
-# into one finished video.
+# The length rule (Jack, 2026-11-17, refined the same day):
+# the picker lists each model's REAL native lengths, never a
+# continuous range. Stepped models list exactly their steps;
+# models whose maker accepts any whole second in a range list
+# every whole second in it. Nothing is ever trimmed: nothing
+# below the model's real minimum, nothing between its steps.
+# Past the model's maximum, the universal longer lengths
+# (45, 60, 90, 120) are offered on every model, made in native
+# segments that sum exactly to the ordered length, each
+# starting from the previous segment's last frame, joined into
+# one finished video.
 # Price follows the generated seconds across all segments (the
 # existing per-second rules), and the pre-dispatch ceiling
 # check runs on that full cost.
-LENGTH_OPTIONS = (1, 5, 10, 15, 30, 45, 60, 90, 120)
+# Past every model's own maximum, these longer lengths are
+# offered on every model, made in segments (Jack's length rule,
+# refined 2026-11-17).
+UNIVERSAL_LONG_LENGTHS = (45, 60, 90, 120)
 # Lanes with a usable continuation route for chaining: the
 # segment after the first starts from the previous segment's
 # last frame, so the lane needs a start-image mode on its wired
@@ -886,73 +897,79 @@ def _step_composition(steps: list, total: int):
     return best.get(total)
 
 
-def duration_plan(model: str, requested: int) -> dict:
-    """How one of the nine menu lengths is produced on a
-    per-second lane: the native segment durations to generate,
-    in order. NO TRIMMING, ever (Jack's rule, 2026-11-17): each
-    model uses its real minimum and maximum single-clip lengths
-    from the maker's documentation. A length below the model's
-    real minimum is not offered on that model; inside the native
-    range the generation is native; past the maximum, native
-    segments that sum EXACTLY to the ordered length are joined
-    into one finished video, priced per second across the total.
-    generated_seconds therefore always equals the ordered
-    length. Raises ValueError for a length the model cannot
-    make exactly."""
-    if requested not in LENGTH_OPTIONS:
-        raise ValueError(
-            "length must be one of: "
-            + ", ".join(f"{s} seconds" for s in LENGTH_OPTIONS))
-    low, high = MODEL_DURATION_BOUNDS.get(model, (3, 30))
+def native_lengths(model: str) -> list:
+    """The model's REAL native lengths, from the maker's own
+    documentation (Jack's length rule, refined 2026-11-17):
+    stepped models list exactly their steps (Veo makes only 4,
+    6 or 8 seconds; Hailuo only 6 or 10; LTX only the even
+    lengths to 20); a model whose maker accepts any whole second
+    in a range lists every whole second in it (Seedance 2.5:
+    4 through 30; Kling 4.0: 3 through 30)."""
     steps = MODEL_DURATION_STEPS.get(model)
     if steps:
-        native = sorted(steps)
-        native_min, native_max = native[0], native[-1]
-    else:
-        native_min, native_max = low, high
-    if requested < native_min:
-        raise ValueError(
-            f"this model's shortest clip is {native_min} seconds")
-    if requested <= native_max:
-        if not steps:
-            segments = [requested]
-        elif requested in native:
-            segments = [requested]
-        else:
-            segments = _step_composition(native, requested)
-            if segments is None:
-                raise ValueError(
-                    "this model makes clips of "
-                    + ", ".join(f"{s}" for s in native)
-                    + f" seconds; {requested} seconds is not a "
-                    "length it can make exactly")
-    else:
-        # Beyond the native maximum: chain native segments that
-        # sum exactly to the ordered length.
+        return sorted(steps)
+    low, high = MODEL_DURATION_BOUNDS.get(model, (3, 30))
+    return list(range(low, high + 1))
+
+
+def _native_description(model: str) -> str:
+    steps = MODEL_DURATION_STEPS.get(model)
+    if steps:
+        return ("clips of " + ", ".join(f"{s}" for s in sorted(steps))
+                + " seconds")
+    low, high = MODEL_DURATION_BOUNDS.get(model, (3, 30))
+    return f"clips of {low} to {high} seconds"
+
+
+def duration_plan(model: str, requested: int) -> dict:
+    """How a length is produced on a per-second lane: the native
+    segment durations to generate, in order. The length must be
+    one of the model's real native lengths, or one of the
+    universal longer lengths (45, 60, 90, 120) past its maximum,
+    which is made in native segments that sum EXACTLY to it and
+    joined into one finished video, priced per second across
+    the segments. NO TRIMMING, ever: nothing below the model's
+    real minimum, nothing between its real steps, and
+    generated_seconds always equals the ordered length. Raises
+    ValueError for a length the model cannot make."""
+    natives = native_lengths(model)
+    native_min, native_max = natives[0], natives[-1]
+    steps = MODEL_DURATION_STEPS.get(model)
+    if requested in natives:
+        segments = [requested]
+    elif requested in UNIVERSAL_LONG_LENGTHS and requested > native_max:
         if model not in CHAIN_CONTINUATION_MODELS:
             raise ValueError(
                 "this model makes single clips of up to "
                 f"{native_max} seconds and has no continuation "
                 "route for longer videos")
-        import math as _math
-
         if steps:
-            segments = _step_composition(native, requested)
-            if segments is None:
-                raise ValueError(
-                    "this model makes clips of "
-                    + ", ".join(f"{s}" for s in native)
-                    + f" seconds; {requested} seconds is not a "
-                    "length it can make exactly")
+            segments = _step_composition(natives, requested)
         else:
+            import math as _math
+
             count = _math.ceil(requested / native_max)
             base = requested // count
             extra = requested - base * count
             segments = [base + 1] * extra + [base] * (count - extra)
             if any(s < native_min or s > native_max for s in segments):
-                raise ValueError(
-                    f"this model cannot make {requested} seconds "
-                    "in exact segments")
+                segments = None
+        if segments is None:
+            raise ValueError(
+                f"this model makes {_native_description(model)}; "
+                f"{requested} seconds cannot be made from them "
+                "exactly")
+    elif requested < native_min:
+        raise ValueError(
+            f"this model's shortest clip is {native_min} seconds")
+    elif requested > native_max:
+        raise ValueError(
+            f"this model makes {_native_description(model)}; "
+            "longer videos come in 45, 60, 90 or 120 seconds")
+    else:
+        raise ValueError(
+            f"this model makes {_native_description(model)}; "
+            f"{requested} seconds is not one of its lengths")
     generated = sum(segments)
     return {
         "requested": requested,
@@ -966,13 +983,14 @@ def duration_plan(model: str, requested: int) -> dict:
 
 
 def offered_lengths(model: str) -> list:
-    """The menu lengths this model can actually make under the
-    no-trim rule: every length from its own shortest clip up
-    that its native segments sum to exactly. The studio picker
-    is served from this list, so a length a model cannot make
-    is simply not offered on it."""
-    out = []
-    for length in LENGTH_OPTIONS:
+    """The lengths the picker offers on this model: all of its
+    real native lengths, plus the universal longer lengths
+    (45, 60, 90, 120) past its maximum that its native segments
+    can sum to exactly. On lanes whose steps are all even (the
+    Veo family, Hailuo), 45 seconds has no exact composition
+    and is not offered: the no-trim rule wins that conflict."""
+    out = list(native_lengths(model))
+    for length in UNIVERSAL_LONG_LENGTHS:
         try:
             duration_plan(model, length)
             out.append(length)
@@ -2217,6 +2235,238 @@ def api():
         user["gallery_opt_out"] = opt_out
         save_user(user)
         return {"gallery_opt_out": opt_out}
+
+    # -- characters ---------------------------------------------------------
+    # Persistent character profiles (Jack's scope call,
+    # 2026-11-17): a customer saves a character once (a name and
+    # reference images) and reuses it across jobs. At job creation
+    # the character's first image becomes the start image when the
+    # job has none, and its hosted images ride as references on
+    # lanes that take references. A character can also be TRAINED
+    # into a portable LoRA (the Soul ID equivalent) on fal's
+    # portrait trainer; the trained weights URL is stored on the
+    # profile. Character images are also uploaded to fal storage
+    # at save time so reference lanes can take them by URL.
+
+    MAX_CHARACTERS = 5
+    MAX_CHARACTER_IMAGES = 10
+    MIN_TRAIN_IMAGES = 10
+
+    def _public_character(character: dict) -> dict:
+        return {
+            "id": character["id"],
+            "name": character["name"],
+            "image_count": len(character.get("images") or []),
+            "hosted_count": len([
+                im for im in character.get("images") or []
+                if im.get("fal_url")]),
+            "train_status": character.get("train_status") or "none",
+            "has_lora": bool(character.get("lora_url")),
+            "created_at": character.get("created_at"),
+        }
+
+    def _find_character(user: dict, character_id: str):
+        for c in user.get("characters") or []:
+            if c.get("id") == character_id:
+                return c
+        return None
+
+    def _refresh_character_training(user: dict, character: dict):
+        """Poll a running training job once (on profile reads).
+        Completion stores the LoRA weights URL and books the raw
+        training cost against the account ceiling; failure
+        refunds the charge in full."""
+        if character.get("train_status") != "training":
+            return
+        try:
+            resp = requests.get(
+                character["train_status_url"],
+                headers=_fal_headers(), timeout=15)
+            if resp.status_code != 200:
+                return
+            status = (resp.json() or {}).get("status")
+            if status == "COMPLETED":
+                got = requests.get(
+                    character["train_response_url"],
+                    headers=_fal_headers(), timeout=30)
+                payload = got.json() or {}
+                payload = payload.get("data") or payload
+                lora_url = None
+                stack = [payload]
+                while stack and not lora_url:
+                    node = stack.pop()
+                    if isinstance(node, dict):
+                        stack.extend(node.values())
+                    elif isinstance(node, list):
+                        stack.extend(node)
+                    elif isinstance(node, str) and \
+                            node.endswith(".safetensors"):
+                        lora_url = node
+                if lora_url:
+                    character["lora_url"] = lora_url
+                    character["train_status"] = "ready"
+                    user["cost_settled_cents"] = (
+                        float(user.get("cost_settled_cents") or 0.0)
+                        + pricing.CHARACTER_TRAIN_RAW_CENTS)
+                else:
+                    character["train_status"] = "failed"
+                    user["balance_cents"] = int(
+                        user.get("balance_cents", 0)) + int(
+                        character.get("train_charge_cents") or 0)
+                save_user(user)
+            elif status in ("FAILED", "ERROR"):
+                character["train_status"] = "failed"
+                user["balance_cents"] = int(
+                    user.get("balance_cents", 0)) + int(
+                    character.get("train_charge_cents") or 0)
+                save_user(user)
+        except Exception:
+            pass
+
+    @web.get("/api/characters")
+    def list_characters(request: Request, mf_session: str = Cookie(default="")):
+        user = require_user(request, mf_session)
+        for c in user.get("characters") or []:
+            _refresh_character_training(user, c)
+        return {"characters": [
+            _public_character(c) for c in user.get("characters") or []]}
+
+    @web.post("/api/characters")
+    async def create_character(request: Request, mf_session: str = Cookie(default="")):
+        user = require_user(request, mf_session)
+        if not is_paid(user):
+            raise HTTPException(
+                status_code=403, detail="characters are a paid feature")
+        body = await request.json()
+        name = (body.get("name") or "").strip()[:60]
+        if not name:
+            raise HTTPException(status_code=422, detail="a character needs a name")
+        images = body.get("images") or []
+        if not isinstance(images, list) or not images:
+            raise HTTPException(
+                status_code=422,
+                detail="a character needs at least one reference image")
+        if len(images) > MAX_CHARACTER_IMAGES:
+            raise HTTPException(
+                status_code=422,
+                detail=f"a character holds up to {MAX_CHARACTER_IMAGES} images")
+        characters = user.get("characters") or []
+        if len(characters) >= MAX_CHARACTERS:
+            raise HTTPException(
+                status_code=422,
+                detail=f"an account holds up to {MAX_CHARACTERS} characters")
+        stored = []
+        for raw in images:
+            try:
+                _validate_image_b64(raw, "character image")
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc))
+            data = base64.b64decode(raw)
+            mime = "image/png" if data.startswith(b"\x89PNG") else "image/jpeg"
+            ext = "png" if mime == "image/png" else "jpg"
+            hosted = _fal_upload_bytes(
+                data, mime,
+                f"character-{pysecrets.token_hex(4)}.{ext}")
+            stored.append({"b64": raw, "fal_url": hosted})
+        character = {
+            "id": pysecrets.token_hex(8),
+            "name": name,
+            "images": stored,
+            "lora_url": None,
+            "train_status": "none",
+            "created_at": _now(),
+        }
+        characters.append(character)
+        user["characters"] = characters
+        save_user(user)
+        return _public_character(character)
+
+    @web.delete("/api/characters/{character_id}")
+    def delete_character(character_id: str, request: Request,
+                         mf_session: str = Cookie(default="")):
+        user = require_user(request, mf_session)
+        characters = user.get("characters") or []
+        kept = [c for c in characters if c.get("id") != character_id]
+        if len(kept) == len(characters):
+            raise HTTPException(status_code=404, detail="unknown character")
+        user["characters"] = kept
+        save_user(user)
+        return {"status": "deleted"}
+
+    @web.post("/api/characters/{character_id}/train")
+    def train_character(character_id: str, request: Request,
+                        mf_session: str = Cookie(default="")):
+        user = require_user(request, mf_session)
+        if not is_paid(user):
+            raise HTTPException(
+                status_code=403, detail="characters are a paid feature")
+        character = _find_character(user, character_id)
+        if not character:
+            raise HTTPException(status_code=404, detail="unknown character")
+        if character.get("train_status") == "training":
+            raise HTTPException(
+                status_code=409, detail="this character is already training")
+        images = character.get("images") or []
+        if len(images) < MIN_TRAIN_IMAGES:
+            raise HTTPException(
+                status_code=422,
+                detail=f"training needs at least {MIN_TRAIN_IMAGES} reference images (this character has {len(images)})")
+        if not os.environ.get("FAL_KEY"):
+            raise HTTPException(status_code=503, detail=MODEL_UNAVAILABLE)
+        charge = int(pricing.CHARACTER_TRAIN_RAW_CENTS) if is_owner(user) \
+            else int(pricing.CHARACTER_TRAIN_RAW_CENTS
+                     * pricing.FRONTIER_MIN_MARKUP)
+        if int(user.get("balance_cents", 0)) < charge:
+            raise HTTPException(
+                status_code=402,
+                detail=f"training this character costs {charge} cents of prepaid balance")
+        import io
+        import zipfile
+
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+            for i, im in enumerate(images):
+                data = base64.b64decode(im["b64"])
+                ext = "png" if data.startswith(b"\x89PNG") else "jpg"
+                zf.writestr(f"image_{i + 1:02d}.{ext}", data)
+        zip_url = _fal_upload_bytes(
+            buffer.getvalue(), "application/zip",
+            f"character-{character['id']}.zip")
+        if not zip_url:
+            raise HTTPException(status_code=503, detail=MODEL_UNAVAILABLE)
+        user["balance_cents"] = int(user.get("balance_cents", 0)) - charge
+        character["train_charge_cents"] = charge
+        character["train_status"] = "training"
+        save_user(user)
+        try:
+            resp = requests.post(
+                f"https://queue.fal.run/{pricing.CHARACTER_TRAIN_MODEL}",
+                headers=_fal_headers(),
+                json={
+                    "images_data_url": zip_url,
+                    "trigger_word": f"mfchar_{character['id'][:8]}",
+                    "steps": pricing.CHARACTER_TRAIN_STEPS,
+                },
+                timeout=30,
+            )
+            if resp.status_code != 200:
+                raise RuntimeError(f"train submit {resp.status_code}")
+            sub = resp.json() or {}
+            character["train_status_url"] = sub.get("status_url")
+            character["train_response_url"] = sub.get("response_url")
+            if not character["train_status_url"]:
+                raise RuntimeError("train submit returned no queue urls")
+            save_user(user)
+        except Exception:
+            # Nothing was accepted: refund in full, back to none.
+            user = users.get(f"id:{user['id']}") or user
+            user["balance_cents"] = int(user.get("balance_cents", 0)) + charge
+            character = _find_character(user, character_id) or character
+            character["train_status"] = "none"
+            character["train_charge_cents"] = 0
+            save_user(user)
+            raise HTTPException(status_code=503, detail=MODEL_UNAVAILABLE)
+        return _public_character(character)
 
     # -- jobs ---------------------------------------------------------------
 
@@ -4640,6 +4890,7 @@ def api():
             "speech_script": speech_script or None,
             "speech_voice": speech_voice or None,
             "voiceover_status": None,
+            "character_id": body.get("character_id"),
             # Built-in lip sync (Jack's rule, 2026-11-17): planned
             # at creation when the job carries speech on a lane
             # that does not speak natively; the finishing stage
@@ -4810,6 +5061,28 @@ def api():
             start_image = base64.b64encode(
                 ensure_image_file(image_job).read_bytes()).decode()
             body["start_image_png_b64"] = start_image
+        if body.get("character_id"):
+            # Character reuse (2026-11-17): the saved character's
+            # first image becomes the start image when the job has
+            # none, and its hosted images ride as references on
+            # lanes that take references. Character references are
+            # images, so they never change the price.
+            character = _find_character(user, body["character_id"])
+            if not character:
+                raise HTTPException(status_code=404, detail="unknown character")
+            char_images = character.get("images") or []
+            if char_images and not start_image:
+                start_image = char_images[0].get("b64")
+                body["start_image_png_b64"] = start_image
+            if model in PER_SECOND_MODELS and char_images:
+                hosted = [im["fal_url"] for im in char_images
+                          if im.get("fal_url")]
+                if hosted and model not in TEXT_IMAGE_ONLY_MODELS \
+                        and model not in ("wan22_unc", "wan3_unc",
+                                          "seedance25_unc", "vidu_q3_unc",
+                                          "wan_motion"):
+                    existing = body.get("reference_image_urls") or []
+                    body["reference_image_urls"] = hosted + list(existing)
         try:
             _validate_image_b64(start_image, "start image")
             _validate_image_b64(end_image, "end image")
@@ -5090,6 +5363,7 @@ def api():
             "speech_script": speech_script or None,
             "speech_voice": speech_voice or None,
             "voiceover_status": None,
+            "character_id": body.get("character_id"),
             # Built-in lip sync (Jack's rule, 2026-11-17): the
             # house lane does not speak natively, so a spoken line
             # here always plans the finishing lip sync stage.
