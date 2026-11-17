@@ -803,6 +803,12 @@ MODEL_DURATION_BOUNDS = {
     "ltx25_fast": (6, 20),
     "vidu_q3": (1, 16),
     "vidu_q4": (3, 16),
+    # Vidu Q2 takes 1 to 10 seconds, whole seconds, default 5
+    # (Vidu's API model map and Q2 text-to-video reference,
+    # read 2026-11-17). It previously fell through to the
+    # generic (3, 30) default, which advertised lengths the
+    # model cannot make (verification pass, 2026-11-17).
+    "vidu_q2": (1, 10),
     "seedance25_flash": (4, 30),
     "pixverse_v6": (1, 15),
     "runway_gen45": (2, 10),
@@ -1069,6 +1075,15 @@ def duration_plan(model: str, requested: int) -> dict:
     if requested in natives:
         segments = [requested]
     elif requested in UNIVERSAL_LONG_LENGTHS and requested > native_max:
+        if model == "wan_motion":
+            # Motion transfer's output follows the driving
+            # video's own length (2 to 30 seconds); the lane
+            # has no chained lengths (verification pass,
+            # 2026-11-17).
+            raise ValueError(
+                "motion transfer follows the motion video's own "
+                "length, up to 30 seconds; it makes no chained "
+                "lengths")
         if model not in CHAIN_CONTINUATION_MODELS:
             raise ValueError(
                 "this model makes single clips of up to "
@@ -3427,12 +3442,14 @@ def api():
             duration = int(body.get("duration_seconds") or 5)
         except (TypeError, ValueError):
             raise HTTPException(status_code=422, detail="duration must be a whole number of seconds")
-        # The length menu (Jack, 2026-11-17): every lane takes
-        # the same nine lengths. duration_plan maps the request
-        # onto native segments (one native generation inside the
-        # lane's range, the shortest native segment trimmed in
-        # post below its minimum, chained native segments above
-        # its maximum). params["duration"] below is the FIRST
+        # The length menu (Jack, 2026-11-17, refined the same
+        # day): the picker lists each model's real native
+        # lengths. duration_plan maps the request onto native
+        # segments (one native generation for a native length,
+        # exact native segments summing to a universal longer
+        # length past the maximum; nothing below the model's
+        # minimum, nothing between its steps, nothing trimmed,
+        # ever). params["duration"] below is the FIRST
         # segment's native duration, the only duration a single
         # provider submission ever sees; the plan rides along
         # for pricing and for the chain driver.
@@ -3629,10 +3646,10 @@ def api():
                 "payment": {"method": "unavailable"},
             }
         # The estimate prices the GENERATED seconds: every
-        # segment of a chained length, and the full native
-        # segment behind a trimmed one. The ceiling check and
-        # the hold therefore cover the whole job, never just
-        # its first segment.
+        # segment of a chained length. Generated seconds always
+        # equal the ordered length (no trimming, ever), and the
+        # ceiling check and the hold therefore cover the whole
+        # job, never just its first segment.
         est = pricing.per_second_estimate(
             model, params["resolution"], params["generated_seconds"],
             params["reference_video_seconds"], rate_table()["rates"],
@@ -3721,7 +3738,7 @@ def api():
         return {
             "model": model,
             "model_label": MODEL_LABELS[model],
-            "duration_seconds": plan["requested_seconds"],
+            "duration_seconds": plan["requested"],
             "generated_seconds": plan["generated_seconds"],
             "segments": len(plan["segments"]),
             "aspect_ratio": body.get("aspect_ratio") or "9:16",
