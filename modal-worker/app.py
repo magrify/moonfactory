@@ -1331,7 +1331,9 @@ def longform_staged(lane: str) -> bool:
 # --- FramePack worker -------------------------------------------------------
 
 # The maker's documented stack (FramePack README, Linux section):
-# CUDA 12.6 + PyTorch 2.6, Python 3.10. The repo itself is baked
+# CUDA 12.6 + PyTorch 2.6, Python 3.10 (the image runs 3.12, the
+# house standard Modal's builder accepts; the code is plain
+# torch). The repo itself is baked
 # into the image at the commit read for this wiring; the worker
 # calls its diffusers_helper modules directly (the demo's own
 # sampling code, minus the Gradio shell).
@@ -1644,8 +1646,9 @@ class FramePackWorker:
 
 # The Diffusers route is the maker's own documented alternative
 # (README: Text-to-video / Image-to-video with diffusers, with
-# the exact pipeline calls). Python 3.10 matches the repo's test
-# environment; torch 2.6 cu126 is the house stack.
+# the exact pipeline calls). The repo's test environment is
+# Python 3.10; the image runs 3.12 like the house images, and
+# torch 2.6 cu126 is the house stack.
 skyreels_image = (
     modal.Image.debian_slim(python_version="3.12")
     .apt_install("git", "ffmpeg")
