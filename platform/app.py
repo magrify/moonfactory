@@ -79,6 +79,15 @@ image = (
         ),
         "/platform/presets-index.json",
     )
+    .add_local_file(
+        str(Path(__file__).parent / "icons" / "icon-192.png"),
+        "/platform/icons/icon-192.png")
+    .add_local_file(
+        str(Path(__file__).parent / "icons" / "icon-512.png"),
+        "/platform/icons/icon-512.png")
+    .add_local_file(
+        str(Path(__file__).parent / "icons" / "icon-maskable-512.png"),
+        "/platform/icons/icon-maskable-512.png")
 )
 
 
@@ -838,10 +847,10 @@ MODEL_DURATION_STEPS = {
     # SkyReels V2's documented native lengths are exactly four
     # (SkyworkAI/SkyReels-V2 README, Single GPU Inference note,
     # read 2026-11-17: --num_frames 257 for 10 s, 377 for 15 s,
-    # 737 for 30 s, 1457 for 60 s). Menu lengths past 60 s
-    # compose from these by exact sum in the worker (45 = 15+30
-    # is also offered); 1 s and 5 s sit below its documented
-    # minimum and are not offered on this model.
+    # 737 for 30 s, 1457 for 60 s). Menu lengths past its 60 s
+    # maximum (90, 120) compose from these by exact sum in the
+    # worker, like every other model; 1 s and 5 s sit below its
+    # documented minimum and are not offered on this model.
     "skyreels": (10, 15, 30, 60),
 }
 # The length rule (Jack, 2026-11-17, refined the same day):
@@ -943,6 +952,11 @@ def longform_staged(model: str) -> bool:
 # 15 seconds except on the Seedance 2.5 family, whose docs allow
 # 30 seconds combined.
 MODEL_REF_CAPS = {
+    # Long-form house lanes take one start image and no
+    # reference media (FramePack requires the image; SkyReels
+    # V2 takes one optionally).
+    "framepack": (1, 0, 0),
+    "skyreels": (1, 0, 0),
     "seedance": (30, 10, 10),
     "seedance25_flash": (30, 10, 10),
     "seedance2": (9, 3, 3),
@@ -1113,7 +1127,10 @@ def offered_lengths(model: str) -> list:
             out.append(length)
         except ValueError:
             pass
-    return out
+    # A universal length that is also one of the model's own
+    # native lengths (FramePack's range runs to 120 s) appears
+    # once.
+    return list(dict.fromkeys(out))
 
 
 def model_display_name(model: dict) -> str:
@@ -1959,6 +1976,43 @@ def api():
     def support_page():
         return HTMLResponse(SUPPORT_HTML)
 
+    @web.get("/help", response_class=HTMLResponse)
+    def help_index():
+        return HTMLResponse(HELP_INDEX_HTML)
+
+    @web.get("/help/{slug}", response_class=HTMLResponse)
+    def help_page(slug: str):
+        page = HELP_PAGES.get(slug)
+        if not page:
+            raise HTTPException(status_code=404, detail="no such help page")
+        title, description, body = page
+        return HTMLResponse(_info_page(
+            f"Moonfactory help: {title}", description,
+            body + '\n<p><a href="/help">Back to the help center</a></p>'))
+
+    @web.post("/api/support/contact")
+    async def support_contact(request: Request):
+        """The help center contact form: email only, delivered to
+        support@magrify.com through the same Resend setup as every
+        other platform email. A honeypot field and an IP rate
+        limit stand in for a captcha on this static page."""
+        if _rate_limited("supportcontact", client_ip(request), 5):
+            raise HTTPException(status_code=429, detail="too many messages, slow down")
+        body = await request.json()
+        if body.get("website"):
+            return {"status": "sent"}
+        email = str(body.get("email") or "").strip()
+        message = str(body.get("message") or "").strip()
+        if "@" not in email or len(email) > 200 or not message or len(message) > 4000:
+            raise HTTPException(
+                status_code=422,
+                detail="a valid email and a message are required")
+        _send_email(
+            "support@magrify.com",
+            f"Moonfactory help contact from {email}",
+            f"From: {email}\n\n{message}")
+        return {"status": "sent"}
+
     @web.get("/robots.txt", response_class=PlainTextResponse)
     def robots_txt(request: Request):
         return (
@@ -1969,7 +2023,8 @@ def api():
     @web.get("/sitemap.xml")
     def sitemap_xml(request: Request):
         base = base_url(request)
-        paths = ["/", "/app", "/gallery", "/terms", "/privacy", "/support"]
+        paths = ["/", "/app", "/gallery", "/terms", "/privacy", "/support",
+                 "/help"] + [f"/help/{slug}" for slug in HELP_PAGES]
         body = "".join(f"<url><loc>{base}{x}</loc></url>" for x in paths)
         return Response(
             content='<?xml version="1.0" encoding="UTF-8"?>'
@@ -1981,6 +2036,28 @@ def api():
     @web.get("/favicon.ico")
     def favicon_ico():
         return Response(content=FAVICON_SVG, media_type="image/svg+xml")
+
+    @web.get("/manifest.webmanifest")
+    def manifest():
+        return Response(content=MANIFEST_JSON,
+                        media_type="application/manifest+json")
+
+    @web.get("/sw.js")
+    def service_worker():
+        return Response(content=SERVICE_WORKER_JS,
+                        media_type="application/javascript",
+                        headers={"Cache-Control": "no-cache"})
+
+    @web.get("/icons/{name}")
+    def icon_file(name: str):
+        if name not in ("icon-192.png", "icon-512.png",
+                        "icon-maskable-512.png"):
+            raise HTTPException(status_code=404, detail="no such icon")
+        path = Path(__file__).parent / "icons" / name
+        if not path.exists():
+            raise HTTPException(status_code=404, detail="icon missing")
+        return FileResponse(path, media_type="image/png",
+                            headers={"Cache-Control": "public, max-age=86400"})
 
     @web.get("/healthz")
     def healthz():
@@ -7620,6 +7697,14 @@ _CSS = """
   }
   *{box-sizing:border-box}
   body{font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;margin:0;color:var(--ink);background:var(--bg);-webkit-font-smoothing:antialiased}
+  /* App behavior on the web (PWA pass, 2026-11-17): no tap
+     flash, no double-tap zoom delay on controls, no pull-to-
+     refresh fighting the studio, and safe-area padding when
+     installed standalone. */
+  html{-webkit-tap-highlight-color:transparent;overscroll-behavior-y:none}
+  button,a,select,input,textarea,label{touch-action:manipulation}
+  body{padding-bottom:env(safe-area-inset-bottom)}
+  input,textarea,select{font-size:16px}
   main{max-width:960px;margin:0 auto;padding:26px 24px 90px}
   header{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
   .logo{font-weight:800;font-size:19px;letter-spacing:-.02em;text-decoration:none;color:var(--ink);display:flex;align-items:center;gap:9px}
@@ -7786,6 +7871,13 @@ NOT_FOUND_HTML = """<!DOCTYPE html>
   <p>The link may be old, or the page may have moved. The studio and the gallery are right where they should be.</p>
   <a href="/app">Open the studio</a><a class="ghost" href="/gallery">Gallery</a>
 </div>
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  });
+}
+</script>
 </body></html>"""
 
 FAVICON_SVG = (
@@ -7795,7 +7887,89 @@ FAVICON_SVG = (
     "d='M24 18.5L24 27.5L31.5 23Z'/></svg>"
 )
 
-_ICON_LINK = """<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Cpath fill='%23818cf8' d='M23.3 8A16 16 0 1 0 32.6 37.5A16.5 16.5 0 0 1 23.3 8Z'/%3E%3Cpath fill='%23f5d67a' stroke='%23f5d67a' stroke-width='1.6' stroke-linejoin='round' d='M24 18.5L24 27.5L31.5 23Z'/%3E%3C/svg%3E">"""
+_ICON_LINK = """<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Cpath fill='%23818cf8' d='M23.3 8A16 16 0 1 0 32.6 37.5A16.5 16.5 0 0 1 23.3 8Z'/%3E%3Cpath fill='%23f5d67a' stroke='%23f5d67a' stroke-width='1.6' stroke-linejoin='round' d='M24 18.5L24 27.5L31.5 23Z'/%3E%3C/svg%3E">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#0c0c0f">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Moonfactory">
+<link rel="apple-touch-icon" href="/icons/icon-192.png">"""
+
+# The PWA pass (Jack, 2026-11-17): Moonfactory is an app on the
+# web. Installable, standalone, Direction C colors, and a basic
+# offline shell for the static pages. The API is never cached.
+_PWA_HEAD = """<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#0c0c0f">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Moonfactory">
+<link rel="apple-touch-icon" href="/icons/icon-192.png">"""
+
+_PWA_SCRIPT = """<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  });
+}
+</script>"""
+
+MANIFEST_JSON = """{
+  "name": "Moonfactory",
+  "short_name": "Moonfactory",
+  "description": "Make short AI videos with sound, and images, from a prompt.",
+  "start_url": "/app",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0c0c0f",
+  "theme_color": "#0c0c0f",
+  "icons": [
+    {"src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+    {"src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+    {"src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}
+  ]
+}"""
+
+SERVICE_WORKER_JS = """// Moonfactory service worker: a basic offline shell for the
+// static pages. The API and job files are never cached: account
+// data and media always come from the network.
+const CACHE = 'moonfactory-shell-v1';
+const SHELL = ['/', '/app', '/help', '/gallery', '/favicon.ico',
+  '/manifest.webmanifest', '/icons/icon-192.png', '/icons/icon-512.png'];
+self.addEventListener('install', (event) => {
+  event.waitUntil(
+    caches.open(CACHE).then((cache) => cache.addAll(SHELL))
+      .then(() => self.skipWaiting()));
+});
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    caches.keys().then((keys) => Promise.all(
+      keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+      .then(() => self.clients.claim()));
+});
+self.addEventListener('fetch', (event) => {
+  const url = new URL(event.request.url);
+  if (event.request.method !== 'GET' || url.pathname.startsWith('/api/')) {
+    return;
+  }
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      fetch(event.request)
+        .then((resp) => {
+          const copy = resp.clone();
+          caches.open(CACHE).then((cache) => cache.put(event.request, copy));
+          return resp;
+        })
+        .catch(() => caches.match(event.request)
+          .then((hit) => hit || caches.match('/app'))));
+    return;
+  }
+  event.respondWith(
+    caches.match(event.request).then((hit) => hit || fetch(event.request)));
+});
+"""
 
 _INFO_CSS = """
 <style>
@@ -7812,7 +7986,7 @@ _INFO_HEADER = """<header>
   <nav><a href="/gallery">Gallery</a><a href="/app">Studio</a></nav>
 </header>"""
 
-_INFO_FOOTER = """<footer><span>Moonfactory</span><span><a href="/terms">Terms</a> &nbsp;<a href="/privacy">Privacy</a> &nbsp;<a href="/support">Support</a></span></footer>"""
+_INFO_FOOTER = """<footer><span>Moonfactory</span><span><a href="/help">Help</a> &nbsp;<a href="/terms">Terms</a> &nbsp;<a href="/privacy">Privacy</a> &nbsp;<a href="/support">Support</a></span></footer>"""
 
 
 def _info_page(title: str, description: str, body: str) -> str:
@@ -7828,12 +8002,14 @@ def _info_page(title: str, description: str, body: str) -> str:
         + _CSS
         + _INFO_CSS
         + _ICON_LINK
+        + _PWA_HEAD
         + "\n</head><body><main>\n"
         + _INFO_HEADER
         + '\n<div class="legal">\n'
         + body
         + "\n</div>\n</main>\n"
         + _INFO_FOOTER
+        + _PWA_SCRIPT
         + "\n</body></html>"
     )
 
@@ -8035,6 +8211,301 @@ service</a>.</p>
 )
 
 
+# The help center (Jack, 2026-11-17): plain guides, one page per
+# topic, contact by email only. No em dashes in this copy.
+HELP_PAGES = {
+    "getting-started": (
+        "Getting started",
+        "How Moonfactory works: sign up, your free clips, and your first video.",
+        """
+<h1 style="font-size:34px">Getting started</h1>
+<p>Moonfactory makes short AI videos with sound from a prompt and,
+if you want one, a start image. Five things, in order:</p>
+<ol>
+<li><strong>Start image (optional).</strong> Upload a picture, or
+describe one and we make it, or skip it and write text only.</li>
+<li><strong>Prompt.</strong> Say what happens in the video.</li>
+<li><strong>Model.</strong> Pick how it gets made. The built-in
+Wan 2.2 lane is the free one; the rest open with any payment.</li>
+<li><strong>Length.</strong> Pick how long. Every model starts at
+its own shortest clip.</li>
+<li><strong>Create.</strong> The exact price shows on the button
+before anything runs.</li>
+</ol>
+<h2>Your account</h2>
+<p>You need an account, with a verified email, before anything
+runs. The free tier is 5 clips per account, total, and it does not
+refill. Any payment, the Creator plan or a one-time top-up, opens
+the full studio: every model, longer videos, images, characters,
+and the rest of this help center.</p>
+<h2>Your library</h2>
+<p>Everything you make lands in your library in the studio, ready
+to download. Clips are public in the <a href="/gallery">gallery</a>
+by default, under your handle only. Paying customers can opt out,
+and you can delete your own clips at any time.</p>
+<p>Next: <a href="/help/pricing">how pricing and billing work</a>.</p>
+""",
+    ),
+    "pricing": (
+        "Pricing and billing",
+        "What Moonfactory costs: the Creator plan, top-ups, per-second pricing, and refunds.",
+        """
+<h1 style="font-size:34px">Pricing and billing</h1>
+<h2>The short version</h2>
+<ul>
+<li>The free tier is 5 clips per account, total.</li>
+<li>The Creator plan is $20 a month and opens everything, with an
+included monthly budget for the built-in lane.</li>
+<li>Top-ups are one-time balance: $5, $10, or $20. Balance never
+expires.</li>
+<li>Frontier models are priced per second of video. The exact
+price for your exact settings shows on the Create button before
+anything runs.</li>
+</ul>
+<h2>How a price is set</h2>
+<p>Each model runs on the cheapest route we have verified for it,
+and your price is that route's cost plus a small markup. You are
+never charged more than the price you saw. If a job fails, the
+charge comes back in full. If a job delivers less than it quoted,
+you are charged for what was delivered, never more.</p>
+<h2>The ceiling</h2>
+<p>An account is never served more generation cost than it has
+paid in. That rule runs before anything is dispatched, so a job
+that would cross it simply asks you to top up first.</p>
+<h2>Images and characters</h2>
+<p>Images are priced per image, shown on the button the same way.
+Training a character is one flat charge, shown before it starts,
+and refunded in full if the training does not finish.</p>
+<h2>Refunds and receipts</h2>
+<p>Payments run through Stripe. We can see purchases and balances,
+never your full card number. For a payment question, email
+<a href="mailto:support@magrify.com">support@magrify.com</a> with
+the date and amount on your Stripe receipt.</p>
+""",
+    ),
+    "lengths": (
+        "Lengths and segments",
+        "How video lengths work on Moonfactory: real model lengths, and segments for longer videos.",
+        """
+<h1 style="font-size:34px">Lengths and segments</h1>
+<p>Every model offers every length, starting at its own shortest
+clip. Longer than one single clip, your video is made in segments
+and joined into one finished video. Longer videos are priced per
+second across the segments, exactly like separate clips.</p>
+<h2>Why models start at different lengths</h2>
+<p>Each model makes clips in its own real lengths, and the picker
+shows exactly those. One model might make 4, 6, or 8 second clips
+and nothing between; another makes any whole second from 4 to 30.
+Nothing is padded and nothing is trimmed: the length you pick is
+the length you get.</p>
+<h2>Longer videos</h2>
+<p>Past a model's longest single clip, the standard longer lengths
+(45, 60, 90, and 120 seconds) are made in segments. Each segment
+starts from the last frame of the one before it, so the finished
+video plays as one piece. A segment that fails partway still
+delivers the finished part, charged for what was made.</p>
+<h2>The built-in lane</h2>
+<p>The built-in Wan 2.2 lane works in segments of about 5 seconds
+each, up to 12 segments. Pick the number of segments and the price
+follows the total length, the same rule as every other model.</p>
+""",
+    ),
+    "audio": (
+        "Audio and lip sync",
+        "Music, spoken lines, voiceover, and how lip sync works on Moonfactory.",
+        """
+<h1 style="font-size:34px">Audio and lip sync</h1>
+<h2>Sound on everything</h2>
+<p>Every video is delivered with sound. Two fields in More options
+shape it:</p>
+<ul>
+<li><strong>Music prompt:</strong> describe the music and mood,
+and a music bed is made alongside your video.</li>
+<li><strong>Spoken line:</strong> the words a voice should say in
+the video.</li>
+</ul>
+<h2>Talking and lip sync</h2>
+<p>Some models speak natively: the voice and the picture are made
+together, so the mouth already matches. On models that do not
+speak, a voiceover is made from your spoken line, and lip sync is
+applied automatically so the mouth on screen matches the words.
+Lip sync is built in, never an add-on: whenever a job carries
+speech, the quote already includes it.</p>
+<h2>Dubbing</h2>
+<p>The same rule covers dubbing: the voice track is your spoken
+line, and the mouth is matched to it. One honest limit: the voice
+is a generated voice. Moonfactory does not clone a real person's
+voice.</p>
+<h2>If audio fails</h2>
+<p>Audio problems never block the video. If a voiceover or the lip
+sync cannot be made, the video still delivers, the job is marked
+so you can see what happened, and support can check the record.</p>
+""",
+    ),
+    "characters": (
+        "Characters",
+        "Save a character once and reuse it across videos, with optional training.",
+        """
+<h1 style="font-size:34px">Characters</h1>
+<p>A character is a saved identity: a name plus reference images,
+saved once in More options and reused on any job.</p>
+<h2>Using a character</h2>
+<p>Pick the character in More options before you create. Its first
+image becomes the video's start image when the job has none, and
+its images ride as references on the models that take references,
+so the same face shows up from video to video.</p>
+<h2>Training</h2>
+<p>With 10 reference images saved, you can train the character.
+Training is one flat charge, shown on the button before it starts,
+and it locks the identity in much harder than references alone.
+It runs in the background; the character shows as trained when it
+is ready. If training does not finish, the charge is refunded in
+full.</p>
+<h2>Limits</h2>
+<p>Up to 5 characters per account, up to 10 images each. Use
+images you have the right to use.</p>
+""",
+    ),
+    "motion-transfer": (
+        "Motion transfer",
+        "Copy the motion from a reference video onto your subject image.",
+        """
+<h1 style="font-size:34px">Motion transfer</h1>
+<p>Motion transfer takes two things: a subject image, and a short
+video whose motion you want to copy. Your subject performs that
+video's motion.</p>
+<h2>How to run it</h2>
+<ol>
+<li>Pick the Wan Motion model.</li>
+<li>Add your subject as the start image.</li>
+<li>In More options, paste the motion video's link and its length
+in seconds (2 to 30).</li>
+<li>Create. The result follows the motion video's length, and the
+price follows that length like any other video.</li>
+</ol>
+<h2>Tips</h2>
+<p>Clear, full-body motion in the reference video copies best.
+The subject image should show the whole subject, facing the
+camera, in good light.</p>
+""",
+    ),
+    "images": (
+        "Images",
+        "The image shelf: a few of the best image models, priced per image.",
+        """
+<h1 style="font-size:34px">Images</h1>
+<p>The studio has two modes, Video and Image, at the top of the
+composer. Image mode is the same five things: a prompt, a model,
+a size, one button with the price on it.</p>
+<h2>The shelf</h2>
+<p>The shelf is small on purpose: a few of the best image models,
+not a wall of them. It carries the current Nano Banana models,
+OpenAI's current image model, the built-in Moonfactory image
+maker, and a few uncensored variants, marked with a dollar-sign
+tier so the price class is clear before you pick.</p>
+<h2>Pricing</h2>
+<p>Images are priced per image at the size you pick. The charge
+lands only when your image is delivered; if it fails, the charge
+comes back in full.</p>
+<h2>Use an image in a video</h2>
+<p>Every image you make is saved in your library. From the result,
+one click attaches it as the start image of a new video.</p>
+""",
+    ),
+    "faq": (
+        "FAQ",
+        "Quick answers about Moonfactory: free clips, refunds, the gallery, and 4K.",
+        """
+<h1 style="font-size:34px">FAQ</h1>
+<h2>How many free clips do I get?</h2>
+<p>5 per account, total. They do not refill. Any payment opens the
+full studio.</p>
+<h2>What happens if my video fails?</h2>
+<p>The charge comes back in full. If a long video fails partway,
+the finished segments still deliver and you are charged only for
+what was made.</p>
+<h2>Is my video public?</h2>
+<p>By default, yes, in the gallery, under your handle only.
+Paying customers can opt out in the studio, and you can delete
+your own clips at any time. Anyone can report a clip from its
+gallery page.</p>
+<h2>Which models make real 4K?</h2>
+<p>Only the ones that list a 4K size, and only where the model
+genuinely publishes and delivers it. If a model tops out at 1080p,
+its picker says so. Nothing is labeled 4K that is not 4K.</p>
+<h2>How long can a video be?</h2>
+<p>Up to 120 seconds on most models, made in segments past the
+model's longest single clip. See
+<a href="/help/lengths">lengths and segments</a>.</p>
+<h2>Can I use my videos commercially?</h2>
+<p>The terms of service cover what you can do with what you make:
+<a href="/terms">terms</a>.</p>
+<h2>How do I reach a person?</h2>
+<p>Email <a href="mailto:support@magrify.com">support@magrify.com</a>.
+Support answers the same business day.</p>
+""",
+    ),
+}
+
+HELP_INDEX_HTML = _info_page(
+    "Moonfactory help center",
+    "Guides and answers for Moonfactory: getting started, pricing, lengths, audio, characters, motion transfer, and images.",
+    """
+<h1 style="font-size:34px">Help center</h1>
+<p>Plain guides, one page per topic. If you cannot find your
+answer, email us: contact is email only for now, and support
+answers the same business day.</p>
+<ul>
+<li><a href="/help/getting-started">Getting started</a>: accounts,
+free clips, and your first video.</li>
+<li><a href="/help/pricing">Pricing and billing</a>: plans,
+top-ups, per-second pricing, and refunds.</li>
+<li><a href="/help/lengths">Lengths and segments</a>: how lengths
+work, and how longer videos are joined.</li>
+<li><a href="/help/audio">Audio and lip sync</a>: music, spoken
+lines, voiceover, and dubbing.</li>
+<li><a href="/help/characters">Characters</a>: save an identity
+once, reuse it, train it.</li>
+<li><a href="/help/motion-transfer">Motion transfer</a>: copy a
+video's motion onto your subject.</li>
+<li><a href="/help/images">Images</a>: the image shelf and
+per-image pricing.</li>
+<li><a href="/help/faq">FAQ</a>: the quick answers.</li>
+</ul>
+<h2>Contact support</h2>
+<p>Email <a href="mailto:support@magrify.com">support@magrify.com</a>,
+or use this form and it lands in the same inbox.</p>
+<form id="help-contact" style="max-width:520px">
+<label>Your email</label>
+<input id="hc-email" type="email" maxlength="200" required>
+<label>Message</label>
+<textarea id="hc-message" rows="5" maxlength="4000" required></textarea>
+<input id="hc-website" type="text" style="display:none" tabindex="-1" autocomplete="off">
+<p><button class="btn" id="hc-send" type="submit">Send</button></p>
+<p id="hc-note"></p>
+</form>
+<script>
+document.getElementById('help-contact').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const note = document.getElementById('hc-note');
+  note.textContent = 'Sending...';
+  try {
+    const r = await fetch('/api/support/contact', { method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ email: document.getElementById('hc-email').value,
+        message: document.getElementById('hc-message').value,
+        website: document.getElementById('hc-website').value }) });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.detail || 'send failed');
+    note.textContent = 'Sent. Support answers the same business day.';
+    document.getElementById('hc-message').value = '';
+  } catch (err) { note.textContent = 'Could not send: ' + err.message + '. Email support@magrify.com instead.'; }
+});
+</script>
+""",
+)
+
+
 INDEX_HTML = (
     """<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -8045,6 +8516,13 @@ INDEX_HTML = (
 <meta property="og:type" content="website">"""
     + _CSS
     + """<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Cpath fill='%23818cf8' d='M23.3 8A16 16 0 1 0 32.6 37.5A16.5 16.5 0 0 1 23.3 8Z'/%3E%3Cpath fill='%23f5d67a' stroke='%23f5d67a' stroke-width='1.6' stroke-linejoin='round' d='M24 18.5L24 27.5L31.5 23Z'/%3E%3C/svg%3E">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#0c0c0f">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Moonfactory">
+<link rel="apple-touch-icon" href="/icons/icon-192.png">
 </head><body><main>
 __LANDING_TOP__
 
@@ -8055,7 +8533,7 @@ __LANDING_TOP__
 <span id="creator-price">$20</span>/mo with an included budget. &nbsp;<b>Pay per clip</b>:
 the exact price is on the button before anything runs. No credits, no conversion math.</p>
 </main>
-<footer><span>Moonfactory</span><span><a href="/gallery">Gallery</a> &nbsp;<a href="/terms">Terms</a> &nbsp;<a href="/privacy">Privacy</a> &nbsp;<a href="/support">Support</a></span></footer>
+<footer><span>Moonfactory</span><span><a href="/gallery">Gallery</a> &nbsp;<a href="/help">Help</a> &nbsp;<a href="/terms">Terms</a> &nbsp;<a href="/privacy">Privacy</a> &nbsp;<a href="/support">Support</a></span></footer>
 <script>
 document.getElementById('hero-go').onclick = () => {
   const v = document.getElementById('hero-prompt').value.trim();
@@ -8091,6 +8569,13 @@ fetch('/api/pricing').then(r => r.json()).then(p => {
   }
 }).catch(() => {});
 </script>
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  });
+}
+</script>
 </body></html>"""
 )
 
@@ -8105,6 +8590,13 @@ APP_HTML = (
 <meta property="og:type" content="website">"""
     + _CSS
     + """<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Cpath fill='%23818cf8' d='M23.3 8A16 16 0 1 0 32.6 37.5A16.5 16.5 0 0 1 23.3 8Z'/%3E%3Cpath fill='%23f5d67a' stroke='%23f5d67a' stroke-width='1.6' stroke-linejoin='round' d='M24 18.5L24 27.5L31.5 23Z'/%3E%3C/svg%3E">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#0c0c0f">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Moonfactory">
+<link rel="apple-touch-icon" href="/icons/icon-192.png">
 <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
 </head><body><main>
 <header>
@@ -8449,7 +8941,7 @@ APP_HTML = (
   </div>
 </div>
 </main>
-<footer><span>Moonfactory</span><span><a href="/gallery">Gallery</a> &nbsp;<a href="/terms">Terms</a> &nbsp;<a href="/privacy">Privacy</a> &nbsp;<a href="/support">Support</a></span></footer>
+<footer><span>Moonfactory</span><span><a href="/gallery">Gallery</a> &nbsp;<a href="/help">Help</a> &nbsp;<a href="/terms">Terms</a> &nbsp;<a href="/privacy">Privacy</a> &nbsp;<a href="/support">Support</a></span></footer>
 <script>
 const $ = id => document.getElementById(id);
 let cfg = { pow_required: true, pow_difficulty_bits: 18, turnstile_site_key: null };
@@ -8948,7 +9440,12 @@ const MODEL_OPTS = {
   wan26_unc: { durations: LENGTHS, resolutions: ['720p', '1080p'] },
   wan27_unc: { durations: LENGTHS, resolutions: ['720p', '1080p'] },
   wan3pro_unc: { durations: LENGTHS, resolutions: ['1080p', '2K', '4K'] },
-  wan_motion: { durations: LENGTHS, resolutions: ['720p'] }
+  wan_motion: { durations: LENGTHS, resolutions: ['720p'] },
+  // Long-form house lanes: lengths come from /api/config (each
+  // model's real offered lengths); they run at their native
+  // resolution, so there is no resolution choice.
+  framepack: { durations: LENGTHS, resolutions: [] },
+  skyreels: { durations: LENGTHS, resolutions: [] }
 };
 function fillSelect(sel, values, label) {
   const keep = sel.value;
@@ -9049,9 +9546,15 @@ function updateModelUI() {
   $('api-opts').style.display = api ? '' : 'none';
   $('motion-opts').style.display = m === 'wan_motion' ? '' : 'none';
   $('length-api').style.display = (api && m !== 'wan_motion') ? '' : 'none';
+  const longform = m === 'framepack' || m === 'skyreels';
+  if (longform) $('resolution-wrap').style.display = 'none';
   if (api) {
     const entry = ((catalogCfg && catalogCfg.models) || []).find(x => x.id === m);
-    if (m === 'wan_motion') {
+    if (m === 'framepack') {
+      $('model-note').textContent = 'FramePack animates one start image into a long video: add your image above and describe the motion. It makes up to 2 minutes in a single job, and long jobs take a while to render.';
+    } else if (m === 'skyreels') {
+      $('model-note').textContent = 'SkyReels V2 makes 10 seconds to 2 minutes, from text or from a start image. Past 1 minute the video is made in segments and joined into one finished video.';
+    } else if (m === 'wan_motion') {
       $('model-note').textContent = 'Motion transfer: add a subject image above, then paste a motion video link in More options. The result follows the motion video\u2019s length.';
     } else if (entry && entry.ref_caps) {
       const c = entry.ref_caps;
@@ -9152,7 +9655,9 @@ $('create').onclick = async () => {
       body: JSON.stringify(jobBody) });
     msg('job-msg', model === 'wan2.2'
       ? 'Job queued. Draft renders take roughly 6 to 13 minutes; production about 25.'
-      : 'Job queued. This model usually finishes in a few minutes.', 'ok');
+      : (model === 'framepack' || model === 'skyreels')
+        ? 'Job queued. Long videos render segment by segment and can take a while; it will appear here when it is done.'
+        : 'Job queued. This model usually finishes in a few minutes.', 'ok');
     loadJobs();
   } catch (e) { msg('job-msg', e.message, 'err'); }
 };
@@ -9501,6 +10006,13 @@ if (new URLSearchParams(location.search).get('verified')) {
 }
 refreshMe();
 </script>
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  });
+}
+</script>
 </body></html>"""
 )
 
@@ -9515,6 +10027,13 @@ GALLERY_HTML = (
 <meta property="og:type" content="website">"""
     + _CSS
     + """<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Cpath fill='%23818cf8' d='M23.3 8A16 16 0 1 0 32.6 37.5A16.5 16.5 0 0 1 23.3 8Z'/%3E%3Cpath fill='%23f5d67a' stroke='%23f5d67a' stroke-width='1.6' stroke-linejoin='round' d='M24 18.5L24 27.5L31.5 23Z'/%3E%3C/svg%3E">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#0c0c0f">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Moonfactory">
+<link rel="apple-touch-icon" href="/icons/icon-192.png">
 </head><body><main>
 <header>
   <a class="logo" href="/"><svg width="27" height="27" viewBox="0 0 48 48" aria-hidden="true"><path fill="#818cf8" d="M23.3 8A16 16 0 1 0 32.6 37.5A16.5 16.5 0 0 1 23.3 8Z"/><path fill="#f5d67a" stroke="#f5d67a" stroke-width="1.6" stroke-linejoin="round" d="M24 18.5L24 27.5L31.5 23Z"/></svg><span>Moon<em>factory</em></span></a>
@@ -9529,7 +10048,7 @@ GALLERY_HTML = (
 </div>
 <div class="grid" id="items"><p class="muted">Loading...</p></div>
 </main>
-<footer><span>Moonfactory</span><span><a href="/app">Studio</a> &nbsp;<a href="/terms">Terms</a> &nbsp;<a href="/privacy">Privacy</a> &nbsp;<a href="/support">Support</a></span></footer>
+<footer><span>Moonfactory</span><span><a href="/app">Studio</a> &nbsp;<a href="/help">Help</a> &nbsp;<a href="/terms">Terms</a> &nbsp;<a href="/privacy">Privacy</a> &nbsp;<a href="/support">Support</a></span></footer>
 <script>
 async function loadGallery() {
   const box = document.getElementById('items');
@@ -9571,6 +10090,13 @@ async function loadGallery() {
   }
 }
 loadGallery();
+</script>
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  });
+}
 </script>
 </body></html>"""
 )
