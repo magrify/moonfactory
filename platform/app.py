@@ -429,18 +429,6 @@ MODELS = [
     {"id": "wan3", "label": "Wan 3.0", "paid_only": True},
     {"id": "wan3_prime", "label": "Wan 3.0 Prime", "paid_only": True},
     {"id": "wan_motion", "label": "Wan Motion", "paid_only": True},
-    # Long-form house lanes (2026-11-17): the platform's own
-    # worker runs FramePack and SkyReels V2, the same class as
-    # the house Wan 2.2 lane. Their single jobs run far past
-    # every commercial model's segment maximum (FramePack's
-    # documented range is 1-120 s in one job; SkyReels V2's
-    # documented native lengths are 10/15/30/60 s, chained past
-    # 60 s like every other model). Both stay unavailable until
-    # their weights are staged on the worker volume (see
-    # HOUSE_LONGFORM_MODELS and the spend-gated staging jobs in
-    # framepack-skyreels-2026-11-17.md).
-    {"id": "framepack", "label": "FramePack", "paid_only": True},
-    {"id": "skyreels", "label": "SkyReels V2", "paid_only": True},
     {"id": "seedance", "label": "Seedance 2.5", "paid_only": True},
     {"id": "veo3", "label": "Veo 3.1", "paid_only": True},
     {"id": "veo3_fast", "label": "Veo 3.1 Fast", "paid_only": True},
@@ -507,10 +495,6 @@ DEFAULT_MODEL = "wan2.2"
 # the uncensored flag on the LLM provider group (llm_providers.py).
 UNCENSORED_VIDEO_MODELS = (
     "wan2.2",
-    # The long-form house lanes run open weights on the
-    # platform's own worker, like the house Wan 2.2 lane: no
-    # provider moderation layer exists on them.
-    "framepack", "skyreels",
     # Uncensored builds wired 2026-11-17: hosted lanes whose
     # supplier adds no refusal layer in front of the model.
     "wan22_unc", "wan3_unc", "minimax_h3_unc", "seedance25_unc",
@@ -649,10 +633,6 @@ def provider_for(model: str, resolution: str = None) -> str:
 LANE_AUDIO = {
     "wan2.2": {"native_speech": False, "native_audio": False,
                "note": "house model is silent; music bed and the voiceover path run in post"},
-    "framepack": {"native_speech": False, "native_audio": False,
-                  "note": "house model is silent; music bed and the voiceover path run in post"},
-    "skyreels": {"native_speech": False, "native_audio": False,
-                 "note": "house model is silent; music bed and the voiceover path run in post"},
     "wan3": {"native_speech": False, "native_audio": True,
              "note": "native audio is music/SFX-led; speech is not reliable"},
     "wan3_prime": {"native_speech": False, "native_audio": True,
@@ -772,11 +752,6 @@ API_POLL_PROVIDERS = (
 # 3-30; these narrow it to what each model actually accepts).
 MODEL_DURATION_BOUNDS = {
     "wan_motion": (2, 30),
-    # FramePack's documented native range is 1-120 s in one
-    # job (the maker's demo UI slider, lllyasviel/FramePack
-    # demo_gradio.py, read 2026-11-17): every menu length is a
-    # single native generation on this lane, nothing chained.
-    "framepack": (1, 120),
     "seedance": (4, 30),
     "veo3": (4, 8),
     "veo3_fast": (4, 8),
@@ -850,14 +825,6 @@ MODEL_DURATION_STEPS = {
     "wan26_unc": (5, 10, 15),
     "wan27_unc": (5, 10, 15),
     "wan3pro_unc": (5, 10, 15, 20, 25, 30),
-    # SkyReels V2's documented native lengths are exactly four
-    # (SkyworkAI/SkyReels-V2 README, Single GPU Inference note,
-    # read 2026-11-17: --num_frames 257 for 10 s, 377 for 15 s,
-    # 737 for 30 s, 1457 for 60 s). Menu lengths past its 60 s
-    # maximum (90, 120) compose from these by exact sum in the
-    # worker, like every other model; 1 s and 5 s sit below its
-    # documented minimum and are not offered on this model.
-    "skyreels": (10, 15, 30, 60),
 }
 # The length rule (Jack, 2026-11-17, refined the same day):
 # the picker lists each model's REAL native lengths, never a
@@ -888,58 +855,6 @@ UNIVERSAL_LONG_LENGTHS = (45, 60, 90, 120)
 # Runway image_to_video, the image-only SpicyAPI builds,
 # HotAPI image_url, Wiro inputImage).
 CHAIN_CONTINUATION_MODELS = PER_SECOND_MODELS
-# SkyReels V2 chains too, but inside the house worker (its
-# segments continue from the previous segment's last frames,
-# the model's own documented continuation mode), so it joins
-# the continuation set semantically even though its jobs never
-# pass through the per-second submit path.
-CHAIN_CONTINUATION_MODELS = CHAIN_CONTINUATION_MODELS + ("skyreels",)
-
-
-# ---------------------------------------------------------------------------
-# Long-form house lanes (2026-11-17): FramePack and SkyReels V2
-# run on the platform's own worker (lanes "framepack" and
-# "skyreels" in modal-worker/app.py), priced per second at the
-# house margin (pricing.longform_estimate). A lane is orderable
-# only once its weights are staged on the shared models volume:
-# the worker's staging step writes a STAGED.json marker the
-# platform checks here, so the lanes stay dark (listed in the
-# menu, marked unavailable) until the spend-gated staging jobs
-# are approved and run. Research and the held staging jobs:
-# framepack-skyreels-2026-11-17.md.
-# ---------------------------------------------------------------------------
-HOUSE_LONGFORM_MODELS = {
-    "framepack": {
-        "worker_lane": "framepack",
-        "fps": 30,
-        # FramePack's official release is image-to-video only:
-        # one start image plus a motion prompt.
-        "requires_start_image": True,
-    },
-    "skyreels": {
-        "worker_lane": "skyreels",
-        "fps": 24,
-        "requires_start_image": False,
-    },
-}
-
-LONGFORM_MODELS_MOUNT = "/worker-models"
-
-
-def longform_staged(model: str) -> bool:
-    """True once the worker volume carries this lane's staged
-    weights marker. The platform mounts the same volume the
-    worker stages onto, so the check is a plain file test; any
-    error reads as not staged (dark-safe)."""
-    try:
-        return (
-            Path(LONGFORM_MODELS_MOUNT)
-            / HOUSE_LONGFORM_MODELS[model]["worker_lane"]
-            / "STAGED.json"
-        ).is_file()
-    except Exception:
-        return False
-
 
 # Per-lane reference caps (images, videos, audios), raised from
 # the old flat platform cap to what each model actually supports
@@ -958,11 +873,6 @@ def longform_staged(model: str) -> bool:
 # 15 seconds except on the Seedance 2.5 family, whose docs allow
 # 30 seconds combined.
 MODEL_REF_CAPS = {
-    # Long-form house lanes take one start image and no
-    # reference media (FramePack requires the image; SkyReels
-    # V2 takes one optionally).
-    "framepack": (1, 0, 0),
-    "skyreels": (1, 0, 0),
     "seedance": (30, 10, 10),
     "seedance25_flash": (30, 10, 10),
     "seedance2": (9, 3, 3),
@@ -1143,8 +1053,7 @@ def offered_lengths(model: str) -> list:
         except ValueError:
             pass
     # A universal length that is also one of the model's own
-    # native lengths (FramePack's range runs to 120 s) appears
-    # once.
+    # native lengths appears once.
     return list(dict.fromkeys(out))
 
 
@@ -2091,11 +2000,6 @@ def api():
         customer per-second price (the price-paused lanes)."""
         if model_id == DEFAULT_MODEL:
             return pricing.JOB_PRICE_CENTS["production"] / 5.0
-        if model_id in HOUSE_LONGFORM_MODELS:
-            # Long-form house lanes price per second at the house
-            # margin; the rate is ESTIMATE-based until each lane's
-            # benchmark render lands (pricing.py).
-            return pricing.longform_sell_rate_cents_per_second(model_id)
         rates = (table.get("rates") or {}).get(model_id) or {}
         sells = []
         for res in rates:
@@ -2159,15 +2063,9 @@ def api():
                 # these, starting at the model's shortest clip.
                 "lengths": (
                     offered_lengths(m["id"])
-                    if m["id"] in PER_SECOND_MODELS
-                    or m["id"] in HOUSE_LONGFORM_MODELS else []),
-                # Long-form house lanes are available only once
-                # their weights are staged on the worker volume
-                # (spend-gated staging; see HOUSE_LONGFORM_MODELS).
+                    if m["id"] in PER_SECOND_MODELS else []),
                 "available": (
-                    longform_staged(m["id"])
-                    if m["id"] in HOUSE_LONGFORM_MODELS
-                    else True if m["id"] == DEFAULT_MODEL
+                    True if m["id"] == DEFAULT_MODEL
                     else not api_lane_state(m["id"])["paused"]
                 ),
             }
@@ -3248,59 +3146,6 @@ def api():
                         job["partial"] = True
                         job["partial_error"] = remote.get("partial_error")
                     if (job["status"] == "done" and job.get("partial")
-                            and job.get("model") in HOUSE_LONGFORM_MODELS
-                            and not job.get("partial_settled")):
-                        # Long-form partial delivery: the finished
-                        # segments deliver as one shorter video and
-                        # the undelivered seconds refund at the
-                        # per-second rates the job was charged at
-                        # (Rule 8, per-second form).
-                        job["partial_settled"] = True
-                        plan = job.get("plan_segments") or []
-                        done_segs = int(job.get("segments_done") or 0)
-                        delivered = float(sum(plan[:done_segs]))
-                        missing_seconds = max(
-                            0.0,
-                            float(job.get("duration_seconds") or 0) - delivered)
-                        if missing_seconds > 0:
-                            owner = users.get(f"id:{job['user_id']}")
-                            raw_back = float(
-                                job.get("lf_raw_per_second") or 0) * missing_seconds
-                            if job.get("charged_cents"):
-                                refund = min(
-                                    int(job["charged_cents"]),
-                                    int(round(float(
-                                        job.get("lf_charge_per_second") or 0)
-                                        * missing_seconds)))
-                                if refund > 0 and owner:
-                                    owner["balance_cents"] = (
-                                        int(owner.get("balance_cents", 0))
-                                        + refund)
-                                job["charged_cents"] = (
-                                    int(job["charged_cents"]) - refund)
-                            if job.get("included_cost_cents"):
-                                if owner:
-                                    u = usage(owner)
-                                    u["included_cost_cents"] = max(
-                                        0.0, included_cost_used(owner)
-                                        - raw_back)
-                                    owner["usage"] = u
-                                job["included_cost_cents"] = max(
-                                    0.0, float(job["included_cost_cents"])
-                                    - raw_back)
-                            if job.get("cost_cents"):
-                                if owner:
-                                    owner["cost_settled_cents"] = max(
-                                        0.0,
-                                        float(owner.get(
-                                            "cost_settled_cents") or 0.0)
-                                        - raw_back)
-                                job["cost_cents"] = max(
-                                    0.0, float(job["cost_cents"]) - raw_back)
-                            if owner:
-                                save_user(owner)
-                    if (job["status"] == "done" and job.get("partial")
-                            and job.get("model") not in HOUSE_LONGFORM_MODELS
                             and not job.get("partial_settled")):
                         # Rule 8, stated behavior for a mid-chain
                         # failure: the completed segments deliver as
@@ -3696,62 +3541,6 @@ def api():
             "payment": payment,
         }
 
-    def _longform_quote(user: dict, model: str, body: dict) -> dict:
-        """The quote for a long-form house-lane job (FramePack,
-        SkyReels V2): per-second pricing at the house margin over
-        the plan's generated seconds, in the same shape the
-        per-second lanes return. The lane reads as paused until
-        its weights are staged on the worker volume."""
-        try:
-            requested = int(body.get("duration_seconds") or 0)
-        except (TypeError, ValueError):
-            raise HTTPException(
-                status_code=422, detail="duration_seconds must be a whole number")
-        try:
-            plan = duration_plan(model, requested)
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc))
-        speech_script = (body.get("speech_script") or "").strip() or None
-        est = pricing.longform_estimate(
-            model, plan["generated_seconds"], owner=is_owner(user),
-            lip_sync=lip_sync_applies(model, speech_script),
-        )
-        remaining = included_budget_remaining(user)
-        ceiling_ok = ceiling_allows(user, est["cap_raw_cents"])
-        if user["plan"] == "creator" and remaining >= est["cap_raw_cents"]:
-            payment = {
-                "method": "included",
-                "included_debit_cents": round(est["raw_cost_cents"], 2),
-                "included_budget_remaining_cents": round(remaining, 2),
-            }
-        elif int(user.get("balance_cents", 0)) >= est["cap_balance_cents"]:
-            payment = {
-                "method": "balance",
-                "charge_cents": est["balance_debit_cents"],
-            }
-        else:
-            payment = {
-                "method": "insufficient",
-                "charge_cents": est["balance_debit_cents"],
-                "balance_cents": int(user.get("balance_cents", 0)),
-            }
-        return {
-            "model": model,
-            "model_label": MODEL_LABELS[model],
-            "duration_seconds": plan["requested"],
-            "generated_seconds": plan["generated_seconds"],
-            "segments": len(plan["segments"]),
-            "aspect_ratio": body.get("aspect_ratio") or "9:16",
-            "billed_seconds": est["billed_seconds"],
-            "raw_cost_cents": round(est["raw_cost_cents"], 2),
-            "balance_debit_cents": est["balance_debit_cents"],
-            "cap_cents": round(est["cap_raw_cents"], 2),
-            "lane_paused": not longform_staged(model),
-            "ceiling_ok": ceiling_ok,
-            "audio": lane_audio(model),
-            "payment": payment,
-        }
-
     @web.post("/api/jobs/quote")
     async def quote_job(request: Request, mf_session: str = Cookie(default="")):
         user = require_user(request, mf_session)
@@ -3763,10 +3552,6 @@ def api():
             if not is_paid(user):
                 raise HTTPException(status_code=403, detail="model switching is a paid feature")
             return _quote_for(user, model, _api_job_params(body, model))
-        if model in HOUSE_LONGFORM_MODELS:
-            if not is_paid(user):
-                raise HTTPException(status_code=403, detail="model switching is a paid feature")
-            return _longform_quote(user, model, body)
         return {
             "model": model,
             "model_label": MODEL_LABELS[model],
@@ -5379,171 +5164,6 @@ def api():
         return job
 
 
-    def create_longform_job(user: dict, body: dict, model: str,
-                            prompt: str, music_prompt: str,
-                            camera: dict = None, speech_script: str = "",
-                            speech_voice: str = "", start_image=None,
-                            aspect: str = "9:16", segments: int = 1,
-                            end_image=None, effect_id=None):
-        """A long-form house-lane job (FramePack, SkyReels V2):
-        priced per second at the house margin, dispatched to the
-        platform's own worker like a Wan 2.2 job, and finished by
-        the same pipeline (music bed, voiceover, built-in lip
-        sync). Accounting follows the house model: the charge
-        lands at creation, and mirror_status refunds the
-        undelivered seconds if a chained job delivers partial.
-        The lane refuses cleanly until its weights are staged."""
-        spec = HOUSE_LONGFORM_MODELS[model]
-        if effect_id:
-            raise HTTPException(
-                status_code=422, detail="effects run on Wan 2.2")
-        if (camera or {}).get("camera_presets") or (camera or {}).get("camera_look"):
-            raise HTTPException(
-                status_code=422,
-                detail="camera presets do not run on the long-form lanes")
-        if end_image:
-            raise HTTPException(
-                status_code=422,
-                detail="the long-form lanes do not take an end image")
-        if segments != 1:
-            raise HTTPException(
-                status_code=422,
-                detail="long-form jobs take their length from duration_seconds")
-        if spec["requires_start_image"] and not start_image:
-            raise HTTPException(
-                status_code=422,
-                detail="FramePack needs a start image: it animates one image into a long video")
-        try:
-            requested = int(body.get("duration_seconds") or 0)
-        except (TypeError, ValueError):
-            raise HTTPException(
-                status_code=422, detail="duration_seconds must be a whole number")
-        try:
-            plan = duration_plan(model, requested)
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc))
-        if not longform_staged(model):
-            # Weights not staged yet (the staging jobs are
-            # spend-gated): the clean public sentence, no charge.
-            raise HTTPException(status_code=503, detail=MODEL_UNAVAILABLE)
-        generated = plan["generated_seconds"]
-        est = pricing.longform_estimate(
-            model, generated, owner=is_owner(user),
-            lip_sync=lip_sync_applies(model, speech_script),
-        )
-        if not ceiling_allows(user, est["cap_raw_cents"]):
-            raise HTTPException(
-                status_code=402,
-                detail="this job would exceed the total generation your payments cover",
-            )
-        u = usage(user)
-        charged = 0
-        used_budget = 0.0
-        if user["plan"] == "creator" \
-                and included_budget_remaining(user) >= est["raw_cost_cents"]:
-            used_budget = float(est["raw_cost_cents"])
-        else:
-            price = int(est["balance_debit_cents"])
-            if int(user.get("balance_cents", 0)) < price:
-                detail = (
-                    f"included time used up; this job costs {price} cents of prepaid balance"
-                    if user["plan"] == "creator"
-                    else f"this job costs {price} cents of prepaid balance"
-                )
-                raise HTTPException(status_code=402, detail=detail)
-            charged = price
-        try:
-            resp = requests.post(
-                f"{WORKER_BASE}/jobs",
-                headers=_worker_headers(),
-                json={
-                    "lane": spec["worker_lane"],
-                    "prompt": prompt,
-                    "negative_prompt": body.get("negative_prompt") or None,
-                    "seed": body.get("seed"),
-                    "start_image_png_b64": start_image,
-                    "aspect_ratio": aspect,
-                    "segment_seconds": plan["segments"],
-                },
-                timeout=30,
-            )
-        except Exception as exc:
-            raise HTTPException(
-                status_code=502, detail=f"generation worker unreachable: {exc}")
-        if resp.status_code != 202:
-            raise HTTPException(
-                status_code=502,
-                detail=f"generation worker refused the job ({resp.status_code})")
-        worker_job_id = resp.json()["job_id"]
-        # Commit the charge only after the worker accepted the job.
-        if used_budget:
-            u["included_seconds"] = float(u.get("included_seconds") or 0) + generated
-            u["included_cost_cents"] = included_cost_used(user) + used_budget
-        if charged:
-            user["balance_cents"] = int(user.get("balance_cents", 0)) - charged
-        user["cost_settled_cents"] = (
-            float(user.get("cost_settled_cents") or 0.0)
-            + float(est["raw_cost_cents"])
-        )
-        user["usage"] = u
-        save_user(user)
-        job = {
-            "id": pysecrets.token_hex(8),
-            "user_id": user["id"],
-            "worker_job_id": worker_job_id,
-            "lane": model,
-            "model": model,
-            "prompt": prompt,
-            "user_prompt": (camera or {}).get("user_prompt", prompt),
-            "camera_presets": [],
-            "camera_preset_names": [],
-            "camera_look": {},
-            "camera_pose": None,
-            "camera_speed": None,
-            "camera_recipe": None,
-            "effect": None,
-            "effect_name": None,
-            "status": "queued",
-            "error": None,
-            "bytes": None,
-            "created_at": _now(),
-            "charged_cents": charged,
-            "free_tier": False,
-            "included_seconds": generated if used_budget else 0.0,
-            "included_cost_cents": used_budget,
-            "cost_cents": float(est["raw_cost_cents"]),
-            "raw_cost_cents": round(float(est["raw_cost_cents"]), 2),
-            "music_prompt": music_prompt or None,
-            "speech_script": speech_script or None,
-            "speech_voice": speech_voice or None,
-            "voiceover_status": None,
-            "character_id": body.get("character_id"),
-            "lip_sync": lip_sync_applies(model, speech_script),
-            "lipsync_status": (
-                "planned" if lip_sync_applies(model, speech_script) else None),
-            "lipsync_cost_cents": round(float(est["lip_sync_cents"]), 2),
-            "plan_at_job": user["plan"],
-            "retry_of": body.get("retry_of"),
-            "last_poll": 0,
-            "aspect_ratio": aspect,
-            "duration_seconds": generated,
-            "plan_segments": plan["segments"],
-            "segments_total": len(plan["segments"]),
-            "segments_done": 0,
-            # Per-second rates for the partial-delivery refunds
-            # in mirror_status (the undelivered seconds come
-            # back at the rate the job was actually charged).
-            "lf_raw_per_second": float(est["raw_cost_cents"]) / generated,
-            "lf_charge_per_second": (
-                (charged / generated) if charged else 0.0),
-            "has_end_frame": False,
-            "start_image_png_b64": start_image,
-            "end_image_png_b64": None,
-            "partial": False,
-        }
-        jobs[job["id"]] = job
-        return JSONResponse(public_job(job), status_code=202)
-
     def create_api_job(user: dict, body: dict, model: str, base: str,
                        prompt: str, music_prompt: str, camera: dict = None,
                        speech_script: str = "", speech_voice: str = ""):
@@ -5941,21 +5561,6 @@ def api():
             raise HTTPException(
                 status_code=429,
                 detail=f"you already have {in_flight} videos in flight (your plan allows {limit} at a time); one needs to finish before the next starts")
-        if model in HOUSE_LONGFORM_MODELS:
-            # Long-form house lanes (FramePack, SkyReels V2):
-            # paid-only like every non-default model, dispatched
-            # to the platform's own worker.
-            if not is_paid(user):
-                raise HTTPException(
-                    status_code=403, detail="model switching is a paid feature"
-                )
-            return create_longform_job(
-                user, body, model, prompt, music_prompt,
-                camera=camera, speech_script=speech_script,
-                speech_voice=speech_voice, start_image=start_image,
-                aspect=aspect, segments=segments, end_image=end_image,
-                effect_id=effect_id,
-            )
         if model in PER_SECOND_MODELS:
             # Model switching is paid-only (Amendment 3: any paying
             # customer), enforced here on the server before any
@@ -9459,12 +9064,7 @@ const MODEL_OPTS = {
   wan26_unc: { durations: LENGTHS, resolutions: ['720p', '1080p'] },
   wan27_unc: { durations: LENGTHS, resolutions: ['720p', '1080p'] },
   wan3pro_unc: { durations: LENGTHS, resolutions: ['1080p', '2K', '4K'] },
-  wan_motion: { durations: LENGTHS, resolutions: ['720p'] },
-  // Long-form house lanes: lengths come from /api/config (each
-  // model's real offered lengths); they run at their native
-  // resolution, so there is no resolution choice.
-  framepack: { durations: LENGTHS, resolutions: [] },
-  skyreels: { durations: LENGTHS, resolutions: [] }
+  wan_motion: { durations: LENGTHS, resolutions: ['720p'] }
 };
 function fillSelect(sel, values, label) {
   const keep = sel.value;
@@ -9565,15 +9165,9 @@ function updateModelUI() {
   $('api-opts').style.display = api ? '' : 'none';
   $('motion-opts').style.display = m === 'wan_motion' ? '' : 'none';
   $('length-api').style.display = (api && m !== 'wan_motion') ? '' : 'none';
-  const longform = m === 'framepack' || m === 'skyreels';
-  if (longform) $('resolution-wrap').style.display = 'none';
   if (api) {
     const entry = ((catalogCfg && catalogCfg.models) || []).find(x => x.id === m);
-    if (m === 'framepack') {
-      $('model-note').textContent = 'FramePack animates one start image into a long video: add your image above and describe the motion. It makes up to 2 minutes in a single job, and long jobs take a while to render.';
-    } else if (m === 'skyreels') {
-      $('model-note').textContent = 'SkyReels V2 makes 10 seconds to 2 minutes, from text or from a start image. Past 1 minute the video is made in segments and joined into one finished video.';
-    } else if (m === 'wan_motion') {
+    if (m === 'wan_motion') {
       $('model-note').textContent = 'Motion transfer: add a subject image above, then paste a motion video link in More options. The result follows the motion video\u2019s length.';
     } else if (entry && entry.ref_caps) {
       const c = entry.ref_caps;
@@ -9674,9 +9268,7 @@ $('create').onclick = async () => {
       body: JSON.stringify(jobBody) });
     msg('job-msg', model === 'wan2.2'
       ? 'Job queued. Draft renders take roughly 6 to 13 minutes; production about 25.'
-      : (model === 'framepack' || model === 'skyreels')
-        ? 'Job queued. Long videos render segment by segment and can take a while; it will appear here when it is done.'
-        : 'Job queued. This model usually finishes in a few minutes.', 'ok');
+      : 'Job queued. This model usually finishes in a few minutes.', 'ok');
     loadJobs();
   } catch (e) { msg('job-msg', e.message, 'err'); }
 };

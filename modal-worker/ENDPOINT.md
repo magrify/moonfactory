@@ -47,27 +47,6 @@ Request JSON:
 | `camera_pose` | string | no | One of `Static`, `Pan Up`, `Pan Down`, `Pan Left`, `Pan Right`, `Zoom In`, `Zoom Out`, `Anti Clockwise (ACW)`, `ClockWise (CW)`. Switches the render to the Fun Camera path (below). Production lane only, exactly 1 segment, no end image (422 otherwise). |
 | `camera_speed` | number | no | Fun Camera move speed, 0.1 to 3.0, default 1.0 (422 outside). Only meaningful with `camera_pose`. |
 | `effect` | string | no | One effect id from the effects table (below). Switches the render to the effects path: the record's lane becomes `"effects"`, a start image is required, exactly 1 segment, no end image, no `camera_pose` (422 otherwise). |
-| `segment_seconds` | list of int | long-form lanes only | The plan's native segment lengths, in order (e.g. `[60]` or `[60, 60]`). Required when `lane` is a long-form lane; every entry is re-validated against the lane's documented native lengths (422 otherwise). |
-
-### Long-form lanes (FramePack, SkyReels V2 — wired 2026-11-17, not yet staged)
-
-`lane` may also be `"framepack"` or `"skyreels"`: the platform's
-own long-form house lanes, dispatched by `run_longform_job`.
-FramePack (image-to-video only, a start image is required, 422
-without) makes any whole-second length from 1 to 120 s in one
-job at 30 fps. SkyReels V2 (text- or image-to-video, 24 fps)
-makes exactly its documented native lengths, 10, 15, 30 or
-60 s per segment; longer jobs chain segments that continue
-from the previous segment's last frames and stitch into one
-file, with the same partial-delivery semantics as the Wan
-lanes. Neither lane takes an effect, camera conditioning, an
-end image, or the `segments` field (422). Both lanes refuse
-cleanly until their weights are staged on the Volume (the
-staging steps are spend-gated; see
-`~/workspace/sinclip/framepack-skyreels-2026-11-17.md`). Job
-records carry `duration_seconds` (ordered) and
-`delivered_seconds` (measured from the delivered file).
-
 ### Fun Camera path (camera conditioning, live 2026-11-16)
 
 A job with `camera_pose` set renders through
