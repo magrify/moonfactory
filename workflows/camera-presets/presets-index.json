@@ -117,6 +117,16 @@
       "Sepia": "sepia-toned",
       "Crimson": "deep crimson reds against black",
       "Earth tones": "earthy ochre, olive and rust tones"
+    },
+    "emotion": {
+      "Joyful": "bright, smiling, full of delight",
+      "Calm": "relaxed and at ease",
+      "Serious": "focused and grave",
+      "Sad": "quietly sorrowful, holding back tears",
+      "Angry": "tense and furious",
+      "Fearful": "anxious and afraid",
+      "Surprised": "startled, eyes wide",
+      "Romantic": "tender and affectionate"
     }
   },
   "presets": [

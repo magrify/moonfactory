@@ -3141,3 +3141,42 @@ and config read-backs only. No subscriptions anywhere.
   8 uncensored lanes.
 - Deploy: `modal deploy platform/app.py` (deploy only; no
   generation, no test renders, MODAL SPEND: NONE AUTHORIZED).
+
+## Finish run + parity pass — 2026-11-17
+
+- MODAL SPEND: NONE AUTHORIZED honored: deploys and read-only
+  checks only, no generation.
+- Legal/support surfaces shipped: /terms, /privacy, /support
+  (were 404), Direction C styling, footer links on landing,
+  studio, and gallery. Meta descriptions + Open Graph on the
+  three main pages; /robots.txt, /sitemap.xml, /favicon.ico
+  live; security headers middleware (nosniff, same-origin
+  referrer, SAMEORIGIN). Em dashes removed from user-facing
+  copy (404 title, landing pricing line, one studio string).
+- /api/config no longer serves llm_providers: the Clip picking
+  fallback registry is internal plumbing (Jack's ruling).
+- Parity pass against Higgsfield's own current pages (matrix:
+  HIGGSFIELD-PARITY-MATRIX-2026-11-17.md; 27 rows: 7 better,
+  6 equal, 12 worse, 2 unverified). Fixes shipped from it:
+  (1) aspect ratios on every API lane: submits carry the job's
+  aspect (9:16 / 16:9 / 1:1) instead of a hardcoded 9:16,
+  with CometAPI size and Runway ratio maps and the Wiro ratio
+  parameter; the studio aspect picker now shows for all
+  models. (2) Emotion look slot (8 options) added to the
+  camera library, the tenth Director's Panel style slot.
+  (3) 4K/2K tiers wired where a published rate exists:
+  LTX-2.5 4K via fal ($0.34/s), Wan 3.0 Pro Uncensored 2K
+  ($0.20/s) and 4K ($0.23/s) via Wiro. (4) Studio bug: the 8
+  uncensored models had no MODEL_OPTS entry, so their
+  duration/resolution pickers showed the previous model's
+  options; entries added matching server bounds.
+- All new shapes are payload-unverified like every API lane
+  and join the funded verification packet
+  (funded-verification-packet-2026-11-17.md), which now also
+  records wall-time (speed row) and quality scoring (quality
+  row) plus 4K spot tests.
+- FINISH-STATE-2026-11-17.md supersedes the Nov 16 audit.
+- Live verification after deploy: all new routes 200, config
+  at 37 models with no llm_providers key, 4K/2K sell rates
+  serving, emotion slot live, sort order intact, security
+  headers present.

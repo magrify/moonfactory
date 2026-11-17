@@ -953,7 +953,7 @@ CAMERA_MAX_MOVES = int(
 )
 LOOK_SLOTS = (
     "tempo", "genre", "era", "camera_body", "lens", "focal",
-    "aperture", "lighting", "palette",
+    "aperture", "lighting", "palette", "emotion",
 )
 
 
@@ -1072,6 +1072,12 @@ def compose_camera_prompt(scene: str, preset_ids, look: dict) -> str:
         sentences.append("Lighting: " + phrase("lighting") + ".")
     if phrase("palette"):
         sentences.append("Color: " + phrase("palette") + ".")
+    if phrase("emotion"):
+        # The performance slot (parity pass, 2026-11-17): the
+        # closest equivalent to Cinema Studio's emotion wheel in
+        # this prompt grammar, a directed performance note.
+        sentences.append(
+            "The subject's performance is " + phrase("emotion") + ".")
     return " ".join(sentences).strip()
 
 
@@ -1321,9 +1327,17 @@ def _worker_headers() -> dict:
 def api():
     import requests
     from fastapi import Cookie, FastAPI, File, Header, HTTPException, Request, UploadFile
-    from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
+    from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
 
     web = FastAPI(title="Moonfactory")
+
+    @web.middleware("http")
+    async def security_headers(request: Request, call_next):
+        response = await call_next(request)
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("Referrer-Policy", "same-origin")
+        response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+        return response
 
     @web.exception_handler(404)
     async def not_found(request: Request, exc):
@@ -1544,6 +1558,41 @@ def api():
     def studio():
         return HTMLResponse(APP_HTML)
 
+    @web.get("/terms", response_class=HTMLResponse)
+    def terms_page():
+        return HTMLResponse(TERMS_HTML)
+
+    @web.get("/privacy", response_class=HTMLResponse)
+    def privacy_page():
+        return HTMLResponse(PRIVACY_HTML)
+
+    @web.get("/support", response_class=HTMLResponse)
+    def support_page():
+        return HTMLResponse(SUPPORT_HTML)
+
+    @web.get("/robots.txt", response_class=PlainTextResponse)
+    def robots_txt(request: Request):
+        return (
+            "User-agent: *\nAllow: /\nDisallow: /api/\n\nSitemap: "
+            + base_url(request) + "/sitemap.xml\n"
+        )
+
+    @web.get("/sitemap.xml")
+    def sitemap_xml(request: Request):
+        base = base_url(request)
+        paths = ["/", "/app", "/gallery", "/terms", "/privacy", "/support"]
+        body = "".join(f"<url><loc>{base}{x}</loc></url>" for x in paths)
+        return Response(
+            content='<?xml version="1.0" encoding="UTF-8"?>'
+            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+            + body + "</urlset>",
+            media_type="application/xml",
+        )
+
+    @web.get("/favicon.ico")
+    def favicon_ico():
+        return Response(content=FAVICON_SVG, media_type="image/svg+xml")
+
     @web.get("/healthz")
     def healthz():
         return {"ok": True}
@@ -1649,12 +1698,10 @@ def api():
                 ],
             },
             "models": model_entries,
-            # Text models, separate from the video shelf above:
-            # the uncensored LLM providers (llm_providers.py). They
-            # never appear in the video model picker; the studio
-            # does not render them. They back the Clip picking
-            # brain's fallback chain.
-            "llm_providers": llm_providers.public_llm_providers(),
+            # The Clip picking brain's fallback chain (free
+            # OpenRouter models, llm_providers.py) is internal
+            # plumbing: it is not served here. Customers pick video
+            # models, never text models (Jack, 2026-11-17).
         }
 
     @web.get("/api/pricing")
@@ -2430,9 +2477,16 @@ def api():
                 status_code=422,
                 detail="this model needs a start image",
             )
+        aspect_ratio = body.get("aspect_ratio") or "9:16"
+        if aspect_ratio not in HOUSE_ASPECTS:
+            raise HTTPException(
+                status_code=422,
+                detail="aspect_ratio must be one of: "
+                + ", ".join(HOUSE_ASPECTS))
         return {
             "duration": duration,
             "resolution": resolution,
+            "aspect_ratio": aspect_ratio,
             "mode": mode,
             "reference_image_urls": ref_images,
             "reference_video_urls": ref_videos,
@@ -2505,6 +2559,7 @@ def api():
             "model_label": MODEL_LABELS[model],
             "duration_seconds": params["duration"],
             "resolution": params["resolution"],
+            "aspect_ratio": params["aspect_ratio"],
             "billed_seconds": est["billed_seconds"],
             "raw_cost_cents": round(est["raw_cost_cents"], 2),
             "balance_debit_cents": est["balance_debit_cents"],
@@ -2553,7 +2608,7 @@ def api():
             # already refused video and audio references).
             payload = {
                 "prompt": prompt,
-                "aspect_ratio": "9:16",
+                "aspect_ratio": params["aspect_ratio"],
                 "duration": f"{params['duration']}s",
                 "resolution": params["resolution"],
                 "generate_audio": True,
@@ -2571,7 +2626,7 @@ def api():
             # body; native audio is part of the priced tier.
             payload = {
                 "prompt": prompt,
-                "aspect_ratio": "9:16",
+                "aspect_ratio": params["aspect_ratio"],
                 "duration": params["duration"],
             }
             if params["mode"] == "image":
@@ -2604,9 +2659,13 @@ def api():
             # verification pass before any of these lanes lights.
             payload = {
                 "prompt": prompt,
-                "aspect_ratio": "9:16",
+                "aspect_ratio": params["aspect_ratio"],
                 "duration": params["duration"],
-                "resolution": params["resolution"],
+                # fal's LTX schema names the 4K tier 2160p
+                # (parity pass, 2026-11-17; payload-unverified).
+                "resolution": (
+                    "2160p" if params["resolution"] == "4K"
+                    else params["resolution"]),
             }
             if params["mode"] == "image":
                 payload["image_url"] = f"data:image/png;base64,{params['start_image']}"
@@ -2614,7 +2673,7 @@ def api():
             payload = {
                 "prompt": prompt,
                 "resolution": params["resolution"],
-                "aspect_ratio": "9:16",
+                "aspect_ratio": params["aspect_ratio"],
                 "duration": params["duration"],
                 "audio": True,
             }
@@ -2711,7 +2770,7 @@ def api():
         # image's own shape; the supplier's contract omits the
         # aspect ratio there.
         if not (model in ("grok", "kling3") and params["mode"] == "image"):
-            payload["aspect_ratio"] = "9:16"
+            payload["aspect_ratio"] = params["aspect_ratio"]
         try:
             if params["mode"] == "image":
                 frames = [_beatapi_media_url(params["start_image"], "first-frame")]
@@ -2893,7 +2952,7 @@ def api():
         if not slug:
             _submit_failed(job, f"no kie slug for {model}/{mode}")
         inp = {"prompt": prompt, "duration": params["duration"],
-               "aspect_ratio": "9:16"}
+               "aspect_ratio": params["aspect_ratio"]}
         if model in ("kling3", "kling4", "kling3_omni"):
             inp["sound"] = True
         elif model == "seedance2_fast":
@@ -2981,14 +3040,23 @@ def api():
         sent: none is published for these endpoints."""
         ids = {"seedance": "seedance-2-5-260628",
                "wan3_prime": "wan-3-0-prime"}
-        size = "720x1280"
-        if job["model"] == "seedance" and \
-                params.get("resolution") == "480p":
-            # CometAPI's Seedance 2.5 catalog lists the 480p tier
-            # as 854x480 landscape; the platform is vertical, so
-            # the 9:16 raster is 480x854. The 480p tier routes
-            # here since pricing round 2 (2026-11-16).
-            size = "480x854"
+        # CometAPI takes a pixel size. The 480p tier routes here
+        # since pricing round 2 (2026-11-16); its catalog lists
+        # that tier as 854x480 landscape, and the 9:16 raster is
+        # 480x854. Other cells are the standard rasters for the
+        # tier and aspect (parity pass, 2026-11-17).
+        comet_sizes = {
+            ("480p", "9:16"): "480x854", ("480p", "16:9"): "854x480",
+            ("480p", "1:1"): "480x480",
+            ("720p", "9:16"): "720x1280", ("720p", "16:9"): "1280x720",
+            ("720p", "1:1"): "720x720",
+            ("1080p", "9:16"): "1080x1920",
+            ("1080p", "16:9"): "1920x1080",
+            ("1080p", "1:1"): "1080x1080",
+        }
+        size = comet_sizes.get(
+            (params.get("resolution"), params["aspect_ratio"]),
+            "720x1280")
         payload = {"model": ids[job["model"]], "prompt": prompt,
                    "duration": params["duration"], "size": size}
         try:
@@ -3051,7 +3119,7 @@ def api():
         the voiceover stage, never by silently switching the price
         basis."""
         inp = {"prompt": prompt, "duration": params["duration"],
-               "aspect_ratio": "9:16", "generate_audio": False}
+               "aspect_ratio": params["aspect_ratio"], "generate_audio": False}
         try:
             if params["mode"] == "image":
                 inp["image_url"] = _beatapi_media_url(
@@ -3112,7 +3180,7 @@ def api():
         1.1 only in this pass."""
         payload = {"model": "alibaba/happyhorse-1.1", "prompt": prompt,
                    "duration": params["duration"],
-                   "aspect_ratio": "9:16"}
+                   "aspect_ratio": params["aspect_ratio"]}
         if params["mode"] == "image":
             payload["image_url"] = _data_uri(params["start_image"])
         elif params["mode"] == "reference" and \
@@ -3192,7 +3260,7 @@ def api():
             "duration": params["duration"],
             "resolution": "540p" if params["resolution"] == "480p"
             else "720p",
-            "aspect_ratio": "9:16",
+            "aspect_ratio": params["aspect_ratio"],
             "audio": True,
             "off_peak": True,
         }
@@ -3285,7 +3353,7 @@ def api():
             _submit_failed(job, f"no wavespeed path for {model}/{mode}")
         payload = {"prompt": prompt, "duration": params["duration"],
                    "resolution": params["resolution"],
-                   "aspect_ratio": "9:16"}
+                   "aspect_ratio": params["aspect_ratio"]}
         if model in ("seedance25_flash", "vidu_q4"):
             payload["generate_audio"] = True
         try:
@@ -3363,7 +3431,7 @@ def api():
         slug = ("veo-3-1-lite-image-to-video" if params["mode"] == "image"
                 else "veo-3-1-lite-text-to-video")
         inp = {"prompt": prompt, "duration": params["duration"],
-               "aspect_ratio": "9:16"}
+               "aspect_ratio": params["aspect_ratio"]}
         try:
             if params["mode"] == "image":
                 inp["image_url"] = _beatapi_media_url(
@@ -3421,15 +3489,24 @@ def api():
         silent: there is no audio mode to select."""
         headers = dict(_api_headers("runway"))
         headers["X-Runway-Version"] = "2024-11-06"
+        runway_ratios = {
+            ("720p", "9:16"): "720:1280", ("720p", "16:9"): "1280:720",
+            ("720p", "1:1"): "720:720",
+            ("1080p", "9:16"): "1080:1920",
+            ("1080p", "16:9"): "1920:1080",
+            ("1080p", "1:1"): "1080:1080",
+        }
+        ratio = runway_ratios.get(
+            (params["resolution"], params["aspect_ratio"]), "720:1280")
         if params["mode"] == "image":
             payload = {"model": "gen4.5",
                        "promptImage": _data_uri(params["start_image"]),
-                       "promptText": prompt, "ratio": "720:1280",
+                       "promptText": prompt, "ratio": ratio,
                        "duration": params["duration"]}
             url = f"{RUNWAY_BASE}/v1/image_to_video"
         else:
             payload = {"model": "gen4.5", "promptText": prompt,
-                       "ratio": "720:1280",
+                       "ratio": ratio,
                        "duration": params["duration"]}
             url = f"{RUNWAY_BASE}/v1/text_to_video"
         data = _submit_post(job, url, headers, payload)
@@ -3488,7 +3565,7 @@ def api():
             "duration": params["duration"],
             "resolution": "540p" if params["resolution"] == "480p"
             else params["resolution"],
-            "aspect_ratio": "9:16",
+            "aspect_ratio": params["aspect_ratio"],
             "audio": True,
             "off_peak": True,
         }
@@ -3640,7 +3717,7 @@ def api():
         if model in ("wan3_unc", "seedance25_unc", "vidu_q3_unc"):
             inp["generate_audio"] = True
         if model == "wan3_unc":
-            inp["aspect_ratio"] = "9:16"
+            inp["aspect_ratio"] = params["aspect_ratio"]
         try:
             inp["image_url"] = _beatapi_media_url(
                 params["start_image"], "first-frame")
@@ -3715,7 +3792,7 @@ def api():
         inp = {"prompt": prompt, "duration": params["duration"],
                "resolution": {"480p": "480p", "720p": "768p",
                               "1080p": "1080p"}[params["resolution"]],
-               "aspect_ratio": "9:16"}
+               "aspect_ratio": params["aspect_ratio"]}
         try:
             if params["mode"] == "image":
                 inp["image_url"] = _beatapi_media_url(
@@ -3794,7 +3871,7 @@ def api():
     WIRO_RESOLUTIONS = {
         "wan26_unc": {"720p": "720P", "1080p": "1080P"},
         "wan27_unc": {"720p": "720p", "1080p": "1080p"},
-        "wan3pro_unc": {"1080p": "1080p"},
+        "wan3pro_unc": {"1080p": "1080p", "2K": "2K", "4K": "4K"},
     }
 
     def _wiro_headers() -> dict:
@@ -3837,7 +3914,7 @@ def api():
             "audioEnabled": "true",
         }
         if model in ("wan26_unc", "wan3pro_unc"):
-            payload["ratio"] = "9:16"
+            payload["ratio"] = params["aspect_ratio"]
         try:
             if params["mode"] == "image":
                 payload["inputImage"] = _beatapi_media_url(
@@ -4268,17 +4345,16 @@ def api():
                     detail="effects do not combine with camera presets")
             lane = "effects"
         if model in PER_SECOND_MODELS:
-            # The per-second lanes take single-pass clips at 9:16 in
-            # this form; chaining and other aspects are house-lane
-            # shapes, refused here rather than silently reshaped.
+            # The per-second lanes take single-pass clips (chaining
+            # is a house-lane shape, refused here rather than
+            # silently reshaped). Aspect runs at the house aspects:
+            # every wired submit carries the job's aspect ratio to
+            # its provider (parity pass, 2026-11-17); the shapes
+            # stay payload-unverified until the funded pass.
             if segments > 1:
                 raise HTTPException(
                     status_code=422,
                     detail="multi-segment chaining runs on Wan 2.2; this model makes single-pass clips")
-            if aspect != "9:16":
-                raise HTTPException(
-                    status_code=422,
-                    detail="this model is offered at 9:16 in this form; other aspects run on Wan 2.2")
         else:
             if end_image and not start_image:
                 raise HTTPException(
@@ -6011,7 +6087,7 @@ _LANDING_TOP_MEMBER = """<header>
 NOT_FOUND_HTML = """<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Not found — Moonfactory</title>
+<title>Not found | Moonfactory</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Cpath fill='%23818cf8' d='M23.3 8A16 16 0 1 0 32.6 37.5A16.5 16.5 0 0 1 23.3 8Z'/%3E%3Cpath fill='%23f5d67a' stroke='%23f5d67a' stroke-width='1.6' stroke-linejoin='round' d='M24 18.5L24 27.5L31.5 23Z'/%3E%3C/svg%3E">
 <style>
   body{background:#0c0c0f;color:#f4f4f1;font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center}
@@ -6029,10 +6105,261 @@ NOT_FOUND_HTML = """<!DOCTYPE html>
 </div>
 </body></html>"""
 
+FAVICON_SVG = (
+    "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'>"
+    "<path fill='%23818cf8' d='M23.3 8A16 16 0 1 0 32.6 37.5A16.5 16.5 0 0 1 23.3 8Z'/>"
+    "<path fill='%23f5d67a' stroke='%23f5d67a' stroke-width='1.6' stroke-linejoin='round' "
+    "d='M24 18.5L24 27.5L31.5 23Z'/></svg>"
+)
+
+_ICON_LINK = """<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Cpath fill='%23818cf8' d='M23.3 8A16 16 0 1 0 32.6 37.5A16.5 16.5 0 0 1 23.3 8Z'/%3E%3Cpath fill='%23f5d67a' stroke='%23f5d67a' stroke-width='1.6' stroke-linejoin='round' d='M24 18.5L24 27.5L31.5 23Z'/%3E%3C/svg%3E">"""
+
+_INFO_CSS = """
+<style>
+  .legal{max-width:760px;margin:40px auto 0}
+  .legal h2{margin:30px 0 8px;font-size:21px}
+  .legal p,.legal li{color:var(--gray);font-size:15.5px;line-height:1.65}
+  .legal ul{margin:6px 0 6px 18px;padding:0}
+  .legal li{margin:4px 0}
+</style>
+"""
+
+_INFO_HEADER = """<header>
+  <a class="logo" href="/"><svg width="27" height="27" viewBox="0 0 48 48" aria-hidden="true"><path fill="#818cf8" d="M23.3 8A16 16 0 1 0 32.6 37.5A16.5 16.5 0 0 1 23.3 8Z"/><path fill="#f5d67a" stroke="#f5d67a" stroke-width="1.6" stroke-linejoin="round" d="M24 18.5L24 27.5L31.5 23Z"/></svg><span>Moon<em>factory</em></span></a>
+  <nav><a href="/gallery">Gallery</a><a href="/app">Studio</a></nav>
+</header>"""
+
+_INFO_FOOTER = """<footer><span>Moonfactory</span><span><a href="/terms">Terms</a> &nbsp;<a href="/privacy">Privacy</a> &nbsp;<a href="/support">Support</a></span></footer>"""
+
+
+def _info_page(title: str, description: str, body: str) -> str:
+    return (
+        """<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>"""
+        + title
+        + """</title>
+<meta name="description" content=\""""
+        + description
+        + """\">"""
+        + _CSS
+        + _INFO_CSS
+        + _ICON_LINK
+        + "\n</head><body><main>\n"
+        + _INFO_HEADER
+        + '\n<div class="legal">\n'
+        + body
+        + "\n</div>\n</main>\n"
+        + _INFO_FOOTER
+        + "\n</body></html>"
+    )
+
+
+TERMS_HTML = _info_page(
+    "Moonfactory terms of service",
+    "The terms for using Moonfactory: accounts, the free tier, payments, your content, the public gallery, and the rules for generated video.",
+    """
+<h1 style="font-size:34px">Terms of service</h1>
+<p>Last updated: November 17, 2026. By creating an account or using
+Moonfactory, you agree to these terms. If you do not agree, do not
+use the service.</p>
+
+<h2>What Moonfactory is</h2>
+<p>Moonfactory turns a start image and a written prompt into a short
+video with sound, and can cut a longer video you supply into short
+clips. Output is generated by AI models, including models run by
+third party providers. AI output can be unpredictable, can resemble
+other output, and comes with no promise of exclusivity or fitness
+for a particular purpose.</p>
+
+<h2>Accounts</h2>
+<ul>
+<li>You need an account to generate anything, and your email address
+must be verified before your first generation.</li>
+<li>Keep your password to yourself. Activity on your account is your
+responsibility.</li>
+<li>You must be at least 18 years old to use any model marked
+Uncensored.</li>
+</ul>
+
+<h2>Free tier and payments</h2>
+<ul>
+<li>The free tier is 5 clips per account, total, for the life of the
+account. Free clips are watermarked. A platform-wide free budget
+also applies.</li>
+<li>Paid access comes two ways: the Creator plan at $20 per month
+with an included generation budget, or one-time top-ups of $5, $10,
+or $20 that you spend per video. Payments are processed by Stripe.
+We never see or store your full card number.</li>
+<li>The exact price of a generation is shown before it runs. Starting
+a generation authorizes the charge or balance debit shown.</li>
+<li>Failed generations caused by our pipeline are re-run or the
+balance is restored in credits. Refunds are issued in credits, not
+cash, except where the law requires otherwise.</li>
+<li>Creator renews monthly until cancelled. Cancelling stops the
+next renewal; it does not refund the current month.</li>
+</ul>
+
+<h2>Your content and the gallery</h2>
+<ul>
+<li>You keep your rights in what you upload and what you generate.
+You give us the permission needed to process, store, and deliver it,
+and to send your prompt and media to the model provider you picked
+so it can do the generation.</li>
+<li>Finished clips appear in the public gallery by default, under
+your handle only, never your email or real name. Paying customers
+can opt out in the studio, and anyone can delete their own clips at
+any time, which removes them from the gallery.</li>
+<li>You are responsible for what you upload and generate. Only use
+images, video, and audio you own or have permission to use.</li>
+</ul>
+
+<h2>Rules</h2>
+<ul>
+<li>No content that is illegal where you are or where it is viewed.</li>
+<li>No sexual content involving minors, in any form. Zero tolerance:
+accounts are closed and material is reported.</li>
+<li>No intimate imagery of a real person without that person's
+consent.</li>
+<li>No content that infringes someone else's copyright, trademark,
+or other rights.</li>
+<li>No attempts to bypass plan limits, payment, or safety systems,
+and no abuse of the free tier.</li>
+</ul>
+<p>We can remove content and close accounts that break these rules.
+Anyone can report a gallery clip with its Report button; reports are
+reviewed by a person.</p>
+
+<h2>Availability and changes</h2>
+<p>The service is provided as is. Models, prices, and features can
+change; a price change never applies to a generation that already
+ran. We can update these terms and will note the date above when we
+do. Continued use after an update means you accept it.</p>
+
+<h2>Liability</h2>
+<p>To the extent the law allows, our total liability for any claim
+about the service is limited to what you paid us in the 3 months
+before the claim. Nothing in these terms limits liability that
+cannot be limited by law.</p>
+
+<h2>Contact</h2>
+<p>Questions about these terms: <a href="mailto:support@magrify.com">support@magrify.com</a>
+or the <a href="/support">support page</a>.</p>
+""",
+)
+
+PRIVACY_HTML = _info_page(
+    "Moonfactory privacy policy",
+    "What Moonfactory collects, why, who processes it, and how to get your data deleted.",
+    """
+<h1 style="font-size:34px">Privacy policy</h1>
+<p>Last updated: November 17, 2026. This page says what we collect,
+why, and what you can do about it, in plain language.</p>
+
+<h2>What we collect</h2>
+<ul>
+<li>Account details: your email address and a salted, hashed
+password (we cannot read your password), plus the public handle you
+pick.</li>
+<li>Your work: prompts, uploaded images and videos, spoken lines and
+music prompts, and the files we generate for you.</li>
+<li>Payment records: what you bought and what it cost. Card payments
+are processed by Stripe; we never see or store your full card
+number.</li>
+<li>Basic technical records needed to run jobs and stop abuse,
+including a session cookie that keeps you signed in and a bot check
+from Cloudflare Turnstile on signup and job creation.</li>
+</ul>
+<p>We run no advertising trackers and we do not sell personal
+data.</p>
+
+<h2>Why we use it</h2>
+<p>To run your generations, deliver and store your files, show the
+public gallery, take payments, send account email such as
+verification links, answer support requests, and keep the free tier
+and paid features working as described.</p>
+
+<h2>Who else processes it</h2>
+<ul>
+<li>The model provider behind the model you pick receives your
+prompt and the media needed for that generation.</li>
+<li>Stripe processes payments. Resend delivers account email.
+Cloudflare provides the bot check. The platform itself runs on
+Modal.</li>
+<li>Each of them handles your data only to provide its part of the
+service.</li>
+</ul>
+
+<h2>The gallery</h2>
+<p>Finished clips are public by default and show your handle only,
+never your email or real name. Paying customers can opt out in the
+studio. Deleting a clip removes it from the gallery and from public
+serving. Use a clip's Report button if something should not be
+there.</p>
+
+<h2>Your choices</h2>
+<ul>
+<li>Delete your own clips at any time in the studio.</li>
+<li>Ask us to delete your account and its data by emailing
+<a href="mailto:support@magrify.com">support@magrify.com</a> from
+your account email. We will confirm when it is done. Some records,
+such as payment receipts, may be kept where the law requires.</li>
+<li>Ask what data we hold about you at the same address.</li>
+</ul>
+
+<h2>Contact</h2>
+<p>Privacy questions: <a href="mailto:support@magrify.com">support@magrify.com</a>
+or the <a href="/support">support page</a>.</p>
+""",
+)
+
+SUPPORT_HTML = _info_page(
+    "Moonfactory support",
+    "How to reach Moonfactory support, what to include, and how gallery reports and billing questions work.",
+    """
+<h1 style="font-size:34px">Support</h1>
+<p>Email us at <a href="mailto:support@magrify.com">support@magrify.com</a>.
+Support answers the same business day, via any channel, and email is
+the fastest.</p>
+
+<h2>What to include</h2>
+<ul>
+<li>The email address on your account.</li>
+<li>For a video problem: the model's name, roughly when you ran it,
+and what went wrong. If a generation failed on our side, the balance
+is restored in credits; tell us and we will check the job record.</li>
+<li>For a payment question: the date and amount on your Stripe
+receipt. We can see purchases and balances, never your full card
+number.</li>
+</ul>
+
+<h2>Common answers</h2>
+<ul>
+<li>The free tier is 5 clips per account, total. It does not refill.
+Any payment, a Creator plan or a one-time top-up, opens the full
+studio.</li>
+<li>Clips are public in the <a href="/gallery">gallery</a> by
+default, under your handle only. Paying customers can opt out in the
+studio, and anyone can delete their own clips at any time.</li>
+<li>To report a gallery clip, use the Report button on the clip
+itself. Reports are reviewed by a person.</li>
+<li>To delete your account and its data, email us from your account
+email and say so. See the <a href="/privacy">privacy policy</a>.</li>
+</ul>
+<p>The rules of the service live in the <a href="/terms">terms of
+service</a>.</p>
+""",
+)
+
+
 INDEX_HTML = (
     """<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Moonfactory: AI video generation for creators</title>"""
+<title>Moonfactory: AI video generation for creators</title>
+<meta name="description" content="Turn one image into a short video with sound. Your first 5 clips are free, no card. Creator is $20/mo with an included budget, or pay per clip.">
+<meta property="og:title" content="Moonfactory: AI video generation for creators">
+<meta property="og:description" content="Turn one image into a short video with sound. Your first 5 clips are free, no card.">
+<meta property="og:type" content="website">"""
     + _CSS
     + """<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Cpath fill='%23818cf8' d='M23.3 8A16 16 0 1 0 32.6 37.5A16.5 16.5 0 0 1 23.3 8Z'/%3E%3Cpath fill='%23f5d67a' stroke='%23f5d67a' stroke-width='1.6' stroke-linejoin='round' d='M24 18.5L24 27.5L31.5 23Z'/%3E%3C/svg%3E">
 </head><body><main>
@@ -6041,11 +6368,11 @@ __LANDING_TOP__
 <div class="strip-label" id="strip-label" style="display:none">Fresh from the community</div>
 <div class="strip" id="strip"></div>
 
-<p class="pricing-line"><b>Free</b> — 5 clips, no card. &nbsp;<b>Creator</b> —
-<span id="creator-price">$20</span>/mo with an included budget. &nbsp;<b>Pay per clip</b> —
+<p class="pricing-line"><b>Free</b>: 5 clips, no card. &nbsp;<b>Creator</b>:
+<span id="creator-price">$20</span>/mo with an included budget. &nbsp;<b>Pay per clip</b>:
 the exact price is on the button before anything runs. No credits, no conversion math.</p>
 </main>
-<footer><span>Moonfactory</span><span><a href="/gallery">Gallery</a></span></footer>
+<footer><span>Moonfactory</span><span><a href="/gallery">Gallery</a> &nbsp;<a href="/terms">Terms</a> &nbsp;<a href="/privacy">Privacy</a> &nbsp;<a href="/support">Support</a></span></footer>
 <script>
 document.getElementById('hero-go').onclick = () => {
   const v = document.getElementById('hero-prompt').value.trim();
@@ -6088,7 +6415,11 @@ fetch('/api/pricing').then(r => r.json()).then(p => {
 APP_HTML = (
     """<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Moonfactory studio</title>"""
+<title>Moonfactory studio</title>
+<meta name="description" content="The Moonfactory studio: create short AI videos with sound from a single image, or cut long videos into captioned clips.">
+<meta property="og:title" content="Moonfactory studio">
+<meta property="og:description" content="Create short AI videos with sound from a single image.">
+<meta property="og:type" content="website">"""
     + _CSS
     + """<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Cpath fill='%23818cf8' d='M23.3 8A16 16 0 1 0 32.6 37.5A16.5 16.5 0 0 1 23.3 8Z'/%3E%3Cpath fill='%23f5d67a' stroke='%23f5d67a' stroke-width='1.6' stroke-linejoin='round' d='M24 18.5L24 27.5L31.5 23Z'/%3E%3C/svg%3E">
 <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
@@ -6209,13 +6540,16 @@ APP_HTML = (
         </select>
       </div>
 
-      <div id="house-more">
+      <div id="aspect-wrap">
         <label>Aspect ratio</label>
         <select id="aspect">
           <option value="9:16" selected>9:16 vertical</option>
           <option value="16:9">16:9 wide</option>
           <option value="1:1">1:1 square</option>
         </select>
+      </div>
+
+      <div id="house-more">
         <label>End image (PNG, optional, Production lane: the video steers to this final frame)</label>
         <input id="endimg" type="file" accept="image/png">
       </div>
@@ -6380,7 +6714,7 @@ APP_HTML = (
   </div>
 </div>
 </main>
-<footer><span>Moonfactory</span><span><a href="/gallery">Gallery</a></span></footer>
+<footer><span>Moonfactory</span><span><a href="/gallery">Gallery</a> &nbsp;<a href="/terms">Terms</a> &nbsp;<a href="/privacy">Privacy</a> &nbsp;<a href="/support">Support</a></span></footer>
 <script>
 const $ = id => document.getElementById(id);
 let cfg = { pow_required: true, pow_difficulty_bits: 18, turnstile_site_key: null };
@@ -6719,7 +7053,7 @@ function showStudio(u) {
   $('composer-heading').textContent = paidSurface ? 'Create' : 'Try It';
   $('composer-badge').style.display = paidSurface ? '' : 'none';
   $('composer-note').textContent = paidSurface
-    ? 'The full studio — every model, custom sound, longer clips. Nothing in here is free.'
+    ? 'The full studio: every model, custom sound, longer clips. Nothing in here is free.'
     : 'Try It is the free plan: Wan 2.2, Draft lane, watermarked. Create, the full studio, opens with any payment.';
   genLabel(null);
   const inc = u.plan === 'creator'
@@ -6817,7 +7151,7 @@ const MODEL_OPTS = {
   minimax_h3: { durations: [5, 10, 15], resolutions: ['480p', '720p', '1080p'] },
   grok: { durations: [5, 10, 15], resolutions: ['480p', '720p'] },
   luma_ray32: { durations: [5, 10], resolutions: ['480p', '720p', '1080p'] },
-  ltx25: { durations: [6, 10, 15, 20], resolutions: ['720p', '1080p'] },
+  ltx25: { durations: [6, 10, 15, 20], resolutions: ['720p', '1080p', '4K'] },
   ltx25_fast: { durations: [6, 10, 15, 20], resolutions: ['720p', '1080p'] },
   happyhorse: { durations: [5, 10, 15], resolutions: ['720p', '1080p'] },
   pika22: { durations: [5, 10], resolutions: ['720p', '1080p'] },
@@ -6826,7 +7160,15 @@ const MODEL_OPTS = {
   vidu_q4: { durations: [5, 10, 15], resolutions: ['720p', '1080p'] },
   seedance25_flash: { durations: [5, 10, 15, 20, 30], resolutions: ['480p', '720p'] },
   pixverse_v6: { durations: [5, 10, 15], resolutions: ['720p', '1080p'] },
-  runway_gen45: { durations: [5, 10], resolutions: ['720p', '1080p'] }
+  runway_gen45: { durations: [5, 10], resolutions: ['720p', '1080p'] },
+  wan22_unc: { durations: [5, 8], resolutions: ['480p', '720p'] },
+  wan3_unc: { durations: [5, 10, 15, 20, 30], resolutions: ['480p', '720p', '1080p'] },
+  minimax_h3_unc: { durations: [5, 10, 15], resolutions: ['480p', '720p', '1080p'] },
+  seedance25_unc: { durations: [5, 10, 15, 20, 30], resolutions: ['480p', '720p', '1080p'] },
+  vidu_q3_unc: { durations: [5, 10, 15], resolutions: ['480p', '720p', '1080p'] },
+  wan26_unc: { durations: [5, 10, 15], resolutions: ['720p', '1080p'] },
+  wan27_unc: { durations: [5, 10, 15], resolutions: ['720p', '1080p'] },
+  wan3pro_unc: { durations: [5, 10, 15, 20, 25, 30], resolutions: ['1080p', '2K', '4K'] }
 };
 function fillSelect(sel, values, label) {
   const keep = sel.value;
@@ -7000,6 +7342,7 @@ $('create').onclick = async () => {
       : { model: model, prompt: $('prompt').value,
           music_prompt: $('music').disabled ? '' : $('music').value,
           speech_script: $('speech').disabled ? '' : $('speech').value,
+          aspect_ratio: $('aspect').value,
           duration_seconds: Number($('duration').value), resolution: $('resolution').value,
           ...startFields, ...camera, ...detailFields, ...bot };
     const r = await api('/api/jobs', { method: 'POST', headers: {'Content-Type': 'application/json'},
@@ -7194,7 +7537,11 @@ refreshMe();
 GALLERY_HTML = (
     """<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Moonfactory gallery</title>"""
+<title>Moonfactory gallery</title>
+<meta name="description" content="Short AI videos made with Moonfactory, shared by their creators under their handles only.">
+<meta property="og:title" content="Moonfactory gallery">
+<meta property="og:description" content="Short AI videos made with Moonfactory, shared by their creators.">
+<meta property="og:type" content="website">"""
     + _CSS
     + """<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Cpath fill='%23818cf8' d='M23.3 8A16 16 0 1 0 32.6 37.5A16.5 16.5 0 0 1 23.3 8Z'/%3E%3Cpath fill='%23f5d67a' stroke='%23f5d67a' stroke-width='1.6' stroke-linejoin='round' d='M24 18.5L24 27.5L31.5 23Z'/%3E%3C/svg%3E">
 </head><body><main>
@@ -7211,7 +7558,7 @@ GALLERY_HTML = (
 </div>
 <div class="grid" id="items"><p class="muted">Loading...</p></div>
 </main>
-<footer><span>Moonfactory</span><span><a href="/app">Studio</a></span></footer>
+<footer><span>Moonfactory</span><span><a href="/app">Studio</a> &nbsp;<a href="/terms">Terms</a> &nbsp;<a href="/privacy">Privacy</a> &nbsp;<a href="/support">Support</a></span></footer>
 <script>
 async function loadGallery() {
   const box = document.getElementById('items');

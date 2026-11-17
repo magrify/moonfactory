@@ -322,8 +322,10 @@ PROVIDER_RATES_CENTS_PER_SECOND = {
     # every duration, carried as published.
     "luma_ray32": {"480p": 10.0, "720p": 20.0, "1080p": 40.0},
     # LTX-2.5 via fal, Pro tier: $0.12/s at 720p, $0.17/s at
-    # 1080p (4K exists at $0.34/s and is not sold).
-    "ltx25": {"720p": 12.0, "1080p": 17.0},
+    # 1080p, $0.34/s at 4K (4K wired 2026-11-17, parity pass:
+    # Higgsfield sells 4K on its shelf; the fal schema value for
+    # the tier is carried as 2160p in app.py, payload-unverified).
+    "ltx25": {"720p": 12.0, "1080p": 17.0, "4K": 34.0},
     # LTX-2.5 Fast via fal: $0.09/s at 720p, $0.13/s at 1080p.
     "ltx25_fast": {"720p": 9.0, "1080p": 13.0},
     # HappyHorse 1.1 via OpenRouter (follow-up pass, 2026-11-16):
@@ -412,9 +414,10 @@ PROVIDER_RATES_CENTS_PER_SECOND = {
     "wan27_unc": {"720p": 13.0, "1080p": 20.0},
     # Wan 3.0 Pro Uncensored via Wiro (the only source): per
     # run, linear in duration; the 1080p tier is $0.90 per
-    # 5 s = $0.18/s. 2K ($1.00 per 5 s) and 4K ($1.15 per
-    # 5 s) tiers exist and are not sold, like LTX's 4K.
-    "wan3pro_unc": {"1080p": 18.0},
+    # 5 s = $0.18/s. 2K ($1.00 per 5 s = $0.20/s) and 4K
+    # ($1.15 per 5 s = $0.23/s) tiers wired 2026-11-17,
+    # parity pass, at the supplier's own tier labels.
+    "wan3pro_unc": {"1080p": 18.0, "2K": 20.0, "4K": 23.0},
     # Vidu Q4, PixVerse V6 and Seedance 2.5 Flash are wired via
     # WaveSpeed in app.py but deliberately carry NO rate here:
     # WaveSpeed publishes only per-run "from" prices for them
@@ -501,7 +504,7 @@ MODEL_RESOLUTIONS = {
     "omni12": ("720p", "1080p"),
     "omni11": ("720p", "1080p"),
     "hailuo23": ("720p",),
-    "ltx25": ("720p", "1080p"),
+    "ltx25": ("720p", "1080p", "4K"),
     "ltx25_fast": ("720p", "1080p"),
     "happyhorse": ("720p", "1080p"),
     "pika22": ("720p", "1080p"),
@@ -518,7 +521,7 @@ MODEL_RESOLUTIONS = {
     "minimax_h3_unc": ("480p", "720p", "1080p"),
     "wan26_unc": ("720p", "1080p"),
     "wan27_unc": ("720p", "1080p"),
-    "wan3pro_unc": ("1080p",),
+    "wan3pro_unc": ("1080p", "2K", "4K"),
 }
 PROVIDER_RATE_STALE_SECONDS = 24 * 3600
 
