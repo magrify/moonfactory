@@ -617,10 +617,16 @@ def longform_estimate(model: str, output_seconds: float,
     raw = LONGFORM_COST_CENTS_PER_SECOND[model] * float(output_seconds)
     sell_rate = (
         LONGFORM_COST_CENTS_PER_SECOND[model] if owner
-        else gross_up(
-            LONGFORM_COST_CENTS_PER_SECOND[model] * MARGIN_MULTIPLIER)
+        else LONGFORM_COST_CENTS_PER_SECOND[model] * MARGIN_MULTIPLIER
     )
-    debit = math.ceil(sell_rate * float(output_seconds))
+    # The balance debit grosses the JOB TOTAL up for Stripe fees
+    # once, exactly like a house job price (gross_up adds the
+    # fixed per-transaction fee, so it belongs on totals, never
+    # on a per-second rate). The owner pays raw cost.
+    debit = (
+        math.ceil(raw) if owner
+        else int(gross_up(raw * MARGIN_MULTIPLIER))
+    )
     if lip_sync:
         lip_raw, lip_debit = lip_sync_costs(output_seconds, owner=owner)
         raw += lip_raw
@@ -644,10 +650,10 @@ def longform_estimate(model: str, output_seconds: float,
 def longform_sell_rate_cents_per_second(model: str,
                                         owner: bool = False) -> float:
     """The customer sell rate of a long-form house lane (menu
-    ordering and $ tier signs). ESTIMATE-based until the lane's
-    benchmark render lands."""
+    ordering and $ tier signs): raw cost x the house margin.
+    ESTIMATE-based until the lane's benchmark render lands."""
     cost = LONGFORM_COST_CENTS_PER_SECOND[model]
-    return cost if owner else gross_up(cost * MARGIN_MULTIPLIER)
+    return cost if owner else cost * MARGIN_MULTIPLIER
 
 # Hard per-job spend cap = estimate x tolerance (Rule 3). The cap is
 # what gets held before dispatch; settling never exceeds it.

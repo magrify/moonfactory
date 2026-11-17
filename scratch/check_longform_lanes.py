@@ -83,8 +83,13 @@ check(est["estimate"] is True, "framepack estimate labeled")
 check(abs(est["raw_cost_cents"] - 360.0) < 1e-6,
       f"framepack 60s raw {est['raw_cost_cents']} != 360 (6.0c/s est)")
 sell = pricing.longform_sell_rate_cents_per_second("framepack")
-check(abs(sell - pricing.gross_up(6.0 * pricing.MARGIN_MULTIPLIER)) < 1e-9,
-      "framepack sell = gross_up(cost x 3)")
+check(abs(sell - 6.0 * pricing.MARGIN_MULTIPLIER) < 1e-9,
+      "framepack sell rate = cost x 3 (no per-second gross_up)")
+check(est["balance_debit_cents"] == pricing.gross_up(360.0 * 3.0),
+      f"framepack 60s debit {est['balance_debit_cents']} != "
+      f"gross_up(1080) {pricing.gross_up(1080.0)} (fee grossed up once per job)")
+check(pricing.longform_sell_rate_cents_per_second("skyreels") == 4.5,
+      "skyreels sell rate = 1.5 x 3")
 check(pricing.longform_sell_rate_cents_per_second("framepack", owner=True) == 6.0,
       "owner pays raw cost")
 sr_est = pricing.longform_estimate("skyreels", 30, lip_sync=True)
