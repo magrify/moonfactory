@@ -1336,7 +1336,7 @@ def longform_staged(lane: str) -> bool:
 # calls its diffusers_helper modules directly (the demo's own
 # sampling code, minus the Gradio shell).
 framepack_image = (
-    modal.Image.debian_slim(python_version="3.10")
+    modal.Image.debian_slim(python_version="3.12")
     .apt_install("git", "ffmpeg")
     .pip_install(
         "torch==2.6.0", "torchvision==0.21.0", "torchaudio==2.6.0",
@@ -1647,7 +1647,7 @@ class FramePackWorker:
 # the exact pipeline calls). Python 3.10 matches the repo's test
 # environment; torch 2.6 cu126 is the house stack.
 skyreels_image = (
-    modal.Image.debian_slim(python_version="3.10")
+    modal.Image.debian_slim(python_version="3.12")
     .apt_install("git", "ffmpeg")
     .pip_install(
         "torch==2.6.0", "torchvision==0.21.0", "torchaudio==2.6.0",
