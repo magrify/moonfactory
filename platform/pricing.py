@@ -460,19 +460,65 @@ PROVIDER_RATES_CENTS_PER_SECOND = {
     # verification pass must confirm the charged rate before
     # this lane lights.
     "minimax_h3_unc": {"480p": 2.0, "720p": 3.0, "1080p": 4.0},
-    # Wan 2.6 Uncensored via Wiro (the only source): Wiro
-    # prices per run, and the run price scales linearly with
-    # duration (720p $0.50 / $1.00 / $1.50 and 1080p $0.75 /
-    # $1.50 / $2.25 for 5 / 10 / 15 s), so it carries as a
-    # flat per-second rate, exactly like the Luma per-clip
-    # carry above.
-    "wan26_unc": {"720p": 10.0, "1080p": 15.0},
-    # Wan 2.7 Uncensored via Wiro: per run, linear in
-    # duration (720p $0.65 / $1.30 / $1.95 and 1080p $1.00 /
-    # $2.00 / $3.00 for 5 / 10 / 15 s), carried per-second on
-    # the same basis. HotAPI's route is in DISPLACED_RATES
-    # below.
-    "wan27_unc": {"720p": 13.0, "1080p": 20.0},
+    # Wan 2.6 Uncensored via SpicyAPI (route moved from Wiro
+    # 2026-11-17, catalog completion pass): the supplier's
+    # own model page prices $0.095/s at 720p and $0.1425/s at
+    # 1080p, under the Wiro route's $0.10 / $0.15 per second
+    # (recorded in DISPLACED_RATES below). Image mode only;
+    # the build generates no audio (supplied-track pacing
+    # only, which the platform does not send).
+    "wan26_unc": {"720p": 9.5, "1080p": 14.25},
+    # Wan 2.7 Uncensored via SpicyAPI (same route move): its
+    # own model page prices $0.1235/s at 720p and $0.19/s at
+    # 1080p, under Wiro's $0.13 / $0.20 (DISPLACED_RATES).
+    # Image mode only; generate_audio on by default there.
+    "wan27_unc": {"720p": 12.35, "1080p": 19.0},
+    # --- SpicyAPI catalog completion (2026-11-17): the rest
+    # of the supplier's spicy video families, each priced
+    # from its own model page (read 2026-11-17). All are
+    # image-to-video only on this supplier. Full record:
+    # ~/workspace/sinclip/spicyapi-video-catalog-2026-11-17.md
+    # Wan 3.0 Prime (uncensored build) via SpicyAPI:
+    # $0.09 / $0.18 / $0.36 per second; generates sound by
+    # default (generate_audio on in the submit wiring).
+    "wan3prime_unc": {"480p": 9.0, "720p": 18.0, "1080p": 36.0},
+    # Wan 2.2 LoRA (uncensored build) via SpicyAPI: $0.024/s
+    # at 480p, $0.048/s at 720p, for its 5 or 8 second steps.
+    # Silent. Its page also publishes a video-extend task at
+    # $0.038 / $0.076 per second; the platform's chaining
+    # covers longer lengths, so extend is not wired.
+    "wan22_lora_unc": {"480p": 2.4, "720p": 4.8},
+    # Seedance 2.0 (uncensored build) via SpicyAPI: $0.114 /
+    # $0.228 / $0.57 per second. A 4K tier is published at
+    # $1.14/s with no native/upscaled label on its page, so
+    # it is NOT sold (genuine-4K rule); flagged in the
+    # catalog record. generate_audio on.
+    "seedance2_unc": {"480p": 11.4, "720p": 22.8, "1080p": 57.0},
+    # Seedance 2.0 Fast (uncensored build) via SpicyAPI:
+    # $0.081/s at 480p, $0.1742/s at 720p. generate_audio on.
+    "seedance2fast_unc": {"480p": 8.1, "720p": 17.42},
+    # Seedance 2.0 Mini (uncensored build) via SpicyAPI:
+    # $0.0387/s at 480p, $0.0821/s at 720p. This build
+    # generates sound (generate_audio on), unlike the
+    # moderated Mini lane, which is silent on its route.
+    "seedance2mini_unc": {"480p": 3.87, "720p": 8.21},
+    # Seedance 1.5 Pro (uncensored build) via SpicyAPI: its
+    # page splits the rate by its audio switch; the lane
+    # ships audio on, so it carries the audio-on rates
+    # ($0.024 / $0.052 / $0.104 per second). The audio-off
+    # rates ($0.012 / $0.026 / $0.052) are the same page's
+    # other column, recorded here for the day the lane ever
+    # sells a silent mode.
+    "seedance15pro_unc": {"480p": 2.4, "720p": 5.2, "1080p": 10.4},
+    # LTX 2.3 (uncensored build) via SpicyAPI: $0.019 /
+    # $0.038 / $0.057 per second. Silent: its endpoint
+    # publishes no audio field.
+    "ltx23_unc": {"480p": 1.9, "720p": 3.8, "1080p": 5.7},
+    # LTX 2.3 LoRA (uncensored build) via SpicyAPI: $0.0285 /
+    # $0.0475 / $0.0665 per second. Silent, same basis. Its
+    # built-in LoRA overrides are not sent (the supplier's
+    # default mix applies).
+    "ltx23_lora_unc": {"480p": 2.85, "720p": 4.75, "1080p": 6.65},
     # Wan 3.0 Pro Uncensored via Wiro (the only source): per
     # run, linear in duration; the 1080p tier is $0.90 per
     # 5 s = $0.18/s. 2K ($1.00 per 5 s = $0.20/s) and 4K
@@ -565,6 +611,24 @@ DISPLACED_RATES_CENTS_PER_SECOND = {
     # HotAPI's Wan 2.7 (uncensored build) route: $0.26/s at
     # 720p and $0.40/s at 1080p from its published guide.
     "wan27_unc": {"720p": 26.0, "1080p": 40.0},
+    # Wiro routes displaced 2026-11-17 when the Wan 2.6 / 2.7
+    # uncensored lanes moved to cheaper SpicyAPI rates (the
+    # Wiro submit path stays wired in app.py as the spare).
+    # Wiro priced per run, linear in duration: 2.6 at 720p
+    # $0.50/$1.00/$1.50 and 1080p $0.75/$1.50/$2.25 for
+    # 5/10/15 s; 2.7 at 720p $0.65/$1.30/$1.95 and 1080p
+    # $1.00/$2.00/$3.00, carried per-second as before.
+    "wan26_unc_wiro": {"720p": 10.0, "1080p": 15.0},
+    "wan27_unc_wiro": {"720p": 13.0, "1080p": 20.0},
+    # SpicyAPI's MiniMax H3 (uncensored build) rates, read
+    # from its own model page 2026-11-17: $0.038/s at 480p,
+    # $0.057 at its 540p tier (no platform tier), $0.084 at
+    # its 768p tier (the platform's 720p), $0.152 at 1080p.
+    # NOT wired: the lane's HotAPI route is cheaper at every
+    # comparable tier (see the lane's rate entry above), so
+    # the lane stays on HotAPI and these stay for the record.
+    "minimax_h3_unc_spicyapi": {"480p": 3.8, "720p": 8.4,
+                                "1080p": 15.2},
 }
 
 # Resolutions each per-second model can actually be ordered at.
@@ -605,6 +669,14 @@ MODEL_RESOLUTIONS = {
     "wan26_unc": ("720p", "1080p"),
     "wan27_unc": ("720p", "1080p"),
     "wan3pro_unc": ("1080p", "2K", "4K"),
+    "wan3prime_unc": ("480p", "720p", "1080p"),
+    "wan22_lora_unc": ("480p", "720p"),
+    "seedance2_unc": ("480p", "720p", "1080p"),
+    "seedance2fast_unc": ("480p", "720p"),
+    "seedance2mini_unc": ("480p", "720p"),
+    "seedance15pro_unc": ("480p", "720p", "1080p"),
+    "ltx23_unc": ("480p", "720p", "1080p"),
+    "ltx23_lora_unc": ("480p", "720p", "1080p"),
     "wan_motion": ("720p",),
 }
 PROVIDER_RATE_STALE_SECONDS = 24 * 3600

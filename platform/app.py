@@ -493,6 +493,19 @@ MODELS = [
     {"id": "wan26_unc", "label": "Wan 2.6", "paid_only": True},
     {"id": "wan27_unc", "label": "Wan 2.7", "paid_only": True},
     {"id": "wan3pro_unc", "label": "Wan 3.0 Pro", "paid_only": True},
+    # SpicyAPI catalog completion (2026-11-17): every remaining
+    # spicy (uncensored) video family on the supplier's own
+    # catalog, each wired from its own model page (lengths,
+    # resolutions, prices, audio and input fields per page; see
+    # ~/workspace/sinclip/spicyapi-video-catalog-2026-11-17.md).
+    {"id": "wan3prime_unc", "label": "Wan 3.0 Prime", "paid_only": True},
+    {"id": "wan22_lora_unc", "label": "Wan 2.2 LoRA", "paid_only": True},
+    {"id": "seedance2_unc", "label": "Seedance 2.0", "paid_only": True},
+    {"id": "seedance2fast_unc", "label": "Seedance 2.0 Fast", "paid_only": True},
+    {"id": "seedance2mini_unc", "label": "Seedance 2.0 Mini", "paid_only": True},
+    {"id": "seedance15pro_unc", "label": "Seedance 1.5 Pro", "paid_only": True},
+    {"id": "ltx23_unc", "label": "LTX 2.3", "paid_only": True},
+    {"id": "ltx23_lora_unc", "label": "LTX 2.3 LoRA", "paid_only": True},
 ]
 MODEL_LABELS = {m["id"]: m["label"] for m in MODELS}
 DEFAULT_MODEL = "wan2.2"
@@ -507,6 +520,9 @@ UNCENSORED_VIDEO_MODELS = (
     # supplier adds no refusal layer in front of the model.
     "wan22_unc", "wan3_unc", "minimax_h3_unc", "seedance25_unc",
     "vidu_q3_unc", "wan26_unc", "wan27_unc", "wan3pro_unc",
+    "wan3prime_unc", "wan22_lora_unc", "seedance2_unc",
+    "seedance2fast_unc", "seedance2mini_unc", "seedance15pro_unc",
+    "ltx23_unc", "ltx23_lora_unc",
 )
 # Price tier signs for the studio dropdown (Jack, 2026-11-16):
 # Google-Maps-style $ signs banded on FIXED edges over the model's
@@ -526,6 +542,9 @@ PER_SECOND_MODELS = (
     "seedance25_flash", "pixverse_v6", "runway_gen45",
     "wan22_unc", "wan3_unc", "minimax_h3_unc", "seedance25_unc",
     "vidu_q3_unc", "wan26_unc", "wan27_unc", "wan3pro_unc",
+    "wan3prime_unc", "wan22_lora_unc", "seedance2_unc",
+    "seedance2fast_unc", "seedance2mini_unc", "seedance15pro_unc",
+    "ltx23_unc", "ltx23_lora_unc",
     "wan_motion",
 )
 # Which supplier serves each per-second model. Internal only: the
@@ -579,9 +598,23 @@ MODEL_PROVIDER = {
     "seedance25_unc": "spicyapi",
     "vidu_q3_unc": "spicyapi",
     "minimax_h3_unc": "hotapi",
-    "wan26_unc": "wiro",
-    "wan27_unc": "wiro",
+    # Wan 2.6 / 2.7 moved from Wiro to SpicyAPI 2026-11-17:
+    # the supplier's own pages price both tiers of both models
+    # below the Wiro route (2.6: $0.095/$0.1425 vs $0.10/$0.15;
+    # 2.7: $0.1235/$0.19 vs $0.13/$0.20). The Wiro rates are
+    # recorded in pricing.py's DISPLACED_RATES and the Wiro
+    # submit path stays wired as the spare.
+    "wan26_unc": "spicyapi",
+    "wan27_unc": "spicyapi",
     "wan3pro_unc": "wiro",
+    "wan3prime_unc": "spicyapi",
+    "wan22_lora_unc": "spicyapi",
+    "seedance2_unc": "spicyapi",
+    "seedance2fast_unc": "spicyapi",
+    "seedance2mini_unc": "spicyapi",
+    "seedance15pro_unc": "spicyapi",
+    "ltx23_unc": "spicyapi",
+    "ltx23_lora_unc": "spicyapi",
     # Motion transfer (2026-11-17): fal's Wan Motion endpoint.
     "wan_motion": "fal",
 }
@@ -725,12 +758,30 @@ LANE_AUDIO = {
                     "note": "Vidu Q3 native audio incl. speech; generate_audio on in the wired payload"},
     "minimax_h3_unc": {"native_speech": True, "native_audio": True,
                        "note": "H3 native audio incl. speech; audio is always on for this build, no silent mode exists"},
-    "wan26_unc": {"native_speech": False, "native_audio": True,
-                  "note": "generated audio is a mode on the wired route and is selected by default; speech unconfirmed"},
+    "wan26_unc": {"native_speech": False, "native_audio": False,
+                  "note": "the wired route generates no audio: this build can pace a clip to a supplied audio track, which the platform does not send; music bed and the voiceover path run in post"},
     "wan27_unc": {"native_speech": False, "native_audio": True,
-                  "note": "generated audio is a mode on the wired route and is selected by default; speech unconfirmed"},
+                  "note": "generate_audio on by default on the wired route; speech unconfirmed"},
     "wan3pro_unc": {"native_speech": False, "native_audio": True,
                     "note": "generated audio is a mode on the wired route and is selected by default; speech unconfirmed"},
+    # SpicyAPI catalog completion (2026-11-17): audio follows
+    # each build's own model page, same rule as above.
+    "wan3prime_unc": {"native_speech": False, "native_audio": True,
+                      "note": "native audio is music/SFX-led; speech is not reliable; generate_audio on"},
+    "wan22_lora_unc": {"native_speech": False, "native_audio": False,
+                       "note": "silent on the wired route, like the base model; music bed and the voiceover path run in post"},
+    "seedance2_unc": {"native_speech": False, "native_audio": True,
+                      "note": "Seedance native audio; generate_audio on; its page publishes sound, not speech"},
+    "seedance2fast_unc": {"native_speech": False, "native_audio": True,
+                          "note": "Seedance native audio; generate_audio on; its page publishes sound, not speech"},
+    "seedance2mini_unc": {"native_speech": False, "native_audio": True,
+                          "note": "this build generates sound (unlike the moderated Mini lane); generate_audio on; speech not published"},
+    "seedance15pro_unc": {"native_speech": False, "native_audio": True,
+                          "note": "native sound; generate_audio on; priced at the audio-on rates its page publishes"},
+    "ltx23_unc": {"native_speech": False, "native_audio": False,
+                  "note": "silent on the wired route: the endpoint publishes no audio field; music bed and the voiceover path run in post"},
+    "ltx23_lora_unc": {"native_speech": False, "native_audio": False,
+                       "note": "silent on the wired route: the endpoint publishes no audio field; music bed and the voiceover path run in post"},
 }
 
 
@@ -814,13 +865,31 @@ MODEL_DURATION_BOUNDS = {
     # Uncensored lanes (2026-11-17), from each route's own
     # published schema or model page.
     "wan22_unc": (5, 5),
-    "wan3_unc": (3, 30),
+    # Wan 3.0 Spicy's own page accepts 2 to 30 whole seconds
+    # (drift fix, 2026-11-17 catalog pass: the lane opened
+    # at a 3 second minimum its page does not publish).
+    "wan3_unc": (2, 30),
     "seedance25_unc": (4, 30),
-    "vidu_q3_unc": (3, 16),
+    # Vidu Q3 Spicy's own page accepts 1 to 16 whole seconds
+    # (same drift fix: the lane opened at 3).
+    "vidu_q3_unc": (1, 16),
     "minimax_h3_unc": (5, 15),
     "wan26_unc": (5, 15),
-    "wan27_unc": (5, 15),
+    # Wan 2.7 Spicy accepts any whole second from 2 to 15 on
+    # the SpicyAPI route it moved to 2026-11-17 (the Wiro
+    # route's 5/10/15 steps no longer govern).
+    "wan27_unc": (2, 15),
     "wan3pro_unc": (5, 30),
+    # SpicyAPI catalog completion (2026-11-17), each from its
+    # own model page.
+    "wan3prime_unc": (2, 30),
+    "wan22_lora_unc": (5, 8),
+    "seedance2_unc": (4, 15),
+    "seedance2fast_unc": (4, 15),
+    "seedance2mini_unc": (4, 15),
+    "seedance15pro_unc": (4, 12),
+    "ltx23_unc": (3, 20),
+    "ltx23_lora_unc": (3, 20),
 }
 # Veo generates only these clip lengths; anything else is refused
 # at validation instead of being silently rounded by the provider.
@@ -847,8 +916,10 @@ MODEL_DURATION_STEPS = {
     # chain 5 second segments.
     "wan22_unc": (5,),
     "wan26_unc": (5, 10, 15),
-    "wan27_unc": (5, 10, 15),
     "wan3pro_unc": (5, 10, 15, 20, 25, 30),
+    # Wan 2.2 Spicy LoRA accepts exactly 5 or 8 seconds (its
+    # own page: anything else is a validation error).
+    "wan22_lora_unc": (5, 8),
 }
 # The length rule (Jack, 2026-11-17, refined the same day):
 # the picker lists each model's REAL native lengths, never a
@@ -1138,8 +1209,10 @@ def grouped_model_order(models: list, rate_of) -> list:
 TEXT_IMAGE_ONLY_MODELS = (
     "veo3_lite", "hailuo23", "luma_ray32", "ltx25", "ltx25_fast",
     "pika22", "vidu_q2", "vidu_q3", "runway_gen45", "pixverse_v6",
-    # The Wiro uncensored lanes: their published parameter sets
-    # have no reference inputs, only a prompt and a start image.
+    # Uncensored lanes whose published parameter sets have no
+    # reference inputs, only a prompt and a start image (the
+    # Wiro Wan 3.0 Pro lane and, since their 2026-11-17 route
+    # move, the SpicyAPI Wan 2.6 / 2.7 lanes).
     "wan26_unc", "wan27_unc", "wan3pro_unc",
     # Grok Imagine Video 1.5 Lite: text and image modes only on
     # every route (xAI's docs, read 2026-11-17); no reference
@@ -3490,7 +3563,11 @@ def api():
                 detail="this model needs a start image or reference images",
             )
         if model in ("wan22_unc", "wan3_unc", "seedance25_unc",
-                     "vidu_q3_unc") and mode != "image":
+                     "vidu_q3_unc", "wan3prime_unc", "wan22_lora_unc",
+                     "seedance2_unc", "seedance2fast_unc",
+                     "seedance2mini_unc", "seedance15pro_unc",
+                     "ltx23_unc", "ltx23_lora_unc", "wan26_unc",
+                     "wan27_unc") and mode != "image":
             # The uncensored builds' wired supplier publishes an
             # image-to-video endpoint only for them (its catalog,
             # read 2026-11-17): no text or reference mode exists
@@ -4973,7 +5050,50 @@ def api():
         "wan3_unc": "alibaba/wan-3.0-spicy/image-to-video",
         "seedance25_unc": "bytedance/seedance-2.5-spicy/image-to-video",
         "vidu_q3_unc": "vidu/q3-spicy/image-to-video",
+        # Catalog completion (2026-11-17): the rest of the
+        # supplier's spicy video families, ids from each
+        # family's own model page. Wan 2.6 / 2.7 joined this
+        # table when their lanes moved routes the same day.
+        "wan26_unc": "alibaba/wan-2.6-spicy/image-to-video",
+        "wan27_unc": "alibaba/wan-2.7-spicy/image-to-video",
+        "wan3prime_unc": "alibaba/wan-3.0-prime-spicy/image-to-video",
+        "wan22_lora_unc": "alibaba/wan-2.2-spicy-lora/image-to-video",
+        "seedance2_unc": "bytedance/seedance-2.0-spicy/image-to-video",
+        "seedance2fast_unc": "bytedance/seedance-2.0-fast-spicy/image-to-video",
+        "seedance2mini_unc": "bytedance/seedance-2.0-mini-spicy/image-to-video",
+        "seedance15pro_unc": "bytedance/seedance-1.5-pro-spicy/image-to-video",
+        "ltx23_unc": "lightricks/ltx-2.3-spicy/image-to-video",
+        "ltx23_lora_unc": "lightricks/ltx-2.3-spicy-lora/image-to-video",
     }
+    # SpicyAPI lanes whose published schema carries a
+    # generate_audio field (selected on: the platform ships
+    # audio on where the build generates it). Sending the
+    # field to a schema that does not list it fails the
+    # supplier's validation (Wan 2.6's page says so outright),
+    # so the set is per-lane from each model page, read
+    # 2026-11-17.
+    SPICYAPI_AUDIO_MODELS = (
+        "wan3_unc", "wan3prime_unc", "wan27_unc", "seedance25_unc",
+        "seedance2_unc", "seedance2fast_unc", "seedance2mini_unc",
+        "seedance15pro_unc", "vidu_q3_unc",
+    )
+    # SpicyAPI lanes whose schema carries aspect_ratio: the
+    # two Wan 3.0 builds and the Seedance 2.0/1.5 builds
+    # except 2.5 (whose schema has none). The rest inherit
+    # the start image's shape.
+    SPICYAPI_ASPECT_MODELS = (
+        "wan3_unc", "wan3prime_unc", "seedance2_unc",
+        "seedance2fast_unc", "seedance2mini_unc", "seedance15pro_unc",
+    )
+    # SpicyAPI lanes whose schema carries a closing-frame
+    # field (last_image_url). Vidu Q3, Wan 2.6, Wan 2.7 and
+    # both LTX builds publish no such field on their pages,
+    # so an end frame is never sent to them.
+    SPICYAPI_END_FRAME_MODELS = (
+        "wan22_unc", "wan3_unc", "wan3prime_unc", "seedance25_unc",
+        "seedance2_unc", "seedance2fast_unc", "seedance2mini_unc",
+        "seedance15pro_unc",
+    )
 
     def submit_spicyapi_job(job: dict, body: dict, params: dict,
                             prompt: str):
@@ -4998,14 +5118,14 @@ def api():
                "resolution": params["resolution"]}
         if model == "vidu_q3_unc" and params["resolution"] == "480p":
             inp["resolution"] = "540p"
-        if model in ("wan3_unc", "seedance25_unc", "vidu_q3_unc"):
+        if model in SPICYAPI_AUDIO_MODELS:
             inp["generate_audio"] = True
-        if model == "wan3_unc":
+        if model in SPICYAPI_ASPECT_MODELS:
             inp["aspect_ratio"] = params["aspect_ratio"]
         try:
             inp["image_url"] = _beatapi_media_url(
                 params["start_image"], "first-frame")
-            if params["end_image"]:
+            if params["end_image"] and model in SPICYAPI_END_FRAME_MODELS:
                 inp["last_image_url"] = _beatapi_media_url(
                     params["end_image"], "last-frame")
         except Exception as exc:
@@ -5597,6 +5717,12 @@ def api():
                 if hosted and model not in TEXT_IMAGE_ONLY_MODELS \
                         and model not in ("wan22_unc", "wan3_unc",
                                           "seedance25_unc", "vidu_q3_unc",
+                                          "wan3prime_unc", "wan22_lora_unc",
+                                          "seedance2_unc", "seedance2fast_unc",
+                                          "seedance2mini_unc",
+                                          "seedance15pro_unc", "ltx23_unc",
+                                          "ltx23_lora_unc", "wan26_unc",
+                                          "wan27_unc",
                                           "wan_motion"):
                     existing = body.get("reference_image_urls") or []
                     body["reference_image_urls"] = hosted + list(existing)
@@ -9293,6 +9419,14 @@ const MODEL_OPTS = {
   wan26_unc: { durations: LENGTHS, resolutions: ['720p', '1080p'] },
   wan27_unc: { durations: LENGTHS, resolutions: ['720p', '1080p'] },
   wan3pro_unc: { durations: LENGTHS, resolutions: ['1080p', '2K', '4K'] },
+  wan3prime_unc: { durations: LENGTHS, resolutions: ['480p', '720p', '1080p'] },
+  wan22_lora_unc: { durations: LENGTHS, resolutions: ['480p', '720p'] },
+  seedance2_unc: { durations: LENGTHS, resolutions: ['480p', '720p', '1080p'] },
+  seedance2fast_unc: { durations: LENGTHS, resolutions: ['480p', '720p'] },
+  seedance2mini_unc: { durations: LENGTHS, resolutions: ['480p', '720p'] },
+  seedance15pro_unc: { durations: LENGTHS, resolutions: ['480p', '720p', '1080p'] },
+  ltx23_unc: { durations: LENGTHS, resolutions: ['480p', '720p', '1080p'] },
+  ltx23_lora_unc: { durations: LENGTHS, resolutions: ['480p', '720p', '1080p'] },
   wan_motion: { durations: LENGTHS, resolutions: ['720p'] }
 };
 // Resolution picker labels (Jack, 2026-11-17): real pixel
