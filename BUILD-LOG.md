@@ -2721,3 +2721,60 @@ est. ~$0.12); the gates themselves behaved correctly.
   smoke render above (~$0.12 est.). CPU probe time across the
   run: pennies (est. < $0.05, unmeasured). No provider spend;
   balances stay $0.
+
+## 2026-11-16 (proof renders): THE FIVE HELD RENDERS, RUN UNDER JACK'S APPROVAL
+
+MODAL SPEND: APPROVED BY JACK IN CHAT, Nov 16, 2026, verbatim:
+"Approve all 5 proof renders (~$1.42 total)". Exactly those five jobs
+ran; mid-run Jack added "make them as short and as cheaply as
+possible" — the four already-dispatched jobs finished as-is per the
+constraint's own terms, and 3c (the only undispatched one) was
+reviewed: the Fun Camera lane renders one segment at a fixed length
+(no duration parameter exists) and the stock recipe's steps/cfg are
+the variable under test, so it ran in its already-minimal form.
+Harness: scratch/proof_renders_app.py; checkpoint:
+proof-renders-run-2026-11-16.md; outputs:
+outputs/proof-renders-2026-11-16/ in the sinclip workspace.
+
+- AUDIO PROOF (2a Production / 2b Draft, owner, Wan 2.2, balloon
+  start image, speech_script "A red balloon drifts over the quiet
+  harbor." + music prompt): BOTH PASS with hard evidence. The raw
+  worker files are video-only; the delivered files carry an AAC
+  track at -15.18 / -15.0 LUFS. voiceover_status "ready", no audio
+  fallback. Least-squares fit of each delivered mix against the
+  job's own cached voiceover wav + bed wav (moonfactory-data):
+  R2 0.997 / 0.987; voice cross-correlation peak 0.895 / 0.925 at
+  offset 0.0 s; fitted gains voice 2.65 / bed 0.86 (2a) and voice
+  2.70 / bed 0.93 (2b) — the voice sits ~3x over the ducked bed.
+  Parallel audio (spawned at dispatch, collected at finishing)
+  lands mixed, on both lanes. Settled costs: 2a cost_cents 15.0 ==
+  the 15c owner Production quote; 2b cost_cents 50.0 == the 50c
+  owner Draft quote; both charged 0c balance (included budget);
+  owner cost_settled_cents 0 -> 65.0 exactly. Both clips are listed
+  in the public gallery.
+- CAMERA MATRIX COMPLETE (Fun Camera Pan Left, benchmark balloon
+  scene, seed 12345; phase-correlation frame-to-frame translation
+  + red-blob centroid, the run-18 method): speed 1.0 = NO PAN in
+  every recipe (distilled run 18: drift (0,0); stock run 21: drift
+  (0,0); mid 3b: drift (0,0) at every half-second step, centroid
+  +0.0006). Distilled @ speed 3.0 (3a) = REAL PAN: cumulative drift
+  -64 px = -8.89% of frame width, monotonic across all ten steps,
+  balloon centroid +0.0781 (content right = camera left, correct
+  direction). Stock @ speed 3.0 (3c) = NO PAN: net +8 px (+1.11%)
+  but oscillating (-8..+8, non-monotonic) with the centroid moving
+  -0.0133 against the pan direction — trace noise, not a move.
+  Verdict: camera_speed is the gate (1.0 never moves), and at 3.0
+  only the distilled recipe's move survives measurement. The
+  platform's Fun Camera default (distilled) is the right lane
+  recipe; presets presented at speed 1.0 will not move.
+- COST (actuals from worker records, render_seconds x L40S list
+  $0.000542/s): 2a $0.116 (214.8 s, est $0.17) · 2b $0.132 (243.4 s,
+  est $0.12) · 3a $0.120 (220.6 s, est $0.10) · 3b $0.431 (795.5 s,
+  est $0.25 — 1.72x: the mid recipe's GPU time ran past its ~450 s
+  desk projection; dispatch used the projection per the stop rule,
+  the miss is the estimate's, disclosed) · 3c $0.744 (1372.9 s, est
+  $0.78). Video GPU total $1.543 vs the $1.42 approved estimate
+  (+$0.12, entirely 3b) and under the $1.75 hard stop. The 2a/2b
+  audio stages record no separate seconds; their settled platform
+  records (15c / 50c) are the measured-cost accounting for the full
+  chain. CPU harness time: pennies. No provider spend.
