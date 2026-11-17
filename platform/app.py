@@ -7412,6 +7412,7 @@ def api():
                 payment_method=user["stripe_payment_method_id"],
                 off_session=True,
                 confirm=True,
+                statement_descriptor_suffix="MOONFACTORY",
                 metadata={"user_id": user["id"], "kind": "auto_reload",
                           "credit_cents": str(amount)},
             )
@@ -7540,7 +7541,8 @@ def api():
         session = stripe.checkout.Session.create(
             mode="payment",
             line_items=line_items,
-            payment_intent_data={"setup_future_usage": "off_session"},
+            payment_intent_data={"setup_future_usage": "off_session",
+                                 "statement_descriptor_suffix": "MOONFACTORY"},
             customer=ensure_stripe_customer(user, stripe),
             client_reference_id=user["id"],
             metadata={"user_id": user["id"], "credit_cents": str(pack)},
