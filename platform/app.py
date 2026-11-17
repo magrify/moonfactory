@@ -420,6 +420,18 @@ MODELS = [
     {"id": "wan3", "label": "Wan 3.0", "paid_only": True},
     {"id": "wan3_prime", "label": "Wan 3.0 Prime", "paid_only": True},
     {"id": "wan_motion", "label": "Wan Motion", "paid_only": True},
+    # Long-form house lanes (2026-11-17): the platform's own
+    # worker runs FramePack and SkyReels V2, the same class as
+    # the house Wan 2.2 lane. Their single jobs run far past
+    # every commercial model's segment maximum (FramePack's
+    # documented range is 1-120 s in one job; SkyReels V2's
+    # documented native lengths are 10/15/30/60 s, chained past
+    # 60 s like every other model). Both stay unavailable until
+    # their weights are staged on the worker volume (see
+    # HOUSE_LONGFORM_MODELS and the spend-gated staging jobs in
+    # framepack-skyreels-2026-11-17.md).
+    {"id": "framepack", "label": "FramePack", "paid_only": True},
+    {"id": "skyreels", "label": "SkyReels V2", "paid_only": True},
     {"id": "seedance", "label": "Seedance 2.5", "paid_only": True},
     {"id": "veo3", "label": "Veo 3.1", "paid_only": True},
     {"id": "veo3_fast", "label": "Veo 3.1 Fast", "paid_only": True},
@@ -486,6 +498,10 @@ DEFAULT_MODEL = "wan2.2"
 # the uncensored flag on the LLM provider group (llm_providers.py).
 UNCENSORED_VIDEO_MODELS = (
     "wan2.2",
+    # The long-form house lanes run open weights on the
+    # platform's own worker, like the house Wan 2.2 lane: no
+    # provider moderation layer exists on them.
+    "framepack", "skyreels",
     # Uncensored builds wired 2026-11-17: hosted lanes whose
     # supplier adds no refusal layer in front of the model.
     "wan22_unc", "wan3_unc", "minimax_h3_unc", "seedance25_unc",
@@ -624,6 +640,10 @@ def provider_for(model: str, resolution: str = None) -> str:
 LANE_AUDIO = {
     "wan2.2": {"native_speech": False, "native_audio": False,
                "note": "house model is silent; music bed and the voiceover path run in post"},
+    "framepack": {"native_speech": False, "native_audio": False,
+                  "note": "house model is silent; music bed and the voiceover path run in post"},
+    "skyreels": {"native_speech": False, "native_audio": False,
+                 "note": "house model is silent; music bed and the voiceover path run in post"},
     "wan3": {"native_speech": False, "native_audio": True,
              "note": "native audio is music/SFX-led; speech is not reliable"},
     "wan3_prime": {"native_speech": False, "native_audio": True,
@@ -743,6 +763,11 @@ API_POLL_PROVIDERS = (
 # 3-30; these narrow it to what each model actually accepts).
 MODEL_DURATION_BOUNDS = {
     "wan_motion": (2, 30),
+    # FramePack's documented native range is 1-120 s in one
+    # job (the maker's demo UI slider, lllyasviel/FramePack
+    # demo_gradio.py, read 2026-11-17): every menu length is a
+    # single native generation on this lane, nothing chained.
+    "framepack": (1, 120),
     "seedance": (4, 30),
     "veo3": (4, 8),
     "veo3_fast": (4, 8),
@@ -810,6 +835,14 @@ MODEL_DURATION_STEPS = {
     "wan26_unc": (5, 10, 15),
     "wan27_unc": (5, 10, 15),
     "wan3pro_unc": (5, 10, 15, 20, 25, 30),
+    # SkyReels V2's documented native lengths are exactly four
+    # (SkyworkAI/SkyReels-V2 README, Single GPU Inference note,
+    # read 2026-11-17: --num_frames 257 for 10 s, 377 for 15 s,
+    # 737 for 30 s, 1457 for 60 s). Menu lengths past 60 s
+    # compose from these by exact sum in the worker (45 = 15+30
+    # is also offered); 1 s and 5 s sit below its documented
+    # minimum and are not offered on this model.
+    "skyreels": (10, 15, 30, 60),
 }
 # The length rule (Jack, 2026-11-17, refined the same day):
 # the picker lists each model's REAL native lengths, never a
@@ -840,6 +873,57 @@ UNIVERSAL_LONG_LENGTHS = (45, 60, 90, 120)
 # Runway image_to_video, the image-only SpicyAPI builds,
 # HotAPI image_url, Wiro inputImage).
 CHAIN_CONTINUATION_MODELS = PER_SECOND_MODELS
+# SkyReels V2 chains too, but inside the house worker (its
+# segments continue from the previous segment's last frames,
+# the model's own documented continuation mode), so it joins
+# the continuation set semantically even though its jobs never
+# pass through the per-second submit path.
+CHAIN_CONTINUATION_MODELS = CHAIN_CONTINUATION_MODELS + ("skyreels",)
+
+
+# ---------------------------------------------------------------------------
+# Long-form house lanes (2026-11-17): FramePack and SkyReels V2
+# run on the platform's own worker (lanes "framepack" and
+# "skyreels" in modal-worker/app.py), priced per second at the
+# house margin (pricing.longform_estimate). A lane is orderable
+# only once its weights are staged on the shared models volume:
+# the worker's staging step writes a STAGED.json marker the
+# platform checks here, so the lanes stay dark (listed in the
+# menu, marked unavailable) until the spend-gated staging jobs
+# are approved and run. Research and the held staging jobs:
+# framepack-skyreels-2026-11-17.md.
+# ---------------------------------------------------------------------------
+HOUSE_LONGFORM_MODELS = {
+    "framepack": {
+        "worker_lane": "framepack",
+        "fps": 30,
+        # FramePack's official release is image-to-video only:
+        # one start image plus a motion prompt.
+        "requires_start_image": True,
+    },
+    "skyreels": {
+        "worker_lane": "skyreels",
+        "fps": 24,
+        "requires_start_image": False,
+    },
+}
+
+LONGFORM_MODELS_MOUNT = "/worker-models"
+
+
+def longform_staged(model: str) -> bool:
+    """True once the worker volume carries this lane's staged
+    weights marker. The platform mounts the same volume the
+    worker stages onto, so the check is a plain file test; any
+    error reads as not staged (dark-safe)."""
+    try:
+        return (
+            Path(LONGFORM_MODELS_MOUNT)
+            / HOUSE_LONGFORM_MODELS[model]["worker_lane"]
+            / "STAGED.json"
+        ).is_file()
+    except Exception:
+        return False
 
 
 # Per-lane reference caps (images, videos, audios), raised from
@@ -880,6 +964,39 @@ MODEL_REF_VIDEO_SECONDS_CAP = {
 
 def ref_caps_for(model: str):
     return MODEL_REF_CAPS.get(model, (10, 5, 5))
+
+
+def _first_image_url(node):
+    """First downloadable image URL anywhere in a provider
+    payload. The shelf endpoints' response envelopes are
+    PAYLOAD-UNVERIFIED, so the scan accepts the common
+    shapes: a URL string ending in an image extension, or a
+    dict carrying a url with an image content type."""
+    if isinstance(node, str):
+        if node.startswith("http") and any(
+                node.split("?")[0].lower().endswith(ext)
+                for ext in (".png", ".jpg", ".jpeg", ".webp")):
+            return node
+        return None
+    if isinstance(node, dict):
+        url = node.get("url")
+        ctype = str(node.get("content_type") or "")
+        if isinstance(url, str) and url.startswith("http") and (
+                ctype.startswith("image")
+                or any(url.split("?")[0].lower().endswith(ext)
+                       for ext in (".png", ".jpg", ".jpeg", ".webp"))):
+            return url
+        for value in node.values():
+            found = _first_image_url(value)
+            if found:
+                return found
+        return None
+    if isinstance(node, list):
+        for value in node:
+            found = _first_image_url(value)
+            if found:
+                return found
+    return None
 
 
 def _step_composition(steps: list, total: int):
@@ -1880,6 +1997,11 @@ def api():
         customer per-second price (the price-paused lanes)."""
         if model_id == DEFAULT_MODEL:
             return pricing.JOB_PRICE_CENTS["production"] / 5.0
+        if model_id in HOUSE_LONGFORM_MODELS:
+            # Long-form house lanes price per second at the house
+            # margin; the rate is ESTIMATE-based until each lane's
+            # benchmark render lands (pricing.py).
+            return pricing.longform_sell_rate_cents_per_second(model_id)
         rates = (table.get("rates") or {}).get(model_id) or {}
         sells = []
         for res in rates:
@@ -1943,9 +2065,15 @@ def api():
                 # these, starting at the model's shortest clip.
                 "lengths": (
                     offered_lengths(m["id"])
-                    if m["id"] in PER_SECOND_MODELS else []),
+                    if m["id"] in PER_SECOND_MODELS
+                    or m["id"] in HOUSE_LONGFORM_MODELS else []),
+                # Long-form house lanes are available only once
+                # their weights are staged on the worker volume
+                # (spend-gated staging; see HOUSE_LONGFORM_MODELS).
                 "available": (
-                    True if m["id"] == DEFAULT_MODEL
+                    longform_staged(m["id"])
+                    if m["id"] in HOUSE_LONGFORM_MODELS
+                    else True if m["id"] == DEFAULT_MODEL
                     else not api_lane_state(m["id"])["paused"]
                 ),
             }
@@ -1975,6 +2103,18 @@ def api():
                 "measured_cost_cents": pricing.IMAGE_MEASURED_COST_CENTS,
                 "aspects": list(HOUSE_ASPECTS),
             },
+            # The curated image shelf (2026-11-17): the house
+            # image lane plus a few provider image models, priced
+            # per image. The studio's image mode reads this.
+            "image_models": [
+                {"id": "house", "label": "Moonfactory Image",
+                 "sizes": list(HOUSE_ASPECTS), "paid_only": False},
+            ] + [
+                {"id": mid, "label": lane["label"],
+                 "sizes": list(lane["raw_cents"].keys()),
+                 "paid_only": True}
+                for mid, lane in pricing.IMAGE_LANES.items()
+            ],
             "effects": {
                 "paid_only": True,
                 "requires_start_image": True,
@@ -2723,6 +2863,215 @@ def api():
                 pass
         return job
 
+    def _submit_provider_image(job: dict, prompt: str):
+        """Submit one shelf image job to its provider, using the
+        same transports as the video lanes. Payload shapes are
+        the providers' minimal documented forms and are
+        PAYLOAD-UNVERIFIED until the funded pass proves them;
+        every provider balance is $0 today, so a submit can only
+        fail clean, which releases the hold in the caller."""
+        lane = pricing.IMAGE_LANES[job["image_model"]]
+        provider = lane["provider"]
+        endpoint = lane["endpoint"]
+        size = job.get("image_size") or ""
+        if provider == "fal":
+            resp = requests.post(
+                f"https://queue.fal.run/{endpoint}",
+                headers=_fal_headers(),
+                json={"prompt": prompt, "num_images": 1},
+                timeout=30)
+            if resp.status_code != 200:
+                raise RuntimeError(
+                    f"image submit http {resp.status_code}")
+            sub = resp.json() or {}
+            if not sub.get("status_url") or not sub.get("response_url"):
+                raise RuntimeError("image submit returned no queue urls")
+            job["fal_status_url"] = sub["status_url"]
+            job["fal_response_url"] = sub["response_url"]
+        elif provider == "beatapi":
+            headers = dict(_beatapi_headers())
+            headers["Idempotency-Key"] = job["id"]
+            resp = requests.post(
+                f"{BEATAPI_BASE}/v1/images/tasks",
+                headers=headers,
+                json={"model": endpoint, "prompt": prompt,
+                      "resolution": size},
+                timeout=30)
+            if resp.status_code not in (200, 201, 202):
+                raise RuntimeError(
+                    f"image submit http {resp.status_code}")
+            data = (resp.json() or {}).get("data") or {}
+            task_id = data.get("task_id") or data.get("id")
+            if not task_id:
+                raise RuntimeError("image submit returned no task id")
+            job["provider_task_id"] = task_id
+        elif provider == "spicyapi":
+            headers = dict(_api_headers("spicyapi"))
+            headers["Idempotency-Key"] = job["id"]
+            data = _submit_post(
+                job, f"{SPICYAPI_BASE}/api/v1/jobs/createTask",
+                headers, {"model": endpoint,
+                          "input": {"prompt": prompt,
+                                    "resolution": size}})
+            payload = data.get("data") or {}
+            task_id = (payload.get("taskId") or payload.get("task_id")
+                       or payload.get("id") or data.get("taskId"))
+            if not task_id:
+                raise RuntimeError("image submit returned no task id")
+            job["provider_task_id"] = task_id
+        elif provider == "wiro":
+            data = _submit_post(
+                job, f"{WIRO_BASE}/v1/Run/{endpoint}",
+                _wiro_headers(), {"prompt": prompt})
+            task_id = (data.get("taskid") or data.get("taskId")
+                       or data.get("id"))
+            if not task_id:
+                raise RuntimeError("image submit returned no task id")
+            job["provider_task_id"] = task_id
+            job["provider_socket_token"] = data.get("socketaccesstoken")
+        else:
+            raise RuntimeError(f"no image route for {provider}")
+        jobs[job["id"]] = job
+
+    def _settle_provider_image(job: dict, image_url: str):
+        """Download a finished shelf image onto the Volume and
+        settle it: the balance was charged at submit (the
+        character-training pattern), so settling only books the
+        raw provider cost onto the account's ceiling total."""
+        resp = requests.get(image_url, timeout=120)
+        if resp.status_code != 200:
+            raise RuntimeError("finished image download failed")
+        FILES_DIR.mkdir(parents=True, exist_ok=True)
+        out_path = FILES_DIR / f"{job['id']}.png"
+        out_path.write_bytes(resp.content)
+        data_volume.commit()
+        job["bytes"] = len(resp.content)
+        owner = users.get(f"id:{job['user_id']}")
+        if owner:
+            owner["cost_settled_cents"] = (
+                float(owner.get("cost_settled_cents") or 0.0)
+                + float(job.get("image_raw_cents") or 0.0))
+            save_user(owner)
+        job["status"] = "done"
+        job["error"] = None
+        jobs[job["id"]] = job
+
+    def _fail_provider_image(job: dict, message: str):
+        """A failed shelf image refunds its submit-time charge
+        in full: the customer pays only for a delivered image."""
+        if not job.get("image_refunded"):
+            owner = users.get(f"id:{job['user_id']}")
+            charge = int(job.get("image_charge_cents") or 0)
+            if owner and charge:
+                owner["balance_cents"] = (
+                    int(owner.get("balance_cents", 0)) + charge)
+                save_user(owner)
+            job["image_refunded"] = True
+        job["status"] = "error"
+        job["error"] = message
+        jobs[job["id"]] = job
+
+    def mirror_provider_image(job: dict) -> dict:
+        """Poll a shelf image job on the standard cadence. Any
+        provider failure refunds the hold in full: the customer
+        is charged only for a delivered image."""
+        if job["status"] not in ("queued", "running"):
+            return job
+        if _now() - job.get("last_poll", 0) <= 8:
+            return job
+        job["last_poll"] = _now()
+        jobs[job["id"]] = job
+        provider = job.get("provider")
+        try:
+            if provider == "fal":
+                st = requests.get(
+                    job["fal_status_url"], headers=_fal_headers(),
+                    timeout=15)
+                if st.status_code == 200:
+                    status = (st.json() or {}).get("status")
+                    if status == "COMPLETED":
+                        got = requests.get(
+                            job["fal_response_url"],
+                            headers=_fal_headers(), timeout=30)
+                        body = got.json() or {}
+                        url = _first_image_url(body.get("data") or body)
+                        if url:
+                            _settle_provider_image(job, url)
+                        else:
+                            _fail_provider_image(
+                                job, "the image came back empty, nothing was charged")
+                    elif status in ("FAILED", "ERROR"):
+                        _fail_provider_image(
+                            job, "the image could not be made, nothing was charged")
+                    else:
+                        job["status"] = "running"
+                        jobs[job["id"]] = job
+            elif provider == "beatapi":
+                resp = requests.get(
+                    f"{BEATAPI_BASE}/v1/tasks/{job['provider_task_id']}",
+                    headers=_beatapi_headers(), timeout=15)
+                if resp.status_code == 200:
+                    task = (resp.json() or {}).get("data") or {}
+                    status = task.get("status")
+                    if status == "succeeded":
+                        url = _first_image_url(task)
+                        if url:
+                            _settle_provider_image(job, url)
+                        else:
+                            _fail_provider_image(
+                                job, "the image came back empty, nothing was charged")
+                    elif status in ("failed", "error", "cancelled"):
+                        _fail_provider_image(
+                            job, "the image could not be made, nothing was charged")
+                    else:
+                        job["status"] = "running"
+                        jobs[job["id"]] = job
+            elif provider == "spicyapi":
+                resp = requests.get(
+                    f"{SPICYAPI_BASE}/api/v1/jobs/recordInfo",
+                    params={"taskId": job["provider_task_id"]},
+                    headers=_api_headers("spicyapi"), timeout=15)
+                if resp.status_code == 200:
+                    data = (resp.json() or {}).get("data") or {}
+                    state = data.get("state") or data.get("status")
+                    if state == "success":
+                        url = _first_image_url(data)
+                        if url:
+                            _settle_provider_image(job, url)
+                        else:
+                            _fail_provider_image(
+                                job, "the image came back empty, nothing was charged")
+                    elif state in ("failure", "failed", "error"):
+                        _fail_provider_image(
+                            job, "the image could not be made, nothing was charged")
+                    else:
+                        job["status"] = "running"
+                        jobs[job["id"]] = job
+            elif provider == "wiro":
+                poll_body = (
+                    {"tasktoken": job["provider_socket_token"]}
+                    if job.get("provider_socket_token")
+                    else {"taskid": job["provider_task_id"]})
+                resp = requests.post(
+                    f"{WIRO_BASE}/v1/Task/Detail",
+                    headers=_wiro_headers(), json=poll_body, timeout=15)
+                if resp.status_code == 200:
+                    data = resp.json() or {}
+                    url = _first_image_url(data)
+                    state = str(data.get("status") or "").lower()
+                    if url:
+                        _settle_provider_image(job, url)
+                    elif any(word in state for word in
+                             ("fail", "error", "cancel")):
+                        _fail_provider_image(
+                            job, "the image could not be made, nothing was charged")
+                    else:
+                        job["status"] = "running"
+                        jobs[job["id"]] = job
+        except Exception:
+            pass
+        return job
+
     def mirror_image_status(job: dict) -> dict:
         """Start-image jobs (Pass 3) poll the worker's image
         endpoint. A failed image job restores everything it held
@@ -2776,6 +3125,8 @@ def api():
     def mirror_status(job: dict) -> dict:
         if job.get("provider") == "clip":
             return job
+        if job.get("kind") == "image" and job.get("image_model"):
+            return mirror_provider_image(job)
         if job.get("kind") == "image":
             return mirror_image_status(job)
         if job.get("provider") == "fal":
@@ -2797,10 +3148,65 @@ def api():
                     job["bytes"] = remote.get("bytes")
                     if remote.get("segments_done") is not None:
                         job["segments_done"] = remote.get("segments_done")
+                    if remote.get("delivered_seconds") is not None:
+                        job["delivered_seconds"] = remote.get("delivered_seconds")
                     if remote.get("partial"):
                         job["partial"] = True
                         job["partial_error"] = remote.get("partial_error")
                     if (job["status"] == "done" and job.get("partial")
+                            and job.get("model") in HOUSE_LONGFORM_MODELS
+                            and not job.get("partial_settled")):
+                        # Long-form partial delivery: the finished
+                        # segments deliver as one shorter video and
+                        # the undelivered seconds refund at the
+                        # per-second rates the job was charged at
+                        # (Rule 8, per-second form).
+                        job["partial_settled"] = True
+                        plan = job.get("plan_segments") or []
+                        done_segs = int(job.get("segments_done") or 0)
+                        delivered = float(sum(plan[:done_segs]))
+                        missing_seconds = max(
+                            0.0,
+                            float(job.get("duration_seconds") or 0) - delivered)
+                        if missing_seconds > 0:
+                            owner = users.get(f"id:{job['user_id']}")
+                            raw_back = float(
+                                job.get("lf_raw_per_second") or 0) * missing_seconds
+                            if job.get("charged_cents"):
+                                refund = min(
+                                    int(job["charged_cents"]),
+                                    int(round(float(
+                                        job.get("lf_charge_per_second") or 0)
+                                        * missing_seconds)))
+                                if refund > 0 and owner:
+                                    owner["balance_cents"] = (
+                                        int(owner.get("balance_cents", 0))
+                                        + refund)
+                                job["charged_cents"] = (
+                                    int(job["charged_cents"]) - refund)
+                            if job.get("included_cost_cents"):
+                                if owner:
+                                    u = usage(owner)
+                                    u["included_cost_cents"] = max(
+                                        0.0, included_cost_used(owner)
+                                        - raw_back)
+                                    owner["usage"] = u
+                                job["included_cost_cents"] = max(
+                                    0.0, float(job["included_cost_cents"])
+                                    - raw_back)
+                            if job.get("cost_cents"):
+                                if owner:
+                                    owner["cost_settled_cents"] = max(
+                                        0.0,
+                                        float(owner.get(
+                                            "cost_settled_cents") or 0.0)
+                                        - raw_back)
+                                job["cost_cents"] = max(
+                                    0.0, float(job["cost_cents"]) - raw_back)
+                            if owner:
+                                save_user(owner)
+                    if (job["status"] == "done" and job.get("partial")
+                            and job.get("model") not in HOUSE_LONGFORM_MODELS
                             and not job.get("partial_settled")):
                         # Rule 8, stated behavior for a mid-chain
                         # failure: the completed segments deliver as
@@ -3194,6 +3600,62 @@ def api():
             "payment": payment,
         }
 
+    def _longform_quote(user: dict, model: str, body: dict) -> dict:
+        """The quote for a long-form house-lane job (FramePack,
+        SkyReels V2): per-second pricing at the house margin over
+        the plan's generated seconds, in the same shape the
+        per-second lanes return. The lane reads as paused until
+        its weights are staged on the worker volume."""
+        try:
+            requested = int(body.get("duration_seconds") or 0)
+        except (TypeError, ValueError):
+            raise HTTPException(
+                status_code=422, detail="duration_seconds must be a whole number")
+        try:
+            plan = duration_plan(model, requested)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        speech_script = (body.get("speech_script") or "").strip() or None
+        est = pricing.longform_estimate(
+            model, plan["generated_seconds"], owner=is_owner(user),
+            lip_sync=lip_sync_applies(model, speech_script),
+        )
+        remaining = included_budget_remaining(user)
+        ceiling_ok = ceiling_allows(user, est["cap_raw_cents"])
+        if user["plan"] == "creator" and remaining >= est["cap_raw_cents"]:
+            payment = {
+                "method": "included",
+                "included_debit_cents": round(est["raw_cost_cents"], 2),
+                "included_budget_remaining_cents": round(remaining, 2),
+            }
+        elif int(user.get("balance_cents", 0)) >= est["cap_balance_cents"]:
+            payment = {
+                "method": "balance",
+                "charge_cents": est["balance_debit_cents"],
+            }
+        else:
+            payment = {
+                "method": "insufficient",
+                "charge_cents": est["balance_debit_cents"],
+                "balance_cents": int(user.get("balance_cents", 0)),
+            }
+        return {
+            "model": model,
+            "model_label": MODEL_LABELS[model],
+            "duration_seconds": plan["requested_seconds"],
+            "generated_seconds": plan["generated_seconds"],
+            "segments": len(plan["segments"]),
+            "aspect_ratio": body.get("aspect_ratio") or "9:16",
+            "billed_seconds": est["billed_seconds"],
+            "raw_cost_cents": round(est["raw_cost_cents"], 2),
+            "balance_debit_cents": est["balance_debit_cents"],
+            "cap_cents": round(est["cap_raw_cents"], 2),
+            "lane_paused": not longform_staged(model),
+            "ceiling_ok": ceiling_ok,
+            "audio": lane_audio(model),
+            "payment": payment,
+        }
+
     @web.post("/api/jobs/quote")
     async def quote_job(request: Request, mf_session: str = Cookie(default="")):
         user = require_user(request, mf_session)
@@ -3205,6 +3667,10 @@ def api():
             if not is_paid(user):
                 raise HTTPException(status_code=403, detail="model switching is a paid feature")
             return _quote_for(user, model, _api_job_params(body, model))
+        if model in HOUSE_LONGFORM_MODELS:
+            if not is_paid(user):
+                raise HTTPException(status_code=403, detail="model switching is a paid feature")
+            return _longform_quote(user, model, body)
         return {
             "model": model,
             "model_label": MODEL_LABELS[model],
@@ -4817,6 +5283,171 @@ def api():
         return job
 
 
+    def create_longform_job(user: dict, body: dict, model: str,
+                            prompt: str, music_prompt: str,
+                            camera: dict = None, speech_script: str = "",
+                            speech_voice: str = "", start_image=None,
+                            aspect: str = "9:16", segments: int = 1,
+                            end_image=None, effect_id=None):
+        """A long-form house-lane job (FramePack, SkyReels V2):
+        priced per second at the house margin, dispatched to the
+        platform's own worker like a Wan 2.2 job, and finished by
+        the same pipeline (music bed, voiceover, built-in lip
+        sync). Accounting follows the house model: the charge
+        lands at creation, and mirror_status refunds the
+        undelivered seconds if a chained job delivers partial.
+        The lane refuses cleanly until its weights are staged."""
+        spec = HOUSE_LONGFORM_MODELS[model]
+        if effect_id:
+            raise HTTPException(
+                status_code=422, detail="effects run on Wan 2.2")
+        if (camera or {}).get("camera_presets") or (camera or {}).get("camera_look"):
+            raise HTTPException(
+                status_code=422,
+                detail="camera presets do not run on the long-form lanes")
+        if end_image:
+            raise HTTPException(
+                status_code=422,
+                detail="the long-form lanes do not take an end image")
+        if segments != 1:
+            raise HTTPException(
+                status_code=422,
+                detail="long-form jobs take their length from duration_seconds")
+        if spec["requires_start_image"] and not start_image:
+            raise HTTPException(
+                status_code=422,
+                detail="FramePack needs a start image: it animates one image into a long video")
+        try:
+            requested = int(body.get("duration_seconds") or 0)
+        except (TypeError, ValueError):
+            raise HTTPException(
+                status_code=422, detail="duration_seconds must be a whole number")
+        try:
+            plan = duration_plan(model, requested)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        if not longform_staged(model):
+            # Weights not staged yet (the staging jobs are
+            # spend-gated): the clean public sentence, no charge.
+            raise HTTPException(status_code=503, detail=MODEL_UNAVAILABLE)
+        generated = plan["generated_seconds"]
+        est = pricing.longform_estimate(
+            model, generated, owner=is_owner(user),
+            lip_sync=lip_sync_applies(model, speech_script),
+        )
+        if not ceiling_allows(user, est["cap_raw_cents"]):
+            raise HTTPException(
+                status_code=402,
+                detail="this job would exceed the total generation your payments cover",
+            )
+        u = usage(user)
+        charged = 0
+        used_budget = 0.0
+        if user["plan"] == "creator" \
+                and included_budget_remaining(user) >= est["raw_cost_cents"]:
+            used_budget = float(est["raw_cost_cents"])
+        else:
+            price = int(est["balance_debit_cents"])
+            if int(user.get("balance_cents", 0)) < price:
+                detail = (
+                    f"included time used up; this job costs {price} cents of prepaid balance"
+                    if user["plan"] == "creator"
+                    else f"this job costs {price} cents of prepaid balance"
+                )
+                raise HTTPException(status_code=402, detail=detail)
+            charged = price
+        try:
+            resp = requests.post(
+                f"{WORKER_BASE}/jobs",
+                headers=_worker_headers(),
+                json={
+                    "lane": spec["worker_lane"],
+                    "prompt": prompt,
+                    "negative_prompt": body.get("negative_prompt") or None,
+                    "seed": body.get("seed"),
+                    "start_image_png_b64": start_image,
+                    "aspect_ratio": aspect,
+                    "segment_seconds": plan["segments"],
+                },
+                timeout=30,
+            )
+        except Exception as exc:
+            raise HTTPException(
+                status_code=502, detail=f"generation worker unreachable: {exc}")
+        if resp.status_code != 202:
+            raise HTTPException(
+                status_code=502,
+                detail=f"generation worker refused the job ({resp.status_code})")
+        worker_job_id = resp.json()["job_id"]
+        # Commit the charge only after the worker accepted the job.
+        if used_budget:
+            u["included_seconds"] = float(u.get("included_seconds") or 0) + generated
+            u["included_cost_cents"] = included_cost_used(user) + used_budget
+        if charged:
+            user["balance_cents"] = int(user.get("balance_cents", 0)) - charged
+        user["cost_settled_cents"] = (
+            float(user.get("cost_settled_cents") or 0.0)
+            + float(est["raw_cost_cents"])
+        )
+        user["usage"] = u
+        save_user(user)
+        job = {
+            "id": pysecrets.token_hex(8),
+            "user_id": user["id"],
+            "worker_job_id": worker_job_id,
+            "lane": model,
+            "model": model,
+            "prompt": prompt,
+            "user_prompt": (camera or {}).get("user_prompt", prompt),
+            "camera_presets": [],
+            "camera_preset_names": [],
+            "camera_look": {},
+            "camera_pose": None,
+            "camera_speed": None,
+            "camera_recipe": None,
+            "effect": None,
+            "effect_name": None,
+            "status": "queued",
+            "error": None,
+            "bytes": None,
+            "created_at": _now(),
+            "charged_cents": charged,
+            "free_tier": False,
+            "included_seconds": generated if used_budget else 0.0,
+            "included_cost_cents": used_budget,
+            "cost_cents": float(est["raw_cost_cents"]),
+            "raw_cost_cents": round(float(est["raw_cost_cents"]), 2),
+            "music_prompt": music_prompt or None,
+            "speech_script": speech_script or None,
+            "speech_voice": speech_voice or None,
+            "voiceover_status": None,
+            "character_id": body.get("character_id"),
+            "lip_sync": lip_sync_applies(model, speech_script),
+            "lipsync_status": (
+                "planned" if lip_sync_applies(model, speech_script) else None),
+            "lipsync_cost_cents": round(float(est["lip_sync_cents"]), 2),
+            "plan_at_job": user["plan"],
+            "retry_of": body.get("retry_of"),
+            "last_poll": 0,
+            "aspect_ratio": aspect,
+            "duration_seconds": generated,
+            "plan_segments": plan["segments"],
+            "segments_total": len(plan["segments"]),
+            "segments_done": 0,
+            # Per-second rates for the partial-delivery refunds
+            # in mirror_status (the undelivered seconds come
+            # back at the rate the job was actually charged).
+            "lf_raw_per_second": float(est["raw_cost_cents"]) / generated,
+            "lf_charge_per_second": (
+                (charged / generated) if charged else 0.0),
+            "has_end_frame": False,
+            "start_image_png_b64": start_image,
+            "end_image_png_b64": None,
+            "partial": False,
+        }
+        jobs[job["id"]] = job
+        return JSONResponse(public_job(job), status_code=202)
+
     def create_api_job(user: dict, body: dict, model: str, base: str,
                        prompt: str, music_prompt: str, camera: dict = None,
                        speech_script: str = "", speech_voice: str = ""):
@@ -5214,6 +5845,21 @@ def api():
             raise HTTPException(
                 status_code=429,
                 detail=f"you already have {in_flight} videos in flight (your plan allows {limit} at a time); one needs to finish before the next starts")
+        if model in HOUSE_LONGFORM_MODELS:
+            # Long-form house lanes (FramePack, SkyReels V2):
+            # paid-only like every non-default model, dispatched
+            # to the platform's own worker.
+            if not is_paid(user):
+                raise HTTPException(
+                    status_code=403, detail="model switching is a paid feature"
+                )
+            return create_longform_job(
+                user, body, model, prompt, music_prompt,
+                camera=camera, speech_script=speech_script,
+                speech_voice=speech_voice, start_image=start_image,
+                aspect=aspect, segments=segments, end_image=end_image,
+                effect_id=effect_id,
+            )
         if model in PER_SECOND_MODELS:
             # Model switching is paid-only (Amendment 3: any paying
             # customer), enforced here on the server before any
@@ -5452,6 +6098,23 @@ def api():
         user = require_user(request, mf_session)
         body = await request.json()
         _image_params(body)
+        if body.get("image_model"):
+            lane = pricing.IMAGE_LANES.get(str(body["image_model"]))
+            if not lane:
+                raise HTTPException(status_code=400, detail="unknown image model")
+            size = str(body.get("image_size") or "")
+            if size not in lane["raw_cents"]:
+                raise HTTPException(status_code=400, detail="pick a size this model makes")
+            raw, debit = pricing.image_lane_price(
+                str(body["image_model"]), size, owner=is_owner(user))
+            return {
+                "price_cents": round(debit, 2),
+                "raw_cost_cents": raw,
+                "paid_only": True,
+                "ceiling_ok": (
+                    True if is_owner(user) else ceiling_allows(user, raw)),
+                "balance_ok": int(user.get("balance_cents", 0)) >= int(round(debit)),
+            }
         return {
             **pricing.image_quote(owner=is_owner(user)),
             "payment": _image_payment(user),
@@ -5474,6 +6137,56 @@ def api():
         if not _verify_bot_check(body, client_ip(request)):
             raise HTTPException(status_code=403, detail="bot check failed")
         prompt, aspect = _image_params(body)
+        if body.get("image_model"):
+            # The curated image shelf: provider image models,
+            # paid accounts only, charged per image at submit
+            # and refunded in full if the image is not delivered.
+            lane_id = str(body["image_model"])
+            lane = pricing.IMAGE_LANES.get(lane_id)
+            if not lane:
+                raise HTTPException(status_code=400, detail="unknown image model")
+            if not is_paid(user):
+                raise HTTPException(
+                    status_code=402,
+                    detail="image models are for paid accounts; the built-in image maker stays free to try")
+            size = str(body.get("image_size") or "")
+            if size not in lane["raw_cents"]:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"this image model makes {', '.join(lane['raw_cents'])} images")
+            raw, debit = pricing.image_lane_price(
+                lane_id, size, owner=is_owner(user))
+            if not is_owner(user) and not ceiling_allows(user, raw):
+                raise HTTPException(
+                    status_code=402,
+                    detail="this image would pass what you have paid in; top up first")
+            charge = int(round(debit))
+            if int(user.get("balance_cents", 0)) < charge:
+                raise HTTPException(
+                    status_code=402,
+                    detail="your balance is too low for this image; top up first")
+            job_id = uuid.uuid4().hex[:16]
+            job = {
+                "id": job_id, "user_id": user["id"], "kind": "image",
+                "lane": "image",
+                "image_model": lane_id, "image_size": size,
+                "provider": lane["provider"], "model": lane_id,
+                "prompt": prompt, "status": "running",
+                "created_at": _now(), "last_poll": 0,
+                "image_raw_cents": raw, "image_charge_cents": charge,
+                "error": None,
+            }
+            user["balance_cents"] = int(user.get("balance_cents", 0)) - charge
+            save_user(user)
+            jobs[job_id] = job
+            try:
+                _submit_provider_image(job, prompt)
+            except Exception:
+                _fail_provider_image(
+                    job, "the image model is unavailable right now, nothing was charged")
+                raise HTTPException(status_code=503, detail=MODEL_UNAVAILABLE)
+            return {"job_id": job_id, "status": "running",
+                    "charged_cents": charge}
         # Same in-flight limits as video jobs, counted together:
         # an image render is a render.
         limit = CONCURRENCY_PAID if is_paid(user) else CONCURRENCY_FREE
@@ -7428,6 +8141,11 @@ APP_HTML = (
     </div>
     <p class="muted" id="composer-note"></p>
 
+    <div class="seg" style="margin-top:12px">
+      <button class="btn" id="mode-video" type="button">Video</button>
+      <button class="btn secondary" id="mode-image" type="button">Image</button>
+    </div>
+
     <div class="drop" id="dropzone" tabindex="0" role="button" aria-label="Add a start image" style="margin-top:14px">
       <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#9c9ca6" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5-9 9"/></svg>
       <div class="big">Add a start image</div>
@@ -7453,6 +8171,24 @@ APP_HTML = (
 
     <label class="flabel" for="prompt" style="margin-top:6px">Prompt</label>
     <textarea id="prompt" rows="4" class="composer-prompt" placeholder="Describe what happens… e.g. a red hot air balloon rising over green hills, gentle forward camera movement, bright daylight"></textarea>
+
+    <div id="image-opts" style="display:none">
+      <div class="row">
+        <div class="grow">
+          <label class="flabel" for="image-model">Image model</label>
+          <select id="image-model"></select>
+        </div>
+        <div id="image-size-wrap">
+          <label class="flabel" for="image-size">Size</label>
+          <select id="image-size"></select>
+        </div>
+      </div>
+      <p class="muted" id="image-shelf-note"></p>
+      <div id="image-result-wrap" style="display:none">
+        <img id="image-result" style="max-width:100%;border-radius:12px" alt="Your image">
+        <p><button class="btn secondary" id="image-use-start" type="button">Use as the start image for a video</button></p>
+      </div>
+    </div>
 
     <div class="row">
       <div class="grow">
@@ -7546,6 +8282,24 @@ APP_HTML = (
       <label>Effect (optional, one per video)</label>
       <div id="effects"><p class="muted">Loading effects...</p></div>
       <p class="muted" id="effect-note"></p>
+
+      <div id="character-opts">
+      <p class="group-label">Character (optional)</p>
+      <label>Saved character</label>
+      <select id="character"><option value="">None</option></select>
+      <p class="muted" id="character-note"></p>
+      <div id="character-new" style="display:none">
+        <label>Character name</label>
+        <input id="character-name" type="text" maxlength="60" placeholder="e.g. Nova">
+        <label>Reference images (up to 10)</label>
+        <input id="character-files" type="file" accept="image/png,image/jpeg" multiple>
+        <p><button class="btn secondary" id="character-save" type="button">Save character</button></p>
+      </div>
+      <p>
+        <button class="btn secondary" id="character-toggle" type="button">New character</button>
+        <button class="btn secondary" id="character-train" type="button" style="display:none">Train this character ($7.50)</button>
+      </p>
+      </div>
 
       <div id="motion-opts" style="display:none">
       <p class="group-label">Motion transfer</p>
@@ -8085,6 +8839,7 @@ function showStudio(u) {
   updateModelUI();
   showTab(paidSurface ? 'create' : 'tryit');
   loadJobs();
+  loadCharacters();
 }
 // Quote requests carry a sequence number: only the newest one
 // may touch the price. Before this, two overlapping quotes
@@ -8095,6 +8850,7 @@ function showStudio(u) {
 let quoteSeq = 0;
 async function fetchQuote() {
   const q = $('quote');
+  if (imageMode) return;
   if (!currentUser || !currentUser.paid_customer) { q.textContent = ''; return; }
   const seq = ++quoteSeq;
   const want = { model: $('model').value,
@@ -8356,6 +9112,7 @@ document.querySelectorAll('[data-topup]').forEach(b => b.onclick = async () => {
 });
 $('create').onclick = async () => {
   try {
+    if (imageMode) { await makeImage(); return; }
     msg('job-msg', 'Working on the bot check...');
     const bot = await botFields('botcheck2');
     const model = $('model').value;
@@ -8375,6 +9132,8 @@ $('create').onclick = async () => {
       ? { reference_video_urls: [$('motion-url').value.trim()],
           reference_video_seconds: Number($('motion-seconds').value) || Number($('duration').value) }
       : {};
+    const charFields = $('character').value
+      ? { character_id: $('character').value } : {};
     const jobBody = model === 'wan2.2'
       ? { model: model, lane: selectedEffect ? 'effects' : $('lane').value, prompt: $('prompt').value,
           music_prompt: $('music').disabled ? '' : $('music').value,
@@ -8382,13 +9141,13 @@ $('create').onclick = async () => {
           effect: selectedEffect || undefined,
           ...startFields, end_image_png_b64: selectedEffect ? null : endImageB64,
           aspect_ratio: $('aspect').value, segments: selectedEffect ? 1 : Number($('segments').value),
-          ...(selectedEffect ? {} : camera), ...detailFields, ...bot }
+          ...(selectedEffect ? {} : camera), ...detailFields, ...charFields, ...bot }
       : { model: model, prompt: $('prompt').value,
           music_prompt: $('music').disabled ? '' : $('music').value,
           speech_script: $('speech').disabled ? '' : $('speech').value,
           aspect_ratio: $('aspect').value,
           duration_seconds: Number($('duration').value), resolution: $('resolution').value,
-          ...startFields, ...camera, ...detailFields, ...motionFields, ...bot };
+          ...startFields, ...camera, ...detailFields, ...motionFields, ...charFields, ...bot };
     const r = await api('/api/jobs', { method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(jobBody) });
     msg('job-msg', model === 'wan2.2'
@@ -8561,6 +9320,174 @@ $('make-clips').onclick = async () => {
     msg('clip-msg', 'Clipping started. Stages: Getting the video, Listening and transcribing, Picking the moments, Cutting your clips.', 'ok');
     loadJobs();
   } catch (e) { msg('clip-msg', e.message, 'err'); }
+};
+// Characters: saved once, reused across jobs. The picker lists
+// the account's characters; the create form rides along in More
+// options so the studio stays one calm card.
+let characterData = [];
+function renderCharacters() {
+  const sel = $('character');
+  const keep = sel.value;
+  sel.innerHTML = '<option value="">None</option>';
+  for (const c of characterData) {
+    const o = document.createElement('option');
+    o.value = c.id;
+    o.textContent = c.name + ' (' + c.image_count + ' image' + (c.image_count === 1 ? '' : 's') + ')';
+    sel.appendChild(o);
+  }
+  if ([...sel.options].some(o => o.value === keep)) sel.value = keep;
+  updateCharacterUI();
+}
+function updateCharacterUI() {
+  const c = characterData.find(x => x.id === $('character').value);
+  const note = $('character-note');
+  const train = $('character-train');
+  train.style.display = 'none';
+  if (!c) { note.textContent = 'Pick a saved character and it appears in this video: its first image becomes the start image, and its images ride as references on models that take them.'; return; }
+  if (c.train_status === 'training') note.textContent = c.name + ' is training. Training takes a while; the trained identity appears here when it is ready.';
+  else if (c.train_status === 'ready' || c.has_lora) note.textContent = c.name + ' is trained: its identity is locked in and reused on every job.';
+  else if (c.train_status === 'failed') note.textContent = 'Training did not finish for ' + c.name + ' and the charge was refunded. You can train again.';
+  else note.textContent = c.name + ' is saved and ready to use.';
+  if (c.image_count >= 10 && c.train_status !== 'training' && !c.has_lora) train.style.display = '';
+  else if (c.image_count < 10 && !c.has_lora) note.textContent += ' Add ' + (10 - c.image_count) + ' more images (10 total) to unlock training, which locks the identity in much harder.';
+}
+async function loadCharacters() {
+  try { const r = await api('/api/characters'); characterData = r.characters || []; renderCharacters(); }
+  catch (e) { /* signed out or free account: the picker stays empty */ }
+}
+$('character').addEventListener('change', updateCharacterUI);
+$('character-toggle').onclick = () => {
+  const box = $('character-new');
+  box.style.display = box.style.display === 'none' ? '' : 'none';
+};
+$('character-save').onclick = async () => {
+  try {
+    const files = [...$('character-files').files].slice(0, 10);
+    if (!files.length) { msg('job-msg', 'Pick at least one reference image for the character.', 'err'); return; }
+    const images = [];
+    for (const f of files) {
+      const dataUrl = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(f); });
+      images.push(String(dataUrl).split(',')[1]);
+    }
+    const c = await api('/api/characters', { method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ name: $('character-name').value, images }) });
+    msg('job-msg', 'Character saved: ' + c.name, 'ok');
+    $('character-new').style.display = 'none';
+    await loadCharacters();
+    $('character').value = c.id; updateCharacterUI();
+  } catch (e) { msg('job-msg', e.message, 'err'); }
+};
+$('character-train').onclick = async () => {
+  try {
+    const c = await api('/api/characters/' + $('character').value + '/train', { method: 'POST' });
+    msg('job-msg', 'Training started for ' + c.name + '. It runs in the background.', 'ok');
+    loadCharacters();
+  } catch (e) { msg('job-msg', e.message, 'err'); }
+};
+// Image mode: a small curated shelf alongside video, with the
+// same simplicity: a prompt, a model, a size, one button.
+let imageMode = false;
+let shelfImageJobId = null;
+function imageLane() {
+  return (cfg.image_models || []).find(m => m.id === $('image-model').value);
+}
+function buildImageModels() {
+  const sel = $('image-model');
+  const keep = sel.value;
+  sel.innerHTML = '';
+  for (const m of (cfg.image_models || [])) {
+    const o = document.createElement('option');
+    o.value = m.id; o.textContent = m.label; sel.appendChild(o);
+  }
+  if ([...sel.options].some(o => o.value === keep)) sel.value = keep;
+  buildImageSizes();
+}
+function buildImageSizes() {
+  const lane = imageLane();
+  const sizes = lane ? lane.sizes : [];
+  $('image-size-wrap').style.display = sizes.length ? '' : 'none';
+  const sel = $('image-size');
+  sel.innerHTML = '';
+  for (const s of sizes) {
+    const o = document.createElement('option');
+    o.value = s; o.textContent = s; sel.appendChild(o);
+  }
+  refreshImageQuote();
+}
+async function refreshImageQuote() {
+  if (!imageMode) return;
+  const lane = imageLane();
+  if (!lane) return;
+  const btn = $('create');
+  const body = lane.id === 'house'
+    ? { prompt: $('prompt').value || 'image', aspect_ratio: $('image-size').value }
+    : { prompt: $('prompt').value || 'image', image_model: lane.id, image_size: $('image-size').value };
+  try {
+    const q = await api('/api/images/quote', { method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body) });
+    btn.textContent = 'Make image · $' + (q.price_cents / 100).toFixed(2);
+    $('image-shelf-note').textContent = lane.id === 'house'
+      ? 'Made by Moonfactory itself, at the size picked.'
+      : 'One image at the size picked, charged only when it is delivered. If it fails, the charge comes back in full.';
+  } catch (e) {
+    btn.textContent = 'Make image';
+    $('image-shelf-note').textContent = e.message;
+  }
+}
+function setImageMode(on) {
+  imageMode = on;
+  $('mode-video').className = 'btn' + (on ? ' secondary' : '');
+  $('mode-image').className = 'btn' + (on ? '' : ' secondary');
+  $('image-opts').style.display = on ? '' : 'none';
+  const videoBits = [$('dropzone'), $('start-source'), $('start-upload-wrap'), $('start-gen-wrap'),
+    document.querySelector('label[for="start-source"]'),
+    $('model').closest('.row'), $('model-note'), document.querySelector('details.more'),
+    $('api-opts'), $('house-price')];
+  for (const el of videoBits) if (el) el.style.display = on ? 'none' : '';
+  $('prompt').placeholder = on
+    ? 'Describe the image… e.g. a lighthouse at dusk, waves crashing, dramatic sky'
+    : 'Describe what happens… e.g. a red hot air balloon rising over green hills, gentle forward camera movement, bright daylight';
+  if (on) { buildImageModels(); }
+  else { $('create').textContent = 'Create video'; updateModelUI(); }
+}
+$('mode-video').onclick = () => setImageMode(false);
+$('mode-image').onclick = () => setImageMode(true);
+$('image-model').addEventListener('change', buildImageSizes);
+$('image-size').addEventListener('change', refreshImageQuote);
+async function makeImage() {
+  const lane = imageLane();
+  if (!lane) { msg('job-msg', 'Pick an image model first.', 'err'); return; }
+  msg('job-msg', 'Working on the bot check...');
+  const bot = await botFields('botcheck2');
+  const body = lane.id === 'house'
+    ? { prompt: $('prompt').value, aspect_ratio: $('image-size').value, ...bot }
+    : { prompt: $('prompt').value, image_model: lane.id, image_size: $('image-size').value, ...bot };
+  const r = await api('/api/images', { method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body) });
+  shelfImageJobId = r.job_id;
+  msg('job-msg', 'Making your image...', 'ok');
+  $('image-result-wrap').style.display = 'none';
+  for (let i = 0; i < 90; i++) {
+    await new Promise(res => setTimeout(res, 4000));
+    const j = await api('/api/jobs/' + r.job_id);
+    if (j.status === 'done') {
+      $('image-result').src = '/api/jobs/' + r.job_id + '/file';
+      $('image-result-wrap').style.display = '';
+      msg('job-msg', 'Your image is ready. It is also saved in your library below.', 'ok');
+      loadJobs();
+      return;
+    }
+    if (j.status === 'error') { msg('job-msg', j.error || 'The image could not be made.', 'err'); return; }
+  }
+  msg('job-msg', 'Still working. Your image will appear in your library below when it lands.', 'ok');
+}
+$('image-use-start').onclick = () => {
+  if (!shelfImageJobId) return;
+  generatedImageJobId = shelfImageJobId;
+  setImageMode(false);
+  $('start-source').value = 'generate';
+  $('start-source').dispatchEvent(new Event('change'));
+  msg('job-msg', 'Start image attached. Describe the video and create it.', 'ok');
 };
 fetch('/api/config').then(r => r.json()).then(c => { cfg = c; catalogCfg = c; renderBotChecks(); buildCatalog(); });
 fetch('/api/pricing').then(r => r.json()).then(p => { pricingData = p; buildCatalog(); updateHousePrice(); }).catch(() => {});

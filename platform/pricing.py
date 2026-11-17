@@ -571,6 +571,84 @@ def lip_sync_costs(output_seconds: float, owner: bool = False):
     debit = raw if owner else raw * FRONTIER_MIN_MARKUP
     return raw, debit
 
+
+# ---------------------------------------------------------------------------
+# Long-form house lanes (2026-11-17): FramePack and SkyReels V2
+# run on the platform's own worker, the same class as the house
+# Wan 2.2 lane, and are priced per second of generated video at
+# the house margin (raw cost x MARGIN_MULTIPLIER, grossed up for
+# Stripe fees; the owner pays raw cost). Their costs below are
+# ESTIMATES, derived from the measured Modal L40S rate and the
+# makers' published speeds, and are labeled as such everywhere
+# they surface: neither lane can be ordered until its weights
+# are staged on the volume AND a benchmark render replaces the
+# estimate with a measured cost (the platform gates ordering on
+# the staging marker, so these numbers only order the menu and
+# band the $ tier signs until then).
+#
+# FramePack estimate: the maker publishes ~2.5 s/frame on an
+# RTX 4090 (unoptimized path, TeaCache off); the house L40S is
+# slower per frame, estimated ~3.5 s/frame at 30 fps = ~105
+# GPU-seconds per output second at the measured L40S rate
+# (~$0.000556/s) = ~6.0 cents per output second.
+# SkyReels V2 estimate (DF-1.3B-540P, Diffusers pipeline on the
+# L40S): ~27 GPU-seconds per output second at the same rate =
+# ~1.5 cents per output second.
+# ---------------------------------------------------------------------------
+LONGFORM_COST_CENTS_PER_SECOND = {
+    "framepack": 6.0,   # ESTIMATE - UNMEASURED
+    "skyreels": 1.5,    # ESTIMATE - UNMEASURED
+}
+
+
+def longform_estimate(model: str, output_seconds: float,
+                      owner: bool = False,
+                      lip_sync: bool = False) -> dict:
+    """The quote for a long-form house-lane job, in the same
+    shape per_second_estimate returns for the API lanes: raw
+    cost at the lane's per-second rate over the generated
+    seconds (every segment of the plan), the balance debit at
+    the house sell rate (raw cost x margin, grossed up; raw
+    cost for the owner), and the hold caps. The built-in lip
+    sync stage folds in on the output seconds when the job
+    carries speech, exactly as on the other lanes."""
+    import math
+
+    raw = LONGFORM_COST_CENTS_PER_SECOND[model] * float(output_seconds)
+    sell_rate = (
+        LONGFORM_COST_CENTS_PER_SECOND[model] if owner
+        else gross_up(
+            LONGFORM_COST_CENTS_PER_SECOND[model] * MARGIN_MULTIPLIER)
+    )
+    debit = math.ceil(sell_rate * float(output_seconds))
+    if lip_sync:
+        lip_raw, lip_debit = lip_sync_costs(output_seconds, owner=owner)
+        raw += lip_raw
+        debit += int(math.ceil(lip_debit))
+    return {
+        "billed_seconds": float(output_seconds),
+        "raw_cost_cents": raw,
+        "sell_cents_per_second": sell_rate,
+        "balance_debit_cents": debit,
+        "lip_sync_cents": (
+            lip_sync_costs(output_seconds, owner=owner)[0]
+            if lip_sync else 0.0),
+        "cap_raw_cents": raw * HOLD_TOLERANCE,
+        "cap_balance_cents": math.ceil(
+            max(sell_rate * float(output_seconds), debit)
+            * HOLD_TOLERANCE),
+        "estimate": True,
+    }
+
+
+def longform_sell_rate_cents_per_second(model: str,
+                                        owner: bool = False) -> float:
+    """The customer sell rate of a long-form house lane (menu
+    ordering and $ tier signs). ESTIMATE-based until the lane's
+    benchmark render lands."""
+    cost = LONGFORM_COST_CENTS_PER_SECOND[model]
+    return cost if owner else gross_up(cost * MARGIN_MULTIPLIER)
+
 # Hard per-job spend cap = estimate x tolerance (Rule 3). The cap is
 # what gets held before dispatch; settling never exceeds it.
 HOLD_TOLERANCE = 1.1
@@ -1034,6 +1112,67 @@ def image_price_cents(owner: bool = False) -> int:
     if owner:
         return int(math.ceil(IMAGE_MEASURED_COST_CENTS))
     return IMAGE_PRICE_CENTS
+
+
+# The curated image shelf (Jack, 2026-11-17): a few of the best
+# image models only, priced per image. raw = the provider's
+# published per-image price on the wired route (provider pages
+# read 2026-11-17); the customer price is raw x
+# FRONTIER_MIN_MARKUP, the owner pays raw, never below cost.
+# Higgsfield sells images for credits, not a flat price: on its
+# Plus plan ($0.049 per credit) Nano Banana Pro costs 2 credits
+# (about $0.098) per image, which the BeatAPI route undercuts.
+# Every endpoint slug and payload here is PAYLOAD-UNVERIFIED
+# until the funded pass proves it; all provider balances are
+# $0, so the shelf is dark until then.
+IMAGE_LANES = {
+    "nano_banana_21": {
+        "label": "Nano Banana 2.1", "provider": "beatapi",
+        "endpoint": "google/nano-banana-2.1",
+        "raw_cents": {"1K": 1.6, "2K": 1.8, "4K": 3.5},
+    },
+    "nano_banana_pro": {
+        "label": "Nano Banana Pro", "provider": "beatapi",
+        "endpoint": "google/nano-banana-pro",
+        "raw_cents": {"1K": 5.0, "2K": 5.0},
+    },
+    "nano_banana_2": {
+        "label": "Nano Banana 2", "provider": "beatapi",
+        "endpoint": "google/nano-banana-2",
+        "raw_cents": {"1K": 2.0, "2K": 3.5, "4K": 4.0},
+    },
+    "gpt_image_26": {
+        # fal bills this model per token; the raw figure is
+        # fal's own published measured cost for a high-quality
+        # 1024x1024 Flare image (about $0.053), the only size
+        # sold until the funded pass measures the real charge.
+        "label": "GPT Image 2.6", "provider": "fal",
+        "endpoint": "openai/gpt-image-2.6/flare/text-to-image",
+        "raw_cents": {"1K": 5.3},
+    },
+    "seedream55_unc": {
+        "label": "Seedream 5.5 · Uncensored $$", "provider": "wiro",
+        "endpoint": "bytedance/seedream-5-5-uncensored",
+        "raw_cents": {"2K": 2.8},
+    },
+    "seedream5pro_unc": {
+        "label": "Seedream 5.0 Pro · Uncensored $$",
+        "provider": "spicyapi",
+        "endpoint": "bytedance/seedream-5-0-pro/text-to-image",
+        "raw_cents": {"1K": 3.6, "2K": 7.2},
+    },
+    "zimage_unc": {
+        "label": "Z-Image · Uncensored $", "provider": "spicyapi",
+        "endpoint": "alibaba/z-image-spicy/text-to-image",
+        "raw_cents": {"Standard": 1.235},
+    },
+}
+
+
+def image_lane_price(model: str, size: str, owner: bool = False):
+    """(raw provider cost, customer debit) in cents per image."""
+    raw = float(IMAGE_LANES[model]["raw_cents"][size])
+    return raw, (raw if owner else raw * FRONTIER_MIN_MARKUP)
 
 
 def image_quote(owner: bool = False) -> dict:

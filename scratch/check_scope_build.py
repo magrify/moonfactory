@@ -145,6 +145,21 @@ for mid in app.PER_SECOND_MODELS:
             continue
         check(res in rates, f"{mid} missing a rate for {res}")
 
+# --- image shelf (item 1) ------------------------------------------
+check(len(pricing.IMAGE_LANES) == 7, "image shelf has 7 lanes")
+raw, debit = pricing.image_lane_price("nano_banana_pro", "1K")
+check(raw == 5.0 and abs(debit - 6.25) < 1e-9,
+      "Nano Banana Pro: raw $0.05, customer $0.0625 (under Higgsfield $0.098)")
+raw_o, debit_o = pricing.image_lane_price("nano_banana_pro", "1K", owner=True)
+check(debit_o == raw_o == 5.0, "owner pays raw on the image shelf")
+check(pricing.IMAGE_LANES["zimage_unc"]["endpoint"]
+      == "alibaba/z-image-spicy/text-to-image", "Z-Image slug from the catalog")
+check(app._first_image_url({"data": {"images": [
+    {"url": "https://x.test/a.png", "content_type": "image/png"}]}})
+    == "https://x.test/a.png", "image URL scan finds nested results")
+check(app._first_image_url({"video": {"url": "https://x.test/v.mp4"}}) is None,
+      "image URL scan ignores videos")
+
 if failures:
     print("FAILURES:")
     for f in failures:
