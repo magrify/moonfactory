@@ -52,6 +52,7 @@ sys.path.insert(0, "/platform")
 import pricing  # noqa: E402
 import clipping  # noqa: E402
 import fun_camera  # noqa: E402
+import llm_providers  # noqa: E402
 
 app = modal.App("moonfactory")
 
@@ -70,6 +71,7 @@ image = (
     .add_local_file(str(Path(__file__).parent / "pricing.py"), "/platform/pricing.py")
     .add_local_file(str(Path(__file__).parent / "clipping.py"), "/platform/clipping.py")
     .add_local_file(str(Path(__file__).parent / "fun_camera.py"), "/platform/fun_camera.py")
+    .add_local_file(str(Path(__file__).parent / "llm_providers.py"), "/platform/llm_providers.py")
     .add_local_file(
         str(
             Path(__file__).parent.parent
@@ -96,6 +98,7 @@ clip_image = (
     .add_local_file(str(Path(__file__).parent / "pricing.py"), "/platform/pricing.py")
     .add_local_file(str(Path(__file__).parent / "clipping.py"), "/platform/clipping.py")
     .add_local_file(str(Path(__file__).parent / "fun_camera.py"), "/platform/fun_camera.py")
+    .add_local_file(str(Path(__file__).parent / "llm_providers.py"), "/platform/llm_providers.py")
     .add_local_dir(str(Path(__file__).parent / "clip_fonts"), "/platform/clip_fonts")
 )
 
@@ -458,6 +461,20 @@ MODELS = [
 ]
 MODEL_LABELS = {m["id"]: m["label"] for m in MODELS}
 DEFAULT_MODEL = "wan2.2"
+# The Uncensored label (Jack, 2026-11-16): the self-hosted house
+# lane runs open weights on our own worker, so no provider
+# moderates its prompts or its outputs. Every other video lane is
+# a hosted API whose provider moderates on its own end. Mirrors
+# the uncensored flag on the LLM provider group (llm_providers.py).
+UNCENSORED_VIDEO_MODELS = ("wan2.2",)
+# Price tier signs for the studio dropdown (Jack, 2026-11-16):
+# Google-Maps-style $ signs banded on FIXED edges over the model's
+# lowest customer sell rate in cents per second (see
+# model_price_tier inside the web app). $ under 5c/s, $$ under
+# 12c/s, $$$ under 25c/s, $$$$ above. Fixed bands, not quartiles,
+# so a model's sign never changes because another model's price
+# moved.
+PRICE_TIER_BANDS_CENTS_PER_SECOND = (5.0, 12.0, 25.0)
 PER_SECOND_MODELS = (
     "wan3", "wan3_prime", "seedance", "veo3", "veo3_fast", "kling3",
     "kling4", "kling3_omni", "seedance2", "seedance2_fast",
@@ -1450,8 +1467,42 @@ def api():
     def healthz():
         return {"ok": True}
 
+    def model_price_tier(model_id: str, table: dict):
+        """The studio dropdown's price sign for one model: 1-4, or
+        None when the lane has no customer per-second price (the
+        price-paused lanes, which already read "(unavailable)").
+        Basis: the model's LOWEST customer sell rate across its
+        resolutions, cents per second, from the same live rate
+        table /api/pricing serves. The house lane is priced per
+        job, so its basis is the Production job price spread over
+        the standard 5-second segment (99c / 5s = 19.8c/s)."""
+        if model_id == DEFAULT_MODEL:
+            rate = pricing.JOB_PRICE_CENTS["production"] / 5.0
+        else:
+            rates = (table.get("rates") or {}).get(model_id) or {}
+            sells = []
+            for res in rates:
+                try:
+                    sells.append(pricing.frontier_lane(
+                        model_id, res, table["rates"]
+                    )["sell_cents_per_second"])
+                except Exception:  # noqa: BLE001 - unpriced combo
+                    continue
+            if not sells:
+                return None
+            rate = min(sells)
+        bands = PRICE_TIER_BANDS_CENTS_PER_SECOND
+        if rate < bands[0]:
+            return 1
+        if rate < bands[1]:
+            return 2
+        if rate < bands[2]:
+            return 3
+        return 4
+
     @web.get("/api/config")
     def config():
+        tier_table = rate_table()
         return {
             "turnstile_site_key": os.environ.get("TURNSTILE_SITE_KEY") or None,
             "pow_required": not _turnstile_configured(),
@@ -1486,6 +1537,8 @@ def api():
                     "id": m["id"],
                     "label": m["label"],
                     "paid_only": m["paid_only"],
+                    "uncensored": m["id"] in UNCENSORED_VIDEO_MODELS,
+                    "price_tier": model_price_tier(m["id"], tier_table),
                     "audio": {
                         "native_speech": lane_audio(m["id"])["native_speech"],
                         "native_audio": lane_audio(m["id"])["native_audio"],
@@ -1497,6 +1550,12 @@ def api():
                 }
                 for m in MODELS
             ],
+            # Text models, separate from the video shelf above:
+            # the uncensored LLM providers (llm_providers.py). They
+            # never appear in the video model picker; the studio
+            # does not render them. They back the Clip picking
+            # brain's fallback chain.
+            "llm_providers": llm_providers.public_llm_providers(),
         }
 
     @web.get("/api/pricing")
@@ -6394,7 +6453,10 @@ function buildCatalog() {
   for (const m of catalogCfg.models) {
     const o = document.createElement('option');
     o.value = m.id;
-    o.textContent = m.label + (m.available ? '' : ' (unavailable)');
+    o.textContent = m.label
+      + (m.price_tier ? ' ' + '$'.repeat(m.price_tier) : '')
+      + (m.uncensored ? ' · Uncensored' : '')
+      + (m.available ? '' : ' (unavailable)');
     sel.appendChild(o);
   }
   if ([...sel.options].some(o => o.value === keep)) sel.value = keep;

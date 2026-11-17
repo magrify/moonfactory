@@ -692,6 +692,28 @@ def _gemini_pick(prompt: str, api_key: str):
     raise RuntimeError(f"gemini picking unavailable: {last_exc}")
 
 
+def _llm_fallback_pick(prompt: str):
+    """Uncensored-LLM picking fallback (2026-11-17): tried only
+    after the Gemini chain has failed for a window. Delegates to
+    llm_providers.pick_fallback, which walks the configured
+    uncensored providers (OpenRouter, Venice, Refuseless, Morph)
+    in order and returns the first answer. Raises when none is
+    configured or all fail, and the window falls through to the
+    loudness fallback exactly as before."""
+    import llm_providers
+
+    return llm_providers.pick_fallback(prompt)
+
+
+def _llm_fallback_available() -> bool:
+    try:
+        import llm_providers
+
+        return llm_providers.any_configured()
+    except Exception:  # noqa: BLE001 - module not shipped, no fallback
+        return False
+
+
 def find_clips(words, db, duration, title="", uploader="", max_clips=6,
                length="medium", api_key="", log=print):
     """Pick moments. AI picking when the platform key is configured;
@@ -703,7 +725,7 @@ def find_clips(words, db, duration, title="", uploader="", max_clips=6,
         return [], {"mode": "loudness", "note": "No speech found."}
     found = []
     used_ai = False
-    if api_key:
+    if api_key or _llm_fallback_available():
         t = 0.0
         windows = []
         while t < duration:
@@ -720,13 +742,24 @@ def find_clips(words, db, duration, title="", uploader="", max_clips=6,
                 + RULES.format(min_len=min_len, max_len=max_len,
                                transcript=_fmt(chunk))
             )
-            try:
-                out = _gemini_pick(prompt, api_key)
-                found += [c for c in out if isinstance(c, dict)
-                          and a - 5 <= float(c.get("start", -1)) < b]
-                used_ai = True
-            except Exception as exc:  # noqa: BLE001
-                log(f"picking window {a:.0f}-{b:.0f}s failed: {exc}")
+            out = None
+            if api_key:
+                try:
+                    out = _gemini_pick(prompt, api_key)
+                except Exception as exc:  # noqa: BLE001
+                    log(f"picking window {a:.0f}-{b:.0f}s gemini failed: {exc}")
+            if out is None:
+                try:
+                    out = _llm_fallback_pick(prompt)
+                    log(f"picking window {a:.0f}-{b:.0f}s picked by "
+                        "uncensored LLM fallback")
+                except Exception as exc:  # noqa: BLE001
+                    log(f"picking window {a:.0f}-{b:.0f}s failed: {exc}")
+            if out is None:
+                continue
+            found += [c for c in out if isinstance(c, dict)
+                      and a - 5 <= float(c.get("start", -1)) < b]
+            used_ai = True
     note = ""
     if not used_ai:
         found = fallback_by_loudness(db, words, max_clips, max_len, duration, min_len)

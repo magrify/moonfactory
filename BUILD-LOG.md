@@ -2845,3 +2845,113 @@ MODAL SPEND: NONE AUTHORIZED. No generations, no proof renders.
   draft-lane 422 after resolution for speeds 2.0 / 1.0 / 99 / none,
   non-numeric speed 422, Production free-gate 403 at speed 2.5,
   invalid-image 422; jobs Dict 58 -> 58, fixture counters unchanged).
+
+## Uncensored LLMs + Uncensored label + price tier signs — 2026-11-17
+
+Jack's orders: "put them all on moonfactory" (the uncensored LLM
+APIs), an "Uncensored" label mirroring the unavailable/paused
+pattern, and Google-Maps-style price signs in the studio model
+dropdown. MODAL SPEND: NONE AUTHORIZED — no generation, no paid
+API calls; verification was free list-models / account-read calls
+and config read-backs only. No subscriptions anywhere.
+
+- platform/llm_providers.py (new, shipped in both platform
+  images): the uncensored LLM registry, SEPARATE from the video
+  MODELS shelf. /api/config serves it under "llm_providers"
+  (names, provider, model ids, configured boolean, access state);
+  the studio does not render it and the video picker never sees
+  it. 4 providers, 21 models, every model flagged uncensored:
+  - OpenRouter (key already stored): "Venice Uncensored"
+    cognitivecomputations/dolphin-mistral-24b-venice-edition,
+    confirmed present in OpenRouter's own catalog (470 models,
+    free read, 2026-11-17). FINDING: the stored OPENROUTER_API_KEY
+    returns 401 on both free account reads (/api/v1/auth/key and
+    /api/v1/credits, checked twice), so the lane is dark in
+    practice until the key is refreshed; access state in config
+    reads "key_stored_auth_failing" so nobody mistakes it for
+    live. The $8.32 balance figure predates this check and could
+    not be re-verified with the stored key.
+  - Venice (15 models): enumerated from Venice's public models
+    endpoint, filtered to the entries Venice itself flags
+    "uncensored": true — venice-uncensored-1-2, the role-play
+    build, both DeepSeek V4.1 Flash uncensored builds, the E2EE
+    abliterated build, GLM 5.3 Flash Uncensored, GLM 4.7 Flash
+    Heretic, Gemma 4 Uncensored (Venice deprecates it 2026-11-18
+    with auto-remap), Qwen 3.6 Plus Uncensored, Qwen 3.8 27B,
+    both Abliteration.ai builds served via Venice, and the three
+    Aion builds whose ids the list confirms. Two flagged entries
+    (Aion 3.0, Gemma 4 26B A4B Uncensored) were NOT registered:
+    their model ids could not be confirmed from the public list,
+    and ids are never guessed. Account + API key are a browser
+    signup step (free tier, no card, no Pro); registered dark
+    until VENICE_API_KEY lands in moonfactory-providers.
+  - Refuseless (4 models): glm-5.3-abliterated,
+    glm-5.3-flash-abliterated, deepseek-v4.1-flash-abliterated,
+    deepseek-v4.1-flash-abliterated-fast — ids from Refuseless's
+    own model pages. Pay-as-you-go per token (their pricing FAQ:
+    no subscription, no monthly minimum), so it passes Jack's
+    no-subscriptions rule. Account + key are a browser signup
+    step; their model pages say "create an account, add credit,
+    and call it with your own key", so if a key requires a top-up
+    first, that top-up is Jack's step. Registered dark until
+    REFUSELESS_API_KEY lands.
+  - Morph (1 model): morph-dsv41flash-abliterated (DeepSeek V4.1
+    Flash Abliterated, $0.30/$1.20 per 1M on Morph's own page).
+    Access is approved per organization ("Approved teams only");
+    the Magrify account + access application are a browser step
+    and have NOT been submitted by this pass. base_url is None
+    until key issuance confirms it, so the picking chain skips
+    Morph. Registered dark, access "awaiting_org_approval".
+- Picking wiring: clipping.find_clips now tries the uncensored
+  chain after the Gemini chain fails for a window (and when no
+  Gemini key is set, if any uncensored provider is configured),
+  before the loudness fallback. Chain order: OpenRouter Dolphin,
+  Venice Uncensored 1.2, Refuseless GLM 5.3 Flash Abliterated,
+  Morph abliterated — each only when its key env exists. Gemini
+  remains the primary brain; behavior is unchanged when Gemini
+  answers or when no fallback is configured. All four lanes are
+  dark today in practice (OpenRouter key 401; the other three
+  have no keys), so production picking is untouched until a
+  working key lands.
+- "Uncensored" label: /api/config model entries carry
+  "uncensored" — true ONLY for wan2.2 (UNCENSORED_VIDEO_MODELS),
+  the self-hosted house lane: open weights on our own worker, no
+  provider moderation. The studio dropdown appends
+  " · Uncensored" to its option text, mirroring the existing
+  " (unavailable)" suffix pattern. Every LLM group model carries
+  the same flag in config.
+- Price tier signs: /api/config model entries carry "price_tier"
+  1-4 (None for the four price-paused lanes, which already read
+  "(unavailable)" and show no sign). The studio dropdown renders
+  '$' x tier right after the model name; the exact price stays on
+  the Generate button as before. BASIS (fixed bands, not
+  quartiles, so a model's sign never moves because another
+  model's price did): the model's LOWEST customer sell rate
+  across resolutions from the live rate table, cents per second —
+  $ under 5, $$ under 12, $$$ under 25, $$$$ at or above 25. The
+  house lane is priced per job, so Wan 2.2's basis is the
+  Production job price over the standard 5-second segment
+  (99c / 5s = 19.8c/s -> tier 3). Consequence of the
+  lowest-resolution basis: no lane currently reaches tier 4,
+  because every shelf model's entry resolution sells under
+  25c/s (top resolutions still cost more per second; the sign
+  bands the model's entry price, like Google Maps bands a
+  restaurant's typical spend).
+- Secret hygiene: no keys were added by this pass (none could be
+  issued without the browser signups above). The
+  moonfactory-providers key-NAME list was read before and after
+  via scratch/llm_probe_app.py and is byte-identical: the same
+  18 names (AIMLAPI_API_KEY, BEATAPI_KEY, COMETAPI_API_KEY,
+  EACHLABS_API_KEY, EDENAI_API_KEY, FAL_KEY, GEMINI_API_KEY,
+  KIE_API_KEY, MINIMAX_API_KEY, MINIMAX_GROUP_ID, NOVITA_API_KEY,
+  OPENROUTER_API_KEY, PIAPI_API_KEY, REPLICATE_API_TOKEN,
+  RUNWAY_API_KEY, STRIPE_SECRET_KEY, VIDU_API_KEY,
+  WAVESPEED_API_KEY). No key value was printed anywhere.
+- Verified live after `modal deploy platform/app.py`:
+  /api/config serves exactly 29 video models (picker untouched),
+  wan2.2 uncensored=true with tier 3, tiers on all 25 priced
+  lanes, tier=None on the 4 paused lanes, the llm_providers
+  group reading back with openrouter configured=true and the
+  other three configured=false; served /app markup contains the
+  '$'.repeat(m.price_tier) and " · Uncensored" option-text code;
+  /healthz ok.
