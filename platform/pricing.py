@@ -158,6 +158,11 @@ PROVIDER_RATES_CENTS_PER_SECOND = {
     # 10.50 / 21.00) are in DISPLACED_RATES below; fal's route
     # (6.8 / 14.0 / 28.0) is the fallback below.
     "wan3_prime": {"480p": 5.44, "720p": 5.44, "1080p": 5.44},
+    # Wan Motion (motion transfer) via fal: fal-ai/wan-motion
+    # publishes $0.06 per video-second at 720p (fal model page,
+    # read 2026-11-17). The output follows the driving video's
+    # length; the rate is per output second.
+    "wan_motion": {"720p": 6.0},
     # Seedance 2.5, mixed route (follow-up pass, 2026-11-16;
     # round 2, same day): 480p and 720p via CometAPI at its API
     # catalog's stated actual prices, $0.0824 / $0.1848 per second
@@ -522,6 +527,7 @@ MODEL_RESOLUTIONS = {
     "wan26_unc": ("720p", "1080p"),
     "wan27_unc": ("720p", "1080p"),
     "wan3pro_unc": ("1080p", "2K", "4K"),
+    "wan_motion": ("720p",),
 }
 PROVIDER_RATE_STALE_SECONDS = 24 * 3600
 
@@ -531,6 +537,27 @@ PROVIDER_RATE_STALE_SECONDS = 24 * 3600
 # 0.1c/s so the lane cost is never understated. The optional GPU
 # upscale pass is not sold on these lanes yet and is not in here.
 POST_COST_CENTS_PER_SECOND = 0.1
+
+# Built-in lip sync (Jack's product rule, 2026-11-17): every video
+# where someone or something is talking gets its mouth matched to
+# the audio, automatically, as part of the finishing pipeline. It
+# is not an option and not an upsell. The stage runs on fal's Sync
+# Lipsync v2 (fal-ai/sync-lipsync/v2), the cheapest reliable hosted
+# route with a published per-second price: $0.05 per output second
+# (fal model page, read 2026-11-17). The cost folds into the quote,
+# the hold and the pre-dispatch ceiling like any other cost; the
+# customer side carries the standard frontier minimum markup, the
+# owner pays raw cost, and it is never sold below cost.
+LIPSYNC_CENTS_PER_SECOND = 5.0
+LIPSYNC_MODEL = "fal-ai/sync-lipsync/v2"
+
+
+def lip_sync_costs(output_seconds: float, owner: bool = False):
+    """(raw_cents, balance_debit_cents) for the built-in lip sync
+    stage on a job of the given output length."""
+    raw = LIPSYNC_CENTS_PER_SECOND * float(output_seconds)
+    debit = raw if owner else raw * FRONTIER_MIN_MARKUP
+    return raw, debit
 
 # Hard per-job spend cap = estimate x tolerance (Rule 3). The cap is
 # what gets held before dispatch; settling never exceeds it.
@@ -790,13 +817,16 @@ def per_second_lane_cost_cents(model: str, resolution: str, rates=None) -> float
 
 def per_second_estimate(model: str, resolution: str, output_seconds: float,
                         reference_video_seconds: float = 0.0, rates=None,
-                        owner: bool = False) -> dict:
+                        owner: bool = False, lip_sync: bool = False) -> dict:
     """The exact quote for a per-second-lane job (amended Rule 3):
     raw cost, the balance debit at the Amendment 3 sell rate, and
     the hold caps. The included-budget side is untouched by the
     amendment: budget debits stay denominated at raw cost. For the
     owner the sell rate is raw cost, so the debit and the balance
-    hold cap both resolve to cost (owner pricing exemption)."""
+    hold cap both resolve to cost (owner pricing exemption). When
+    the job carries speech on a lane that does not speak natively,
+    the built-in lip sync stage's cost folds in on the output
+    seconds (never on reference seconds)."""
     import math
 
     billed = float(output_seconds) + float(reference_video_seconds)
@@ -804,6 +834,10 @@ def per_second_estimate(model: str, resolution: str, output_seconds: float,
     debit = per_second_balance_debit_cents(
         model, resolution, billed, rates, owner=owner
     )
+    if lip_sync:
+        lip_raw, lip_debit = lip_sync_costs(output_seconds, owner=owner)
+        raw += lip_raw
+        debit += lip_debit
     sell = frontier_lane(
         model, resolution, rates, owner=owner
     )["sell_cents_per_second"]
@@ -812,8 +846,12 @@ def per_second_estimate(model: str, resolution: str, output_seconds: float,
         "raw_cost_cents": raw,
         "sell_cents_per_second": sell,
         "balance_debit_cents": debit,
+        "lip_sync_cents": (
+            lip_sync_costs(output_seconds, owner=owner)[0]
+            if lip_sync else 0.0),
         "cap_raw_cents": raw * HOLD_TOLERANCE,
-        "cap_balance_cents": math.ceil(sell * billed * HOLD_TOLERANCE),
+        "cap_balance_cents": math.ceil(
+            max(sell * billed, debit) * HOLD_TOLERANCE),
     }
 
 

@@ -419,6 +419,7 @@ MODELS = [
     {"id": "wan2.2", "label": "Wan 2.2", "paid_only": False},
     {"id": "wan3", "label": "Wan 3.0", "paid_only": True},
     {"id": "wan3_prime", "label": "Wan 3.0 Prime", "paid_only": True},
+    {"id": "wan_motion", "label": "Wan Motion", "paid_only": True},
     {"id": "seedance", "label": "Seedance 2.5", "paid_only": True},
     {"id": "veo3", "label": "Veo 3.1", "paid_only": True},
     {"id": "veo3_fast", "label": "Veo 3.1 Fast", "paid_only": True},
@@ -507,6 +508,7 @@ PER_SECOND_MODELS = (
     "seedance25_flash", "pixverse_v6", "runway_gen45",
     "wan22_unc", "wan3_unc", "minimax_h3_unc", "seedance25_unc",
     "vidu_q3_unc", "wan26_unc", "wan27_unc", "wan3pro_unc",
+    "wan_motion",
 )
 # Which supplier serves each per-second model. Internal only: the
 # picker, the pricing page, and every error show model names, never
@@ -560,6 +562,8 @@ MODEL_PROVIDER = {
     "wan26_unc": "wiro",
     "wan27_unc": "wiro",
     "wan3pro_unc": "wiro",
+    # Motion transfer (2026-11-17): fal's Wan Motion endpoint.
+    "wan_motion": "fal",
 }
 # The secret env var each supplier's key lives under in the
 # moonfactory-providers Modal secret. Lane state checks the
@@ -624,6 +628,8 @@ LANE_AUDIO = {
              "note": "native audio is music/SFX-led; speech is not reliable"},
     "wan3_prime": {"native_speech": False, "native_audio": True,
                    "note": "native audio is music/SFX-led; speech is not reliable"},
+    "wan_motion": {"native_speech": False, "native_audio": False,
+                   "note": "motion transfer: your subject image performs the motion from your reference video; silent, music and voice run in post"},
     "seedance": {"native_speech": True, "native_audio": True,
                  "note": "Seedance native audio incl. dialogue; audio on for the BeatAPI tiers; the CometAPI 720p tier's audio basis is unconfirmed"},
     "veo3": {"native_speech": False, "native_audio": False,
@@ -705,6 +711,20 @@ def lane_audio(model: str) -> dict:
     })
 
 
+def lip_sync_applies(model: str, speech_script) -> bool:
+    """Jack's built-in lip sync rule (2026-11-17): every video
+    where someone or something is talking must have its mouth
+    match the audio. A job whose picture will be voiced in post
+    (a spoken line on a lane that does not speak natively) gets
+    the automatic lip sync stage in the finishing pipeline, and
+    its cost is folded into the quote, the hold and the ceiling.
+    Speech-native lanes generate picture and speech in one pass,
+    so their mouths already match and no stage runs."""
+    if not speech_script:
+        return False
+    return not lane_audio(model)["native_speech"]
+
+
 # Suppliers whose finished files arrive as a result URL for the
 # platform to download (the house worker is the only other source).
 URL_RESULT_PROVIDERS = (
@@ -722,6 +742,7 @@ API_POLL_PROVIDERS = (
 # Per-model duration bounds in seconds (the global form range is
 # 3-30; these narrow it to what each model actually accepts).
 MODEL_DURATION_BOUNDS = {
+    "wan_motion": (2, 30),
     "seedance": (4, 30),
     "veo3": (4, 8),
     "veo3_fast": (4, 8),
@@ -746,7 +767,7 @@ MODEL_DURATION_BOUNDS = {
     "runway_gen45": (3, 10),
     # Uncensored lanes (2026-11-17), from each route's own
     # published schema or model page.
-    "wan22_unc": (5, 8),
+    "wan22_unc": (5, 5),
     "wan3_unc": (3, 30),
     "seedance25_unc": (4, 30),
     "vidu_q3_unc": (3, 16),
@@ -766,10 +787,13 @@ MODEL_DURATION_STEPS = {
     "luma_ray32": (5, 10),
     "pika22": (5, 10),
     # The uncensored builds on the per-run supplier accept only
-    # their listed lengths (its published duration options);
-    # Wan 2.2's build on its supplier takes 5 or 8 seconds (its
-    # published schema enum).
-    "wan22_unc": (5, 8),
+    # their listed lengths (its published duration options).
+    # Wan 2.2 is fixed at 5 seconds in the maker's own
+    # documentation (duration verification, 2026-11-17); the
+    # supplier build's schema also lists an 8 second option,
+    # but the maker cap governs the plan, so longer lengths
+    # chain 5 second segments.
+    "wan22_unc": (5,),
     "wan26_unc": (5, 10, 15),
     "wan27_unc": (5, 10, 15),
     "wan3pro_unc": (5, 10, 15, 20, 25, 30),
@@ -796,6 +820,46 @@ LENGTH_OPTIONS = (1, 5, 10, 15, 30, 45, 60, 90, 120)
 # Runway image_to_video, the image-only SpicyAPI builds,
 # HotAPI image_url, Wiro inputImage).
 CHAIN_CONTINUATION_MODELS = PER_SECOND_MODELS
+
+
+# Per-lane reference caps (images, videos, audios), raised from
+# the old flat platform cap to what each model actually supports
+# (Jack's reference-caps call, 2026-11-17; no fake caps). Sources,
+# read 2026-11-17: Seedance 2.5 takes 30 images / 10 videos / 10
+# audios per BytePlus ModelArk's documentation (the 50 Higgsfield
+# allows is this model's total); the Seedance 2.0 family takes
+# 9 / 3 / 3 on the same documentation; Veo 3.1 and Veo 3.1 Fast
+# take up to 3 reference images and no reference video or audio
+# (Google's documentation); Kling 4.0 takes 10 images / 5 videos /
+# 3 voice clips (Kling's published reference limits); Kling 3.0
+# Omni takes 10 / 5 / 5 (Kling's published comparison). Lanes not
+# listed keep the platform cap of 10 / 5 / 5: their makers publish
+# no higher verified figure for the wired route, so nothing is
+# claimed for them. The combined reference-video length cap is
+# 15 seconds except on the Seedance 2.5 family, whose docs allow
+# 30 seconds combined.
+MODEL_REF_CAPS = {
+    "seedance": (30, 10, 10),
+    "seedance25_flash": (30, 10, 10),
+    "seedance2": (9, 3, 3),
+    "seedance2_fast": (9, 3, 3),
+    "seedance2_mini": (9, 3, 3),
+    "veo3": (3, 0, 0),
+    "veo3_fast": (3, 0, 0),
+    "kling4": (10, 5, 3),
+    "kling3_omni": (10, 5, 5),
+}
+MODEL_REF_VIDEO_SECONDS_CAP = {
+    "seedance": 30.0,
+    "seedance25_flash": 30.0,
+    # Motion transfer's reference video is the product: up to
+    # the model's own 30 second driving limit.
+    "wan_motion": 30.0,
+}
+
+
+def ref_caps_for(model: str):
+    return MODEL_REF_CAPS.get(model, (10, 5, 5))
 
 
 def duration_plan(model: str, requested: int) -> dict:
@@ -919,6 +983,10 @@ FAL_ENDPOINTS = {
     ("wan3", "text"): "alibaba/wan-3.0/text-to-video",
     ("wan3", "image"): "alibaba/wan-3.0/image-to-video",
     ("wan3", "reference"): "alibaba/wan-3.0/reference-to-video",
+    # Motion transfer (2026-11-17): one endpoint takes the
+    # subject image plus the driving video.
+    ("wan_motion", "reference"): "fal-ai/wan-motion",
+    ("wan_motion", "image"): "fal-ai/wan-motion",
     ("wan3_prime", "text"): "alibaba/wan-3.0-prime/text-to-video",
     ("wan3_prime", "image"): "alibaba/wan-3.0-prime/image-to-video",
     ("wan3_prime", "reference"): "alibaba/wan-3.0-prime/reference-to-video",
@@ -1786,6 +1854,13 @@ def api():
                     "native_speech": lane_audio(m["id"])["native_speech"],
                     "native_audio": lane_audio(m["id"])["native_audio"],
                 },
+                # The model's real reference caps, so the studio
+                # shows the selected model's own limits.
+                "ref_caps": dict(zip(
+                    ("images", "videos", "audios"),
+                    ref_caps_for(m["id"]))),
+                "ref_video_seconds_cap": MODEL_REF_VIDEO_SECONDS_CAP.get(
+                    m["id"], 15.0),
                 "available": (
                     True if m["id"] == DEFAULT_MODEL
                     else not api_lane_state(m["id"])["paused"]
@@ -2130,6 +2205,15 @@ def api():
         # account's budget accounting.
         if job.get("provider_cost_cents") is not None:
             raw = float(job["provider_cost_cents"])
+        if job.get("lip_sync"):
+            # The built-in lip sync stage is part of this job's
+            # cost (planned at creation, folded into the quote and
+            # the cap): settle its raw cost on the output seconds,
+            # never on reference seconds.
+            lip_raw, _lip_debit = pricing.lip_sync_costs(
+                billed - float(job.get("reference_video_seconds") or 0.0))
+            raw += lip_raw
+            job["lipsync_cost_cents"] = round(lip_raw, 2)
         cap = float(job.get("cap_raw_cents") or raw)
         settled_raw = min(raw, cap)
         job["billed_seconds"] = billed
@@ -2146,6 +2230,12 @@ def api():
                     job["model"], job["resolution"], billed, table["rates"],
                     owner=bool(owner.get("is_owner")),
                 )
+                if job.get("lip_sync"):
+                    _lr, lip_debit = pricing.lip_sync_costs(
+                        billed - float(
+                            job.get("reference_video_seconds") or 0.0),
+                        owner=bool(owner.get("is_owner")))
+                    debit = int(debit) + int(math.ceil(lip_debit))
                 debit = min(debit, int(hold))
                 refund = int(hold) - debit
                 if refund > 0:
@@ -2508,6 +2598,7 @@ def api():
             "has_custom_audio": bool(job.get("music_prompt")),
             "has_speech_script": bool(job.get("speech_script")),
             "voiceover_status": job.get("voiceover_status"),
+            "lipsync_status": job.get("lipsync_status"),
             "native_speech": lane_audio(
                 job.get("model") or DEFAULT_MODEL)["native_speech"],
             "kind": job.get("kind") or "generation",
@@ -2545,10 +2636,17 @@ def api():
         # segment's native duration, the only duration a single
         # provider submission ever sees; the plan rides along
         # for pricing and for the chain driver.
-        try:
-            plan = duration_plan(model, duration)
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc))
+        if model == "wan_motion":
+            # Motion transfer's length comes from the driving
+            # video, not the length menu; the real plan is built
+            # in the motion branch below.
+            plan = {"segments": [duration],
+                    "generated_seconds": float(duration), "trim": False}
+        else:
+            try:
+                plan = duration_plan(model, duration)
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc))
         resolution = body.get("resolution") or "720p"
         allowed_res = pricing.MODEL_RESOLUTIONS.get(model, pricing.RESOLUTIONS)
         if resolution not in allowed_res:
@@ -2562,18 +2660,17 @@ def api():
         ref_audios = body.get("reference_audio_urls") or []
         if not all(isinstance(x, list) for x in (ref_images, ref_videos, ref_audios)):
             raise HTTPException(status_code=422, detail="reference inputs must be lists of URLs")
-        if len(ref_images) > 10 or len(ref_videos) > 5 or len(ref_audios) > 5:
-            raise HTTPException(status_code=422, detail="too many reference inputs")
         ref_video_seconds = 0.0
         if ref_videos:
             try:
                 ref_video_seconds = float(body.get("reference_video_seconds") or 0)
             except (TypeError, ValueError):
                 ref_video_seconds = 0.0
-            if ref_video_seconds <= 0 or ref_video_seconds > 15:
+            seconds_cap = MODEL_REF_VIDEO_SECONDS_CAP.get(model, 15.0)
+            if ref_video_seconds <= 0 or ref_video_seconds > seconds_cap:
                 raise HTTPException(
                     status_code=422,
-                    detail="reference_video_seconds (the total length of the reference videos, up to 15) is required: it is part of the price",
+                    detail=f"reference_video_seconds (the total length of the reference videos, up to {int(seconds_cap)}) is required: it is part of the price",
                 )
         start_image = body.get("start_image_png_b64") or None
         end_image = body.get("end_image_png_b64") or None
@@ -2632,6 +2729,46 @@ def api():
                 status_code=422,
                 detail="this model needs a start image",
             )
+        if model == "wan_motion":
+            # Motion transfer (2026-11-17): the subject is the
+            # start image and the motion comes from exactly one
+            # reference video. The output follows the driving
+            # video's length, so the plan is a single segment of
+            # that length, and the reference seconds are not
+            # billed on top: the output IS the reference length.
+            if not start_image:
+                raise HTTPException(
+                    status_code=422,
+                    detail="motion transfer needs a subject image")
+            if end_image:
+                raise HTTPException(
+                    status_code=422,
+                    detail="motion transfer takes no end frame")
+            if len(ref_videos) != 1:
+                raise HTTPException(
+                    status_code=422,
+                    detail="motion transfer needs exactly one motion reference video")
+            if ref_images or ref_audios:
+                raise HTTPException(
+                    status_code=422,
+                    detail="motion transfer takes no other references")
+            driving = ref_video_seconds or float(duration)
+            if driving < 2 or driving > 30:
+                raise HTTPException(
+                    status_code=422,
+                    detail="the motion video must be 2 to 30 seconds long")
+            duration = int(round(driving))
+            plan = {"segments": [duration],
+                    "generated_seconds": float(duration), "trim": False}
+            ref_video_seconds = 0.0
+        cap_images, cap_videos, cap_audios = ref_caps_for(model)
+        if (len(ref_images) > cap_images or len(ref_videos) > cap_videos
+                or len(ref_audios) > cap_audios):
+            raise HTTPException(
+                status_code=422,
+                detail=(f"this model takes up to {cap_images} reference "
+                        f"images, {cap_videos} reference videos and "
+                        f"{cap_audios} reference audio files"))
         aspect_ratio = body.get("aspect_ratio") or "9:16"
         if aspect_ratio not in HOUSE_ASPECTS:
             raise HTTPException(
@@ -2651,6 +2788,11 @@ def api():
             "reference_video_urls": ref_videos,
             "reference_audio_urls": ref_audios,
             "reference_video_seconds": ref_video_seconds,
+            "ref_caps": {
+                "images": cap_images, "videos": cap_videos,
+                "audios": cap_audios,
+            },
+            "speech_script": (body.get("speech_script") or "").strip(),
             "start_image": start_image,
             "end_image": end_image,
         }
@@ -2695,6 +2837,7 @@ def api():
             model, params["resolution"], params["generated_seconds"],
             params["reference_video_seconds"], rate_table()["rates"],
             owner=is_owner(user),
+            lip_sync=lip_sync_applies(model, params.get("speech_script")),
         )
         remaining = included_budget_remaining(user)
         ceiling_ok = ceiling_allows(user, est["cap_raw_cents"])
@@ -2767,7 +2910,18 @@ def api():
     def submit_fal_job(job: dict, body: dict, params: dict, prompt: str, base: str):
         model = job["model"]
         endpoint = fal_endpoint_for(model, params["mode"], params["resolution"])
-        if model in ("veo3", "veo3_fast", "veo3_lite"):
+        if model == "wan_motion":
+            # Motion transfer: the subject image performs the
+            # driving video's motion. fal's published input shape
+            # is image_url + video_url with an optional prompt
+            # (fal model page, read 2026-11-17).
+            # PAYLOAD-UNVERIFIED until the funded pass.
+            payload = {
+                "prompt": prompt,
+                "image_url": f"data:image/png;base64,{params['start_image']}",
+                "video_url": params["reference_video_urls"][0],
+            }
+        elif model in ("veo3", "veo3_fast", "veo3_lite"):
             # Veo's fal schema: clip length as a string, audio as
             # generate_audio, frames as image_url / end_image_url,
             # references as image_urls (images only; validation
@@ -4366,6 +4520,7 @@ def api():
             model, params["resolution"], params["generated_seconds"],
             params["reference_video_seconds"], rate_table()["rates"],
             owner=is_owner(user),
+            lip_sync=lip_sync_applies(model, speech_script),
         )
         if not ceiling_allows(user, est["cap_raw_cents"]):
             raise HTTPException(
@@ -4420,6 +4575,16 @@ def api():
             "speech_script": speech_script or None,
             "speech_voice": speech_voice or None,
             "voiceover_status": None,
+            # Built-in lip sync (Jack's rule, 2026-11-17): planned
+            # at creation when the job carries speech on a lane
+            # that does not speak natively; the finishing stage
+            # runs automatically and its cost is already in the
+            # quote, the hold and the ceiling above.
+            "lip_sync": lip_sync_applies(model, speech_script),
+            "lipsync_status": (
+                "planned" if lip_sync_applies(model, speech_script)
+                else "native" if speech_script else None),
+            "lipsync_cost_cents": 0.0,
             "plan_at_job": user["plan"],
             "retry_of": body.get("retry_of"),
             "last_poll": 0,
@@ -4860,6 +5025,13 @@ def api():
             "speech_script": speech_script or None,
             "speech_voice": speech_voice or None,
             "voiceover_status": None,
+            # Built-in lip sync (Jack's rule, 2026-11-17): the
+            # house lane does not speak natively, so a spoken line
+            # here always plans the finishing lip sync stage.
+            "lip_sync": lip_sync_applies(DEFAULT_MODEL, speech_script),
+            "lipsync_status": (
+                "planned" if speech_script else None),
+            "lipsync_cost_cents": 0.0,
             "plan_at_job": user["plan"],
             "retry_of": body.get("retry_of"),
             "last_poll": 0,
@@ -5138,6 +5310,98 @@ def api():
                 created["charged_cents"] = 0
         return created
 
+    def _fal_upload_bytes(data: bytes, content_type: str, file_name: str):
+        """Upload bytes to fal storage and return the hosted file
+        URL. The lip sync endpoint and the character trainer take
+        URLs, not bytes. Returns None on any failure."""
+        try:
+            resp = requests.post(
+                "https://rest.alpha.fal.ai/storage/upload/initiate",
+                headers=_fal_headers(),
+                json={"content_type": content_type, "file_name": file_name},
+                timeout=30,
+            )
+            if resp.status_code != 200:
+                return None
+            info = resp.json() or {}
+            put = requests.put(
+                info["upload_url"], data=data,
+                headers={"Content-Type": content_type}, timeout=300)
+            if put.status_code not in (200, 201, 204):
+                return None
+            return info.get("file_url")
+        except Exception:
+            return None
+
+    def _lip_sync_for_job(job: dict, video_path: Path, voice_path: Path):
+        """The built-in lip sync stage (Jack's rule, 2026-11-17):
+        re-render the finished picture so the mouth matches the
+        spoken line, via fal's Sync Lipsync v2 (the cheapest
+        reliable hosted route with a published per-second price).
+        Runs only for jobs flagged at creation: a spoken line the
+        platform voices in post, on a lane that does not speak
+        natively. The same rule covers dubbing: the voice track is
+        the job's own spoken line, and the mouth is matched to it.
+        Any failure flags the job and returns None: the un-synced
+        video still delivers, the same way a failed voiceover
+        never blocks delivery."""
+        out_path = FILES_DIR / f"{job['id']}.lipsync.mp4"
+        if out_path.exists():
+            job["lipsync_status"] = "applied"
+            jobs[job["id"]] = job
+            return out_path
+        try:
+            video_url = _fal_upload_bytes(
+                video_path.read_bytes(), "video/mp4", f"{job['id']}.mp4")
+            audio_url = _fal_upload_bytes(
+                voice_path.read_bytes(), "audio/wav", f"{job['id']}.wav")
+            if not video_url or not audio_url:
+                raise RuntimeError("fal storage upload failed")
+            resp = requests.post(
+                f"https://queue.fal.run/{pricing.LIPSYNC_MODEL}",
+                headers=_fal_headers(),
+                json={"video_url": video_url, "audio_url": audio_url},
+                timeout=30,
+            )
+            if resp.status_code != 200:
+                raise RuntimeError(f"lip sync submit {resp.status_code}")
+            sub = resp.json() or {}
+            status_url = sub.get("status_url")
+            response_url = sub.get("response_url")
+            if not status_url or not response_url:
+                raise RuntimeError("lip sync submit returned no queue urls")
+            result_url = None
+            deadline = _now() + 900
+            while _now() < deadline:
+                time.sleep(10)
+                st = requests.get(
+                    status_url, headers=_fal_headers(), timeout=15)
+                if st.status_code != 200:
+                    continue
+                status = (st.json() or {}).get("status")
+                if status == "COMPLETED":
+                    got = requests.get(
+                        response_url, headers=_fal_headers(), timeout=30)
+                    body = got.json() or {}
+                    payload = body.get("data") or body
+                    result_url = ((payload.get("video") or {}).get("url"))
+                    break
+                if status in ("FAILED", "ERROR"):
+                    break
+            if not result_url:
+                raise RuntimeError("lip sync produced no result")
+            got = requests.get(result_url, timeout=300)
+            if got.status_code != 200:
+                raise RuntimeError("lip sync download failed")
+            out_path.write_bytes(got.content)
+            job["lipsync_status"] = "applied"
+            jobs[job["id"]] = job
+            return out_path
+        except Exception:
+            job["lipsync_status"] = "unavailable"
+            jobs[job["id"]] = job
+            return None
+
     def _voiceover_for_job(job: dict):
         """The Kokoro voiceover stage (Jack's correction,
         2026-11-16): speak the job's speech_script with Kokoro
@@ -5320,9 +5584,18 @@ def api():
                 if lane_audio(job.get("model") or DEFAULT_MODEL)["native_speech"]:
                     if job.get("voiceover_status") != "native":
                         job["voiceover_status"] = "native"
+                        job["lipsync_status"] = "native"
                         jobs[job["id"]] = job
                 else:
                     voice = _voiceover_for_job(job)
+            if voice is not None and job.get("lip_sync"):
+                # Built-in lip sync: the picture is re-rendered
+                # against the job's own voice track before the
+                # normal finishing mux, so the delivered video's
+                # mouth matches the spoken line.
+                synced = _lip_sync_for_job(job, raw_path, voice)
+                if synced is not None:
+                    raw_path = synced
             if job.get("provider") in URL_RESULT_PROVIDERS:
                 bed = _bed_for_job(job) if job.get("music_prompt") else None
                 try:
@@ -6968,6 +7241,15 @@ APP_HTML = (
       <div id="effects"><p class="muted">Loading effects...</p></div>
       <p class="muted" id="effect-note"></p>
 
+      <div id="motion-opts" style="display:none">
+      <p class="group-label">Motion transfer</p>
+      <label>Motion video link</label>
+      <input id="motion-url" type="url" maxlength="1000" placeholder="https://... a short clip of the motion to copy">
+      <label>Motion video length (seconds)</label>
+      <input id="motion-seconds" type="number" min="2" max="30" step="1" placeholder="e.g. 8">
+      <p class="muted">Your subject image performs this video's motion. The result follows the motion video's length.</p>
+      </div>
+
       <p class="group-label">Sound</p>
       <label>Music prompt (optional)</label>
       <textarea id="music" rows="2" maxlength="300" placeholder="lo-fi piano with soft rain, slow and dreamy"></textarea>
@@ -7510,7 +7792,13 @@ async function fetchQuote() {
   if (!currentUser || !currentUser.paid_customer) { q.textContent = ''; return; }
   const seq = ++quoteSeq;
   const want = { model: $('model').value,
-    duration_seconds: Number($('duration').value), resolution: $('resolution').value };
+    duration_seconds: Number($('duration').value), resolution: $('resolution').value,
+    speech_script: ($('speech') && !$('speech').disabled) ? $('speech').value : '' };
+  if (want.model === 'wan_motion') {
+    want.reference_video_urls = [$('motion-url').value.trim()];
+    want.reference_video_seconds = Number($('motion-seconds').value) || want.duration_seconds;
+    want.start_image_png_b64 = startImageB64;
+  }
   // The old price comes off the button immediately: while the
   // new quote is in flight the button never shows a price that
   // belongs to another model, length, or resolution.
@@ -7595,7 +7883,8 @@ const MODEL_OPTS = {
   vidu_q3_unc: { durations: LENGTHS, resolutions: ['480p', '720p', '1080p'] },
   wan26_unc: { durations: LENGTHS, resolutions: ['720p', '1080p'] },
   wan27_unc: { durations: LENGTHS, resolutions: ['720p', '1080p'] },
-  wan3pro_unc: { durations: LENGTHS, resolutions: ['1080p', '2K', '4K'] }
+  wan3pro_unc: { durations: LENGTHS, resolutions: ['1080p', '2K', '4K'] },
+  wan_motion: { durations: LENGTHS, resolutions: ['720p'] }
 };
 function fillSelect(sel, values, label) {
   const keep = sel.value;
@@ -7694,6 +7983,17 @@ function updateModelUI() {
   $('house-more').style.display = api ? 'none' : '';
   $('resolution-wrap').style.display = api ? '' : 'none';
   $('api-opts').style.display = api ? '' : 'none';
+  $('motion-opts').style.display = m === 'wan_motion' ? '' : 'none';
+  $('length-api').style.display = (api && m !== 'wan_motion') ? '' : 'none';
+  if (api) {
+    const entry = ((catalogCfg && catalogCfg.models) || []).find(x => x.id === m);
+    if (m === 'wan_motion') {
+      $('model-note').textContent = 'Motion transfer: add a subject image above, then paste a motion video link in More options. The result follows the motion video\u2019s length.';
+    } else if (entry && entry.ref_caps) {
+      const c = entry.ref_caps;
+      $('model-note').textContent = 'References: up to ' + c.images + ' images, ' + c.videos + ' videos, ' + c.audios + ' audio files.';
+    }
+  }
   if (api) {
     const opts = MODEL_OPTS[m];
     if (opts) {
@@ -7711,6 +8011,9 @@ function updateModelUI() {
 $('model').addEventListener('change', updateModelUI);
 $('duration').addEventListener('change', fetchQuote);
 $('resolution').addEventListener('change', fetchQuote);
+$('speech').addEventListener('change', fetchQuote);
+$('motion-url').addEventListener('change', fetchQuote);
+$('motion-seconds').addEventListener('change', fetchQuote);
 $('lane').addEventListener('change', updateHousePrice);
 $('segments').addEventListener('change', updateHousePrice);
 $('save-handle').onclick = async () => {
@@ -7758,6 +8061,10 @@ $('create').onclick = async () => {
       ...(neg ? { negative_prompt: neg } : {}),
       ...(seedNum !== null && Number.isInteger(seedNum) ? { seed: seedNum } : {})
     };
+    const motionFields = model === 'wan_motion'
+      ? { reference_video_urls: [$('motion-url').value.trim()],
+          reference_video_seconds: Number($('motion-seconds').value) || Number($('duration').value) }
+      : {};
     const jobBody = model === 'wan2.2'
       ? { model: model, lane: selectedEffect ? 'effects' : $('lane').value, prompt: $('prompt').value,
           music_prompt: $('music').disabled ? '' : $('music').value,
@@ -7771,7 +8078,7 @@ $('create').onclick = async () => {
           speech_script: $('speech').disabled ? '' : $('speech').value,
           aspect_ratio: $('aspect').value,
           duration_seconds: Number($('duration').value), resolution: $('resolution').value,
-          ...startFields, ...camera, ...detailFields, ...bot };
+          ...startFields, ...camera, ...detailFields, ...motionFields, ...bot };
     const r = await api('/api/jobs', { method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(jobBody) });
     msg('job-msg', model === 'wan2.2'
