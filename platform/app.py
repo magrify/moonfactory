@@ -2015,7 +2015,8 @@ def api():
             "gallery_opt_out": bool(user.get("gallery_opt_out")),
             "past_due": user.get("past_due", False),
             "balance_cents": user.get("balance_cents", 0),
-            "has_saved_card": bool(user.get("stripe_payment_method_id")),
+            "has_saved_card": bool(user.get("stripe_customer_id")
+                                   and user.get("stripe_payment_method_id")),
             "auto_reload_enabled": bool((user.get("auto_reload") or {}).get("enabled")),
             "auto_reload_amount_cents": int((user.get("auto_reload") or {}).get("amount_cents") or 0),
             "free_jobs_used": free_jobs_total(user),
@@ -7462,6 +7463,23 @@ def api():
         stripe.api_key = key
         return stripe, None
 
+    def ensure_stripe_customer(user: dict, stripe) -> str:
+        """Every checkout runs on the account's one Stripe
+        customer. A card saved at checkout can only be charged
+        again later (auto reload) when it belongs to a customer.
+        A checkout with no customer leaves the card attached to
+        nobody and impossible to reuse, which is exactly what the
+        first real top up did before this helper existed (found
+        live, 2026-11-17)."""
+        if not user.get("stripe_customer_id"):
+            customer = stripe.Customer.create(
+                email=user["email"],
+                metadata={"user_id": user["id"]},
+            )
+            user["stripe_customer_id"] = customer.id
+            save_user(user)
+        return user["stripe_customer_id"]
+
     @web.post("/api/checkout/subscription")
     async def checkout_subscription(request: Request, mf_session: str = Cookie(default="")):
         user = require_user(request, mf_session)
@@ -7488,7 +7506,7 @@ def api():
         session = stripe.checkout.Session.create(
             mode="subscription",
             line_items=line_items,
-            customer_email=user["email"],
+            customer=ensure_stripe_customer(user, stripe),
             client_reference_id=user["id"],
             metadata={"user_id": user["id"]},
             success_url=f"{base}/app?checkout=success",
@@ -7523,7 +7541,7 @@ def api():
             mode="payment",
             line_items=line_items,
             payment_intent_data={"setup_future_usage": "off_session"},
-            customer_email=user["email"],
+            customer=ensure_stripe_customer(user, stripe),
             client_reference_id=user["id"],
             metadata={"user_id": user["id"], "credit_cents": str(pack)},
             success_url=f"{base}/app?checkout=success",
@@ -7537,13 +7555,7 @@ def api():
         stripe, err = stripe_client()
         if err:
             raise HTTPException(status_code=503, detail=err)
-        if not user.get("stripe_customer_id"):
-            customer = stripe.Customer.create(
-                email=user["email"],
-                metadata={"user_id": user["id"]},
-            )
-            user["stripe_customer_id"] = customer.id
-            save_user(user)
+        ensure_stripe_customer(user, stripe)
         base = base_url(request)
         session = stripe.checkout.Session.create(
             mode="setup",
@@ -7567,7 +7579,8 @@ def api():
                 raise HTTPException(
                     status_code=422,
                     detail="pick a reload amount of $1, $5, $10, or $20")
-            if not user.get("stripe_payment_method_id"):
+            if not (user.get("stripe_customer_id")
+                    and user.get("stripe_payment_method_id")):
                 raise HTTPException(
                     status_code=422,
                     detail="save a card first, then turn auto reload on")
@@ -7580,7 +7593,8 @@ def api():
         cfg = user.get("auto_reload") or {}
         return {"auto_reload_enabled": bool(cfg.get("enabled")),
                 "auto_reload_amount_cents": int(cfg.get("amount_cents") or 0),
-                "has_saved_card": bool(user.get("stripe_payment_method_id"))}
+                "has_saved_card": bool(user.get("stripe_customer_id")
+                                       and user.get("stripe_payment_method_id"))}
 
     @web.post("/api/stripe/webhook")
     async def stripe_webhook(request: Request):
@@ -7666,7 +7680,13 @@ def api():
                     if pi_id:
                         try:
                             pi = stripe.PaymentIntent.retrieve(pi_id)
-                            if pi and pi.payment_method:
+                            # Only a card that belongs to the
+                            # session's customer can ever be charged
+                            # again. A card from a customerless
+                            # checkout is stored nowhere, so the
+                            # account never claims a saved card it
+                            # cannot use.
+                            if pi and pi.payment_method and obj.get("customer"):
                                 user["stripe_payment_method_id"] = pi.payment_method
                         except Exception:
                             pass
@@ -8154,6 +8174,8 @@ _CSS = """
   .btn:hover{background:var(--accent-bright)}
   .btn.secondary{background:var(--seg-on);color:var(--ink)}
   .btn.secondary:hover{background:#3a3a46}
+  .topup-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:2px 0 4px}
+  .topup-grid .btn{width:100%;text-align:center;padding-left:8px;padding-right:8px}
   .btn:disabled{opacity:.45;cursor:default}
   .btn.gen{width:100%;margin-top:24px;border-radius:14px;font-size:17px;font-weight:700;padding:16px}
   .card{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:26px;margin:18px 0}
@@ -9396,12 +9418,12 @@ APP_HTML = (
       </p>
       <p class="muted">Creator opens every model and includes a monthly budget for making videos.</p>
       <p class="group-label">Credits</p>
-      <p>
+      <div class="topup-grid">
         <button class="btn secondary" data-topup="100">Top up $1</button>
         <button class="btn secondary" data-topup="500">Top up $5</button>
         <button class="btn secondary" data-topup="1000">Top up $10</button>
         <button class="btn secondary" data-topup="2000">Top up $20</button>
-      </p>
+      </div>
       <p class="muted">Top up once and pay per video from your balance. Your balance never expires.</p>
       <p class="group-label">Auto reload</p>
       <p class="muted" id="autoreload-note"></p>
