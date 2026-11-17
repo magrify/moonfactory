@@ -7731,7 +7731,13 @@ _CSS = """
   header nav{display:flex;gap:26px;align-items:center}
   header nav a{text-decoration:none;color:var(--gray);font-size:15px}
   header nav a:hover{color:var(--ink)}
-  header nav .who{color:var(--faint);font-size:14px}
+  .profile{position:relative}
+  .avatar{width:34px;height:34px;border-radius:50%;background:var(--accent);color:#fff;border:0;padding:0;font:inherit;font-size:15px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center}
+  .avatar:hover{background:var(--accent-bright)}
+  .menu{position:absolute;right:0;top:calc(100% + 10px);z-index:60;min-width:216px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:8px;box-shadow:0 12px 32px rgba(0,0,0,.5);flex-direction:column}
+  .menu a,.menu button{display:block;width:100%;box-sizing:border-box;text-align:left;background:none;border:0;color:var(--ink);font:inherit;font-size:14.5px;padding:9px 10px;border-radius:9px;cursor:pointer;text-decoration:none}
+  .menu a:hover,.menu button:hover{background:var(--seg-on)}
+  .menu-email{display:block;color:var(--faint);font-size:13px;padding:8px 10px 9px;border-bottom:1px solid var(--line);margin-bottom:6px;word-break:break-all}
   h1{font-size:46px;line-height:1.12;letter-spacing:-.03em;font-weight:800;margin:0}
   h2{font-size:26px;letter-spacing:-.02em;margin:0 0 6px}
   a{color:var(--accent-bright)}
@@ -7765,6 +7771,7 @@ _CSS = """
   .tabs .btn:hover{background:transparent;color:var(--ink)}
   .tabs .btn:not(.secondary){background:var(--seg-on);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.4)}
   .tabs .btn:not(.secondary):hover{background:var(--seg-on)}
+  .mode-toggle{display:flex;justify-content:center;gap:10px;margin-top:14px}
   .group-label{font-size:13px;color:var(--faint);font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin:22px 0 8px}
   .composer-prompt{font-size:16px;min-height:84px}
   .row{display:flex;gap:12px;margin-top:16px}
@@ -7789,7 +7796,6 @@ _CSS = """
   details.more summary::-webkit-details-marker{display:none}
   details.more summary:hover{color:var(--ink)}
   .under{margin-top:14px;text-align:center;color:var(--faint);font-size:13.5px;line-height:1.6}
-  .badge{font-size:12px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#a5b4fc;background:#1e1e38;border-radius:999px;padding:5px 11px}
   .create-head{display:flex;align-items:center;gap:12px;margin-top:8px}
   .paywall p{color:var(--gray);font-size:15.5px;line-height:1.6}
   .hero{max-width:680px;margin:64px auto 0;text-align:center}
@@ -8619,7 +8625,7 @@ APP_HTML = (
 </head><body><main>
 <header>
   <a class="logo" href="/"><svg width="27" height="27" viewBox="0 0 48 48" aria-hidden="true"><path fill="#818cf8" d="M23.3 8A16 16 0 1 0 32.6 37.5A16.5 16.5 0 0 1 23.3 8Z"/><path fill="#f5d67a" stroke="#f5d67a" stroke-width="1.6" stroke-linejoin="round" d="M24 18.5L24 27.5L31.5 23Z"/></svg><span>Moon<em>factory</em></span></a>
-  <nav><a href="/gallery">Gallery</a><span class="who" id="who"></span></nav>
+  <nav><a href="/gallery">Gallery</a><span class="profile" id="profile" style="display:none"><button class="avatar" id="avatar" type="button" aria-haspopup="true" aria-expanded="false" aria-label="Account menu"></button><span class="menu" id="profile-menu" style="display:none"><span class="menu-email" id="menu-email"></span><a href="#account-card" id="menu-account">Account</a><a href="#billing" id="menu-billing">Billing</a><a href="/help">Help</a><button type="button" id="menu-logout">Log out</button></span></span></nav>
 </header>
 
 <div id="auth" class="card" style="max-width:640px;margin-left:auto;margin-right:auto">
@@ -8647,11 +8653,10 @@ APP_HTML = (
   <div class="card" style="max-width:640px;margin-left:auto;margin-right:auto">
     <div class="create-head">
       <h2 id="composer-heading">Try It</h2>
-      <span class="badge" id="composer-badge" style="display:none">Members · Creator</span>
     </div>
     <p class="muted" id="composer-note"></p>
 
-    <div class="seg" style="margin-top:12px">
+    <div class="mode-toggle">
       <button class="btn" id="mode-video" type="button">Video</button>
       <button class="btn secondary" id="mode-image" type="button">Image</button>
     </div>
@@ -8659,11 +8664,11 @@ APP_HTML = (
     <div class="drop" id="dropzone" tabindex="0" role="button" aria-label="Add a start image" style="margin-top:14px">
       <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#9c9ca6" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5-9 9"/></svg>
       <div class="big">Add a start image</div>
-      <div class="small">Drop it here, or click to browse. Optional on the Draft lane: text-only works too.</div>
+      <div class="small">Drop it here, or click to browse. Text only works too.</div>
     </div>
     <label class="flabel" for="start-source" style="margin-top:14px">Start image</label>
     <select id="start-source">
-      <option value="none" selected>None: text only (Draft lane)</option>
+      <option value="none" selected>No start image — text only</option>
       <option value="upload">Upload an image</option>
       <option value="generate">Describe it and we make it</option>
     </select>
@@ -8853,15 +8858,13 @@ APP_HTML = (
   <div class="card" style="max-width:640px;margin-left:auto;margin-right:auto">
     <div class="create-head">
       <h2>Create</h2>
-      <span class="badge">Members · Creator</span>
     </div>
     <div class="paywall">
       <p>Try It is the free plan: Wan 2.2 Draft clips, 5 per account total,
-      watermarked. Nothing on Create is free: every model beyond Wan 2.2,
-      the Production lane, custom music and voiceover, effects,
-      multi-segment videos, clipping, and hiding your clips from the
-      gallery all live here, and the server keeps them locked until an
-      account has paid.</p>
+      watermarked. Every model beyond Wan 2.2, the Production lane,
+      custom music and voiceover, effects, multi-segment videos,
+      clipping, and hiding your clips from the gallery live here,
+      locked until an account has paid.</p>
       <p>Any payment opens Create, two ways: Creator, a monthly plan with
       an included generation budget, or a one-time top-up and pay per
       video, no subscription. Once you have paid, Try It disappears and
@@ -8871,8 +8874,6 @@ APP_HTML = (
       <button class="btn" id="upgrade-creator">Get Creator, $20/month</button>
       <button class="btn secondary" id="upgrade-topup">Top up $10</button>
     </p>
-    <p class="muted">Both buttons use the same checkout as the account
-    card below.</p>
   </div>
   </div>
 
@@ -8880,7 +8881,6 @@ APP_HTML = (
   <div class="card" style="max-width:640px;margin-left:auto;margin-right:auto">
     <div class="create-head">
       <h2>Clip</h2>
-      <span class="badge">Members · Creator</span>
     </div>
     <p class="muted">Paste a YouTube, Twitch or Kick link, or upload a file. You get vertical clips with captions and a hook on each one. If a link ever refuses to read, upload the file instead: uploads always work.</p>
     <label>Video link</label>
@@ -8939,7 +8939,7 @@ APP_HTML = (
   <h2 style="max-width:640px;margin:30px auto 6px">Your videos</h2>
   <div id="jobs" style="max-width:640px;margin:0 auto"><p class="muted">Loading...</p></div>
 
-  <div class="card" style="max-width:640px;margin-left:auto;margin-right:auto">
+  <div class="card" id="account-card" style="max-width:640px;margin-left:auto;margin-right:auto">
     <h2>Your account</h2>
     <p id="account"></p>
     <label>Public handle (the only name the gallery ever shows)</label>
@@ -8950,7 +8950,7 @@ APP_HTML = (
       Hide my clips from the public gallery</label>
     <p class="muted" id="gallery-note"></p>
     <p id="profile-msg"></p>
-    <p>
+    <p id="billing">
       <button class="btn secondary" id="buy-creator">Get Creator, $20/month</button>
       <button class="btn secondary" data-topup="500">Top up $5</button>
       <button class="btn secondary" data-topup="1000">Top up $10</button>
@@ -9076,7 +9076,7 @@ function renderDrop(f) {
     dz.classList.remove('filled');
     dz.innerHTML = '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#9c9ca6" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5-9 9"/></svg>' +
       '<div class="big">Add a start image</div>' +
-      '<div class="small">Drop it here, or click to browse. Optional on the Draft lane: text-only works too.</div>';
+      '<div class="small">Drop it here, or click to browse. Text only works too.</div>';
   }
 }
 $('startimg').addEventListener('change', e => { readStartFile(e.target.files[0]); });
@@ -9312,6 +9312,34 @@ $('login').onclick = async () => {
 };
 $('logout').onclick = async () => { await api('/api/logout', { method: 'POST' }); location.reload(); };
 
+// Profile menu: the header avatar opens the account menu. Account
+// and Billing scroll to the account card at the bottom of the
+// studio (Billing is that card's payment row; the settings, the
+// public handle and the gallery opt-out, live on the same card).
+function closeProfileMenu() {
+  $('profile-menu').style.display = 'none';
+  $('avatar').setAttribute('aria-expanded', 'false');
+}
+$('avatar').onclick = e => {
+  e.stopPropagation();
+  const open = $('profile-menu').style.display !== 'none';
+  $('profile-menu').style.display = open ? 'none' : 'flex';
+  $('avatar').setAttribute('aria-expanded', open ? 'false' : 'true');
+};
+document.addEventListener('click', e => {
+  if ($('profile-menu').style.display !== 'none' && !$('profile').contains(e.target)) closeProfileMenu();
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeProfileMenu(); });
+$('menu-account').onclick = e => {
+  e.preventDefault(); closeProfileMenu();
+  $('account-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+$('menu-billing').onclick = e => {
+  e.preventDefault(); closeProfileMenu();
+  $('billing').scrollIntoView({ behavior: 'smooth', block: 'center' });
+};
+$('menu-logout').onclick = async () => { await api('/api/logout', { method: 'POST' }); location.reload(); };
+
 let currentUser = null;
 // The access model: a paid account's surface is Create (Try It is
 // gone from its navigation); a free account's surface is Try It,
@@ -9334,13 +9362,14 @@ function genLabel(priceCents) {
 function showStudio(u) {
   currentUser = u;
   $('auth').style.display = 'none'; $('studio').style.display = 'block';
-  $('who').textContent = u.email;
+  $('profile').style.display = 'inline-block';
+  $('avatar').textContent = (u.email || '?').trim().charAt(0).toUpperCase();
+  $('menu-email').textContent = u.email;
   const paidSurface = isPaidSurface();
   $('tab-tryit').style.display = paidSurface ? 'none' : '';
   $('composer-heading').textContent = paidSurface ? 'Create' : 'Try It';
-  $('composer-badge').style.display = paidSurface ? '' : 'none';
   $('composer-note').textContent = paidSurface
-    ? 'The full studio: every model, custom sound, longer clips. Nothing in here is free.'
+    ? 'The full studio: every model, custom sound, longer clips.'
     : 'Try It is the free plan: Wan 2.2, Draft lane, watermarked. Create, the full studio, opens with any payment.';
   genLabel(null);
   const inc = u.plan === 'creator'
