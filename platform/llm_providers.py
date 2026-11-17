@@ -22,12 +22,13 @@ public view below carries names, ids, and a configured boolean
 only.
 
 Provider state at wiring time (2026-11-17):
-- openrouter: key already stored (OPENROUTER_API_KEY). The model
-  is confirmed listed in OpenRouter's own catalog (470 models,
-  read 2026-11-17), BUT the stored key returned 401 on both free
-  account reads (/api/v1/auth/key, /api/v1/credits) the same day,
-  so the lane stays dark until the key is refreshed. Recorded in
-  BUILD-LOG.
+- openrouter: key stored (OPENROUTER_API_KEY). The first stored
+  key returned 401 on both free account reads (/api/v1/auth/key,
+  /api/v1/credits) and was replaced 2026-11-17; the replacement
+  verifies live (GET /api/v1/auth/key 200, usage 0, no key limit)
+  and the model is confirmed listed in OpenRouter's own catalog
+  (435 models, read 2026-11-17). Lane is live as the first
+  picking fallback. Recorded in BUILD-LOG.
 - venice: models enumerated from Venice's public models endpoint
   (https://api.venice.ai/api/v1/models), filtered to the entries
   Venice itself flags "uncensored": true. Account + API key are a
@@ -58,7 +59,7 @@ LLM_PROVIDERS = [
         "label": "OpenRouter",
         "base_url": "https://openrouter.ai/api/v1",
         "key_env": "OPENROUTER_API_KEY",
-        "access": "key_stored_auth_failing",
+        "access": "key_stored",
         "models": [
             {
                 "id": "cognitivecomputations/dolphin-mistral-24b-venice-edition",

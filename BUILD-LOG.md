@@ -2955,3 +2955,26 @@ and config read-backs only. No subscriptions anywhere.
   other three configured=false; served /app markup contains the
   '$'.repeat(m.price_tier) and " · Uncensored" option-text code;
   /healthz ok.
+
+## OpenRouter key replacement — 2026-11-17
+
+- The stored OPENROUTER_API_KEY (401 on /api/v1/auth/key and
+  /api/v1/credits, see the 2026-11-17 uncensored-LLM entry) was
+  replaced with a fresh key Jack created in the OpenRouter
+  dashboard ("moonfactory"). Merge via SDK Secret.update() on
+  moonfactory-providers (per-key merge; no full-secret overwrite).
+  Key-NAME list read before and after: the same 18 names,
+  byte-identical, nothing lost or added. No key value printed.
+- Verified with the new key (free reads): GET /api/v1/auth/key
+  200 (usage 0, limit null, is_free_tier false); GET
+  /api/v1/models 200, 435 models, with
+  cognitivecomputations/dolphin-mistral-24b-venice-edition
+  present. The OpenRouter lane is live as the first uncensored
+  picking fallback whenever the Gemini chain fails.
+- platform/llm_providers.py: the openrouter entry's static
+  access state updated "key_stored_auth_failing" -> "key_stored"
+  and the module docstring's openrouter note rewritten to match.
+  The access string is config metadata only; call behavior was
+  already computed live from key presence. No deploy in this
+  pass (secret + source only); the label takes effect on the
+  next platform deploy.
