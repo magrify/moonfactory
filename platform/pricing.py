@@ -190,9 +190,19 @@ PROVIDER_RATES_CENTS_PER_SECOND = {
     # LANE_AUDIO in app.py). Carried flat: the published figure
     # has no resolution split. fal's with-audio route ($0.40/s)
     # is the fallback below.
-    "veo3": {"720p": 12.0, "1080p": 12.0},
+    # 4K tier (2026-11-17, 4K expansion): PiAPI's own Veo 3.1
+    # docs cap its resolution enum at 720p/1080p, so the 4K tier
+    # rides the wired fal route instead (per-resolution override
+    # in app.py's MODEL_PROVIDER_OVERRIDES): fal's own Veo 3.1
+    # page prices 4K at $0.40/s no-audio and $0.60/s with audio,
+    # and the fal submit sends generate_audio=true, so the
+    # with-audio $0.60/s is the tier's cost basis.
+    "veo3": {"720p": 12.0, "1080p": 12.0, "4K": 60.0},
     # Veo 3.1 Fast via fal, with audio: $0.15/s at 720p and 1080p.
-    "veo3_fast": {"720p": 15.0, "1080p": 15.0},
+    # 4K tier (2026-11-17, 4K expansion): fal's own Veo 3.1 Fast
+    # page prices 4K at $0.30/s no-audio and $0.35/s with audio;
+    # the lane's basis is with-audio, so $0.35/s.
+    "veo3_fast": {"720p": 15.0, "1080p": 15.0, "4K": 35.0},
     # Kling 3.0 via Kie (follow-up pass, 2026-11-16; round-2
     # cost correction, same day): Kie's own model page
     # (kie.ai/kling-3-0) prices kling-3.0/video per second at
@@ -206,7 +216,11 @@ PROVIDER_RATES_CENTS_PER_SECOND = {
     # sound included) are in DISPLACED_RATES below; fal's
     # with-audio route (12.6 / 16.8) is the fallback below and
     # fal's endpoints stay wired in app.py.
-    "kling3": {"720p": 11.35, "1080p": 15.1},
+    # 4K tier (2026-11-17, 4K expansion): the same Kie page
+    # prices the model's 4K mode at 75.5 credits ($0.3775/s)
+    # with or without audio, 3840x2160; the Kie submit sends
+    # mode="4K" for the tier (app.py).
+    "kling3": {"720p": 11.35, "1080p": 15.1, "4K": 37.75},
     # --- Full-shelf wiring, 2026-11-16 (model availability audit).
     # Every rate below is the primary supplier's published rate,
     # verified 2026-11-16; none of these lanes carries a measured
@@ -246,11 +260,21 @@ PROVIDER_RATES_CENTS_PER_SECOND = {
     # ($0.101/s) and 1080p is 25.2 credits ($0.126/s). The submit
     # sends sound=true, so those are this lane's rates; the old
     # flat 7.55 seed priced the lane BELOW its true cost.
-    "kling3_omni": {"720p": 10.1, "1080p": 12.6},
+    # 4K tier (2026-11-17, 4K expansion): Kie's own Kling 3.0
+    # Omni page (kie.ai/kling-o3) prices 4K at 75.5 credits
+    # ($0.3775/s) with or without native audio, and Kie's API
+    # docs give the omni resolution enum as 720p / 1080p / 4k;
+    # the Kie submit sends resolution="4k" for the tier (app.py).
+    "kling3_omni": {"720p": 10.1, "1080p": 12.6, "4K": 37.75},
     # Seedance 2.0 via BeatAPI (seedance-2): carried at the
     # WITH-video-input rates ($0.618 / $1.247 / $3.107 per
     # 8-second clip; no-input $0.509 / $1.027 / $2.563).
-    "seedance2": {"480p": 7.725, "720p": 15.593, "1080p": 38.842},
+    # 4K tier (2026-11-17, 4K expansion): BeatAPI's own
+    # seedance-2 page prices the 4K tier at $6.4152 per 8-second
+    # clip with video input ($5.225889 without), so the
+    # with-input basis carries 80.19c/s.
+    "seedance2": {"480p": 7.725, "720p": 15.593, "1080p": 38.842,
+                  "4K": 80.19},
     # Seedance 2.0 Fast via Kie (follow-up pass, 2026-11-16):
     # from $0.034/s, carried flat (the from-price publishes no
     # resolution split; pending console confirmation). BeatAPI's
@@ -332,7 +356,10 @@ PROVIDER_RATES_CENTS_PER_SECOND = {
     # the tier is carried as 2160p in app.py, payload-unverified).
     "ltx25": {"720p": 12.0, "1080p": 17.0, "4K": 34.0},
     # LTX-2.5 Fast via fal: $0.09/s at 720p, $0.13/s at 1080p.
-    "ltx25_fast": {"720p": 9.0, "1080p": 13.0},
+    # 4K tier (2026-11-17, 4K expansion): fal's own LTX-2.5 Fast
+    # page prices 4K at $0.30/s; the fal submit maps the tier to
+    # its 2160p schema value like the Pro lane (app.py).
+    "ltx25_fast": {"720p": 9.0, "1080p": 13.0, "4K": 30.0},
     # HappyHorse 1.1 via OpenRouter (follow-up pass, 2026-11-16):
     # OpenRouter publishes $0.0988/s at 720p and $0.1278/s at
     # 1080p, cheaper than BeatAPI's $0.96 / $1.24 per 8-second
@@ -384,7 +411,10 @@ PROVIDER_RATES_CENTS_PER_SECOND = {
     # Seedance 2.5 (uncensored build) via SpicyAPI, same
     # catalog read: $0.216 / $0.432 / $1.08 per second, the
     # same with generate_audio on or off (the lane ships
-    # audio on). A 4K tier exists at $2.16/s and is not sold.
+    # audio on). A 4K tier exists at $2.16/s and is not sold:
+    # SpicyAPI's own pricing pages label that tier "(4K,
+    # upscaled)", and upscaled tiers are never sold as 4K
+    # (checked again 2026-11-17, 4K expansion).
     # Image mode only, same basis as above.
     "seedance25_unc": {"480p": 21.6, "720p": 43.2, "1080p": 108.0},
     # Vidu Q3 (uncensored build) via SpicyAPI, same catalog
@@ -458,7 +488,11 @@ FALLBACK_PROVIDER_RATES_CENTS_PER_SECOND = {
     # they exist, so a fallback is a provider flip, not a rebuild.
     "kling3_omni": {"720p": 11.2, "1080p": 14.0},
     "hailuo23": {"720p": 5.6, "1080p": 8.2},
-    "veo3": {"720p": 40.0, "1080p": 40.0},
+    # veo3's 4K row is fal's with-audio 4K rate ($0.60/s); since
+    # the 2026-11-17 4K expansion the fal route SERVES the lane's
+    # 4K tier via MODEL_PROVIDER_OVERRIDES in app.py, so the row
+    # is the live tier's basis, not only a fallback record.
+    "veo3": {"720p": 40.0, "1080p": 40.0, "4K": 60.0},
     "veo3_lite": {"720p": 5.0, "1080p": 8.0},
 }
 
@@ -498,11 +532,12 @@ DISPLACED_RATES_CENTS_PER_SECOND = {
 # Models absent here accept every entry in RESOLUTIONS.
 MODEL_RESOLUTIONS = {
     "seedance": ("480p", "720p", "1080p"),
-    "veo3": ("720p", "1080p"),
-    "veo3_fast": ("720p", "1080p"),
-    "kling3": ("720p", "1080p"),
+    "seedance2": ("480p", "720p", "1080p", "4K"),
+    "veo3": ("720p", "1080p", "4K"),
+    "veo3_fast": ("720p", "1080p", "4K"),
+    "kling3": ("720p", "1080p", "4K"),
     "kling4": ("720p", "1080p"),
-    "kling3_omni": ("720p", "1080p"),
+    "kling3_omni": ("720p", "1080p", "4K"),
     "seedance2_fast": ("480p", "720p"),
     "seedance2_mini": ("480p", "720p"),
     "veo3_lite": ("720p", "1080p"),
@@ -510,7 +545,7 @@ MODEL_RESOLUTIONS = {
     "omni11": ("720p", "1080p"),
     "hailuo23": ("720p",),
     "ltx25": ("720p", "1080p", "4K"),
-    "ltx25_fast": ("720p", "1080p"),
+    "ltx25_fast": ("720p", "1080p", "4K"),
     "happyhorse": ("720p", "1080p"),
     "pika22": ("720p", "1080p"),
     "grok": ("480p", "720p"),
@@ -1057,7 +1092,9 @@ IMAGE_LANES = {
     "nano_banana_pro": {
         "label": "Nano Banana Pro", "provider": "beatapi",
         "endpoint": "google/nano-banana-pro",
-        "raw_cents": {"1K": 5.0, "2K": 5.0},
+        # BeatAPI's own model page (read 2026-11-17): 1K $0.05,
+        # 2K $0.05, 4K $0.10. The 4K tier was not wired before.
+        "raw_cents": {"1K": 5.0, "2K": 5.0, "4K": 10.0},
     },
     "nano_banana_2": {
         "label": "Nano Banana 2", "provider": "beatapi",
@@ -1071,25 +1108,73 @@ IMAGE_LANES = {
         # sold until the funded pass measures the real charge.
         "label": "GPT Image 2.6", "provider": "fal",
         "endpoint": "openai/gpt-image-2.6/flare/text-to-image",
-        "raw_cents": {"1K": 5.3},
+        "raw_cents": {"1024x1024": 5.3},
     },
     "seedream55_unc": {
         "label": "Seedream 5.5 · Uncensored $$", "provider": "wiro",
         "endpoint": "bytedance/seedream-5-5-uncensored",
-        "raw_cents": {"2K": 2.8},
+        # Wiro's own model page (read 2026-11-17) sells three
+        # resolutions: 1k $0.028, 1.5k $0.028, 2k $0.043. Only 2K
+        # was wired before, and at the 1K price; corrected here.
+        "raw_cents": {"1K": 2.8, "1.5K": 2.8, "2K": 4.3},
     },
     "seedream5pro_unc": {
         "label": "Seedream 5.0 Pro · Uncensored $$",
         "provider": "spicyapi",
         "endpoint": "bytedance/seedream-5-0-pro/text-to-image",
-        "raw_cents": {"1K": 3.6, "2K": 7.2},
+        # SpicyAPI's own model page (read 2026-11-17): 1k $0.036,
+        # 1.5k $0.040, 2k $0.072. The 1.5k tier was not wired.
+        "raw_cents": {"1K": 3.6, "1.5K": 4.0, "2K": 7.2},
     },
     "zimage_unc": {
         "label": "Z-Image · Uncensored $", "provider": "spicyapi",
         "endpoint": "alibaba/z-image-spicy/text-to-image",
-        "raw_cents": {"Standard": 1.235},
+        # SpicyAPI's own model page (read 2026-11-17): no
+        # resolution tiers at all; width and height are set
+        # independently, 256-1536 px each, at one flat $0.01235
+        # per image. The picker offers four pixel sizes, all at
+        # the flat raw price; the submit sends width/height.
+        "raw_cents": {"1024x1024": 1.235, "1024x1536": 1.235,
+                      "1536x1024": 1.235, "1536x1536": 1.235},
     },
 }
+
+
+# Picker labels (Jack, 2026-11-17): sizes are shown as real pixel
+# dimensions, never as 1K/2K/4K labels ("nobody knows what K
+# means"). Each dimension is the provider's own published output
+# for that size at the aspect the submits use (the providers'
+# default, square unless a lane says otherwise): Google's Gemini
+# image-generation table for the Nano Banana tiers (1:1 rows:
+# 1024x1024 / 2048x2048 / 4096x4096), the Seedream family's
+# published square presets for the Seedream tiers (1K 1024x1024,
+# 2K 2048x2048; the 1.5K tier is the one fal's Seedream pricing
+# bounds at 1536x1536, inside BytePlus's <=2.61MP band for the
+# tier), and the worker's IMAGE_DIMS for the house lane aspects.
+IMAGE_SIZE_LABELS = {
+    "house": {"9:16": "720 x 1280", "16:9": "1280 x 720",
+              "1:1": "960 x 960"},
+    "nano_banana_21": {"1K": "1024 x 1024", "2K": "2048 x 2048",
+                       "4K": "4096 x 4096"},
+    "nano_banana_pro": {"1K": "1024 x 1024", "2K": "2048 x 2048",
+                        "4K": "4096 x 4096"},
+    "nano_banana_2": {"1K": "1024 x 1024", "2K": "2048 x 2048",
+                      "4K": "4096 x 4096"},
+    "seedream55_unc": {"1K": "1024 x 1024", "1.5K": "1536 x 1536",
+                       "2K": "2048 x 2048"},
+    "seedream5pro_unc": {"1K": "1024 x 1024", "1.5K": "1536 x 1536",
+                         "2K": "2048 x 2048"},
+}
+
+
+def image_size_label(lane_id: str, size: str) -> str:
+    """The picker label for one size: real pixel dimensions."""
+    labels = IMAGE_SIZE_LABELS.get(lane_id) or {}
+    if size in labels:
+        return labels[size]
+    if "x" in size:  # pixel-keyed sizes (GPT Image, Z-Image)
+        return size.replace("x", " x ")
+    return size
 
 
 def image_lane_price(model: str, size: str, owner: bool = False):

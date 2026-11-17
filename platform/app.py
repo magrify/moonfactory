@@ -44,6 +44,7 @@ import subprocess
 import sys
 import time
 import urllib.parse
+import uuid
 from pathlib import Path
 
 import modal
@@ -605,6 +606,11 @@ PROVIDER_KEY_ENV = {
 # below BeatAPI's ~$0.0968/s live read.
 MODEL_PROVIDER_OVERRIDES = {
     "seedance": {"480p": "cometapi", "720p": "cometapi"},
+    # Veo 3.1's 4K tier (2026-11-17, 4K expansion): the primary
+    # PiAPI route's own docs cap its resolution enum at
+    # 720p/1080p, so 4K rides the wired fal route, priced at
+    # fal's with-audio 4K rate in pricing.py.
+    "veo3": {"4K": "fal"},
 }
 
 
@@ -1616,7 +1622,16 @@ def _verify_bot_check(req_body: dict, remote_ip: str) -> bool:
                 },
                 timeout=10,
             )
-            return bool(resp.json().get("success"))
+            result = resp.json()
+            if not result.get("success"):
+                # Name the rejection in the app log (error codes
+                # only, never the token): a spent or expired token
+                # shows up here as timeout-or-duplicate.
+                print(
+                    "turnstile siteverify rejected: "
+                    f"{result.get('error-codes')}",
+                    file=sys.stderr)
+            return bool(result.get("success"))
         except Exception:
             return False
     challenge_id = req_body.get("challenge_id") or ""
@@ -2100,10 +2115,17 @@ def api():
             # per image. The studio's image mode reads this.
             "image_models": [
                 {"id": "house", "label": "Moonfactory Image",
-                 "sizes": list(HOUSE_ASPECTS), "paid_only": False},
+                 "sizes": list(HOUSE_ASPECTS),
+                 "size_labels": {
+                     a: pricing.image_size_label("house", a)
+                     for a in HOUSE_ASPECTS},
+                 "paid_only": False},
             ] + [
                 {"id": mid, "label": lane["label"],
                  "sizes": list(lane["raw_cents"].keys()),
+                 "size_labels": {
+                     s: pricing.image_size_label(mid, s)
+                     for s in lane["raw_cents"]},
                  "paid_only": True}
                 for mid, lane in pricing.IMAGE_LANES.items()
             ],
@@ -2867,10 +2889,19 @@ def api():
         endpoint = lane["endpoint"]
         size = job.get("image_size") or ""
         if provider == "fal":
+            payload = {"prompt": prompt, "num_images": 1}
+            # Pixel-keyed sizes (GPT Image) go out as the explicit
+            # dimensions fal's schema accepts; without this the
+            # request silently took fal's landscape default instead
+            # of the size the picker sold.
+            if "x" in size:
+                w, h = size.split("x", 1)
+                payload["image_size"] = {"width": int(w),
+                                         "height": int(h)}
             resp = requests.post(
                 f"https://queue.fal.run/{endpoint}",
                 headers=_fal_headers(),
-                json={"prompt": prompt, "num_images": 1},
+                json=payload,
                 timeout=30)
             if resp.status_code != 200:
                 raise RuntimeError(
@@ -2900,11 +2931,21 @@ def api():
         elif provider == "spicyapi":
             headers = dict(_api_headers("spicyapi"))
             headers["Idempotency-Key"] = job["id"]
+            if "z-image" in endpoint:
+                # Z-Image has no resolution tiers: SpicyAPI takes
+                # independent width/height (256-1536 px each).
+                w, h = size.split("x", 1)
+                image_input = {"prompt": prompt,
+                               "width": int(w), "height": int(h)}
+            else:
+                # SpicyAPI's Seedream examples use lowercase
+                # resolution values ("2k").
+                image_input = {"prompt": prompt,
+                               "resolution": size.lower()}
             data = _submit_post(
                 job, f"{SPICYAPI_BASE}/api/v1/jobs/createTask",
                 headers, {"model": endpoint,
-                          "input": {"prompt": prompt,
-                                    "resolution": size}})
+                          "input": image_input})
             payload = data.get("data") or {}
             task_id = (payload.get("taskId") or payload.get("task_id")
                        or payload.get("id") or data.get("taskId"))
@@ -2912,9 +2953,13 @@ def api():
                 raise RuntimeError("image submit returned no task id")
             job["provider_task_id"] = task_id
         elif provider == "wiro":
+            # Wiro's own quick-start requires a resolution on this
+            # model (lowercase values, "1k"/"1.5k"/"2k"); the
+            # submit previously sent none at all.
             data = _submit_post(
                 job, f"{WIRO_BASE}/v1/Run/{endpoint}",
-                _wiro_headers(), {"prompt": prompt})
+                _wiro_headers(), {"prompt": prompt,
+                                  "resolution": size.lower()})
             task_id = (data.get("taskid") or data.get("taskId")
                        or data.get("id"))
             if not task_id:
@@ -3592,7 +3637,11 @@ def api():
                 "prompt": prompt,
                 "aspect_ratio": params["aspect_ratio"],
                 "duration": f"{params['duration']}s",
-                "resolution": params["resolution"],
+                # fal's Veo schema names the 4K tier "4k"
+                # (lowercase; 4K expansion, 2026-11-17).
+                "resolution": (
+                    "4k" if params["resolution"] == "4K"
+                    else params["resolution"]),
                 "generate_audio": True,
             }
             if params["mode"] == "image":
@@ -4071,6 +4120,19 @@ def api():
             inp["sound"] = True
         elif model == "seedance2_fast":
             inp["generate_audio"] = True
+        if params.get("resolution") == "4K":
+            # 4K tiers (2026-11-17, 4K expansion): Kie's own
+            # pages price a 4K tier for both Kling 3.0 lanes.
+            # kling-3.0/video takes it as mode="4K" (its page
+            # lists modes std / pro / 4K); kling-3.0-omni takes
+            # a resolution field whose documented enum is
+            # 720p / 1080p / 4k. Other tiers send nothing,
+            # exactly as before; payload-unverified like the
+            # rest of this submit until the funded pass.
+            if model == "kling3":
+                inp["mode"] = "4K"
+            elif model == "kling3_omni":
+                inp["resolution"] = "4k"
         try:
             if mode == "image":
                 inp["first_frame"] = _beatapi_media_url(
@@ -8358,9 +8420,9 @@ APP_HTML = (
       <div id="resolution-wrap" style="display:none">
         <label>Resolution</label>
         <select id="resolution">
-          <option value="480p">480p</option>
-          <option value="720p" selected>720p</option>
-          <option value="1080p">1080p</option>
+          <option value="480p">480 x 854</option>
+          <option value="720p" selected>720 x 1280</option>
+          <option value="1080p">1080 x 1920</option>
         </select>
       </div>
 
@@ -8590,18 +8652,54 @@ async function solvePow() {
     if (nonce % 2000 === 0) await new Promise(res => setTimeout(res, 0));
   }
 }
+// Turnstile tokens are single-use and live about five minutes.
+// The widgets are rendered once per page, so a token handed to one
+// submit must never be handed to a second one: siteverify rejects
+// the replay as a bot-check failure even though the widget still
+// shows "Success!". botFields therefore tracks what it has handed
+// out per widget and, when the current token is spent or missing,
+// resets the widget and waits for a fresh token before submitting.
+const botWidgets = {};
+const botHandedOut = {};
 async function botFields(containerId) {
   if (cfg.turnstile_site_key) {
-    const el = document.querySelector('#' + containerId + ' input[name="cf-turnstile-response"]');
-    return { turnstile_token: el ? el.value : '' };
+    const wid = botWidgets[containerId];
+    const readApi = () => {
+      if (window.turnstile && wid !== undefined) {
+        try { return turnstile.getResponse(wid) || ''; } catch (e) {}
+      }
+      return '';
+    };
+    const readDom = () => {
+      const el = document.querySelector('#' + containerId + ' input[name="cf-turnstile-response"]');
+      return el ? el.value : '';
+    };
+    let token = readApi() || readDom();
+    if (!token || botHandedOut[containerId]) {
+      if (window.turnstile && wid !== undefined) {
+        try { turnstile.reset(wid); } catch (e) {}
+        token = '';
+        for (let i = 0; i < 40 && !token; i++) {
+          await new Promise(res => setTimeout(res, 150));
+          token = readApi();
+        }
+      }
+    }
+    if (token) botHandedOut[containerId] = true;
+    return { turnstile_token: token };
   }
   return await solvePow();
 }
 function renderBotChecks() {
   if (cfg.turnstile_site_key && window.turnstile) {
-    turnstile.render('#botcheck', { sitekey: cfg.turnstile_site_key });
-    turnstile.render('#botcheck2', { sitekey: cfg.turnstile_site_key });
-    if (document.getElementById('botcheck3')) turnstile.render('#botcheck3', { sitekey: cfg.turnstile_site_key });
+    for (const id of ['botcheck', 'botcheck2', 'botcheck3']) {
+      if (!document.getElementById(id)) continue;
+      botWidgets[id] = turnstile.render('#' + id, {
+        sitekey: cfg.turnstile_site_key,
+        'expired-callback': () => { try { turnstile.reset(botWidgets[id]); } catch (e) {} },
+        'error-callback': () => { try { turnstile.reset(botWidgets[id]); } catch (e) {} },
+      });
+    }
   }
 }
 async function api(path, opts) {
@@ -9031,12 +9129,12 @@ const MODEL_OPTS = {
   wan3: { durations: LENGTHS, resolutions: ['480p', '720p', '1080p'] },
   wan3_prime: { durations: LENGTHS, resolutions: ['480p', '720p', '1080p'] },
   seedance: { durations: LENGTHS, resolutions: ['480p', '720p', '1080p'] },
-  veo3: { durations: LENGTHS, resolutions: ['720p', '1080p'] },
-  veo3_fast: { durations: LENGTHS, resolutions: ['720p', '1080p'] },
-  kling3: { durations: LENGTHS, resolutions: ['720p', '1080p'] },
+  veo3: { durations: LENGTHS, resolutions: ['720p', '1080p', '4K'] },
+  veo3_fast: { durations: LENGTHS, resolutions: ['720p', '1080p', '4K'] },
+  kling3: { durations: LENGTHS, resolutions: ['720p', '1080p', '4K'] },
   kling4: { durations: LENGTHS, resolutions: ['720p', '1080p'] },
-  kling3_omni: { durations: LENGTHS, resolutions: ['720p', '1080p'] },
-  seedance2: { durations: LENGTHS, resolutions: ['480p', '720p', '1080p'] },
+  kling3_omni: { durations: LENGTHS, resolutions: ['720p', '1080p', '4K'] },
+  seedance2: { durations: LENGTHS, resolutions: ['480p', '720p', '1080p', '4K'] },
   seedance2_fast: { durations: LENGTHS, resolutions: ['480p', '720p'] },
   seedance2_mini: { durations: LENGTHS, resolutions: ['480p', '720p'] },
   veo3_lite: { durations: LENGTHS, resolutions: ['720p', '1080p'] },
@@ -9047,7 +9145,7 @@ const MODEL_OPTS = {
   grok: { durations: LENGTHS, resolutions: ['480p', '720p'] },
   luma_ray32: { durations: LENGTHS, resolutions: ['480p', '720p', '1080p'] },
   ltx25: { durations: LENGTHS, resolutions: ['720p', '1080p', '4K'] },
-  ltx25_fast: { durations: LENGTHS, resolutions: ['720p', '1080p'] },
+  ltx25_fast: { durations: LENGTHS, resolutions: ['720p', '1080p', '4K'] },
   happyhorse: { durations: LENGTHS, resolutions: ['720p', '1080p'] },
   pika22: { durations: LENGTHS, resolutions: ['720p', '1080p'] },
   vidu_q2: { durations: LENGTHS, resolutions: ['720p', '1080p'] },
@@ -9066,6 +9164,26 @@ const MODEL_OPTS = {
   wan3pro_unc: { durations: LENGTHS, resolutions: ['1080p', '2K', '4K'] },
   wan_motion: { durations: LENGTHS, resolutions: ['720p'] }
 };
+// Resolution picker labels (Jack, 2026-11-17): real pixel
+// dimensions, never bare 720p / 1080p / 4K labels ("nobody knows
+// what K means"). Each pair is [long side, short side] at the
+// platform's own rasters (the same sizes the CometAPI and
+// Runway payload maps in app.py use; 4K is 3840x2160 per the
+// providers' own pages, 2K follows the same convention at
+// 2560x1440). Vertical swaps the pair; square takes the short
+// side twice. Labels follow the picked aspect live.
+const RES_DIMS = {
+  '480p': [854, 480], '720p': [1280, 720], '1080p': [1920, 1080],
+  '2K': [2560, 1440], '4K': [3840, 2160]
+};
+function resLabel(v) {
+  const d = RES_DIMS[v];
+  if (!d) return v;
+  const a = ($('aspect') && $('aspect').value) || '9:16';
+  if (a === '1:1') return d[1] + ' x ' + d[1];
+  if (a === '16:9') return d[0] + ' x ' + d[1];
+  return d[1] + ' x ' + d[0];
+}
 function fillSelect(sel, values, label) {
   const keep = sel.value;
   sel.innerHTML = '';
@@ -9183,7 +9301,7 @@ function updateModelUI() {
       buildSegButtons($('duration-seg'), $('duration'), durs, v => LEN_LABEL[v] || (v + 's'), fetchQuote);
       const lane = pricingData ? (pricingData.api_lanes || {})[m] : null;
       const res = lane ? Object.keys(lane.balance_debit_cents_per_second) : opts.resolutions;
-      fillSelect($('resolution'), res.length ? res : opts.resolutions, v => v);
+      fillSelect($('resolution'), res.length ? res : opts.resolutions, v => resLabel(v));
     }
     fetchQuote();
   }
@@ -9193,6 +9311,11 @@ function updateModelUI() {
 $('model').addEventListener('change', updateModelUI);
 $('duration').addEventListener('change', fetchQuote);
 $('resolution').addEventListener('change', fetchQuote);
+$('aspect').addEventListener('change', () => {
+  // Resolution labels carry the picked aspect's dimensions;
+  // relabel in place, keeping the current pick.
+  [...$('resolution').options].forEach(o => { o.textContent = resLabel(o.value); });
+});
 $('speech').addEventListener('change', fetchQuote);
 $('motion-url').addEventListener('change', fetchQuote);
 $('motion-seconds').addEventListener('change', fetchQuote);
@@ -9526,7 +9649,9 @@ function buildImageSizes() {
   sel.innerHTML = '';
   for (const s of sizes) {
     const o = document.createElement('option');
-    o.value = s; o.textContent = s; sel.appendChild(o);
+    o.value = s;
+    o.textContent = (lane.size_labels && lane.size_labels[s]) || s;
+    sel.appendChild(o);
   }
   refreshImageQuote();
 }
@@ -9558,7 +9683,7 @@ function setImageMode(on) {
   const videoBits = [$('dropzone'), $('start-source'), $('start-upload-wrap'), $('start-gen-wrap'),
     document.querySelector('label[for="start-source"]'),
     $('model').closest('.row'), $('model-note'), document.querySelector('details.more'),
-    $('api-opts'), $('house-price')];
+    $('api-opts'), $('house-price'), $('segments-note')];
   for (const el of videoBits) if (el) el.style.display = on ? 'none' : '';
   $('prompt').placeholder = on
     ? 'Describe the image… e.g. a lighthouse at dusk, waves crashing, dramatic sky'
