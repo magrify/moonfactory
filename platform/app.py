@@ -774,6 +774,133 @@ MODEL_DURATION_STEPS = {
     "wan27_unc": (5, 10, 15),
     "wan3pro_unc": (5, 10, 15, 20, 25, 30),
 }
+# The length menu (Jack, 2026-11-17): every model offers the
+# same nine lengths. A length at or inside the lane's native
+# range is one native generation; below the native minimum the
+# shortest native clip is generated and trimmed to size in the
+# finishing stage; beyond the native maximum the lane chains
+# native segments, each starting from the previous segment's
+# last frame, and the segments join into one finished video.
+# Price follows the generated seconds across all segments (the
+# existing per-second rules), and the pre-dispatch ceiling
+# check runs on that full cost.
+LENGTH_OPTIONS = (1, 5, 10, 15, 30, 45, 60, 90, 120)
+# Lanes with a usable continuation route for chaining: the
+# segment after the first starts from the previous segment's
+# last frame, so the lane needs a start-image mode on its wired
+# route. Audited 2026-11-17 against every submit function in
+# this file: every per-second lane has one (fal image
+# endpoints, BeatAPI images, Kie image slugs, CometAPI
+# input_reference, PiAPI image_url, OpenRouter image_url,
+# Novita i2v, WaveSpeed image paths, Eachlabs image slug,
+# Runway image_to_video, the image-only SpicyAPI builds,
+# HotAPI image_url, Wiro inputImage).
+CHAIN_CONTINUATION_MODELS = PER_SECOND_MODELS
+
+
+def duration_plan(model: str, requested: int) -> dict:
+    """How one of the nine menu lengths is produced on a
+    per-second lane: the native segment durations to generate,
+    in order. generated_seconds is what the job is priced on;
+    the delivered file is deliver_seconds long (the finishing
+    stage trims any overhang). Raises ValueError for a length
+    that is not on the menu or a lane with no way to make it."""
+    if requested not in LENGTH_OPTIONS:
+        raise ValueError(
+            "length must be one of: "
+            + ", ".join(f"{s} seconds" for s in LENGTH_OPTIONS))
+    low, high = MODEL_DURATION_BOUNDS.get(model, (3, 30))
+    steps = MODEL_DURATION_STEPS.get(model)
+    if steps:
+        native = sorted(steps)
+        native_min, native_max = native[0], native[-1]
+    else:
+        native_min, native_max = low, high
+    if requested < native_min:
+        # Below the lane's shortest clip: generate the shortest
+        # native segment and trim it to size in post.
+        segments = [native_min]
+    elif not steps and requested <= native_max:
+        segments = [requested]
+    elif steps and requested in native:
+        segments = [requested]
+    elif steps and any(s >= requested for s in native):
+        # A stepped lane with no exact step at this length (Veo
+        # at 5s, say): the smallest step that covers it, trimmed.
+        segments = [min(s for s in native if s >= requested)]
+    else:
+        # Beyond the native maximum: chain native segments.
+        if model not in CHAIN_CONTINUATION_MODELS:
+            raise ValueError(
+                "this model makes single clips of up to "
+                f"{native_max} seconds and has no continuation "
+                "route for longer videos")
+        import math as _math
+
+        count = _math.ceil(requested / native_max)
+        if steps:
+            segments = [native_max] * count
+        else:
+            segments = [native_max] * (count - 1)
+            remainder = requested - native_max * (count - 1)
+            segments.append(
+                remainder if remainder >= native_min else native_max)
+    generated = sum(segments)
+    return {
+        "requested": requested,
+        "segments": segments,
+        "generated_seconds": generated,
+        "deliver_seconds": requested,
+        "chained": len(segments) > 1,
+        "trim": generated > requested,
+        "native_min": native_min,
+        "native_max": native_max,
+    }
+
+
+def model_display_name(model: dict) -> str:
+    """The customer-facing name of one shelf entry: the plain
+    model name plus the Uncensored suffix where it applies (the
+    $ tier signs ride separately in the config payload)."""
+    return model["label"] + (
+        " · Uncensored" if model["id"] in UNCENSORED_VIDEO_MODELS
+        else "")
+
+
+def grouped_model_order(models: list, rate_of) -> list:
+    """The model menu order (Jack, 2026-11-17): variants of the
+    same base model sit together (an uncensored build shares its
+    base model's label, so the label is the group key). Groups
+    are ordered by their cheapest member's lowest customer sell
+    rate, cheapest first; inside a group, alphabetical by
+    display name, with the rate as the tiebreak for identical
+    names (the house Wan 2.2 and its uncensored API build share
+    a display name). Groups with no priced member go last."""
+    groups = {}
+    for model in models:
+        groups.setdefault(model["label"], []).append(model)
+
+    def member_key(model):
+        rate = rate_of(model["id"])
+        return (
+            model_display_name(model),
+            rate is None,
+            rate if rate is not None else 0.0,
+            model["id"],
+        )
+
+    def group_key(item):
+        label, members = item
+        rates = [rate_of(m["id"]) for m in members]
+        priced = [r for r in rates if r is not None]
+        cheapest = min(priced) if priced else None
+        return (cheapest is None,
+                cheapest if cheapest is not None else 0.0, label)
+
+    ordered = []
+    for _label, members in sorted(groups.items(), key=group_key):
+        ordered.extend(sorted(members, key=member_key))
+    return ordered
 # Models whose supplier endpoint has no reference mode at all:
 # they take a prompt or a start image, nothing else. Validation
 # refuses reference inputs for them with a clean 422.
@@ -1640,15 +1767,16 @@ def api():
     @web.get("/api/config")
     def config():
         tier_table = rate_table()
-        # Cheapest first (Jack, 2026-11-17): the studio dropdown
-        # renders the models in config order, so the shelf is
-        # sorted here by each model's lowest customer sell rate
-        # ascending — the same basis as the $ tier signs. Lanes
-        # with no customer price (price-paused) keep their shelf
-        # order at the end. The sort is stable, so equal rates
-        # keep their shelf order too.
-        rated_entries = [
-            (model_lowest_sell_rate(m["id"], tier_table), {
+        # Menu order (Jack, 2026-11-17): the studio dropdown
+        # renders the models in config order. Variants of the
+        # same base model sit together (the uncensored build
+        # next to its base model); groups are ordered by their
+        # cheapest member's lowest customer sell rate, the same
+        # basis as the $ tier signs; inside a group the order
+        # is alphabetical by display name. Unpriced lanes
+        # (price-paused) go last. See grouped_model_order.
+        def entry_for(m):
+            return {
                 "id": m["id"],
                 "label": m["label"],
                 "paid_only": m["paid_only"],
@@ -1662,12 +1790,14 @@ def api():
                     True if m["id"] == DEFAULT_MODEL
                     else not api_lane_state(m["id"])["paused"]
                 ),
-            })
-            for m in MODELS
+            }
+
+        model_entries = [
+            entry_for(m)
+            for m in grouped_model_order(
+                MODELS,
+                lambda mid: model_lowest_sell_rate(mid, tier_table))
         ]
-        rated_entries.sort(key=lambda e: (
-            e[0] is None, e[0] if e[0] is not None else 0.0))
-        model_entries = [entry for _, entry in rated_entries]
         return {
             "turnstile_site_key": os.environ.get("TURNSTILE_SITE_KEY") or None,
             "pow_required": not _turnstile_configured(),
@@ -1758,7 +1888,9 @@ def api():
         data["api_lanes"] = lanes
         data["models"] = [
             {"id": m["id"], "label": m["label"], "paid_only": m["paid_only"]}
-            for m in MODELS
+            for m in grouped_model_order(
+                MODELS,
+                lambda mid: model_lowest_sell_rate(mid, table))
         ]
         data["default_model"] = DEFAULT_MODEL
         return data
@@ -1980,7 +2112,9 @@ def api():
         if job.get("settled") or job.get("hold_released"):
             return
         billed = (
-            float(job.get("result_duration") or job.get("duration_seconds") or 0)
+            float(job.get("bill_generated_seconds")
+                  or job.get("result_duration")
+                  or job.get("duration_seconds") or 0)
             + float(job.get("reference_video_seconds") or 0.0)
         )
         table = rate_table()
@@ -2037,6 +2171,28 @@ def api():
         """Every per-second-lane failure surfaces as the same clean
         sentence; the provider's own words stay in an internal field
         the public job view never exposes."""
+        if job.get("chain_results") and not job.get("settled") \
+                and not job.get("hold_released"):
+            # A chained length that dies after at least one
+            # segment landed follows the house lane's Rule 8:
+            # the completed segments deliver as one finished
+            # (shorter) video, settled on the seconds actually
+            # generated; the rest of the hold releases through
+            # the settlement.
+            done_segs = len(job["chain_results"])
+            plan = job.get("chain_plan") or []
+            generated = float(sum(plan[:done_segs]))
+            job["partial"] = True
+            job["status"] = "done"
+            job["bill_generated_seconds"] = generated
+            job["result_duration"] = generated
+            job["segments_done"] = done_segs
+            if job.get("chain_cost_seen"):
+                job["provider_cost_cents"] = round(
+                    float(job.get("chain_cost_cents") or 0), 2)
+            jobs[job["id"]] = job
+            settle_fal_job(job)
+            return
         job["status"] = "error"
         job["error"] = MODEL_UNAVAILABLE
         jobs[job["id"]] = job
@@ -2082,12 +2238,10 @@ def api():
                                 payload = body.get("data") or body
                             video = (payload or {}).get("video") or {}
                             if video.get("url"):
-                                job["result_url"] = video["url"]
-                                job["result_duration"] = payload.get("duration")
                                 job["bytes"] = video.get("file_size")
-                                job["status"] = "done"
-                                jobs[job["id"]] = job
-                                settle_fal_job(job)
+                                _poll_done(
+                                    job, video["url"],
+                                    duration=payload.get("duration"))
                             else:
                                 # Result fetch hiccup right after
                                 # completion: retry on the next poll,
@@ -2136,18 +2290,19 @@ def api():
                         )
                         usage = task.get("usage") or {}
                         if video.get("url"):
-                            job["result_url"] = video["url"]
-                            if usage.get("billable_duration_seconds"):
-                                job["result_duration"] = float(
-                                    usage["billable_duration_seconds"]
-                                )
+                            seg_cost = None
                             if usage.get("credits_settled") is not None:
-                                job["provider_cost_cents"] = round(
+                                seg_cost = round(
                                     float(usage["credits_settled"]) * 100, 2
                                 )
-                            job["status"] = "done"
-                            jobs[job["id"]] = job
-                            settle_fal_job(job)
+                            seg_duration = None
+                            if usage.get("billable_duration_seconds"):
+                                seg_duration = float(
+                                    usage["billable_duration_seconds"]
+                                )
+                            _poll_done(
+                                job, video["url"], cost_cents=seg_cost,
+                                duration=seg_duration)
                         else:
                             job["poll_errors"] = int(job.get("poll_errors") or 0) + 1
                             if job["poll_errors"] > 30:
@@ -2381,19 +2536,19 @@ def api():
             duration = int(body.get("duration_seconds") or 5)
         except (TypeError, ValueError):
             raise HTTPException(status_code=422, detail="duration must be a whole number of seconds")
-        low, high = MODEL_DURATION_BOUNDS.get(model, (3, 30))
-        if duration < low or duration > high:
-            raise HTTPException(
-                status_code=422,
-                detail=f"duration for this model must be between {low} and {high} seconds",
-            )
-        steps = MODEL_DURATION_STEPS.get(model)
-        if steps and duration not in steps:
-            raise HTTPException(
-                status_code=422,
-                detail="this model generates clips of "
-                + ", ".join(f"{s} seconds" for s in steps),
-            )
+        # The length menu (Jack, 2026-11-17): every lane takes
+        # the same nine lengths. duration_plan maps the request
+        # onto native segments (one native generation inside the
+        # lane's range, the shortest native segment trimmed in
+        # post below its minimum, chained native segments above
+        # its maximum). params["duration"] below is the FIRST
+        # segment's native duration, the only duration a single
+        # provider submission ever sees; the plan rides along
+        # for pricing and for the chain driver.
+        try:
+            plan = duration_plan(model, duration)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
         resolution = body.get("resolution") or "720p"
         allowed_res = pricing.MODEL_RESOLUTIONS.get(model, pricing.RESOLUTIONS)
         if resolution not in allowed_res:
@@ -2484,7 +2639,11 @@ def api():
                 detail="aspect_ratio must be one of: "
                 + ", ".join(HOUSE_ASPECTS))
         return {
-            "duration": duration,
+            "duration": plan["segments"][0],
+            "requested_duration": duration,
+            "generated_seconds": plan["generated_seconds"],
+            "plan_segments": plan["segments"],
+            "plan_trim": plan["trim"],
             "resolution": resolution,
             "aspect_ratio": aspect_ratio,
             "mode": mode,
@@ -2516,9 +2675,9 @@ def api():
             return {
                 "model": model,
                 "model_label": MODEL_LABELS[model],
-                "duration_seconds": params["duration"],
+                "duration_seconds": params["requested_duration"],
                 "resolution": params["resolution"],
-                "billed_seconds": float(params["duration"]),
+                "billed_seconds": float(params["generated_seconds"]),
                 "raw_cost_cents": 0.0,
                 "balance_debit_cents": 0,
                 "cap_cents": 0.0,
@@ -2527,8 +2686,13 @@ def api():
                 "audio": lane_audio(model),
                 "payment": {"method": "unavailable"},
             }
+        # The estimate prices the GENERATED seconds: every
+        # segment of a chained length, and the full native
+        # segment behind a trimmed one. The ceiling check and
+        # the hold therefore cover the whole job, never just
+        # its first segment.
         est = pricing.per_second_estimate(
-            model, params["resolution"], params["duration"],
+            model, params["resolution"], params["generated_seconds"],
             params["reference_video_seconds"], rate_table()["rates"],
             owner=is_owner(user),
         )
@@ -2557,7 +2721,9 @@ def api():
         return {
             "model": model,
             "model_label": MODEL_LABELS[model],
-            "duration_seconds": params["duration"],
+            "duration_seconds": params["requested_duration"],
+            "generated_seconds": params["generated_seconds"],
+            "segments": len(params["plan_segments"]),
             "resolution": params["resolution"],
             "aspect_ratio": params["aspect_ratio"],
             "billed_seconds": est["billed_seconds"],
@@ -2889,8 +3055,140 @@ def api():
             return True
         return False
 
+    def _chain_segment_file(job: dict, idx: int,
+                            result_url: str) -> Path:
+        """Materialize one finished chain segment on the data
+        Volume (cached): the chain driver needs the file to take
+        the next segment's first frame from it, and delivery
+        needs every segment to join."""
+        FILES_DIR.mkdir(parents=True, exist_ok=True)
+        seg_path = FILES_DIR / f"{job['id']}.seg{idx}.mp4"
+        if seg_path.exists():
+            return seg_path
+        if result_url == "stored://raw":
+            # OpenRouter's no-URL path already cached the file
+            # as the job's raw file.
+            src = FILES_DIR / f"{job['id']}.raw.mp4"
+            seg_path.write_bytes(src.read_bytes())
+        elif result_url.startswith("https://"):
+            resp = requests.get(result_url, timeout=300)
+            if resp.status_code != 200:
+                raise ValueError(
+                    f"segment download http {resp.status_code}")
+            seg_path.write_bytes(resp.content)
+        else:
+            raise ValueError("segment result is not a file or URL")
+        data_volume.commit()
+        return seg_path
+
+    def _chain_last_frame(job: dict, idx: int, seg_path: Path) -> str:
+        """The last frame of a finished segment as base64 PNG:
+        the next segment's start image, so the chain continues
+        from exactly where the previous segment stopped."""
+        frame_path = FILES_DIR / f"{job['id']}.seg{idx}.frame.png"
+        attempts = [
+            ["ffmpeg", "-y", "-sseof", "-0.1", "-i", str(seg_path),
+             "-frames:v", "1", "-q:v", "3", str(frame_path)],
+        ]
+        try:
+            probe = subprocess.run(
+                ["ffprobe", "-v", "error", "-show_entries",
+                 "format=duration", "-of", "csv=p=0", str(seg_path)],
+                capture_output=True, text=True, timeout=60)
+            dur = float(probe.stdout.strip())
+            attempts.append(
+                ["ffmpeg", "-y", "-ss", f"{max(0.0, dur - 0.15):.3f}",
+                 "-i", str(seg_path), "-frames:v", "1", "-q:v", "3",
+                 str(frame_path)])
+        except Exception:
+            pass
+        for cmd in attempts:
+            proc = subprocess.run(cmd, capture_output=True, text=True,
+                                  timeout=300)
+            if proc.returncode == 0 and frame_path.exists():
+                return base64.b64encode(
+                    frame_path.read_bytes()).decode()
+        raise ValueError("could not take a frame from the segment")
+
+    def _chain_segment_done(job: dict, result_url: str,
+                            cost_cents=None):
+        """One segment of a chained length finished: bank its
+        result and cost, take its last frame, and submit the
+        next segment from that frame. Any failure here lands in
+        fail_fal_job, which delivers the completed segments as
+        a partial video (Rule 8) instead of losing them."""
+        idx = int(job.get("chain_index") or 0)
+        plan = job.get("chain_plan") or []
+        results = list(job.get("chain_results") or [])
+        results.append(result_url)
+        job["chain_results"] = results
+        if cost_cents is not None:
+            job["chain_cost_cents"] = round(
+                float(job.get("chain_cost_cents") or 0)
+                + float(cost_cents), 2)
+            job["chain_cost_seen"] = True
+        job["segments_done"] = idx + 1
+        job["status"] = "running"
+        jobs[job["id"]] = job
+        try:
+            seg_path = _chain_segment_file(job, idx, result_url)
+            frame = _chain_last_frame(job, idx, seg_path)
+            params = {
+                "duration": plan[idx + 1],
+                "resolution": job["resolution"],
+                "aspect_ratio": job.get("aspect_ratio") or "9:16",
+                "mode": "image",
+                "reference_image_urls": [],
+                "reference_video_urls": [],
+                "reference_audio_urls": [],
+                "reference_video_seconds": 0.0,
+                "start_image": frame,
+                "end_image": None,
+            }
+            for field in ("provider_task_id", "provider_request_id",
+                          "provider_status_url",
+                          "provider_response_url",
+                          "provider_socket_token"):
+                job[field] = None
+            job["last_poll"] = 0
+            job["chain_index"] = idx + 1
+            jobs[job["id"]] = job
+            submit_api_job(
+                job, {"seed": job.get("chain_seed")}, params,
+                job["prompt"], job.get("base_url") or "")
+        except HTTPException:
+            # _submit_failed already ran the failure path (a
+            # partial delivery when segments exist, a clean fail
+            # otherwise); the job record carries the outcome.
+            pass
+        except Exception:
+            fail_fal_job(job)
+
     def _poll_done(job: dict, result_url: str, cost_cents=None,
                    duration=None):
+        plan = job.get("chain_plan") or []
+        if len(plan) > 1:
+            idx = int(job.get("chain_index") or 0)
+            if idx + 1 < len(plan):
+                # A middle segment of a chained length: the job
+                # is not done, it continues from this segment's
+                # last frame.
+                _chain_segment_done(job, result_url, cost_cents)
+                return
+            # The final segment: delivery joins chain_results,
+            # settlement prices the generated total (already on
+            # the job as bill_generated_seconds), and the
+            # supplier-reported cost is the sum over segments.
+            job["chain_results"] = (
+                job.get("chain_results") or []) + [result_url]
+            job["segments_done"] = len(plan)
+            if job.get("chain_cost_seen"):
+                total = float(job.get("chain_cost_cents") or 0)
+                if cost_cents is not None:
+                    total += float(cost_cents)
+                cost_cents = total
+            duration = float(job.get("generated_seconds") or 0) \
+                or duration
         job["result_url"] = result_url
         if cost_cents is not None:
             job["provider_cost_cents"] = round(float(cost_cents), 2)
@@ -4065,7 +4363,7 @@ def api():
         if not os.environ.get(PROVIDER_KEY_ENV.get(prov, "FAL_KEY")):
             raise HTTPException(status_code=503, detail=MODEL_UNAVAILABLE)
         est = pricing.per_second_estimate(
-            model, params["resolution"], params["duration"],
+            model, params["resolution"], params["generated_seconds"],
             params["reference_video_seconds"], rate_table()["rates"],
             owner=is_owner(user),
         )
@@ -4125,8 +4423,33 @@ def api():
             "plan_at_job": user["plan"],
             "retry_of": body.get("retry_of"),
             "last_poll": 0,
-            "duration_seconds": params["duration"],
+            "duration_seconds": params["requested_duration"],
             "resolution": params["resolution"],
+            "aspect_ratio": params["aspect_ratio"],
+            # Length plan (2026-11-17): the native segments
+            # behind the requested length, the chain driver's
+            # state, and the finishing stage's trim target. The
+            # hold above was taken on generated_seconds, the
+            # full multi-segment cost.
+            "generated_seconds": params["generated_seconds"],
+            "chain_plan": list(params["plan_segments"]),
+            "chain_index": 0,
+            "chain_results": [],
+            "chain_cost_cents": 0.0,
+            "chain_cost_seen": False,
+            "segments_total": len(params["plan_segments"]),
+            "segments_done": 0,
+            "trim_to_seconds": (
+                params["requested_duration"] if params["plan_trim"]
+                else None),
+            "bill_generated_seconds": (
+                float(params["generated_seconds"])
+                if len(params["plan_segments"]) > 1
+                or params["plan_trim"] else None),
+            "base_url": base,
+            "chain_seed": (
+                body.get("seed") if isinstance(body.get("seed"), int)
+                else None),
             "reference_video_seconds": params["reference_video_seconds"],
             "reference_image_urls": params["reference_image_urls"],
             "reference_video_urls": params["reference_video_urls"],
@@ -4345,16 +4668,17 @@ def api():
                     detail="effects do not combine with camera presets")
             lane = "effects"
         if model in PER_SECOND_MODELS:
-            # The per-second lanes take single-pass clips (chaining
-            # is a house-lane shape, refused here rather than
-            # silently reshaped). Aspect runs at the house aspects:
-            # every wired submit carries the job's aspect ratio to
-            # its provider (parity pass, 2026-11-17); the shapes
-            # stay payload-unverified until the funded pass.
-            if segments > 1:
-                raise HTTPException(
-                    status_code=422,
-                    detail="multi-segment chaining runs on Wan 2.2; this model makes single-pass clips")
+            # Per-second lanes take their length from
+            # duration_seconds (the nine-length menu), never from
+            # the house lane's segments field: lengths past the
+            # lane's native maximum chain native segments inside
+            # the lane itself (duration_plan), so a segments value
+            # in the body is ignored here, not refused. Aspect
+            # runs at the house aspects: every wired submit
+            # carries the job's aspect ratio to its provider
+            # (parity pass, 2026-11-17); the shapes stay
+            # payload-unverified until the funded pass.
+            pass
         else:
             if end_image and not start_image:
                 raise HTTPException(
@@ -4881,6 +5205,65 @@ def api():
             jobs[job["id"]] = job
             return BED_PATH if BED_PATH.exists() else None
 
+    def _chain_concat(job: dict) -> Path:
+        """Join a chained length's finished segments into one
+        raw file (CPU re-encode: segment files from one lane
+        share a shape, but the join must not depend on their
+        stream layout matching to the byte)."""
+        job_id = job["id"]
+        joined = FILES_DIR / f"{job_id}.chain.mp4"
+        if joined.exists():
+            return joined
+        seg_paths = [
+            _chain_segment_file(job, idx, url)
+            for idx, url in enumerate(job.get("chain_results") or [])
+        ]
+        list_path = FILES_DIR / f"{job_id}.chain.txt"
+        list_path.write_text(
+            "".join(
+                f"file '{p.name}'\n" for p in seg_paths),
+            encoding="utf-8")
+        audio = ["-c:a", "aac", "-b:a", "160k"] \
+            if _has_audio_stream(seg_paths[0]) else ["-an"]
+        cmd = ["ffmpeg", "-y", "-f", "concat", "-safe", "0",
+               "-i", str(list_path),
+               "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+               *audio, str(joined)]
+        proc = subprocess.run(cmd, capture_output=True, text=True,
+                              timeout=1800)
+        if proc.returncode != 0 or not joined.exists():
+            raise HTTPException(
+                status_code=502,
+                detail="finished file is not available yet")
+        data_volume.commit()
+        return joined
+
+    def _trim_raw(job: dict, raw_path: Path) -> Path:
+        """Cut a generated file down to the length the customer
+        ordered (CPU re-encode for a frame-exact cut): the plan
+        generated more than the menu length, either the lane's
+        shortest native segment behind a shorter order or the
+        overhang of a chained length."""
+        job_id = job["id"]
+        trimmed = FILES_DIR / f"{job_id}.trim.mp4"
+        if trimmed.exists():
+            return trimmed
+        target = float(job["trim_to_seconds"])
+        audio = ["-c:a", "aac", "-b:a", "160k"] \
+            if _has_audio_stream(raw_path) else ["-an"]
+        cmd = ["ffmpeg", "-y", "-i", str(raw_path),
+               "-t", f"{target:.3f}",
+               "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+               *audio, str(trimmed)]
+        proc = subprocess.run(cmd, capture_output=True, text=True,
+                              timeout=1800)
+        if proc.returncode != 0 or not trimmed.exists():
+            raise HTTPException(
+                status_code=502,
+                detail="finished file is not available yet")
+        data_volume.commit()
+        return trimmed
+
     def ensure_processed(job: dict) -> Path:
         """Fetch the finished file if needed and produce the
         delivered file (music muxed, watermark for free-tier jobs;
@@ -4900,7 +5283,11 @@ def api():
             raise HTTPException(status_code=404, detail="this job has no single file")
         if not out_path.exists():
             raw_path = FILES_DIR / f"{job_id}.raw.mp4"
-            if not raw_path.exists():
+            if len(job.get("chain_results") or []) > 1:
+                # A chained length: the delivered video is the
+                # segments joined, never just the last segment.
+                raw_path = _chain_concat(job)
+            elif not raw_path.exists():
                 if job.get("provider") in URL_RESULT_PROVIDERS:
                     if not job.get("result_url"):
                         raise HTTPException(status_code=502, detail="finished file is not available yet")
@@ -4916,6 +5303,13 @@ def api():
                     if resp.status_code != 200:
                         raise HTTPException(status_code=502, detail="finished file is not available yet")
                     raw_path.write_bytes(resp.content)
+            if job.get("trim_to_seconds") and not job.get("partial"):
+                # The plan generated past the ordered length
+                # (a shortest-native segment behind a shorter
+                # order, or a chain overhang): deliver exactly
+                # the ordered length. A partial chain delivers
+                # what it has, untrimmed.
+                raw_path = _trim_raw(job, raw_path)
             # Voiceover resolution (Jack's correction, 2026-11-16):
             # a speech script on a speech-native lane is performed
             # by the model itself; on any other lane the Kokoro
@@ -5581,12 +5975,9 @@ def api():
             payload = body.get("payload") or {}
             video = payload.get("video") or {}
             if video.get("url"):
-                job["result_url"] = video["url"]
-                job["result_duration"] = payload.get("duration")
                 job["bytes"] = video.get("file_size")
-                job["status"] = "done"
-                jobs[job["id"]] = job
-                settle_fal_job(job)
+                _poll_done(job, video["url"],
+                           duration=payload.get("duration"))
             else:
                 # No file in the payload: let the poller fetch the
                 # result on its next pass.
@@ -6501,6 +6892,7 @@ APP_HTML = (
           <option value="4">4 segments, about 20 seconds</option>
           <option value="6">6 segments, about 30 seconds</option>
           <option value="8">8 segments, about 40 seconds</option>
+          <option value="9">9 segments, about 45 seconds</option>
           <option value="12">12 segments, about 60 seconds</option>
         </select>
       </div>
@@ -6514,6 +6906,7 @@ APP_HTML = (
           <option value="20">20 seconds</option>
           <option value="30">30 seconds</option>
         </select>
+        <p class="muted">Every length is on every model. Past a model's longest single clip, the video is made in segments and joined into one finished video, priced per second across the segments. Shorter than a model's shortest clip, the shortest clip is made and trimmed to size.</p>
       </div>
     </div>
     <p class="muted" id="model-note"></p>
@@ -7105,13 +7498,31 @@ function showStudio(u) {
   showTab(paidSurface ? 'create' : 'tryit');
   loadJobs();
 }
+// Quote requests carry a sequence number: only the newest one
+// may touch the price. Before this, two overlapping quotes
+// could resolve out of order and the slower response for the
+// previous model overwrote the new model's price on the
+// Generate button; and a failed quote cleared the quote line
+// but left the previous model's price sitting on the button.
+let quoteSeq = 0;
 async function fetchQuote() {
   const q = $('quote');
   if (!currentUser || !currentUser.paid_customer) { q.textContent = ''; return; }
+  const seq = ++quoteSeq;
+  const want = { model: $('model').value,
+    duration_seconds: Number($('duration').value), resolution: $('resolution').value };
+  // The old price comes off the button immediately: while the
+  // new quote is in flight the button never shows a price that
+  // belongs to another model, length, or resolution.
+  genLabel(null);
+  q.textContent = 'Checking the exact price...';
   try {
     const r = await api('/api/jobs/quote', { method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ model: $('model').value,
-        duration_seconds: Number($('duration').value), resolution: $('resolution').value }) });
+      body: JSON.stringify(want) });
+    if (seq !== quoteSeq) return;
+    if ($('model').value !== want.model
+        || Number($('duration').value) !== want.duration_seconds
+        || $('resolution').value !== want.resolution) return;
     if (r.lane_paused) { q.textContent = 'This model is temporarily unavailable.'; genLabel(null); return; }
     if (!r.ceiling_ok) { q.textContent = 'Exact price: $' + (r.balance_debit_cents / 100).toFixed(2) + '. This job would exceed the total generation your payments cover.'; genLabel(r.balance_debit_cents); return; }
     const p = r.payment || {};
@@ -7127,48 +7538,64 @@ async function fetchQuote() {
         '. Your included budget is used up and your balance is $' + ((p.balance_cents || 0) / 100).toFixed(2) + ', so top up to run this.';
       genLabel(p.charge_cents || null);
     }
-  } catch (e) { q.textContent = ''; }
+  } catch (e) {
+    if (seq !== quoteSeq) return;
+    // A failed quote must not leave the previous model's price
+    // on the button: clear both, the next change re-quotes.
+    q.textContent = '';
+    genLabel(null);
+  }
 }
-// Per-model length and resolution choices, mirroring what the
-// server accepts for each model (it validates again on quote and
+// The length menu is the same nine lengths on every model
+// (Jack, 2026-11-17): inside the model's native range it is
+// one native generation, below its shortest clip the shortest
+// clip is made and trimmed to size, and past its longest clip
+// the video is chained from native segments and joined. The
+// server plans and prices it (duration_plan in this file's
+// Python), so this list only keeps the form honest.
+const LENGTHS = [1, 5, 10, 15, 30, 45, 60, 90, 120];
+const LEN_LABEL = { 1: '1s', 5: '5s', 10: '10s', 15: '15s', 30: '30s', 45: '45s', 60: '1m', 90: '1.5m', 120: '2m' };
+const LEN_WORDS = { 1: '1 second', 5: '5 seconds', 10: '10 seconds', 15: '15 seconds', 30: '30 seconds', 45: '45 seconds', 60: '1 minute', 90: '1.5 minutes', 120: '2 minutes' };
+// Per-model resolution choices, mirroring what the server
+// accepts for each model (it validates again on quote and
 // create, so this only keeps the form honest).
 const MODEL_OPTS = {
-  wan3: { durations: [5, 10, 15, 20, 30], resolutions: ['480p', '720p', '1080p'] },
-  wan3_prime: { durations: [5, 10, 15, 20, 30], resolutions: ['480p', '720p', '1080p'] },
-  seedance: { durations: [5, 10, 15, 20, 30], resolutions: ['480p', '720p', '1080p'] },
-  veo3: { durations: [4, 6, 8], resolutions: ['720p', '1080p'] },
-  veo3_fast: { durations: [4, 6, 8], resolutions: ['720p', '1080p'] },
-  kling3: { durations: [5, 10, 15], resolutions: ['720p', '1080p'] },
-  kling4: { durations: [5, 10, 15, 20, 30], resolutions: ['720p', '1080p'] },
-  kling3_omni: { durations: [5, 10, 15], resolutions: ['720p', '1080p'] },
-  seedance2: { durations: [5, 10, 15], resolutions: ['480p', '720p', '1080p'] },
-  seedance2_fast: { durations: [5, 10, 15], resolutions: ['480p', '720p'] },
-  seedance2_mini: { durations: [5, 10, 15], resolutions: ['480p', '720p'] },
-  veo3_lite: { durations: [4, 6, 8], resolutions: ['720p', '1080p'] },
-  omni12: { durations: [5, 10, 15], resolutions: ['720p', '1080p'] },
-  omni11: { durations: [5, 10], resolutions: ['720p', '1080p'] },
-  hailuo23: { durations: [6, 10], resolutions: ['720p'] },
-  minimax_h3: { durations: [5, 10, 15], resolutions: ['480p', '720p', '1080p'] },
-  grok: { durations: [5, 10, 15], resolutions: ['480p', '720p'] },
-  luma_ray32: { durations: [5, 10], resolutions: ['480p', '720p', '1080p'] },
-  ltx25: { durations: [6, 10, 15, 20], resolutions: ['720p', '1080p', '4K'] },
-  ltx25_fast: { durations: [6, 10, 15, 20], resolutions: ['720p', '1080p'] },
-  happyhorse: { durations: [5, 10, 15], resolutions: ['720p', '1080p'] },
-  pika22: { durations: [5, 10], resolutions: ['720p', '1080p'] },
-  vidu_q2: { durations: [4, 6, 8], resolutions: ['720p', '1080p'] },
-  vidu_q3: { durations: [5, 10, 15], resolutions: ['480p', '720p'] },
-  vidu_q4: { durations: [5, 10, 15], resolutions: ['720p', '1080p'] },
-  seedance25_flash: { durations: [5, 10, 15, 20, 30], resolutions: ['480p', '720p'] },
-  pixverse_v6: { durations: [5, 10, 15], resolutions: ['720p', '1080p'] },
-  runway_gen45: { durations: [5, 10], resolutions: ['720p', '1080p'] },
-  wan22_unc: { durations: [5, 8], resolutions: ['480p', '720p'] },
-  wan3_unc: { durations: [5, 10, 15, 20, 30], resolutions: ['480p', '720p', '1080p'] },
-  minimax_h3_unc: { durations: [5, 10, 15], resolutions: ['480p', '720p', '1080p'] },
-  seedance25_unc: { durations: [5, 10, 15, 20, 30], resolutions: ['480p', '720p', '1080p'] },
-  vidu_q3_unc: { durations: [5, 10, 15], resolutions: ['480p', '720p', '1080p'] },
-  wan26_unc: { durations: [5, 10, 15], resolutions: ['720p', '1080p'] },
-  wan27_unc: { durations: [5, 10, 15], resolutions: ['720p', '1080p'] },
-  wan3pro_unc: { durations: [5, 10, 15, 20, 25, 30], resolutions: ['1080p', '2K', '4K'] }
+  wan3: { durations: LENGTHS, resolutions: ['480p', '720p', '1080p'] },
+  wan3_prime: { durations: LENGTHS, resolutions: ['480p', '720p', '1080p'] },
+  seedance: { durations: LENGTHS, resolutions: ['480p', '720p', '1080p'] },
+  veo3: { durations: LENGTHS, resolutions: ['720p', '1080p'] },
+  veo3_fast: { durations: LENGTHS, resolutions: ['720p', '1080p'] },
+  kling3: { durations: LENGTHS, resolutions: ['720p', '1080p'] },
+  kling4: { durations: LENGTHS, resolutions: ['720p', '1080p'] },
+  kling3_omni: { durations: LENGTHS, resolutions: ['720p', '1080p'] },
+  seedance2: { durations: LENGTHS, resolutions: ['480p', '720p', '1080p'] },
+  seedance2_fast: { durations: LENGTHS, resolutions: ['480p', '720p'] },
+  seedance2_mini: { durations: LENGTHS, resolutions: ['480p', '720p'] },
+  veo3_lite: { durations: LENGTHS, resolutions: ['720p', '1080p'] },
+  omni12: { durations: LENGTHS, resolutions: ['720p', '1080p'] },
+  omni11: { durations: LENGTHS, resolutions: ['720p', '1080p'] },
+  hailuo23: { durations: LENGTHS, resolutions: ['720p'] },
+  minimax_h3: { durations: LENGTHS, resolutions: ['480p', '720p', '1080p'] },
+  grok: { durations: LENGTHS, resolutions: ['480p', '720p'] },
+  luma_ray32: { durations: LENGTHS, resolutions: ['480p', '720p', '1080p'] },
+  ltx25: { durations: LENGTHS, resolutions: ['720p', '1080p', '4K'] },
+  ltx25_fast: { durations: LENGTHS, resolutions: ['720p', '1080p'] },
+  happyhorse: { durations: LENGTHS, resolutions: ['720p', '1080p'] },
+  pika22: { durations: LENGTHS, resolutions: ['720p', '1080p'] },
+  vidu_q2: { durations: LENGTHS, resolutions: ['720p', '1080p'] },
+  vidu_q3: { durations: LENGTHS, resolutions: ['480p', '720p'] },
+  vidu_q4: { durations: LENGTHS, resolutions: ['720p', '1080p'] },
+  seedance25_flash: { durations: LENGTHS, resolutions: ['480p', '720p'] },
+  pixverse_v6: { durations: LENGTHS, resolutions: ['720p', '1080p'] },
+  runway_gen45: { durations: LENGTHS, resolutions: ['720p', '1080p'] },
+  wan22_unc: { durations: LENGTHS, resolutions: ['480p', '720p'] },
+  wan3_unc: { durations: LENGTHS, resolutions: ['480p', '720p', '1080p'] },
+  minimax_h3_unc: { durations: LENGTHS, resolutions: ['480p', '720p', '1080p'] },
+  seedance25_unc: { durations: LENGTHS, resolutions: ['480p', '720p', '1080p'] },
+  vidu_q3_unc: { durations: LENGTHS, resolutions: ['480p', '720p', '1080p'] },
+  wan26_unc: { durations: LENGTHS, resolutions: ['720p', '1080p'] },
+  wan27_unc: { durations: LENGTHS, resolutions: ['720p', '1080p'] },
+  wan3pro_unc: { durations: LENGTHS, resolutions: ['1080p', '2K', '4K'] }
 };
 function fillSelect(sel, values, label) {
   const keep = sel.value;
@@ -7199,7 +7626,7 @@ function buildSegButtons(box, sel, values, labelFn, onPick) {
   box.classList.toggle('off', !!sel.disabled);
 }
 function buildSegmentsSeg() {
-  buildSegButtons($('segments-seg'), $('segments'), [1, 2, 3, 4, 6, 8, 12],
+  buildSegButtons($('segments-seg'), $('segments'), [1, 2, 3, 4, 6, 8, 9, 12],
     v => (v * 5) + 's', updateHousePrice);
 }
 // The model dropdown is fed from /api/config at runtime (names,
@@ -7270,8 +7697,8 @@ function updateModelUI() {
   if (api) {
     const opts = MODEL_OPTS[m];
     if (opts) {
-      fillSelect($('duration'), opts.durations, v => v + ' seconds');
-      buildSegButtons($('duration-seg'), $('duration'), opts.durations, v => v + 's', fetchQuote);
+      fillSelect($('duration'), opts.durations, v => LEN_WORDS[v] || (v + ' seconds'));
+      buildSegButtons($('duration-seg'), $('duration'), opts.durations, v => LEN_LABEL[v] || (v + 's'), fetchQuote);
       const lane = pricingData ? (pricingData.api_lanes || {})[m] : null;
       const res = lane ? Object.keys(lane.balance_debit_cents_per_second) : opts.resolutions;
       fillSelect($('resolution'), res.length ? res : opts.resolutions, v => v);

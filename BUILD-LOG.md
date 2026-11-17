@@ -3180,3 +3180,53 @@ and config read-backs only. No subscriptions anywhere.
   at 37 models with no llm_providers key, 4K/2K sell rates
   serving, emotion slot live, sort order intact, security
   headers present.
+
+## Menu grouping + stale price + nine lengths — 2026-11-17
+
+- MODAL SPEND: NONE AUTHORIZED honored: local checks, deploy,
+  and read-only live verification only; no generation.
+- Menu grouping (customer complaint): /api/config and
+  /api/pricing now order the shelf with grouped_model_order:
+  variants of the same base model sit together (the
+  " · Uncensored" build next to its base model), groups ascend
+  by their cheapest member's lowest customer sell rate (the
+  $ tier basis), alphabetical by display name inside a group,
+  unpriced lanes last. The old pure rate sort separated pairs
+  (Seedance 2.5 at 14.3c/s vs its uncensored build at 27.1c/s).
+- Stale Generate price (customer complaint): fetchQuote had no
+  sequencing, so overlapping quotes resolved out of order and
+  the previous model's slower response overwrote the new
+  model's price; its error path also never reset the button
+  price. Quotes now carry a sequence number and a snapshot of
+  the form (a response applies only if it is still the newest
+  and the form still matches), the button price clears the
+  moment a re-quote starts, and a failed quote clears it too.
+  Proof: scratch/quote_refresh_check.mjs runs the shipped
+  genLabel/fetchQuote source against a stubbed API with
+  out-of-order responses (all pass).
+- Nine lengths on every API model (customer complaint):
+  1/5/10/15/30/45/60/90/120 seconds. duration_plan maps each
+  length onto native segments: one native generation inside
+  the lane's range; below the native minimum, the shortest
+  native segment generated and trimmed to size in the
+  finishing stage; beyond the native maximum, chained native
+  segments, each submitted from the previous segment's last
+  frame (every wired route has a start-image mode; audited
+  per submit function). The chain driver hangs off the shared
+  _poll_done funnel (fal mirror, BeatAPI mirror, fal webhook,
+  and every poll-based mirror route through it); delivery
+  joins the segments (_chain_concat) and trims any overhang
+  (_trim_raw). Quote, ceiling check, and hold all price the
+  GENERATED seconds, so a chained or trimmed job is covered
+  in full before dispatch; settlement bills generated
+  seconds for planned jobs. A chain that dies mid-way
+  delivers its completed segments as a partial video settled
+  on the seconds generated (the house lane's Rule 8). The
+  old create_job refusal of multi-segment API jobs is gone;
+  the house lane is untouched except a 9-segment (about 45s)
+  pill it already supported. Free-tier behavior unchanged.
+  Local proof: scratch/check_menu_lengths.py (grouping
+  invariants, plans for all 36 lanes x 9 lengths, full-chain
+  pricing above first-segment pricing; all pass). All chain
+  payload shapes are payload-unverified like every API lane
+  and join the funded verification packet.
