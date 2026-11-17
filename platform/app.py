@@ -7334,6 +7334,7 @@ def api():
         session = stripe.checkout.Session.create(
             mode="payment",
             line_items=line_items,
+            payment_intent_data={"setup_future_usage": "off_session"},
             customer_email=user["email"],
             client_reference_id=user["id"],
             metadata={"user_id": user["id"], "credit_cents": str(pack)},
@@ -7435,11 +7436,33 @@ def api():
                                 user["stripe_payment_method_id"] = si.payment_method
                         except Exception:
                             pass
+                    if user.get("stripe_payment_method_id"):
+                        cfg = dict(user.get("auto_reload") or {})
+                        cfg["enabled"] = True
+                        cfg["amount_cents"] = int(cfg.get("amount_cents") or 1000)
+                        user["auto_reload"] = cfg
                 elif obj.get("mode") == "subscription":
                     user["plan"] = "creator"
                     user["past_due"] = False
                     user["stripe_customer_id"] = obj.get("customer")
                     user["stripe_subscription_id"] = obj.get("subscription")
+                    try:
+                        sub = stripe.Subscription.retrieve(obj.get("subscription"))
+                        pm = getattr(sub, "default_payment_method", None)
+                        if not pm:
+                            pms = stripe.PaymentMethod.list(
+                                customer=obj.get("customer"), type="card", limit=1)
+                            if pms and pms.data:
+                                pm = pms.data[0].id
+                        if pm:
+                            user["stripe_payment_method_id"] = pm
+                    except Exception:
+                        pass
+                    if user.get("stripe_payment_method_id"):
+                        cfg = dict(user.get("auto_reload") or {})
+                        cfg["enabled"] = True
+                        cfg["amount_cents"] = int(cfg.get("amount_cents") or 1000)
+                        user["auto_reload"] = cfg
                     u = user.get("usage") or {}
                     u["included_seconds"] = 0.0
                     u["included_cost_cents"] = 0.0
@@ -7450,6 +7473,18 @@ def api():
                 elif obj.get("mode") == "payment":
                     credit = int((obj.get("metadata") or {}).get("credit_cents") or 0)
                     credit_topup(user, credit, obj.get("amount_total") or credit)
+                    user["stripe_customer_id"] = obj.get("customer") or user.get("stripe_customer_id")
+                    pi_id = obj.get("payment_intent")
+                    if pi_id:
+                        try:
+                            pi = stripe.PaymentIntent.retrieve(pi_id)
+                            if pi and pi.payment_method:
+                                user["stripe_payment_method_id"] = pi.payment_method
+                        except Exception:
+                            pass
+                    if user.get("stripe_payment_method_id") and credit:
+                        user["auto_reload"] = {"enabled": True,
+                                                "amount_cents": credit}
                 save_user(user)
         elif etype == "invoice.paid":
             counted = meta.get("net_counted_invoices") or {}
@@ -7498,6 +7533,10 @@ def api():
                 user["stripe_payment_method_id"] = obj.get("payment_method")
                 if obj.get("customer"):
                     user["stripe_customer_id"] = obj.get("customer")
+                cfg = dict(user.get("auto_reload") or {})
+                cfg["enabled"] = True
+                cfg["amount_cents"] = int(cfg.get("amount_cents") or 1000)
+                user["auto_reload"] = cfg
                 save_user(user)
         elif etype == "payment_intent.succeeded":
             md = obj.get("metadata") or {}
@@ -8264,6 +8303,21 @@ cash, except where the law requires otherwise.</li>
 <li>Creator renews monthly until cancelled. Cancelling stops the
 next renewal; it does not refund the current month.</li>
 </ul>
+
+<h2>Auto reload</h2>
+<p>When you choose a plan or add credit, we save the payment method
+you paid with and turn on auto reload. If you add credit, the reload
+amount starts at the size of the credit pack you bought. If you only
+choose a plan, it starts at $10. You can change the amount or turn
+auto reload off at any time in Billing in the studio.</p>
+<p>With auto reload on, when your balance cannot cover a job, we
+charge your saved card the reload amount once, add it to your
+balance, and the job goes ahead. This repeats as your balance runs
+out, one charge for each job that needs it.</p>
+<p>If a reload charge fails, the job it was meant to cover can stop,
+the same way a job stops when a balance runs out with auto reload
+off. Turning auto reload off stops future reload charges. It does
+not refund credit that was already added to your balance.</p>
 
 <h2>Your content and the gallery</h2>
 <ul>
@@ -9140,6 +9194,7 @@ APP_HTML = (
   <div class="overlay" id="panel-billing" style="display:none">
     <div class="panel" role="dialog" aria-label="Billing">
       <div class="panel-head"><h2>Billing</h2><button type="button" class="panel-close" data-close-panel aria-label="Close">×</button></div>
+      <p class="muted">Paying saves your card and turns on auto reload, so your work never stops over balance. Change the amount or turn it off below at any time.</p>
       <p class="group-label">Monthly plan</p>
       <p>
         <button class="btn" id="buy-creator">Get Creator, $20/month</button>
