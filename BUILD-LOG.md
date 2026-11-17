@@ -3029,3 +3029,66 @@ and config read-backs only. No subscriptions anywhere.
   string is config metadata only; call behavior is computed live
   from key presence. No deploy in this pass (secret + source
   only); the label takes effect on the next platform deploy.
+
+## Uncensored video lanes wired — 2026-11-17
+
+- Three new provider keys merged into moonfactory-providers via
+  SDK Secret.update() (per-key merges; values via stdin only,
+  never printed or written to a file or log): WIRO_API_KEY,
+  WIRO_API_SECRET, HOTAPI_API_KEY, SPICYAPI_API_KEY. Key-NAME
+  list read before and after: 20 names before, the same 20 plus
+  the 4 new names after (24 total), nothing lost.
+- Key verification (free read-only calls, no generation):
+  SpicyAPI GET /api/v1/models?modality=video returned 200 (254
+  video endpoints; the four wired builds present with published
+  per-second pricing). HotAPI GET /v1/models returned 200
+  (minimax-h3-spicy present). Wiro signature auth verified live:
+  signed POST /v1/Task/List returned 200 result:true and
+  /v1/Task/Detail answered a bogus id with task-not-founded,
+  while a bad-key control returned 401 on both.
+- Eight uncensored VIDEO lanes added to the shelf (platform/
+  pricing.py rates + platform/app.py registry, provider map,
+  audio table, duration bounds/steps, dispatch), each flagged
+  in UNCENSORED_VIDEO_MODELS so /api/config carries
+  uncensored: true and the studio dropdown appends
+  " · Uncensored" with the computed $ price-tier sign. Display
+  labels are the plain model names (Jack's ruling: no build
+  nicknames user-facing); supplier model ids keep their real
+  names in the submit tables only. Customer price = cheapest-
+  route raw cost x 1.25 via frontier_lane (no Higgsfield
+  uncensored shelf exists, so no lane carries a Higgsfield
+  figure and can_undercut stays honestly unanswered); owner
+  price = raw cost. All lanes are payload-unverified and dark
+  on $0 balances, exactly like the Nov 16 wiring pass; no
+  deploy in this pass.
+  - Wan 2.2 (wan22_unc) via SpicyAPI from $0.019/s (480p);
+    Wan 3.0 (wan3_unc) via SpicyAPI from $0.057/s;
+    Seedance 2.5 (seedance25_unc) via SpicyAPI from $0.216/s;
+    Vidu Q3 (vidu_q3_unc) via SpicyAPI from $0.0665/s (its
+    540p tier). All four are image-to-video only on that
+    supplier (its catalog publishes no text endpoint for the
+    builds), enforced at validation with a clean 422.
+  - MiniMax H3 (minimax_h3_unc) via HotAPI from $0.02/s
+    (480p; 768p $0.03, 1080p $0.04). FLAGGED: those are the
+    supplier's current selling prices, shown on its model
+    page as struck-through promo prices against list
+    $0.08/$0.12/$0.16 per second; the funded verification
+    pass must confirm the charged rate before this lane
+    lights.
+  - Wan 2.6 (wan26_unc), Wan 2.7 (wan27_unc) and Wan 3.0 Pro
+    (wan3pro_unc) via Wiro, its only source, priced per run
+    and carried per-second because the run prices scale
+    linearly with duration (from $0.10/s, $0.13/s and
+    $0.18/s respectively; the Pro's 2K/4K tiers exist and
+    are not sold).
+  - Displaced routes recorded in pricing.py's DISPLACED_RATES
+    (HotAPI for Wan 3.0 at 480p and for Wan 2.7).
+- Dispatch shapes: SpicyAPI and HotAPI payloads follow their
+  published docs (SpicyAPI's per-model input schemas were read
+  from its catalog API with the stored key; Wiro's parameter
+  ids and enums from its Tool/Detail lists); response
+  envelopes are marked PAYLOAD-UNVERIFIED in the submit
+  docstrings and get the funded verification pass before any
+  lane lights. MODAL SPEND: NONE AUTHORIZED was honored
+  throughout — secret merges, code and free reads only, no
+  generation, no deploy.

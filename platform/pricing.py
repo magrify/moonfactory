@@ -354,6 +354,67 @@ PROVIDER_RATES_CENTS_PER_SECOND = {
     # (12 credits/s at $0.01 per credit). The published figure has
     # no resolution split, so it is carried flat.
     "runway_gen45": {"720p": 12.0, "1080p": 12.0},
+    # --- Uncensored video lanes (2026-11-17 wiring pass). Every
+    # lane below is an uncensored build of its model on a
+    # supplier that adds no refusal layer of its own, flagged
+    # uncensored in app.py's UNCENSORED_VIDEO_MODELS. Higgsfield
+    # has no uncensored shelf, so no lane here carries a
+    # Higgsfield figure: frontier_lane() sells each at the
+    # standard hard minimum (cost x FRONTIER_MIN_MARKUP) and the
+    # owner at raw cost, like the other un-compared lanes.
+    # Wan 2.2 (uncensored build) via SpicyAPI: the supplier's
+    # own catalog API, read 2026-11-17 with the stored key,
+    # prices its image-to-video endpoint at $0.019/s at 480p
+    # and $0.038/s at 720p. Image mode only on this supplier
+    # (no text endpoint is published for the build); silent,
+    # like the base model.
+    "wan22_unc": {"480p": 1.9, "720p": 3.8},
+    # Wan 3.0 (uncensored build) via SpicyAPI, same catalog
+    # read: $0.057 / $0.114 / $0.228 per second. Image mode
+    # only, same basis as above. HotAPI's route for the same
+    # build is in DISPLACED_RATES below.
+    "wan3_unc": {"480p": 5.7, "720p": 11.4, "1080p": 22.8},
+    # Seedance 2.5 (uncensored build) via SpicyAPI, same
+    # catalog read: $0.216 / $0.432 / $1.08 per second, the
+    # same with generate_audio on or off (the lane ships
+    # audio on). A 4K tier exists at $2.16/s and is not sold.
+    # Image mode only, same basis as above.
+    "seedance25_unc": {"480p": 21.6, "720p": 43.2, "1080p": 108.0},
+    # Vidu Q3 (uncensored build) via SpicyAPI, same catalog
+    # read: $0.0665/s at its 540p tier, $0.1425 at 720p,
+    # $0.152 at 1080p. The platform's 480p tier maps to the
+    # supplier's 540p tier, the same mapping the Novita Q3
+    # lane uses. Image mode only, same basis as above.
+    "vidu_q3_unc": {"480p": 6.65, "720p": 14.25, "1080p": 15.2},
+    # MiniMax H3 (uncensored build) via HotAPI: the supplier's
+    # model page, read 2026-11-17, prices $0.02/s at 480p,
+    # $0.03/s at its 768p tier (the platform's 720p tier) and
+    # $0.04/s at 1080p. FLAGGED: the page shows those figures
+    # as struck-through promo prices against list prices of
+    # $0.08 / $0.12 / $0.16 per second. The lane is seeded at
+    # the current selling prices; if the promo ends, the seed
+    # understates cost until it is re-read, so the funded
+    # verification pass must confirm the charged rate before
+    # this lane lights.
+    "minimax_h3_unc": {"480p": 2.0, "720p": 3.0, "1080p": 4.0},
+    # Wan 2.6 Uncensored via Wiro (the only source): Wiro
+    # prices per run, and the run price scales linearly with
+    # duration (720p $0.50 / $1.00 / $1.50 and 1080p $0.75 /
+    # $1.50 / $2.25 for 5 / 10 / 15 s), so it carries as a
+    # flat per-second rate, exactly like the Luma per-clip
+    # carry above.
+    "wan26_unc": {"720p": 10.0, "1080p": 15.0},
+    # Wan 2.7 Uncensored via Wiro: per run, linear in
+    # duration (720p $0.65 / $1.30 / $1.95 and 1080p $1.00 /
+    # $2.00 / $3.00 for 5 / 10 / 15 s), carried per-second on
+    # the same basis. HotAPI's route is in DISPLACED_RATES
+    # below.
+    "wan27_unc": {"720p": 13.0, "1080p": 20.0},
+    # Wan 3.0 Pro Uncensored via Wiro (the only source): per
+    # run, linear in duration; the 1080p tier is $0.90 per
+    # 5 s = $0.18/s. 2K ($1.00 per 5 s) and 4K ($1.15 per
+    # 5 s) tiers exist and are not sold, like LTX's 4K.
+    "wan3pro_unc": {"1080p": 18.0},
     # Vidu Q4, PixVerse V6 and Seedance 2.5 Flash are wired via
     # WaveSpeed in app.py but deliberately carry NO rate here:
     # WaveSpeed publishes only per-run "from" prices for them
@@ -414,6 +475,15 @@ DISPLACED_RATES_CENTS_PER_SECOND = {
     # wired in app.py and this is the published rate if the lane
     # ever flips.
     "minimax_h3_direct": {"720p": 8.0},
+    # Uncensored-lane routes displaced by the 2026-11-17 pass
+    # (cheapest route wired primary; these stay for the record).
+    # HotAPI's Wan 3.0 (uncensored build) route: $0.075/s at
+    # 480p from its published guide (its higher tiers were not
+    # read; SpicyAPI is cheaper at the tier that was).
+    "wan3_unc": {"480p": 7.5},
+    # HotAPI's Wan 2.7 (uncensored build) route: $0.26/s at
+    # 720p and $0.40/s at 1080p from its published guide.
+    "wan27_unc": {"720p": 26.0, "1080p": 40.0},
 }
 
 # Resolutions each per-second model can actually be ordered at.
@@ -441,6 +511,14 @@ MODEL_RESOLUTIONS = {
     "seedance25_flash": ("480p", "720p"),
     "pixverse_v6": ("720p", "1080p"),
     "runway_gen45": ("720p", "1080p"),
+    "wan22_unc": ("480p", "720p"),
+    "wan3_unc": ("480p", "720p", "1080p"),
+    "seedance25_unc": ("480p", "720p", "1080p"),
+    "vidu_q3_unc": ("480p", "720p", "1080p"),
+    "minimax_h3_unc": ("480p", "720p", "1080p"),
+    "wan26_unc": ("720p", "1080p"),
+    "wan27_unc": ("720p", "1080p"),
+    "wan3pro_unc": ("1080p",),
 }
 PROVIDER_RATE_STALE_SECONDS = 24 * 3600
 

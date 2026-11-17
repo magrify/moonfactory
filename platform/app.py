@@ -458,6 +458,23 @@ MODELS = [
     {"id": "seedance25_flash", "label": "Seedance 2.5 Flash", "paid_only": True},
     {"id": "pixverse_v6", "label": "PixVerse V6", "paid_only": True},
     {"id": "runway_gen45", "label": "Runway Gen-4.5", "paid_only": True},
+    # Uncensored video lanes (2026-11-17 wiring pass): uncensored
+    # builds of shelf models on suppliers that add no refusal
+    # layer, flagged in UNCENSORED_VIDEO_MODELS below so the
+    # picker shows them with the " · Uncensored" suffix. Labels
+    # are the plain model names (Jack's ruling): the suffix is
+    # the differentiator from the moderated lane of the same
+    # model. Supplier model ids keep their real names in the
+    # submit tables only; nothing user-facing names a supplier
+    # or a build nickname.
+    {"id": "wan22_unc", "label": "Wan 2.2", "paid_only": True},
+    {"id": "wan3_unc", "label": "Wan 3.0", "paid_only": True},
+    {"id": "minimax_h3_unc", "label": "MiniMax H3", "paid_only": True},
+    {"id": "seedance25_unc", "label": "Seedance 2.5", "paid_only": True},
+    {"id": "vidu_q3_unc", "label": "Vidu Q3", "paid_only": True},
+    {"id": "wan26_unc", "label": "Wan 2.6", "paid_only": True},
+    {"id": "wan27_unc", "label": "Wan 2.7", "paid_only": True},
+    {"id": "wan3pro_unc", "label": "Wan 3.0 Pro", "paid_only": True},
 ]
 MODEL_LABELS = {m["id"]: m["label"] for m in MODELS}
 DEFAULT_MODEL = "wan2.2"
@@ -466,7 +483,13 @@ DEFAULT_MODEL = "wan2.2"
 # moderates its prompts or its outputs. Every other video lane is
 # a hosted API whose provider moderates on its own end. Mirrors
 # the uncensored flag on the LLM provider group (llm_providers.py).
-UNCENSORED_VIDEO_MODELS = ("wan2.2",)
+UNCENSORED_VIDEO_MODELS = (
+    "wan2.2",
+    # Uncensored builds wired 2026-11-17: hosted lanes whose
+    # supplier adds no refusal layer in front of the model.
+    "wan22_unc", "wan3_unc", "minimax_h3_unc", "seedance25_unc",
+    "vidu_q3_unc", "wan26_unc", "wan27_unc", "wan3pro_unc",
+)
 # Price tier signs for the studio dropdown (Jack, 2026-11-16):
 # Google-Maps-style $ signs banded on FIXED edges over the model's
 # lowest customer sell rate in cents per second (see
@@ -482,6 +505,8 @@ PER_SECOND_MODELS = (
     "minimax_h3", "grok", "luma_ray32", "ltx25", "ltx25_fast",
     "happyhorse", "pika22", "vidu_q2", "vidu_q3", "vidu_q4",
     "seedance25_flash", "pixverse_v6", "runway_gen45",
+    "wan22_unc", "wan3_unc", "minimax_h3_unc", "seedance25_unc",
+    "vidu_q3_unc", "wan26_unc", "wan27_unc", "wan3pro_unc",
 )
 # Which supplier serves each per-second model. Internal only: the
 # picker, the pricing page, and every error show model names, never
@@ -525,6 +550,16 @@ MODEL_PROVIDER = {
     "seedance25_flash": "wavespeed",
     "pixverse_v6": "wavespeed",
     "runway_gen45": "runway",
+    # Uncensored lanes (2026-11-17): cheapest route per model
+    # across the three uncensored suppliers (route rule).
+    "wan22_unc": "spicyapi",
+    "wan3_unc": "spicyapi",
+    "seedance25_unc": "spicyapi",
+    "vidu_q3_unc": "spicyapi",
+    "minimax_h3_unc": "hotapi",
+    "wan26_unc": "wiro",
+    "wan27_unc": "wiro",
+    "wan3pro_unc": "wiro",
 }
 # The secret env var each supplier's key lives under in the
 # moonfactory-providers Modal secret. Lane state checks the
@@ -544,6 +579,9 @@ PROVIDER_KEY_ENV = {
     "vidu": "VIDU_API_KEY",
     "minimax": "MINIMAX_API_KEY",
     "replicate": "REPLICATE_API_TOKEN",
+    "spicyapi": "SPICYAPI_API_KEY",
+    "hotapi": "HOTAPI_API_KEY",
+    "wiro": "WIRO_API_KEY",
 }
 # Per-resolution route overrides: Seedance 2.5's cheapest route
 # is a different supplier at 480p/720p (CometAPI) than at 1080p
@@ -638,6 +676,26 @@ LANE_AUDIO = {
                     "note": "PixVerse native audio is music/SFX-led; lane price-paused"},
     "runway_gen45": {"native_speech": False, "native_audio": False,
                      "note": "Gen-4.5 is silent; its maker sells audio as separate models"},
+    # Uncensored lanes (2026-11-17): audio capability follows
+    # each build's wired route, same rule as the moderated
+    # lanes. The audio switches the routes publish are selected
+    # by default in the submit wiring.
+    "wan22_unc": {"native_speech": False, "native_audio": False,
+                  "note": "silent on the wired route, like the base model; music bed and the voiceover path run in post"},
+    "wan3_unc": {"native_speech": False, "native_audio": True,
+                 "note": "native audio is music/SFX-led; speech is not reliable; generate_audio on"},
+    "seedance25_unc": {"native_speech": True, "native_audio": True,
+                       "note": "Seedance native audio incl. dialogue; generate_audio on"},
+    "vidu_q3_unc": {"native_speech": True, "native_audio": True,
+                    "note": "Vidu Q3 native audio incl. speech; generate_audio on in the wired payload"},
+    "minimax_h3_unc": {"native_speech": True, "native_audio": True,
+                       "note": "H3 native audio incl. speech; audio is always on for this build, no silent mode exists"},
+    "wan26_unc": {"native_speech": False, "native_audio": True,
+                  "note": "generated audio is a mode on the wired route and is selected by default; speech unconfirmed"},
+    "wan27_unc": {"native_speech": False, "native_audio": True,
+                  "note": "generated audio is a mode on the wired route and is selected by default; speech unconfirmed"},
+    "wan3pro_unc": {"native_speech": False, "native_audio": True,
+                    "note": "generated audio is a mode on the wired route and is selected by default; speech unconfirmed"},
 }
 
 
@@ -652,12 +710,14 @@ def lane_audio(model: str) -> dict:
 URL_RESULT_PROVIDERS = (
     "fal", "beatapi", "kie", "cometapi", "piapi", "openrouter",
     "novita", "wavespeed", "eachlabs", "runway", "vidu", "minimax",
+    "spicyapi", "hotapi", "wiro",
 )
 # Suppliers polled through mirror_api_status (fal and BeatAPI keep
 # their original mirror functions).
 API_POLL_PROVIDERS = (
     "kie", "cometapi", "piapi", "openrouter", "novita",
     "wavespeed", "eachlabs", "runway", "vidu", "minimax",
+    "spicyapi", "hotapi", "wiro",
 )
 # Per-model duration bounds in seconds (the global form range is
 # 3-30; these narrow it to what each model actually accepts).
@@ -684,6 +744,16 @@ MODEL_DURATION_BOUNDS = {
     "seedance25_flash": (4, 30),
     "pixverse_v6": (3, 15),
     "runway_gen45": (3, 10),
+    # Uncensored lanes (2026-11-17), from each route's own
+    # published schema or model page.
+    "wan22_unc": (5, 8),
+    "wan3_unc": (3, 30),
+    "seedance25_unc": (4, 30),
+    "vidu_q3_unc": (3, 16),
+    "minimax_h3_unc": (5, 15),
+    "wan26_unc": (5, 15),
+    "wan27_unc": (5, 15),
+    "wan3pro_unc": (5, 30),
 }
 # Veo generates only these clip lengths; anything else is refused
 # at validation instead of being silently rounded by the provider.
@@ -695,6 +765,14 @@ MODEL_DURATION_STEPS = {
     "hailuo23": (6, 10),
     "luma_ray32": (5, 10),
     "pika22": (5, 10),
+    # The uncensored builds on the per-run supplier accept only
+    # their listed lengths (its published duration options);
+    # Wan 2.2's build on its supplier takes 5 or 8 seconds (its
+    # published schema enum).
+    "wan22_unc": (5, 8),
+    "wan26_unc": (5, 10, 15),
+    "wan27_unc": (5, 10, 15),
+    "wan3pro_unc": (5, 10, 15, 20, 25, 30),
 }
 # Models whose supplier endpoint has no reference mode at all:
 # they take a prompt or a start image, nothing else. Validation
@@ -702,6 +780,9 @@ MODEL_DURATION_STEPS = {
 TEXT_IMAGE_ONLY_MODELS = (
     "veo3_lite", "hailuo23", "luma_ray32", "ltx25", "ltx25_fast",
     "pika22", "vidu_q2", "vidu_q3", "runway_gen45", "pixverse_v6",
+    # The Wiro uncensored lanes: their published parameter sets
+    # have no reference inputs, only a prompt and a start image.
+    "wan26_unc", "wan27_unc", "wan3pro_unc",
 )
 # Models that accept references but only still images: their
 # supplier schemas have no reference video or audio inputs.
@@ -2321,6 +2402,16 @@ def api():
                 status_code=422,
                 detail="this model needs a start image or reference images",
             )
+        if model in ("wan22_unc", "wan3_unc", "seedance25_unc",
+                     "vidu_q3_unc") and mode != "image":
+            # The uncensored builds' wired supplier publishes an
+            # image-to-video endpoint only for them (its catalog,
+            # read 2026-11-17): no text or reference mode exists
+            # to send a job to.
+            raise HTTPException(
+                status_code=422,
+                detail="this model needs a start image",
+            )
         return {
             "duration": duration,
             "resolution": resolution,
@@ -2671,6 +2762,10 @@ def api():
     RUNWAY_BASE = "https://api.dev.runwayml.com"
     VIDU_BASE = "https://api.vidu.com"
     MINIMAX_BASE = "https://api.minimax.io"
+    # Uncensored-lane suppliers (2026-11-17 wiring pass).
+    SPICYAPI_BASE = "https://api.spicyapi.ai"
+    HOTAPI_BASE = "https://api.hotapi.ai"
+    WIRO_BASE = "https://api.wiro.ai"
 
     def _api_headers(provider: str) -> dict:
         key = os.environ.get(PROVIDER_KEY_ENV.get(provider, ""), "")
@@ -3493,6 +3588,303 @@ def api():
             pass
         return job
 
+    # -- SpicyAPI (uncensored lanes) -------------------------------------------
+    SPICYAPI_MODEL_IDS = {
+        "wan22_unc": "alibaba/wan-2.2-spicy/image-to-video",
+        "wan3_unc": "alibaba/wan-3.0-spicy/image-to-video",
+        "seedance25_unc": "bytedance/seedance-2.5-spicy/image-to-video",
+        "vidu_q3_unc": "vidu/q3-spicy/image-to-video",
+    }
+
+    def submit_spicyapi_job(job: dict, body: dict, params: dict,
+                            prompt: str):
+        """SpicyAPI task API: POST /api/v1/jobs/createTask
+        {model, input} with an Idempotency-Key header, poll GET
+        /api/v1/jobs/recordInfo?taskId=. The endpoint paths, the
+        Bearer auth and every input field below are confirmed
+        from the supplier's published docs and the per-model
+        input schemas its catalog API serves (read 2026-11-17);
+        the response envelope is PAYLOAD-UNVERIFIED. The schemas
+        are closed, so only fields the wired endpoint's schema
+        lists are sent: generate_audio (default true there) is
+        selected on the lanes whose schema carries it, and the
+        platform's 480p tier maps to the supplier's 540p tier
+        for Vidu Q3, the same mapping the Novita lane uses."""
+        model = job["model"]
+        slug = SPICYAPI_MODEL_IDS.get(model)
+        if not slug:
+            _submit_failed(job, f"no spicyapi model id for {model}")
+        inp = {"prompt": prompt,
+               "duration_seconds": params["duration"],
+               "resolution": params["resolution"]}
+        if model == "vidu_q3_unc" and params["resolution"] == "480p":
+            inp["resolution"] = "540p"
+        if model in ("wan3_unc", "seedance25_unc", "vidu_q3_unc"):
+            inp["generate_audio"] = True
+        if model == "wan3_unc":
+            inp["aspect_ratio"] = "9:16"
+        try:
+            inp["image_url"] = _beatapi_media_url(
+                params["start_image"], "first-frame")
+            if params["end_image"]:
+                inp["last_image_url"] = _beatapi_media_url(
+                    params["end_image"], "last-frame")
+        except Exception as exc:
+            _submit_failed(job, f"media upload failed: {exc}")
+        headers = dict(_api_headers("spicyapi"))
+        headers["Idempotency-Key"] = job["id"]
+        data = _submit_post(
+            job, f"{SPICYAPI_BASE}/api/v1/jobs/createTask",
+            headers, {"model": slug, "input": inp})
+        payload = data.get("data") or {}
+        task_id = (payload.get("taskId") or payload.get("task_id")
+                   or payload.get("id") or data.get("taskId"))
+        if not task_id:
+            _submit_failed(job, "submit returned no task id")
+        job["provider_task_id"] = task_id
+        jobs[job["id"]] = job
+
+    def mirror_spicyapi_status(job: dict) -> dict:
+        if not _poll_gate(job):
+            return job
+        try:
+            resp = requests.get(
+                f"{SPICYAPI_BASE}/api/v1/jobs/recordInfo",
+                params={"taskId": job["provider_task_id"]},
+                headers=_api_headers("spicyapi"), timeout=15)
+            if resp.status_code == 200:
+                data = (resp.json() or {}).get("data") or {}
+                state = data.get("state") or data.get("status")
+                if state == "success":
+                    urls = []
+                    raw = data.get("resultJson")
+                    if raw:
+                        try:
+                            urls = (json.loads(raw) or {}).get(
+                                "resultUrls") or []
+                        except Exception:
+                            urls = []
+                    if not urls and data.get("resultUrl"):
+                        urls = [data["resultUrl"]]
+                    if urls:
+                        _poll_done(job, urls[0])
+                    else:
+                        _poll_retry_or_fail(job)
+                elif state == "fail":
+                    _poll_fail(
+                        job, f"{data.get('failCode')}: {data.get('failMsg')}")
+                else:
+                    job["status"] = "running"
+                    jobs[job["id"]] = job
+        except Exception:
+            pass
+        return job
+
+    # -- HotAPI (uncensored lanes) ----------------------------------------------
+    def submit_hotapi_job(job: dict, body: dict, params: dict,
+                          prompt: str):
+        """HotAPI task API: POST /v1/minimax-h3-spicy, poll GET
+        /v1/tasks/{id}. The endpoint, the input fields and the
+        mode-by-fields shape are from the supplier's published
+        model page and getting-started guide (read 2026-11-17);
+        the response envelope is PAYLOAD-UNVERIFIED. One
+        endpoint covers every mode: a prompt alone is
+        text-to-video, image_url (+ last_frame_url) is
+        frame-guided, and the reference fields carry
+        references. The platform's 720p tier is the supplier's
+        768p tier. Audio is always on for this build; there is
+        no switch to send."""
+        inp = {"prompt": prompt, "duration": params["duration"],
+               "resolution": {"480p": "480p", "720p": "768p",
+                              "1080p": "1080p"}[params["resolution"]],
+               "aspect_ratio": "9:16"}
+        try:
+            if params["mode"] == "image":
+                inp["image_url"] = _beatapi_media_url(
+                    params["start_image"], "first-frame")
+                if params["end_image"]:
+                    inp["last_frame_url"] = _beatapi_media_url(
+                        params["end_image"], "last-frame")
+            elif params["mode"] == "reference":
+                if params["reference_image_urls"]:
+                    inp["reference_image_urls"] = [
+                        _beatapi_media_url(u, "reference-image")
+                        for u in params["reference_image_urls"]]
+                if params["reference_video_urls"]:
+                    inp["reference_video_urls"] = [
+                        _beatapi_media_url(u, "reference-video")
+                        for u in params["reference_video_urls"]]
+        except Exception as exc:
+            _submit_failed(job, f"media upload failed: {exc}")
+        data = _submit_post(
+            job, f"{HOTAPI_BASE}/v1/minimax-h3-spicy",
+            _api_headers("hotapi"), inp)
+        payload = data.get("data") or data
+        task_id = (payload.get("task_id") or payload.get("taskId")
+                   or payload.get("id"))
+        if not task_id:
+            _submit_failed(job, "submit returned no task id")
+        job["provider_task_id"] = task_id
+        jobs[job["id"]] = job
+
+    def mirror_hotapi_status(job: dict) -> dict:
+        if not _poll_gate(job):
+            return job
+        try:
+            resp = requests.get(
+                f"{HOTAPI_BASE}/v1/tasks/{job['provider_task_id']}",
+                headers=_api_headers("hotapi"), timeout=15)
+            if resp.status_code == 200:
+                data = resp.json() or {}
+                payload = data.get("data") or data
+                status = str(payload.get("status")
+                             or payload.get("state") or "").lower()
+                if status in ("completed", "succeeded", "success",
+                              "done", "finished"):
+                    output = payload.get("output")
+                    url = (payload.get("url")
+                           or payload.get("video_url")
+                           or payload.get("result_url"))
+                    if not url and isinstance(output, dict):
+                        url = output.get("url") or output.get("video_url")
+                    if not url and isinstance(output, list) and output:
+                        first = output[0]
+                        url = first.get("url") if isinstance(
+                            first, dict) else first
+                    if url:
+                        _poll_done(job, url)
+                    else:
+                        _poll_retry_or_fail(job)
+                elif status in ("failed", "error", "cancelled",
+                                "canceled"):
+                    _poll_fail(job, str(payload.get("error"))[:200])
+                else:
+                    job["status"] = "running"
+                    jobs[job["id"]] = job
+        except Exception:
+            pass
+        return job
+
+    # -- Wiro (uncensored lanes) --------------------------------------------------
+    WIRO_MODEL_SLUGS = {
+        "wan26_unc": "wan-2-6-uncensored",
+        "wan27_unc": "wan-2-7-uncensored",
+        "wan3pro_unc": "wan-3-0-pro-uncensored",
+    }
+    # The supplier's resolution enum differs per model (its own
+    # Tool/Detail parameter lists, read 2026-11-17).
+    WIRO_RESOLUTIONS = {
+        "wan26_unc": {"720p": "720P", "1080p": "1080P"},
+        "wan27_unc": {"720p": "720p", "1080p": "1080p"},
+        "wan3pro_unc": {"1080p": "1080p"},
+    }
+
+    def _wiro_headers() -> dict:
+        """Wiro signature auth: the x-api-key header plus an
+        HMAC-SHA256 signature of (api secret + nonce), keyed
+        with the API key, fresh per request. (The supplier also
+        offers an API-Key-Only project setting; signing works
+        under the signature setting the stored project uses and
+        was verified live 2026-11-17.)"""
+        key = os.environ.get("WIRO_API_KEY", "")
+        secret = os.environ.get("WIRO_API_SECRET", "")
+        nonce = str(int(_now() * 1000))
+        signature = hmac.new(
+            key.encode(), (secret + nonce).encode(),
+            hashlib.sha256).hexdigest()
+        return {"x-api-key": key, "x-nonce": nonce,
+                "x-signature": signature,
+                "Content-Type": "application/json"}
+
+    def submit_wiro_job(job: dict, body: dict, params: dict,
+                        prompt: str):
+        """Wiro run API: POST /v1/Run/wiro-partners/{slug} with
+        the model's parameters flat in the body, then poll POST
+        /v1/Task/Detail with the run's socket access token. The
+        endpoint shapes, parameter ids and enum values are from
+        the supplier's published docs and its Tool/Detail
+        parameter lists (read 2026-11-17); only parameters a
+        model's own list carries are sent (the 2.7 build has no
+        ratio parameter; the Pro build takes a last-frame
+        image). Generated audio is a mode on all three builds
+        and is selected by default."""
+        model = job["model"]
+        slug = WIRO_MODEL_SLUGS.get(model)
+        if not slug:
+            _submit_failed(job, f"no wiro slug for {model}")
+        payload = {
+            "prompt": prompt,
+            "duration": str(params["duration"]),
+            "resolution": WIRO_RESOLUTIONS[model][params["resolution"]],
+            "audioEnabled": "true",
+        }
+        if model in ("wan26_unc", "wan3pro_unc"):
+            payload["ratio"] = "9:16"
+        try:
+            if params["mode"] == "image":
+                payload["inputImage"] = _beatapi_media_url(
+                    params["start_image"], "first-frame")
+                if model == "wan3pro_unc" and params["end_image"]:
+                    payload["inputImageLast"] = _beatapi_media_url(
+                        params["end_image"], "last-frame")
+        except Exception as exc:
+            _submit_failed(job, f"media upload failed: {exc}")
+        data = _submit_post(
+            job, f"{WIRO_BASE}/v1/Run/wiro-partners/{slug}",
+            _wiro_headers(), payload)
+        task_id = (data.get("taskid") or data.get("taskId")
+                   or data.get("id"))
+        if not task_id:
+            _submit_failed(job, "submit returned no task id")
+        job["provider_task_id"] = task_id
+        job["provider_socket_token"] = data.get("socketaccesstoken")
+        jobs[job["id"]] = job
+
+    def mirror_wiro_status(job: dict) -> dict:
+        if not _poll_gate(job):
+            return job
+        try:
+            poll_body = (
+                {"tasktoken": job["provider_socket_token"]}
+                if job.get("provider_socket_token")
+                else {"taskid": job["provider_task_id"]})
+            resp = requests.post(
+                f"{WIRO_BASE}/v1/Task/Detail",
+                headers=_wiro_headers(), json=poll_body, timeout=15)
+            if resp.status_code == 200:
+                data = resp.json() or {}
+                tasks = data.get("tasklist") or []
+                task = tasks[0] if tasks else {}
+                status = str(task.get("status") or "")
+                if status == "task_postprocess_end":
+                    if str(task.get("pexit")) == "0":
+                        outputs = task.get("outputs") or []
+                        first = outputs[0] if outputs else {}
+                        url = first.get("url") if isinstance(
+                            first, dict) else None
+                        if url:
+                            cost = None
+                            charged = task.get("chargedcost")
+                            if charged is not None:
+                                # Wiro bills in dollars.
+                                cost = float(charged) * 100
+                            _poll_done(job, url, cost_cents=cost)
+                        else:
+                            _poll_retry_or_fail(job)
+                    else:
+                        _poll_fail(
+                            job,
+                            f"wiro pexit {task.get('pexit')}: "
+                            f"{str(task.get('debugoutput'))[:150]}")
+                elif status == "task_cancel":
+                    _poll_fail(job, "wiro task cancelled")
+                else:
+                    job["status"] = "running"
+                    jobs[job["id"]] = job
+        except Exception:
+            pass
+        return job
+
     # -- dispatchers -------------------------------------------------------------
     def submit_api_job(job: dict, body: dict, params: dict, prompt: str,
                        base: str):
@@ -3522,6 +3914,12 @@ def api():
             submit_vidu_job(job, body, params, prompt)
         elif provider == "minimax":
             submit_minimax_job(job, body, params, prompt)
+        elif provider == "spicyapi":
+            submit_spicyapi_job(job, body, params, prompt)
+        elif provider == "hotapi":
+            submit_hotapi_job(job, body, params, prompt)
+        elif provider == "wiro":
+            submit_wiro_job(job, body, params, prompt)
         else:
             submit_fal_job(job, body, params, prompt, base)
 
@@ -3548,6 +3946,12 @@ def api():
             return mirror_vidu_status(job)
         if provider == "minimax":
             return mirror_minimax_status(job)
+        if provider == "spicyapi":
+            return mirror_spicyapi_status(job)
+        if provider == "hotapi":
+            return mirror_hotapi_status(job)
+        if provider == "wiro":
+            return mirror_wiro_status(job)
         return job
 
 
