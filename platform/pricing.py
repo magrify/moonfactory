@@ -348,6 +348,30 @@ PROVIDER_RATES_CENTS_PER_SECOND = {
     # page (re-verified live 2026-11-17); no 1080p price existed
     # when the lane was first wired, so the tier was dropped then.
     "grok": {"480p": 1.2, "720p": 2.25, "1080p": 4.0},
+    # Grok Imagine Video 1.5 as its own lane (2026-11-17, Jack's
+    # approval): xAI's grok-imagine-video-1.5 served on Kie under
+    # the model id grok-imagine-video-1-5-preview, at the same
+    # published Kie rates as the lane above (2.4 / 4.5 / 8 credits
+    # per second = $0.012 / $0.0225 / $0.04; Kie's own Grok Imagine
+    # Video 1.5 page, read 2026-11-17). Durations 1-15 s, native
+    # 1080p, native audio incl. lip-synced dialogue. fal's rates
+    # ($0.08 / $0.14 / $0.25 per second) are the fallback below;
+    # BeatAPI's ($0.20 / $0.40 / $0.72 per 8-second clip) are in
+    # DISPLACED_RATES; xAI direct matches fal and needs an xAI key
+    # the platform does not hold, so Kie is the cheapest route
+    # that works with existing accounts.
+    "grok15": {"480p": 1.2, "720p": 2.25, "1080p": 4.0},
+    # Grok Imagine Video 1.5 Lite via fal (2026-11-17): fal's own
+    # Grok Imagine page prices Lite at $0.02/s (480p) and $0.03/s
+    # (720p), matching xAI's direct API exactly; Kie and BeatAPI
+    # publish no Lite listing, so fal is the cheapest verified
+    # route. The 1080p tier ($0.14/s) is NOT sold: xAI and fal
+    # both document it as upscaled from the 720p generation, and
+    # upscaled tiers are never sold as genuine (same rule as the
+    # Seedance 2.5 Uncensored 4K tier below). Text and image
+    # modes only, 1-15 s, native synchronized audio incl.
+    # lip-synced dialogue.
+    "grok15_lite": {"480p": 2.0, "720p": 3.0},
     # Luma Ray 3.2 via fal is priced per clip ($0.50 / $1.00 /
     # $2.00 at 5 s, double at 10 s): a flat per-second rate at
     # every duration, carried as published.
@@ -496,6 +520,13 @@ FALLBACK_PROVIDER_RATES_CENTS_PER_SECOND = {
     # is the live tier's basis, not only a fallback record.
     "veo3": {"720p": 40.0, "1080p": 40.0, "4K": 60.0},
     "veo3_lite": {"720p": 5.0, "1080p": 8.0},
+    # Grok Imagine Video 1.5 via fal (2026-11-17): fal's own
+    # page prices the 1.5 endpoints at $0.08 / $0.14 / $0.25 per
+    # second (text / image / reference modes at 480p; input
+    # images add $0.01 each on the image-led modes, absorbed in
+    # the post cost like the other lanes). Recorded as the
+    # fallback for the grok15 lane, whose primary is Kie.
+    "grok15": {"480p": 8.0, "720p": 14.0, "1080p": 25.0},
 }
 
 # Rates displaced by the 2026-11-16 follow-up pass to a cheaper
@@ -513,6 +544,12 @@ DISPLACED_RATES_CENTS_PER_SECOND = {
     "seedance2_mini": {"480p": 3.283, "720p": 7.363},
     "omni12": {"720p": 4.9, "1080p": 7.28},
     "grok": {"480p": 2.5, "720p": 5.0, "1080p": 9.0},
+    # BeatAPI's published rates for its grok-imagine-video-1.5
+    # model id ($0.20 / $0.40 / $0.72 per 8-second clip),
+    # displaced by Kie for the grok15 lane exactly as for the
+    # lane above; the supplier id is recorded in app.py's
+    # BEATAPI_MODEL_IDS so a flip needs no re-derivation.
+    "grok15": {"480p": 2.5, "720p": 5.0, "1080p": 9.0},
     "happyhorse": {"720p": 12.0, "1080p": 15.5},
     # Spare route: MiniMax direct for H3 (768P flagship $0.08/s).
     # BeatAPI stays primary; the direct submit/poll functions are
@@ -551,6 +588,10 @@ MODEL_RESOLUTIONS = {
     "happyhorse": ("720p", "1080p"),
     "pika22": ("720p", "1080p"),
     "grok": ("480p", "720p", "1080p"),
+    "grok15": ("480p", "720p", "1080p"),
+    # Lite sells only its genuine tiers: its 1080p is upscaled
+    # from 720p on every route (see the rate entry above).
+    "grok15_lite": ("480p", "720p"),
     "vidu_q3": ("480p", "720p"),
     "vidu_q4": ("720p", "1080p"),
     "seedance25_flash": ("480p", "720p"),
@@ -705,6 +746,11 @@ HIGGSFIELD_POLICY_CENTS_PER_SECOND = {
     "veo3_fast": {"720p": 19.667, "1080p": 19.667},
     "veo3_lite": {"720p": 7.375},
     "grok": {"720p": 22.125},
+    # The grok15 lane prices against the same Higgsfield shelf
+    # product (Grok Imagine at 22.5 credits per 5 s at 720p);
+    # Lite carries no Higgsfield figure anywhere in the
+    # primary-read records, so it prices at the x1.25 minimum.
+    "grok15": {"720p": 22.125},
 }
 
 

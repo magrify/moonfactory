@@ -452,6 +452,13 @@ MODELS = [
     {"id": "hailuo23", "label": "Hailuo 2.3", "paid_only": True},
     {"id": "minimax_h3", "label": "MiniMax H3", "paid_only": True},
     {"id": "grok", "label": "Grok Imagine Video 1.5", "paid_only": True},
+    # Grok Imagine 1.5 family as their own lanes (2026-11-17,
+    # Jack's approval): the 1.5 on its documented Kie preview
+    # model id, and the 1.5 Lite on fal. Lite sells only its
+    # genuine 480p/720p tiers (its 1080p is upscaled; see
+    # pricing.py).
+    {"id": "grok15", "label": "Grok Imagine Video 1.5", "paid_only": True},
+    {"id": "grok15_lite", "label": "Grok Imagine Video 1.5 Lite", "paid_only": True},
     {"id": "luma_ray32", "label": "Luma Ray 3.2", "paid_only": True},
     {"id": "ltx25", "label": "LTX-2.5", "paid_only": True},
     {"id": "ltx25_fast", "label": "LTX-2.5 Fast", "paid_only": True},
@@ -513,7 +520,8 @@ PER_SECOND_MODELS = (
     "wan3", "wan3_prime", "seedance", "veo3", "veo3_fast", "kling3",
     "kling4", "kling3_omni", "seedance2", "seedance2_fast",
     "seedance2_mini", "veo3_lite", "omni12", "omni11", "hailuo23",
-    "minimax_h3", "grok", "luma_ray32", "ltx25", "ltx25_fast",
+    "minimax_h3", "grok", "grok15", "grok15_lite", "luma_ray32",
+    "ltx25", "ltx25_fast",
     "happyhorse", "pika22", "vidu_q2", "vidu_q3", "vidu_q4",
     "seedance25_flash", "pixverse_v6", "runway_gen45",
     "wan22_unc", "wan3_unc", "minimax_h3_unc", "seedance25_unc",
@@ -545,6 +553,8 @@ MODEL_PROVIDER = {
     "omni12": "kie",
     "omni11": "beatapi",
     "grok": "kie",
+    "grok15": "kie",
+    "grok15_lite": "fal",
     "happyhorse": "openrouter",
     "minimax_h3": "beatapi",
     "veo3": "piapi",
@@ -675,6 +685,10 @@ LANE_AUDIO = {
                    "note": "H3 native audio incl. speech"},
     "grok": {"native_speech": True, "native_audio": True,
              "note": "Grok Imagine native audio incl. dialogue"},
+    "grok15": {"native_speech": True, "native_audio": True,
+               "note": "Grok Imagine Video 1.5 native audio incl. lip-synced dialogue; generated in the same pass on the wired route, no audio switch"},
+    "grok15_lite": {"native_speech": True, "native_audio": True,
+                    "note": "Grok Imagine Video 1.5 Lite native synchronized audio incl. lip-synced dialogue; always on, no audio parameter on the wired route"},
     "luma_ray32": {"native_speech": False, "native_audio": False,
                    "note": "no published native-audio mode on the wired route"},
     "ltx25": {"native_speech": False, "native_audio": True,
@@ -779,6 +793,10 @@ MODEL_DURATION_BOUNDS = {
     # Studio).
     "wan3": (2, 30),
     "grok": (1, 15),
+    # Grok Imagine Video 1.5 and 1.5 Lite take 1 to 15 seconds
+    # (xAI's docs and both wired routes' pages, read 2026-11-17).
+    "grok15": (1, 15),
+    "grok15_lite": (1, 15),
     "happyhorse": (3, 15),
     "ltx25": (6, 20),
     "ltx25_fast": (6, 20),
@@ -888,6 +906,14 @@ MODEL_REF_CAPS = {
     "veo3_fast": (3, 0, 0),
     "kling4": (10, 5, 3),
     "kling3_omni": (10, 5, 5),
+    # Grok Imagine Video 1.5 reference mode takes up to 7
+    # reference images and no reference video or audio (fal's
+    # own Grok Imagine page and xAI's docs, read 2026-11-17);
+    # the lane is also in IMAGE_REFS_ONLY_MODELS below. Lite
+    # takes no references at all (text or one start image only;
+    # TEXT_IMAGE_ONLY_MODELS below refuses them first).
+    "grok15": (7, 0, 0),
+    "grok15_lite": (0, 0, 0),
 }
 MODEL_REF_VIDEO_SECONDS_CAP = {
     "seedance": 30.0,
@@ -1115,10 +1141,14 @@ TEXT_IMAGE_ONLY_MODELS = (
     # The Wiro uncensored lanes: their published parameter sets
     # have no reference inputs, only a prompt and a start image.
     "wan26_unc", "wan27_unc", "wan3pro_unc",
+    # Grok Imagine Video 1.5 Lite: text and image modes only on
+    # every route (xAI's docs, read 2026-11-17); no reference
+    # mode exists for the model.
+    "grok15_lite",
 )
 # Models that accept references but only still images: their
 # supplier schemas have no reference video or audio inputs.
-IMAGE_REFS_ONLY_MODELS = ("grok", "happyhorse")
+IMAGE_REFS_ONLY_MODELS = ("grok", "grok15", "happyhorse")
 FAL_BASE = "https://queue.fal.run"
 FAL_ENDPOINTS = {
     ("wan3", "text"): "alibaba/wan-3.0/text-to-video",
@@ -1169,6 +1199,11 @@ FAL_ENDPOINTS = {
     # reference inputs for this model).
     ("veo3_lite", "text"): "fal-ai/veo3.1/lite",
     ("veo3_lite", "image"): "fal-ai/veo3.1/lite/image-to-video",
+    # Grok Imagine Video 1.5 Lite (2026-11-17): fal's xAI
+    # endpoints; text and image modes only, like Veo Lite above
+    # (validation refuses reference inputs for this model).
+    ("grok15_lite", "text"): "xai/grok-imagine-video/v1.5/lite/text-to-video",
+    ("grok15_lite", "image"): "xai/grok-imagine-video/v1.5/lite/image-to-video",
     # Hailuo 2.3: the tier rides in the path like Kling's; text
     # and image modes only, and the model is silent.
     ("hailuo23", "text"): {
@@ -1221,6 +1256,9 @@ BEATAPI_MODEL_IDS = {
     "omni12": "gemini-omni-1.2-flash",
     "omni11": "gemini-omni-1.1-flash",
     "grok": "grok-imagine-video-1.5",
+    # The grok15 lane's recorded BeatAPI fallback (2026-11-17):
+    # the same supplier model id; Kie stays primary (cheaper).
+    "grok15": "grok-imagine-video-1.5",
     "happyhorse": "happyhorse-1.1",
     "minimax_h3": "minimax-h3",
 }
@@ -3391,6 +3429,14 @@ def api():
                 status_code=422,
                 detail="this model takes a prompt or a start image only",
             )
+        if model == "grok15_lite" and end_image:
+            # Lite takes no end frame on any route (xAI's docs,
+            # read 2026-11-17); refused rather than silently
+            # dropped, like the motion lane's end frame above.
+            raise HTTPException(
+                status_code=422,
+                detail="this model takes no end frame",
+            )
         if model in IMAGE_REFS_ONLY_MODELS and (ref_videos or ref_audios):
             raise HTTPException(
                 status_code=422,
@@ -3680,6 +3726,25 @@ def api():
                 "duration": params["duration"],
             }
             if params["mode"] == "image":
+                payload["image_url"] = f"data:image/png;base64,{params['start_image']}"
+        elif model == "grok15_lite":
+            # Grok Imagine Video 1.5 Lite on fal's xAI endpoints
+            # (2026-11-17): fal's documented shape for the family
+            # is prompt + resolution + duration, aspect_ratio on
+            # text mode, and the start frame as image_url on
+            # image mode (fal's Grok Imagine quickstart and API
+            # docs, read 2026-11-17). Native synchronized audio
+            # incl. lip-synced dialogue is always on; there is no
+            # audio field and no reference mode.
+            # PAYLOAD-UNVERIFIED until the funded pass.
+            payload = {
+                "prompt": prompt,
+                "duration": params["duration"],
+                "resolution": params["resolution"],
+            }
+            if params["mode"] == "text":
+                payload["aspect_ratio"] = params["aspect_ratio"]
+            elif params["mode"] == "image":
                 payload["image_url"] = f"data:image/png;base64,{params['start_image']}"
         elif model in ("luma_ray32", "ltx25", "ltx25_fast", "pika22", "vidu_q2"):
             # Minimal text/image payloads in the shared fal shape.
@@ -4108,6 +4173,15 @@ def api():
             ("omni12", "reference"): "gemini-omni-1.2-flash/reference-to-video",
             ("grok", "text"): "grok-imagine/text-to-video",
             ("grok", "image"): "grok-imagine/image-to-video",
+            # Grok Imagine Video 1.5 as its own lane (2026-11-17):
+            # Kie's own 1.5 page names a single model id,
+            # grok-imagine-video-1-5-preview, for every mode; the
+            # mode rides in the input (prompt alone, first/last
+            # frame, or image_urls references), exactly like the
+            # generic branches below build it.
+            ("grok15", "text"): "grok-imagine-video-1-5-preview",
+            ("grok15", "image"): "grok-imagine-video-1-5-preview",
+            ("grok15", "reference"): "grok-imagine-video-1-5-preview",
             ("hailuo23", "text"): "hailuo-2.3/text-to-video",
             ("hailuo23", "image"): "hailuo-2.3/image-to-video",
         }
@@ -4140,6 +4214,16 @@ def api():
             # nothing, exactly as before; payload-unverified like
             # the rest of this submit until the funded pass.
             inp["resolution"] = "1080p"
+        if model == "grok15":
+            # Grok Imagine Video 1.5 (2026-11-17): Kie's own 1.5
+            # page documents the resolution as a per-job parameter
+            # on this model id, so it is sent at every tier
+            # (480p / 720p / 1080p). Native audio incl. dialogue
+            # is generated in the same pass; the page documents
+            # no audio switch, so nothing is sent for it.
+            # Payload-unverified like the rest of this submit
+            # until the funded pass.
+            inp["resolution"] = params["resolution"]
         try:
             if mode == "image":
                 inp["first_frame"] = _beatapi_media_url(
@@ -9150,6 +9234,8 @@ const MODEL_OPTS = {
   hailuo23: { durations: LENGTHS, resolutions: ['720p'] },
   minimax_h3: { durations: LENGTHS, resolutions: ['480p', '720p', '1080p'] },
   grok: { durations: LENGTHS, resolutions: ['480p', '720p', '1080p'] },
+  grok15: { durations: LENGTHS, resolutions: ['480p', '720p', '1080p'] },
+  grok15_lite: { durations: LENGTHS, resolutions: ['480p', '720p'] },
   luma_ray32: { durations: LENGTHS, resolutions: ['480p', '720p', '1080p'] },
   ltx25: { durations: LENGTHS, resolutions: ['720p', '1080p', '4K'] },
   ltx25_fast: { durations: LENGTHS, resolutions: ['720p', '1080p', '4K'] },
