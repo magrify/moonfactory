@@ -8,8 +8,9 @@ token for this lane only, and the platform prices the lane
 exactly like the house Production lane. The lane also carries
 worker side distilled variants (the LightX2V recipe with the
 pair stacked in the same chain, with and without the trigger
-prepend), pinned below; stock remains the default the
-platform routes.
+prepend), pinned below. The platform sends no variant, and
+the worker default is distilled_notrigger (Jack's routing
+call, 2026-11-18); stock and distilled stay selectable.
 
 No Modal, no network, no generation: reads the worker and
 platform sources, extracts literals by AST, and replays the
@@ -158,7 +159,9 @@ check(len(samplers) == 2
 # LightX2V recipe with the NSFW pair stacked in the same chain,
 # built to test whether the fast recipe (the stock proof
 # measured 80.5 cents a segment against the 15-cent entry) makes
-# the lane's pricing honest. Stock stays the default everywhere.
+# the lane's pricing honest. At build time stock was still
+# the default everywhere; the routing section below pins the
+# default as it stands now.
 check(literal(WTREE, "NSFW_VARIANTS")
       == ("stock", "distilled", "distilled_notrigger"),
       "nsfw variant list drifted")
@@ -167,8 +170,9 @@ check(dict_literal(WTREE, "NSFW_WORKFLOWS")
           "distilled": "prod_i2v_a14b_distilled.json",
           "distilled_notrigger": "prod_i2v_a14b_distilled.json"},
       "nsfw variant template map drifted")
-check(WORKER.count('nsfw_variant: str = "stock"') >= 2,
-      "builder and dispatcher no longer default the variant to stock")
+check(WORKER.count("nsfw_variant: str = NSFW_DEFAULT_VARIANT") >= 2,
+      "builder and dispatcher no longer default the variant "
+      "to NSFW_DEFAULT_VARIANT")
 check("template = NSFW_WORKFLOWS[nsfw_variant]" in WORKER,
       "builder no longer picks the lane template by variant")
 check('detail=f"nsfw_variant must be one of {list(NSFW_VARIANTS)}"'
@@ -285,6 +289,44 @@ check(TRIG not in built,
       "trigger string present in the no trigger variant's prompt")
 check(_built_prompt("distilled_notrigger", "") == "",
       "no trigger variant invents a prompt for an empty caller prompt")
+
+# --- The routing default (2026-11-18) ---------------------------
+# Jack's call after the subject test proved the LoRA's effect
+# on the distilled_notrigger recipe: the platform sends no
+# variant, so the worker default is what the lane runs. The
+# default is distilled_notrigger; stock and distilled stay
+# selectable exactly as pinned above, and the endpoint's lane
+# pairing refusal reads the variant the caller actually sent,
+# so a variant free job on any other lane is never refused
+# for carrying the resolved default.
+check(literal(WTREE, "NSFW_DEFAULT_VARIANT") == "distilled_notrigger",
+      "worker default variant is not distilled_notrigger")
+check("nsfw_variant = nsfw_variant_in or NSFW_DEFAULT_VARIANT" in WORKER,
+      "endpoint no longer resolves a variant free job to the default")
+check('nsfw_variant_in not in (None, "stock")' in WORKER,
+      "endpoint lane pairing check no longer reads the sent variant")
+
+# Replay the endpoint's resolution together with the builder's
+# prompt handling: a job that sends no variant resolves to the
+# default, and its built prompt is the caller's words with the
+# trigger string nowhere in it. An explicit variant passes
+# through untouched.
+DEFAULT_VARIANT = literal(WTREE, "NSFW_DEFAULT_VARIANT")
+
+
+def _resolved_variant(sent):
+    return sent or DEFAULT_VARIANT
+
+
+resolved = _resolved_variant(None)
+check(resolved == "distilled_notrigger",
+      "a variant free job does not resolve to distilled_notrigger")
+check(_built_prompt(resolved, SCENE) == SCENE
+      and TRIG not in _built_prompt(resolved, SCENE),
+      "the default variant's built prompt carries the trigger")
+for sent in ("stock", "distilled", "distilled_notrigger"):
+    check(_resolved_variant(sent) == sent,
+          f"explicit variant {sent} no longer passes through")
 
 # --- The platform shelf entry ----------------------------------
 MODELS = literal(PTREE, "MODELS")

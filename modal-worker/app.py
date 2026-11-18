@@ -552,9 +552,9 @@ NSFW_LORA_HIGH = "NSFW-22-H-e8.safetensors"
 NSFW_LORA_LOW = "NSFW-22-L-e8.safetensors"
 NSFW_TRIGGER = "nsfwsks"
 NSFW_LANE = "nsfw"
-# Sampler variants of the nsfw lane (2026-11-18). "stock" is the
-# platform's default and the only variant the platform routes
-# today: the stock A14B template, 20 steps at cfg 3.5, whose
+# Sampler variants of the nsfw lane (2026-11-18). "stock" is
+# the original recipe: the stock A14B template, 20 steps at
+# cfg 3.5, whose
 # proof render measured 80.5 cents of real GPU cost a segment
 # against the lane's 15-cent pricing entry. "distilled" runs
 # the production LightX2V recipe (the distilled template, 4
@@ -564,15 +564,24 @@ NSFW_LANE = "nsfw"
 # distilled graph with the server side trigger prepend
 # skipped: the distilled proof typeset the trigger token onto
 # the picture as lettering, and this variant exists to settle
-# whether the token is what gets drawn. Worker side parameter
-# only; which variant the platform sends is a later routing
-# decision.
+# whether the token is what gets drawn (it was: the no
+# trigger frames are clean, and the subject test then proved
+# the LoRA's effect on that recipe).
 NSFW_VARIANTS = ("stock", "distilled", "distilled_notrigger")
 NSFW_WORKFLOWS = {
     "stock": "prod_i2v_a14b.json",
     "distilled": "prod_i2v_a14b_distilled.json",
     "distilled_notrigger": "prod_i2v_a14b_distilled.json",
 }
+# Routing (2026-11-18, Jack's call after the subject test):
+# the platform sends no variant, so this worker default is
+# what the lane runs. "distilled_notrigger" measured 12.26
+# cents a segment on the balloon scene and 15.3 cents on the
+# subject scene against the lane's 15-cent entry, carries no
+# lettering, and its effect is proven. "stock" and
+# "distilled" stay selectable exactly as before; only the
+# default moved.
+NSFW_DEFAULT_VARIANT = "distilled_notrigger"
 
 
 @app.function(image=download_image, volumes={"/models": volume}, timeout=1800)
@@ -758,7 +767,7 @@ def _build_image_workflow(prompt: str, seed: int, aspect: str = "9:16",
 
 def _build_lane_workflow(lane: str, prompt: str, negative: str, seed: int,
                          aspect: str = "9:16", text_only: bool = False,
-                         prefix: str = "", nsfw_variant: str = "stock"):
+                         prefix: str = "", nsfw_variant: str = NSFW_DEFAULT_VARIANT):
     if lane == NSFW_LANE and nsfw_variant not in NSFW_VARIANTS:
         raise ValueError(
             f"nsfw_variant must be one of {list(NSFW_VARIANTS)}")
@@ -775,7 +784,8 @@ def _build_lane_workflow(lane: str, prompt: str, negative: str, seed: int,
     template = LANE_WORKFLOWS[lane]
     if lane == NSFW_LANE:
         # The variant picks the lane's template: the stock graph
-        # by default, the distilled graph for the fast variant.
+        # for the stock variant, the distilled graph for the
+        # two distilled variants.
         template = NSFW_WORKFLOWS[nsfw_variant]
     workflow = json.loads(
         (Path("/workflows") / template).read_text()
@@ -1133,7 +1143,7 @@ def run_job(job_id: str, lane: str, prompt: str, negative: str, seed: int,
             aspect: str = "9:16", segments: int = 1,
             camera_pose: str = "", camera_speed: float = 1.0,
             effect: str = "", camera_recipe: str = "distilled",
-            nsfw_variant: str = "stock"):
+            nsfw_variant: str = NSFW_DEFAULT_VARIANT):
     """Dispatcher: build the lane workflow, run it on the ComfyUI class,
     persist the result into the Volume, and record the outcome in the
     jobs Dict. Spawned by the web endpoint; never called synchronously.
@@ -1477,18 +1487,23 @@ def api():
             raise HTTPException(
                 status_code=422,
                 detail="camera_recipe applies to camera-conditioned jobs only")
-        # The nsfw lane's sampler variant: "stock" (the default
-        # every caller gets today), "distilled" (the LightX2V
-        # recipe with the LoRA pair stacked), or
+        # The nsfw lane's sampler variant: "stock" (the
+        # original recipe), "distilled" (the LightX2V recipe
+        # with the LoRA pair stacked), or
         # "distilled_notrigger" (that same recipe with the
-        # trigger prepend skipped). Nsfw lane only; the
-        # pairing is checked below, once the effects block has
-        # settled the record's lane.
-        nsfw_variant = body.get("nsfw_variant") or "stock"
-        if nsfw_variant not in NSFW_VARIANTS:
+        # trigger prepend skipped). A caller that sends no
+        # variant gets NSFW_DEFAULT_VARIANT; the platform
+        # sends none, so the default is what the lane runs.
+        # Nsfw lane only; the pairing is checked below, once
+        # the effects block has settled the record's lane,
+        # against the variant the caller actually sent.
+        nsfw_variant_in = body.get("nsfw_variant") or None
+        if nsfw_variant_in is not None \
+                and nsfw_variant_in not in NSFW_VARIANTS:
             raise HTTPException(
                 status_code=422,
                 detail=f"nsfw_variant must be one of {list(NSFW_VARIANTS)}")
+        nsfw_variant = nsfw_variant_in or NSFW_DEFAULT_VARIANT
         # Effects: an effect id switches the render to the Wan 2.1
         # effects workflow, whatever lane label the caller sent (the
         # record's lane becomes "effects"). One effect per job, a
@@ -1517,7 +1532,7 @@ def api():
                     status_code=422,
                     detail="effects do not combine with camera conditioning")
             lane = "effects"
-        if nsfw_variant != "stock" and lane != NSFW_LANE:
+        if nsfw_variant_in not in (None, "stock") and lane != NSFW_LANE:
             raise HTTPException(
                 status_code=422,
                 detail="nsfw_variant applies to the nsfw lane only")
