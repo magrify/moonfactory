@@ -6,9 +6,10 @@ its own lane. The H file drives the high-noise expert, the L
 file the low-noise expert, the worker prepends the trigger
 token for this lane only, and the platform prices the lane
 exactly like the house Production lane. The lane also carries
-a worker side distilled variant (the LightX2V recipe with the
-pair stacked in the same chain), pinned below; stock remains
-the default the platform routes.
+worker side distilled variants (the LightX2V recipe with the
+pair stacked in the same chain, with and without the trigger
+prepend), pinned below; stock remains the default the
+platform routes.
 
 No Modal, no network, no generation: reads the worker and
 platform sources, extracts literals by AST, and replays the
@@ -158,11 +159,13 @@ check(len(samplers) == 2
 # built to test whether the fast recipe (the stock proof
 # measured 80.5 cents a segment against the 15-cent entry) makes
 # the lane's pricing honest. Stock stays the default everywhere.
-check(literal(WTREE, "NSFW_VARIANTS") == ("stock", "distilled"),
+check(literal(WTREE, "NSFW_VARIANTS")
+      == ("stock", "distilled", "distilled_notrigger"),
       "nsfw variant list drifted")
 check(dict_literal(WTREE, "NSFW_WORKFLOWS")
       == {"stock": "prod_i2v_a14b.json",
-          "distilled": "prod_i2v_a14b_distilled.json"},
+          "distilled": "prod_i2v_a14b_distilled.json",
+          "distilled_notrigger": "prod_i2v_a14b_distilled.json"},
       "nsfw variant template map drifted")
 check(WORKER.count('nsfw_variant: str = "stock"') >= 2,
       "builder and dispatcher no longer default the variant to stock")
@@ -237,6 +240,51 @@ check(len(dsamplers) == 2
       and all(s["inputs"]["steps"] == 4 for s in dsamplers)
       and all(s["inputs"]["cfg"] == 1.0 for s in dsamplers),
       "distilled sampler path changed (expected 4 steps at cfg 1.0)")
+
+# --- The no trigger distilled variant (2026-11-18) --------------
+# The distilled proof typeset the trigger token onto the picture
+# as lettering. This variant runs the identical distilled graph
+# (same template, same stacked pair, per the pins above) with
+# the server side trigger prepend skipped, to settle whether
+# the token is what gets drawn. Stock and distilled keep the
+# prepend exactly as before.
+check('if nsfw_variant != "distilled_notrigger":' in WORKER,
+      "trigger prepend is not gated on the no trigger variant")
+check('nsfw_variant in ("distilled", "distilled_notrigger")' in WORKER,
+      "distilled LoRA stack does not cover the no trigger variant")
+check(dict_literal(WTREE, "NSFW_WORKFLOWS")["distilled_notrigger"]
+      == dict_literal(WTREE, "NSFW_WORKFLOWS")["distilled"],
+      "no trigger variant does not share the distilled template")
+
+# Replay the builder's prompt handling per variant, the same
+# expressions _build_lane_workflow runs: the prepend fires for
+# stock and distilled, and for the no trigger variant the
+# caller's words pass through with the trigger string nowhere
+# in the built prompt.
+TRIG = literal(WTREE, "NSFW_TRIGGER")
+SCENE = ("a red hot air balloon rising over green hills, "
+         "white clouds drifting, bright daylight")
+
+
+def _built_prompt(variant, prompt):
+    if variant != "distilled_notrigger":
+        return f"{TRIG}, {prompt}" if prompt else TRIG
+    return prompt
+
+
+for variant in ("stock", "distilled"):
+    built = _built_prompt(variant, SCENE)
+    check(built == f"{TRIG}, {SCENE}",
+          f"{variant} prompt lost the trigger prepend")
+    check(_built_prompt(variant, "") == TRIG,
+          f"{variant} empty prompt no longer falls back to the trigger")
+built = _built_prompt("distilled_notrigger", SCENE)
+check(built == SCENE,
+      "no trigger variant alters the caller's prompt")
+check(TRIG not in built,
+      "trigger string present in the no trigger variant's prompt")
+check(_built_prompt("distilled_notrigger", "") == "",
+      "no trigger variant invents a prompt for an empty caller prompt")
 
 # --- The platform shelf entry ----------------------------------
 MODELS = literal(PTREE, "MODELS")

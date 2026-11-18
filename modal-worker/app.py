@@ -560,12 +560,18 @@ NSFW_LANE = "nsfw"
 # the production LightX2V recipe (the distilled template, 4
 # steps at cfg 1.0) with the NSFW pair stacked in the same
 # LoRA chain, built to test whether the fast recipe makes the
-# lane's pricing honest. Worker side parameter only; which
-# variant the platform sends is a later routing decision.
-NSFW_VARIANTS = ("stock", "distilled")
+# lane's pricing honest. "distilled_notrigger" is that same
+# distilled graph with the server side trigger prepend
+# skipped: the distilled proof typeset the trigger token onto
+# the picture as lettering, and this variant exists to settle
+# whether the token is what gets drawn. Worker side parameter
+# only; which variant the platform sends is a later routing
+# decision.
+NSFW_VARIANTS = ("stock", "distilled", "distilled_notrigger")
 NSFW_WORKFLOWS = {
     "stock": "prod_i2v_a14b.json",
     "distilled": "prod_i2v_a14b_distilled.json",
+    "distilled_notrigger": "prod_i2v_a14b_distilled.json",
 }
 
 
@@ -760,8 +766,12 @@ def _build_lane_workflow(lane: str, prompt: str, negative: str, seed: int,
         # The community NSFW LoRA is driven by its trigger token,
         # prepended here, server side, for this lane only. The
         # caller's prompt text is never altered on any other lane,
-        # and the job record keeps the caller's own words.
-        prompt = f"{NSFW_TRIGGER}, {prompt}" if prompt else NSFW_TRIGGER
+        # and the job record keeps the caller's own words. The
+        # distilled_notrigger variant skips the prepend: its
+        # prompt path carries the caller's words exactly as sent,
+        # with the trigger string nowhere in it.
+        if nsfw_variant != "distilled_notrigger":
+            prompt = f"{NSFW_TRIGGER}, {prompt}" if prompt else NSFW_TRIGGER
     template = LANE_WORKFLOWS[lane]
     if lane == NSFW_LANE:
         # The variant picks the lane's template: the stock graph
@@ -824,7 +834,7 @@ def _build_lane_workflow(lane: str, prompt: str, negative: str, seed: int,
                     node["inputs"]["model"] = ["17", 0]
                 elif src == ["2", 0]:
                     node["inputs"]["model"] = ["18", 0]
-    if lane == NSFW_LANE and nsfw_variant == "distilled":
+    if lane == NSFW_LANE and nsfw_variant in ("distilled", "distilled_notrigger"):
         # Stack the pair onto the distilled graph's own chain:
         # the distilled template already carries its LightX2V
         # pair at nodes 17/18 (one per UNET, strength 1.0) with
@@ -1468,8 +1478,10 @@ def api():
                 status_code=422,
                 detail="camera_recipe applies to camera-conditioned jobs only")
         # The nsfw lane's sampler variant: "stock" (the default
-        # every caller gets today) or "distilled" (the LightX2V
-        # recipe with the LoRA pair stacked). Nsfw lane only; the
+        # every caller gets today), "distilled" (the LightX2V
+        # recipe with the LoRA pair stacked), or
+        # "distilled_notrigger" (that same recipe with the
+        # trigger prepend skipped). Nsfw lane only; the
         # pairing is checked below, once the effects block has
         # settled the record's lane.
         nsfw_variant = body.get("nsfw_variant") or "stock"
