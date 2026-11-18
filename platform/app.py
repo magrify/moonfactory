@@ -10253,6 +10253,38 @@ INDEX_HTML = (
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Moonfactory">
 <link rel="apple-touch-icon" href="/icons/icon-192.png">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "Moonfactory",
+  "url": "https://magrify--moonfactory-api.us-east.modal.run/",
+  "applicationCategory": "MultimediaApplication",
+  "operatingSystem": "Web",
+  "offers": [
+    {
+      "@type": "Offer",
+      "name": "Free",
+      "price": 0,
+      "priceCurrency": "USD",
+      "description": "Your first 5 clips are free, no card needed."
+    },
+    {
+      "@type": "Offer",
+      "name": "Creator",
+      "price": 20,
+      "priceCurrency": "USD",
+      "description": "Creator is $20/mo with an included budget.",
+      "priceSpecification": {
+        "@type": "UnitPriceSpecification",
+        "price": 20,
+        "priceCurrency": "USD",
+        "unitText": "MON"
+      }
+    }
+  ]
+}
+</script>
 </head><body><main>
 __LANDING_TOP__
 
