@@ -70,6 +70,10 @@ image = (
     .apt_install("ffmpeg", "fonts-dejavu-core")
     .pip_install("fastapi[standard]", "requests", "stripe")
     .add_local_file(str(Path(__file__).parent / "pricing.py"), "/platform/pricing.py")
+    .add_local_file(
+        str(Path(__file__).parent.parent
+            / "worker-kaggle" / "hf_worker_kernel.py"),
+        "/platform/hf_worker_kernel.py")
     .add_local_file(str(Path(__file__).parent / "clipping.py"), "/platform/clipping.py")
     .add_local_file(str(Path(__file__).parent / "fun_camera.py"), "/platform/fun_camera.py")
     .add_local_file(str(Path(__file__).parent / "llm_providers.py"), "/platform/llm_providers.py")
@@ -837,6 +841,256 @@ HOUSE_POLL_LIMIT_SECONDS = 7200
 IMAGE_POLL_LIMIT_SECONDS = 1800
 CLIP_POLL_LIMIT_SECONDS = 3900
 TRAINING_POLL_LIMIT_SECONDS = 3600
+# Template lane (HyperFrames on Kaggle, 2026-11-17): the bound is
+# generous because a cold start is a Kaggle machine starting, the
+# toolchain dataset loading, and only then the render itself. An
+# hour covers all three with room to spare; past it the job fails
+# clean (the lane is free, so there is nothing to refund).
+TEMPLATE_POLL_LIMIT_SECONDS = 3600
+# ---------------------------------------------------------------------------
+# Template lane: HyperFrames compositions rendered on Kaggle
+# (Jack, 2026-11-17). HyperFrames (github.com/heygen-com/hyperframes,
+# Apache 2.0) turns an HTML composition with seekable GSAP animation
+# into a deterministic MP4 on plain CPU. The lane is FREE: zero
+# credits, zero charge, ever. Rendering runs on Kaggle free quota
+# from a worker kernel that mounts a persistent toolchain dataset
+# (Node 22, the HyperFrames CLI, its Chromium, GSAP); Modal never
+# renders these jobs and there is no Modal fallback.
+#
+# The compositions are fixed templates. The user's words ride in as
+# escaped text data only; nobody's HTML ever reaches the renderer.
+# Vertical 1080 x 1920, matching the platform delivery shape.
+# ---------------------------------------------------------------------------
+
+HF_KERNEL_SLUG = "magrify/moonfactory-hyperframes-worker"
+HF_TOOLCHAIN_DATASET = "magrify/moonfactory-hf-toolchain"
+HF_KEY_DATASET = "magrify/moonfactory-hf-key"
+HF_WORKER_SCRIPT_PATH = Path("/platform/hf_worker_kernel.py")
+# Paid accounts get a fair daily cap on the free lane (free
+# accounts are bounded by the lifetime free cap instead).
+TEMPLATE_DAILY_CAP_PAID = 20
+TEMPLATE_MAX_SOURCE_SECONDS = 60
+TEMPLATE_MAX_UPLOAD_BYTES = 200 * 1024 * 1024
+# A trigger push is attempted at most once per this many seconds,
+# and only while no kernel heartbeat is fresher than the stale
+# window: one live kernel serves every queued job.
+HF_HEARTBEAT_STALE_SECONDS = 180
+HF_TRIGGER_MIN_INTERVAL_SECONDS = 180
+
+HF_TEMPLATES = {
+    "title": {
+        "name": "Title card",
+        "duration": 6.0,
+        "fields": ("headline", "subline"),
+    },
+    "captions": {
+        "name": "Captions over a clip",
+        "duration": None,  # the source clip sets the length
+        "fields": ("caption",),
+    },
+    "stat": {
+        "name": "Stat card",
+        "duration": 6.0,
+        "fields": ("stat", "label"),
+    },
+    "promo": {
+        "name": "Promo card",
+        "duration": 7.0,
+        "fields": ("headline", "subline", "cta"),
+    },
+}
+
+_HF_FIELD_LIMITS = {
+    "headline": 90,
+    "subline": 120,
+    "caption": 120,
+    "stat": 20,
+    "label": 90,
+    "cta": 40,
+}
+
+
+def hf_clean_fields(template_id: str, body: dict) -> dict:
+    """Validate and trim one template job's words. Raises
+    ValueError with a plain message; the create route turns it
+    into a clean 422. The accent color must be a plain hex value
+    so it can ride into CSS without escaping games."""
+    spec = HF_TEMPLATES.get(template_id)
+    if spec is None:
+        raise ValueError("pick one of the templates on the list")
+    out = {}
+    for field in spec["fields"]:
+        value = str(body.get(field) or "").strip()
+        limit = _HF_FIELD_LIMITS[field]
+        if len(value) > limit:
+            raise ValueError(f"that text is too long, keep it under {limit} characters")
+        out[field] = value
+    required = {
+        "title": ("headline",),
+        "captions": ("caption",),
+        "stat": ("stat", "label"),
+        "promo": ("headline",),
+    }[template_id]
+    for field in required:
+        if not out.get(field):
+            raise ValueError("one of the boxes is empty, fill it in and try again")
+    color = str(body.get("color") or "#6366f1").strip().lower()
+    if not re.fullmatch(r"#[0-9a-f]{6}", color):
+        raise ValueError("that color does not look right, pick one from the color box")
+    out["color"] = color
+    return out
+
+
+def _hf_page(duration: float, accent: str, clips: str, timeline: str) -> str:
+    """The shared composition shell: a vertical stage, the GSAP
+    library the worker copies in beside this file, and one
+    seekable timeline registered the way the renderer expects."""
+    return f"""<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <script src="gsap.min.js"></script>
+    <style>
+      * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+      html, body {{ margin: 0; width: 1080px; height: 1920px; overflow: hidden; background: #0c0c0f; }}
+      #root {{ position: relative; width: 1080px; height: 1920px; background: #0c0c0f;
+        font-family: sans-serif; color: #f4f4f1; overflow: hidden; }}
+      .bar {{ position: absolute; left: 90px; top: 780px; width: 180px; height: 14px;
+        background: {accent}; border-radius: 7px; }}
+      .headline {{ position: absolute; left: 90px; top: 840px; width: 900px;
+        font-size: 104px; font-weight: 700; line-height: 1.08; letter-spacing: -0.02em; }}
+      .subline {{ position: absolute; left: 90px; top: 1240px; width: 860px;
+        font-size: 46px; font-weight: 400; line-height: 1.3; color: #b8b8c0; }}
+      .statnum {{ position: absolute; left: 90px; top: 800px; width: 900px;
+        font-size: 230px; font-weight: 800; line-height: 1.0; color: {accent}; }}
+      .statlabel {{ position: absolute; left: 90px; top: 1120px; width: 860px;
+        font-size: 54px; font-weight: 500; line-height: 1.3; }}
+      .cta {{ position: absolute; left: 90px; top: 1560px; padding: 28px 44px;
+        background: {accent}; color: #ffffff; font-size: 44px; font-weight: 600;
+        border-radius: 999px; }}
+      .bgvideo {{ position: absolute; left: 0; top: 0; width: 1080px; height: 1920px;
+        object-fit: cover; }}
+      .capwrap {{ position: absolute; left: 60px; top: 1330px; width: 960px;
+        text-align: center; }}
+      .capbar {{ display: inline-block; width: 150px; height: 12px; border-radius: 6px;
+        background: {accent}; margin-bottom: 30px; }}
+      .caption {{ font-size: 76px; font-weight: 700; line-height: 1.2;
+        text-shadow: 0 4px 30px rgba(0,0,0,0.85); }}
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0"
+      data-duration="{duration:g}" data-width="1080" data-height="1920" data-fps="30">
+{clips}
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {{}};
+      const tl = gsap.timeline({{ paused: true }});
+{timeline}
+      window.__timelines["main"] = tl;
+    </script>
+  </body>
+</html>
+"""
+
+
+def build_hf_composition(template_id: str, fields: dict,
+                         source_duration: float = 0.0) -> str:
+    """Build one job's composition HTML from its fixed template
+    and its escaped words. Called at claim time, so the words the
+    renderer sees are exactly the words stored on the job."""
+    import html as _html
+
+    esc = _html.escape
+    accent = fields.get("color") or "#6366f1"
+    if template_id == "title":
+        clips = f"""      <div class="bar clip" data-start="0" data-duration="6" data-track-index="0"></div>
+      <h1 class="headline clip" data-start="0" data-duration="6" data-track-index="1">{esc(fields.get("headline") or "")}</h1>
+      <p class="subline clip" data-start="0" data-duration="6" data-track-index="2">{esc(fields.get("subline") or "")}</p>"""
+        timeline = """      tl.fromTo(".bar", { scaleX: 0, transformOrigin: "left center" }, { scaleX: 1, duration: 0.5, ease: "power3.out" }, 0.2);
+      tl.fromTo(".headline", { opacity: 0, y: 60 }, { opacity: 1, y: 0, duration: 0.6, ease: "power3.out" }, 0.35);
+      tl.fromTo(".subline", { opacity: 0, y: 40 }, { opacity: 1, y: 0, duration: 0.6, ease: "power3.out" }, 0.6);
+      tl.to([".bar", ".headline", ".subline"], { opacity: 0, duration: 0.5, ease: "power2.in" }, 5.4);"""
+        return _hf_page(6.0, accent, clips, timeline)
+    if template_id == "stat":
+        clips = f"""      <div class="statnum clip" data-start="0" data-duration="6" data-track-index="0">{esc(fields.get("stat") or "")}</div>
+      <p class="statlabel clip" data-start="0" data-duration="6" data-track-index="1">{esc(fields.get("label") or "")}</p>"""
+        timeline = """      tl.fromTo(".statnum", { opacity: 0, scale: 0.82, transformOrigin: "left center" }, { opacity: 1, scale: 1, duration: 0.55, ease: "back.out(1.6)" }, 0.25);
+      tl.fromTo(".statlabel", { opacity: 0, y: 40 }, { opacity: 1, y: 0, duration: 0.55, ease: "power3.out" }, 0.55);
+      tl.to([".statnum", ".statlabel"], { opacity: 0, duration: 0.5, ease: "power2.in" }, 5.4);"""
+        return _hf_page(6.0, accent, clips, timeline)
+    if template_id == "promo":
+        cta = fields.get("cta") or ""
+        cta_clip = (
+            f"""      <div class="cta clip" data-start="0" data-duration="7" data-track-index="3">{esc(cta)}</div>"""
+            if cta else "")
+        clips = f"""      <div class="bar clip" data-start="0" data-duration="7" data-track-index="0"></div>
+      <h1 class="headline clip" data-start="0" data-duration="7" data-track-index="1">{esc(fields.get("headline") or "")}</h1>
+      <p class="subline clip" data-start="0" data-duration="7" data-track-index="2">{esc(fields.get("subline") or "")}</p>
+{cta_clip}"""
+        timeline = """      tl.fromTo(".bar", { scaleX: 0, transformOrigin: "left center" }, { scaleX: 1, duration: 0.5, ease: "power3.out" }, 0.2);
+      tl.fromTo(".headline", { opacity: 0, y: 60 }, { opacity: 1, y: 0, duration: 0.6, ease: "power3.out" }, 0.35);
+      tl.fromTo(".subline", { opacity: 0, y: 40 }, { opacity: 1, y: 0, duration: 0.6, ease: "power3.out" }, 0.6);
+      tl.fromTo(".cta", { opacity: 0, y: 40 }, { opacity: 1, y: 0, duration: 0.55, ease: "power3.out" }, 0.85);
+      tl.to([".bar", ".headline", ".subline", ".cta"], { opacity: 0, duration: 0.5, ease: "power2.in" }, 6.4);"""
+        return _hf_page(7.0, accent, clips, timeline)
+    if template_id == "captions":
+        dur = max(1.0, min(float(source_duration or 0), TEMPLATE_MAX_SOURCE_SECONDS))
+        dur = round(dur, 2)
+        clips = f"""      <video class="bgvideo clip" data-start="0" data-duration="{dur:g}" data-track-index="0" src="source.mp4" muted playsinline></video>
+      <div class="capwrap clip" data-start="0" data-duration="{dur:g}" data-track-index="1">
+        <span class="capbar"></span>
+        <p class="caption">{esc(fields.get("caption") or "")}</p>
+      </div>"""
+        timeline = """      tl.fromTo(".capwrap", { opacity: 0, y: 50 }, { opacity: 1, y: 0, duration: 0.45, ease: "back.out(1.8)" }, 0.3);"""
+        return _hf_page(dur, accent, clips, timeline)
+    raise ValueError(f"unknown template {template_id}")
+
+
+def hf_kaggle_push(token: str, script_text: str) -> tuple:
+    """Start a worker run: one SaveKernel call against Kaggle's
+    public API, pushing a fresh version of the worker kernel,
+    which is what makes Kaggle run it. Returns (ok, detail). The
+    token rides in the Authorization header only; nothing about
+    it is logged here."""
+    import requests as _requests
+
+    payload = {
+        "id": HF_KERNEL_SLUG,
+        "newTitle": "Moonfactory Hyperframes Worker",
+        "text": script_text,
+        "language": "python",
+        "kernelType": "script",
+        "isPrivate": True,
+        "enableGpu": False,
+        "enableTpu": False,
+        "enableInternet": True,
+        "datasetDataSources": [HF_TOOLCHAIN_DATASET, HF_KEY_DATASET],
+        "competitionDataSources": [],
+        "kernelDataSources": [],
+        "modelDataSources": [],
+        "categoryIds": [],
+    }
+    try:
+        resp = _requests.post(
+            "https://www.kaggle.com/api/v1/kernels/push",
+            headers={"Authorization": f"Bearer {token}"},
+            json=payload, timeout=60,
+        )
+    except Exception as exc:
+        return False, f"request failed: {exc}"[:200]
+    if resp.status_code != 200:
+        return False, f"kaggle answered {resp.status_code}"
+    try:
+        body = resp.json()
+    except Exception:
+        body = {}
+    if body.get("error"):
+        return False, str(body.get("error"))[:200]
+    return True, "kernel version pushed"
+
+
 # Per-model duration bounds in seconds (the global form range is
 # 3-30; these narrow it to what each model actually accepts).
 MODEL_DURATION_BOUNDS = {
@@ -1819,6 +2073,7 @@ def _worker_headers() -> dict:
         modal.Secret.from_name("moonfactory-secrets"),
         modal.Secret.from_name("moonfactory-integrations"),
         modal.Secret.from_name("moonfactory-providers"),
+        modal.Secret.from_name("moonfactory-kaggle"),
     ],
     volumes={"/worker-models": worker_models, "/data": data_volume},
     timeout=1200,
@@ -3441,6 +3696,27 @@ def api():
                 jobs[job["id"]] = job
                 _clip_release_hold(job)
             return job
+        if job.get("provider") == "hyperframes":
+            # Template jobs are worked by the Kaggle kernel,
+            # which drives status through the worker endpoints.
+            # The mirror only enforces the lane's bound (a cold
+            # start plus a render fits inside it; past it the job
+            # is dead and fails clean, at zero charge there is
+            # nothing to refund) and nudges a kernel awake when a
+            # queued job has none.
+            if job.get("kind") == "template" and \
+                    job["status"] in ("queued", "running") and \
+                    _now() - float(job.get("created_at") or _now()) \
+                    > TEMPLATE_POLL_LIMIT_SECONDS:
+                job["status"] = "error"
+                job["error"] = "the free render took too long, nothing was charged"
+                job["internal_error"] = (
+                    "template job passed its poll time limit")
+                jobs[job["id"]] = job
+            elif job.get("kind") == "template" and \
+                    job["status"] == "queued":
+                _hf_maybe_trigger()
+            return job
         if job["status"] in ("queued", "running") and \
                 _now() - float(job.get("created_at") or _now()) \
                 > _poll_limit_for(job):
@@ -3564,6 +3840,8 @@ def api():
             "model": (
                 "First frame" if job.get("kind") == "image"
                 else "Clip" if job.get("kind") in ("clip_job", "clip_output")
+                else (job.get("template_name") or "Title card")
+                if job.get("kind") == "template"
                 else "Effects" if job.get("effect")
                 else MODEL_LABELS.get(job.get("model") or DEFAULT_MODEL, "Wan 2.2")
             ),
@@ -4460,6 +4738,8 @@ def api():
 
     def _poll_limit_for(job: dict):
         """The bounded poll lifetime for a job's family."""
+        if job.get("provider") == "hyperframes":
+            return TEMPLATE_POLL_LIMIT_SECONDS
         if job.get("kind") == "image":
             return IMAGE_POLL_LIMIT_SECONDS
         if job.get("provider") in URL_RESULT_PROVIDERS:
@@ -6997,6 +7277,17 @@ def api():
             if out_path.exists():
                 return out_path
             raise HTTPException(status_code=404, detail="this job has no single file")
+        if job.get("provider") == "hyperframes":
+            # The Kaggle worker uploads the finished file itself;
+            # there is no raw stage and no finishing chain.
+            if not out_path.exists():
+                try:
+                    data_volume.reload()
+                except Exception:
+                    pass
+            if out_path.exists():
+                return out_path
+            raise HTTPException(status_code=404, detail="this job has no file yet")
         if not out_path.exists():
             raw_path = FILES_DIR / f"{job_id}.raw.mp4"
             if len(job.get("chain_results") or []) > 1:
@@ -7434,6 +7725,310 @@ def api():
         process_clip_job.spawn(job["id"])
         return JSONResponse({**public_job(job), "quote": q}, status_code=202)
 
+    # -- template lane (HyperFrames on Kaggle) ----------------------------
+    # Free motion graphics: title cards, captions over a clip, stat
+    # cards, promo cards. Zero credits and zero charge. A Kaggle
+    # kernel does the rendering; the platform only queues, wakes
+    # the kernel, and serves the finished file. The worker
+    # endpoints below are how the kernel talks back, guarded by a
+    # dedicated key that lives in the moonfactory-secrets store on
+    # this side and in a private Kaggle dataset on that side.
+
+    def _hf_maybe_trigger():
+        """Wake the Kaggle worker when a queued template job has
+        no live kernel. A push of a fresh kernel version is what
+        makes Kaggle run it. Throttled by the heartbeat's freshness
+        and a minimum gap between attempts, and it never raises:
+        a failed wake simply leaves the job queued for the next
+        nudge, inside its poll bound."""
+        try:
+            now = _now()
+            if now - float(meta.get("hf:heartbeat") or 0) \
+                    < HF_HEARTBEAT_STALE_SECONDS:
+                return
+            if now - float(meta.get("hf:last_trigger") or 0) \
+                    < HF_TRIGGER_MIN_INTERVAL_SECONDS:
+                return
+            token = os.environ.get("KAGGLE_API_TOKEN", "")
+            if not token:
+                return
+            meta["hf:last_trigger"] = now
+            try:
+                script_text = HF_WORKER_SCRIPT_PATH.read_text()
+            except Exception:
+                return
+            ok, detail = hf_kaggle_push(token, script_text)
+            meta["hf:last_trigger_result"] = {
+                "ok": ok, "detail": detail, "at": now}
+        except Exception:
+            pass
+
+    def _hf_worker_ok(x_api_key: str) -> bool:
+        expected = os.environ.get("TEMPLATE_WORKER_KEY", "")
+        return bool(expected) and hmac.compare_digest(
+            x_api_key or "", expected)
+
+    def _hf_daily_used(user: dict) -> int:
+        day_start = _now() - (_now() % 86400)
+        used = 0
+        for key in list(jobs.keys()):
+            other = jobs.get(key)
+            if (other and other.get("user_id") == user["id"]
+                    and other.get("kind") == "template"
+                    and float(other.get("created_at") or 0) >= day_start):
+                used += 1
+        return used
+
+    @web.get("/api/templates/config")
+    def template_config(request: Request, mf_session: str = Cookie(default="")):
+        user = require_user(request, mf_session)
+        return {
+            "templates": [
+                {"id": tid, "name": spec["name"]}
+                for tid, spec in HF_TEMPLATES.items()
+            ],
+            "daily_cap": TEMPLATE_DAILY_CAP_PAID,
+            "daily_used": _hf_daily_used(user),
+            "free_clips_total": FREE_CLIPS_TOTAL,
+            "free_used": free_jobs_total(user),
+            "paid": is_paid(user),
+        }
+
+    @web.post("/api/templates/upload")
+    async def upload_template_source(request: Request, file: UploadFile = File(...),
+                                     mf_session: str = Cookie(default="")):
+        user = require_user(request, mf_session)
+        if not user["verified"]:
+            raise HTTPException(status_code=403, detail="verify your email before creating")
+        if _rate_limited("templateupload", user["id"], 6):
+            raise HTTPException(status_code=429, detail="too many uploads, slow down")
+        upload_id = pysecrets.token_hex(8)
+        src_dir = Path("/data/template-sources")
+        src_dir.mkdir(parents=True, exist_ok=True)
+        suffix = Path(file.filename or "upload.mp4").suffix.lower()
+        if suffix not in (".mp4", ".mov", ".mkv", ".webm", ".m4v"):
+            suffix = ".mp4"
+        dest = src_dir / f"{upload_id}{suffix}"
+        size = 0
+        with dest.open("wb") as fh:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                size += len(chunk)
+                if size > TEMPLATE_MAX_UPLOAD_BYTES:
+                    fh.close()
+                    dest.unlink(missing_ok=True)
+                    raise HTTPException(status_code=413, detail="that file is too big, keep it under 200 MB")
+                fh.write(chunk)
+        data_volume.commit()
+        try:
+            info = clipping.probe(dest)
+        except Exception as exc:
+            dest.unlink(missing_ok=True)
+            raise HTTPException(status_code=422, detail=str(exc)[:200])
+        duration = float(info["duration"])
+        if duration > TEMPLATE_MAX_SOURCE_SECONDS:
+            dest.unlink(missing_ok=True)
+            raise HTTPException(
+                status_code=422,
+                detail="that clip is too long for this one, keep it under a minute")
+        meta[f"templateupload:{upload_id}"] = {
+            "user_id": user["id"], "path": str(dest),
+            "duration": duration,
+            "filename": (file.filename or "upload")[:120],
+            "created_at": _now(),
+        }
+        return {"upload_id": upload_id,
+                "duration_seconds": round(duration, 2)}
+
+    @web.post("/api/templates")
+    async def create_template(request: Request, mf_session: str = Cookie(default="")):
+        user = require_user(request, mf_session)
+        if _rate_limited("templatecreate", user["id"], 10):
+            raise HTTPException(status_code=429, detail="too many jobs, slow down")
+        if not user["verified"]:
+            raise HTTPException(status_code=403, detail="verify your email before creating")
+        if user.get("past_due"):
+            raise HTTPException(status_code=403, detail="your subscription payment is past due")
+        body = await request.json()
+        if not _verify_bot_check(body, client_ip(request)):
+            raise HTTPException(status_code=403, detail="bot check failed")
+        template_id = str(body.get("template") or "")
+        try:
+            fields = hf_clean_fields(template_id, body)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        upload_path = None
+        source_duration = 0.0
+        if template_id == "captions":
+            rec = meta.get(f"templateupload:{body.get('upload_id') or ''}")
+            if not rec or rec.get("user_id") != user["id"]:
+                raise HTTPException(status_code=422, detail="upload your clip first, then make it")
+            upload_path = rec["path"]
+            source_duration = float(rec["duration"])
+        is_free_job = False
+        if not is_paid(user):
+            if free_jobs_total(user) >= FREE_CLIPS_TOTAL:
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"your free clips are used up. The free plan is {FREE_CLIPS_TOTAL} clips in total")
+            if int(meta.get("freecount:total") or 0) >= FREE_PLATFORM_TOTAL_CEILING:
+                raise HTTPException(status_code=503, detail="the free tier is paused")
+            is_free_job = True
+        else:
+            if _hf_daily_used(user) >= TEMPLATE_DAILY_CAP_PAID:
+                raise HTTPException(
+                    status_code=429,
+                    detail="you have made your free titles for today, the rest wait until tomorrow")
+        spec = HF_TEMPLATES[template_id]
+        duration = source_duration if template_id == "captions" \
+            else float(spec["duration"])
+        display = (
+            fields.get("headline") or fields.get("caption")
+            or fields.get("stat") or spec["name"])
+        job = {
+            "id": pysecrets.token_hex(8),
+            "user_id": user["id"],
+            "worker_job_id": None,
+            "provider": "hyperframes",
+            "kind": "template",
+            "lane": "template",
+            "model": "hyperframes",
+            "template": template_id,
+            "template_name": spec["name"],
+            "hf_fields": fields,
+            "prompt": display,
+            "user_prompt": display,
+            "camera_presets": [],
+            "camera_preset_names": [],
+            "camera_look": {},
+            "status": "queued",
+            "stage": "Waiting for the free renderer",
+            "error": None,
+            "created_at": _now(),
+            "charged_cents": 0,
+            "upload_path": upload_path,
+            "source_duration": source_duration,
+            "duration_seconds": round(duration, 2),
+            "aspect_ratio": "9:16",
+            "resolution": "1080x1920",
+            "plan_at_job": user["plan"],
+            "free_tier": is_free_job,
+            "music_prompt": None,
+        }
+        jobs[job["id"]] = job
+        if is_free_job:
+            u = usage(user)
+            u["free_jobs"] += 1
+            user["free_jobs_total"] = free_jobs_total(user) + 1
+            user["usage"] = u
+            meta["freecount:total"] = int(meta.get("freecount:total") or 0) + 1
+            save_user(user)
+        _hf_maybe_trigger()
+        return JSONResponse(public_job(job), status_code=202)
+
+    @web.post("/api/worker/hf/heartbeat")
+    def hf_heartbeat(x_api_key: str = Header(default="")):
+        if not _hf_worker_ok(x_api_key):
+            raise HTTPException(status_code=401, detail="bad worker key")
+        meta["hf:heartbeat"] = _now()
+        return {"ok": True}
+
+    @web.get("/api/worker/hf/jobs/next")
+    def hf_next_job(x_api_key: str = Header(default="")):
+        if not _hf_worker_ok(x_api_key):
+            raise HTTPException(status_code=401, detail="bad worker key")
+        meta["hf:heartbeat"] = _now()
+        queued = []
+        for key in list(jobs.keys()):
+            other = jobs.get(key)
+            if (other and other.get("kind") == "template"
+                    and other.get("status") == "queued"):
+                queued.append(other)
+        if not queued:
+            return {"job": None}
+        queued.sort(key=lambda j: j["created_at"])
+        job = queued[0]
+        job["status"] = "running"
+        job["stage"] = "Rendering now"
+        job["claimed_at"] = _now()
+        jobs[job["id"]] = job
+        return {"job": {
+            "id": job["id"],
+            "template": job["template"],
+            "fields": job.get("hf_fields") or {},
+            "html": build_hf_composition(
+                job["template"], job.get("hf_fields") or {},
+                job.get("source_duration") or 0.0),
+            "has_source": bool(job.get("upload_path")),
+        }}
+
+    @web.get("/api/worker/hf/jobs/{job_id}/source")
+    def hf_job_source(job_id: str, x_api_key: str = Header(default="")):
+        if not _hf_worker_ok(x_api_key):
+            raise HTTPException(status_code=401, detail="bad worker key")
+        job = jobs.get(job_id)
+        if not job or job.get("kind") != "template" \
+                or not job.get("upload_path"):
+            raise HTTPException(status_code=404, detail="unknown job")
+        path = Path(job["upload_path"])
+        if not path.exists():
+            try:
+                data_volume.reload()
+            except Exception:
+                pass
+        if not path.exists():
+            raise HTTPException(status_code=404, detail="the uploaded file is missing")
+        return FileResponse(path, media_type="video/mp4",
+                            filename="source.mp4")
+
+    @web.post("/api/worker/hf/jobs/{job_id}/file")
+    async def hf_job_file(job_id: str, request: Request,
+                          x_api_key: str = Header(default="")):
+        if not _hf_worker_ok(x_api_key):
+            raise HTTPException(status_code=401, detail="bad worker key")
+        job = jobs.get(job_id)
+        if not job or job.get("kind") != "template":
+            raise HTTPException(status_code=404, detail="unknown job")
+        if job["status"] != "running":
+            raise HTTPException(status_code=409, detail=f"job status is {job['status']}")
+        data = await request.body()
+        if not data or len(data) > 500 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail="bad file size")
+        FILES_DIR.mkdir(parents=True, exist_ok=True)
+        out_path = FILES_DIR / f"{job_id}.mp4"
+        out_path.write_bytes(data)
+        data_volume.commit()
+        job["bytes"] = len(data)
+        try:
+            info = clipping.probe(out_path)
+            job["duration_seconds"] = round(float(info["duration"]), 2)
+        except Exception:
+            pass
+        job["status"] = "done"
+        job["stage"] = None
+        jobs[job["id"]] = job
+        return {"ok": True, "bytes": len(data)}
+
+    @web.post("/api/worker/hf/jobs/{job_id}/fail")
+    async def hf_job_fail(job_id: str, request: Request,
+                          x_api_key: str = Header(default="")):
+        if not _hf_worker_ok(x_api_key):
+            raise HTTPException(status_code=401, detail="bad worker key")
+        job = jobs.get(job_id)
+        if not job or job.get("kind") != "template":
+            raise HTTPException(status_code=404, detail="unknown job")
+        if job["status"] not in ("queued", "running"):
+            raise HTTPException(status_code=409, detail=f"job status is {job['status']}")
+        body = await request.json()
+        job["status"] = "error"
+        job["error"] = "the render failed, nothing was charged"
+        job["internal_error"] = str(body.get("error") or "")[:300]
+        job["stage"] = None
+        jobs[job["id"]] = job
+        return {"ok": True}
+
     @web.get("/api/jobs/{job_id}/thumb")
     def job_thumb(job_id: str, request: Request, mf_session: str = Cookie(default="")):
         user = require_user(request, mf_session)
@@ -7511,6 +8106,8 @@ def api():
         else:
             model_label = (
                 "Clip" if job.get("kind") in ("clip_job", "clip_output")
+                else (job.get("template_name") or "Title card")
+                if job.get("kind") == "template"
                 else "Effects" if job.get("effect")
                 else MODEL_LABELS.get(job.get("model") or DEFAULT_MODEL, "Wan 2.2")
             )
@@ -9374,6 +9971,7 @@ APP_HTML = (
     <button class="btn" id="tab-tryit">Try It</button>
     <button class="btn secondary" id="tab-create">Create</button>
     <button class="btn secondary" id="tab-clip">Clip</button>
+    <button class="btn secondary" id="tab-titles">Titles</button>
   </div></div>
 
   <div id="create-pane">
@@ -9661,6 +10259,54 @@ APP_HTML = (
   </div>
   <h2 style="max-width:640px;margin:26px auto 6px">Your clips</h2>
   <div id="clip-results" style="max-width:640px;margin:0 auto"><p class="muted">No clips yet. Paste a link above and your clips will show up here.</p></div>
+  </div>
+
+  <div id="titles-pane" style="display:none">
+  <div class="card" style="max-width:640px;margin-left:auto;margin-right:auto">
+    <div class="create-head">
+      <h2>Titles</h2>
+    </div>
+    <p class="muted">Make a title card, a stat card or a promo card, or put captions over one of your clips. These are free. They run on spare computers, so one can take a few minutes to start.</p>
+    <label>Template</label>
+    <select id="tpl-template">
+      <option value="title">Title card</option>
+      <option value="captions">Captions over a clip</option>
+      <option value="stat">Stat card</option>
+      <option value="promo">Promo card</option>
+    </select>
+    <div id="tpl-fields-title">
+      <label>Headline</label>
+      <input id="tpl-title-headline" type="text" maxlength="90" placeholder="Your big words go here">
+      <label>Smaller line under it</label>
+      <input id="tpl-title-subline" type="text" maxlength="120" placeholder="One short line says the rest">
+    </div>
+    <div id="tpl-fields-captions" style="display:none">
+      <label>Your clip</label>
+      <input id="tpl-clip-file" type="file" accept="video/*">
+      <label>Words on the clip</label>
+      <input id="tpl-caption" type="text" maxlength="120" placeholder="The words that sit on your clip">
+    </div>
+    <div id="tpl-fields-stat" style="display:none">
+      <label>The big number or short stat</label>
+      <input id="tpl-stat" type="text" maxlength="20" placeholder="12000">
+      <label>What the stat means</label>
+      <input id="tpl-stat-label" type="text" maxlength="90" placeholder="happy guests this year">
+    </div>
+    <div id="tpl-fields-promo" style="display:none">
+      <label>Headline</label>
+      <input id="tpl-promo-headline" type="text" maxlength="90" placeholder="Your big words go here">
+      <label>Smaller line under it</label>
+      <input id="tpl-promo-subline" type="text" maxlength="120" placeholder="One short line says the rest">
+      <label>Button words at the end</label>
+      <input id="tpl-promo-cta" type="text" maxlength="40" placeholder="Book now">
+    </div>
+    <label>Accent color</label>
+    <input id="tpl-color" type="color" value="#6366f1" style="width:90px;height:44px;padding:2px">
+    <p class="muted" id="tpl-note">Free titles count toward the five free clips on a free account. Paid accounts can make 20 a day.</p>
+    <div id="botcheck4"></div>
+    <button class="btn gen" id="make-title">Make it for free</button>
+    <p id="tpl-msg"></p>
+  </div>
   </div>
 
   <h2 style="max-width:640px;margin:30px auto 6px">Your videos</h2>
@@ -10606,7 +11252,7 @@ async function loadJobs() {
       if (j.partial) html += '<br><span class="muted">Finished shorter than planned. The later segments could not render, and you were charged only for the segments in this file.</span>';
       if (isClipOut && j.score !== null && j.score !== undefined) html += '<br><span class="muted">Score ' + j.score + '</span>';
       if (isClipOut && j.has_thumb) html += '<br><img class="thumb" src="/api/jobs/' + j.id + '/thumb" alt="">';
-      if (isClipJob && j.stage && (j.status === 'queued' || j.status === 'running')) html += '<br><span class="muted">' + j.stage + '</span>';
+      if ((isClipJob || j.kind === 'template') && j.stage && (j.status === 'queued' || j.status === 'running')) html += '<br><span class="muted">' + j.stage + '</span>';
       if (j.camera_presets && j.camera_presets.length) html +=
         '<br><span class="muted">Camera moves ' + j.camera_presets.join(' \u2192 ') + '</span>';
       if (j.effect) html +=
@@ -10672,18 +11318,22 @@ function showTab(which) {
   // prompt in their place.
   const paidSurface = isPaidSurface();
   const pane = which === 'tryit' ? 'create'
+    : which === 'titles' ? 'titles'
     : which === 'clip' ? (paidSurface ? 'clip' : 'upgrade')
     : (paidSurface ? 'create' : 'upgrade');
   $('create-pane').style.display = pane === 'create' ? 'block' : 'none';
   $('clip-pane').style.display = pane === 'clip' ? 'block' : 'none';
+  $('titles-pane').style.display = pane === 'titles' ? 'block' : 'none';
   $('upgrade-pane').style.display = pane === 'upgrade' ? 'block' : 'none';
   $('tab-tryit').className = which === 'tryit' ? 'btn' : 'btn secondary';
   $('tab-create').className = which === 'create' ? 'btn' : 'btn secondary';
   $('tab-clip').className = which === 'clip' ? 'btn' : 'btn secondary';
+  $('tab-titles').className = which === 'titles' ? 'btn' : 'btn secondary';
 }
 $('tab-tryit').onclick = () => showTab('tryit');
 $('tab-create').onclick = () => showTab('create');
 $('tab-clip').onclick = () => showTab('clip');
+$('tab-titles').onclick = () => showTab('titles');
 $('upgrade-creator').onclick = () => $('buy-creator').click();
 $('upgrade-topup').onclick = () => {
   const b = document.querySelector('[data-topup="1000"]');
@@ -10739,6 +11389,57 @@ $('make-clips').onclick = async () => {
     msg('clip-msg', 'Clipping started. First we get the video, then we listen and transcribe it, pick the moments, and cut your clips.', 'ok');
     loadJobs();
   } catch (e) { msg('clip-msg', e.message, 'err'); }
+};
+
+// ---- Titles tab (free template lane) ----
+let tplUploadId = null;
+function tplShowFields() {
+  const t = $('tpl-template').value;
+  for (const name of ['title', 'captions', 'stat', 'promo']) {
+    $('tpl-fields-' + name).style.display = name === t ? '' : 'none';
+  }
+}
+$('tpl-template').addEventListener('change', tplShowFields);
+$('tpl-clip-file').addEventListener('change', async () => {
+  const f = $('tpl-clip-file').files[0];
+  if (!f) return;
+  try {
+    msg('tpl-msg', 'Uploading your clip...');
+    const fd = new FormData(); fd.append('file', f);
+    const r = await fetch('/api/templates/upload', { method: 'POST', body: fd });
+    const q = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(q.detail || ('HTTP ' + r.status));
+    tplUploadId = q.upload_id;
+    msg('tpl-msg', 'Clip ready. It runs ' + q.duration_seconds + ' seconds.', 'ok');
+  } catch (e) { msg('tpl-msg', e.message, 'err'); }
+});
+$('make-title').onclick = async () => {
+  try {
+    const t = $('tpl-template').value;
+    const payload = { template: t, color: $('tpl-color').value };
+    if (t === 'title') {
+      payload.headline = $('tpl-title-headline').value;
+      payload.subline = $('tpl-title-subline').value;
+    } else if (t === 'captions') {
+      if (!tplUploadId) { msg('tpl-msg', 'Upload your clip first.', 'err'); return; }
+      payload.caption = $('tpl-caption').value;
+      payload.upload_id = tplUploadId;
+    } else if (t === 'stat') {
+      payload.stat = $('tpl-stat').value;
+      payload.label = $('tpl-stat-label').value;
+    } else if (t === 'promo') {
+      payload.headline = $('tpl-promo-headline').value;
+      payload.subline = $('tpl-promo-subline').value;
+      payload.cta = $('tpl-promo-cta').value;
+    }
+    msg('tpl-msg', 'Working on the bot check...');
+    const bot = await botFields('botcheck4');
+    Object.assign(payload, bot);
+    await api('/api/templates', { method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload) });
+    msg('tpl-msg', 'Started. Free renders take a few minutes to start, and yours shows up in your videos below as soon as it is done.', 'ok');
+    loadJobs();
+  } catch (e) { msg('tpl-msg', e.message, 'err'); }
 };
 // Characters: saved once, reused across jobs. The picker lists
 // the account's characters; the create form rides along in More

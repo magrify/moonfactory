@@ -1,0 +1,153 @@
+"""Local checks for the HyperFrames template lane (2026-11-17).
+No Modal calls, no network, no Kaggle calls: imports the platform
+module and exercises the pure builders and field cleaning the live
+routes use, plus source level wiring checks for the gates the
+brief demands (zero price, free cap counting, paid daily cap,
+the poll bound).
+
+Run:  modal-venv python scratch/check_template_lane.py
+"""
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).parent.parent
+sys.path.insert(0, str(ROOT / "platform"))
+
+import app  # noqa: E402
+
+failures = []
+
+
+def check(cond, msg):
+    if not cond:
+        failures.append(msg)
+    return cond
+
+
+SRC = (ROOT / "platform" / "app.py").read_text()
+
+# --- constants --------------------------------------------------------
+check(app.TEMPLATE_POLL_LIMIT_SECONDS == 3600,
+      "template poll bound is 3600s")
+check(app.TEMPLATE_DAILY_CAP_PAID == 20,
+      "paid daily cap is 20")
+check(app.TEMPLATE_MAX_SOURCE_SECONDS == 60,
+      "captions source cap is 60s")
+check(set(app.HF_TEMPLATES) == {"title", "captions", "stat", "promo"},
+      "four starter templates exist")
+
+# --- field cleaning -----------------------------------------------------
+clean = app.hf_clean_fields("title", {"headline": "Hello", "subline": ""})
+check(clean["headline"] == "Hello", "headline passes through")
+check(clean["color"] == "#6366f1", "color defaults to the accent")
+check(clean["subline"] == "", "empty optional field allowed")
+
+
+def raises(fn):
+    try:
+        fn()
+    except ValueError:
+        return True
+    return False
+
+
+check(raises(lambda: app.hf_clean_fields("title", {"headline": ""})),
+      "empty headline rejected")
+check(raises(lambda: app.hf_clean_fields("title",
+                                         {"headline": "x" * 91})),
+      "overlong headline rejected")
+check(raises(lambda: app.hf_clean_fields(
+    "title", {"headline": "Hi", "color": "red"})),
+      "non hex color rejected")
+check(raises(lambda: app.hf_clean_fields("nope", {})),
+      "unknown template rejected")
+check(raises(lambda: app.hf_clean_fields("promo", {"subline": "x"})),
+      "promo without headline rejected")
+check(raises(lambda: app.hf_clean_fields("stat", {"stat": "42"})),
+      "stat without label rejected")
+
+# --- composition building ----------------------------------------------
+title_html = app.build_hf_composition(
+    "title", {"headline": "Big Day", "subline": "come see",
+              "color": "#ff8800"})
+check('data-width="1080"' in title_html
+      and 'data-height="1920"' in title_html,
+      "title composition is vertical 1080 x 1920")
+check("Big Day" in title_html, "headline is in the composition")
+check("#ff8800" in title_html, "accent color is in the composition")
+check("__timelines" in title_html, "timeline is registered")
+
+evil = app.build_hf_composition(
+    "title", {"headline": "<script>alert(1)</script>", "color": "#6366f1"})
+check("<script>alert" not in evil, "user html never lands raw")
+check("&lt;script&gt;" in evil, "user text is escaped")
+
+cap_html = app.build_hf_composition(
+    "captions", {"caption": "watch this", "color": "#6366f1"},
+    source_duration=30.0)
+check("source.mp4" in cap_html, "captions composition uses the clip")
+check('data-duration="30"' in cap_html, "captions length follows the clip")
+cap_long = app.build_hf_composition(
+    "captions", {"caption": "watch this", "color": "#6366f1"},
+    source_duration=90.0)
+check('data-duration="60"' in cap_long, "captions length clamps at 60s")
+
+stat_html = app.build_hf_composition(
+    "stat", {"stat": "12000", "label": "happy guests",
+             "color": "#6366f1"})
+check("12000" in stat_html and "happy guests" in stat_html,
+      "stat card carries its words")
+
+promo_html = app.build_hf_composition(
+    "promo", {"headline": "Sale", "subline": "this week",
+              "cta": "Book now", "color": "#6366f1"})
+check("Book now" in promo_html, "promo card carries the button words")
+
+# --- lane wiring in the source ------------------------------------------
+lane = SRC.split("# -- template lane", 1)[1].split(
+    '@web.get("/api/jobs/{job_id}/thumb")', 1)[0]
+check('"charged_cents": 0' in lane, "template jobs charge zero")
+check("_place_hold" not in lane, "template lane places no holds")
+check("FREE_CLIPS_TOTAL" in lane,
+      "unpaid accounts count against the free lifetime cap")
+check("FREE_PLATFORM_TOTAL_CEILING" in lane,
+      "platform free ceiling applies")
+check("freecount:total" in lane,
+      "free jobs increment the platform counter")
+check("TEMPLATE_DAILY_CAP_PAID" in lane,
+      "paid accounts hit the daily cap")
+check("TEMPLATE_WORKER_KEY" in lane,
+      "worker endpoints use the dedicated key")
+check("templateupload:" in lane, "captions uploads are tracked")
+
+mirror = SRC.split("def mirror_status", 1)[1].split("def _poll_limit_for", 1)[0]
+check('provider") == "hyperframes"' in mirror,
+      "mirror has the hyperframes branch")
+check("TEMPLATE_POLL_LIMIT_SECONDS" in mirror,
+      "mirror enforces the template bound")
+poll = SRC.split("def _poll_limit_for", 1)[1].split("def ", 1)[0]
+check("hyperframes" in poll and "TEMPLATE_POLL_LIMIT_SECONDS" in poll,
+      "poll limit table knows the lane")
+check("moonfactory-kaggle" in SRC, "api function carries the kaggle secret")
+check("hf_worker_kernel.py" in SRC, "worker script ships in the api image")
+
+# --- kernel -------------------------------------------------------------
+kernel = (ROOT / "worker-kaggle" / "hf_worker_kernel.py").read_text()
+check("moonfactory-hf-toolchain" in kernel,
+      "kernel mounts the persistent toolchain dataset")
+check("moonfactory-hf-key" in kernel,
+      "kernel reads the worker key from its dataset")
+check("import modal" not in kernel and "modal deploy" not in kernel,
+      "kernel has no Modal fallback")
+check("IDLE_LIMIT_SECONDS = 600" in kernel,
+      "kernel shuts down after ten idle minutes")
+check("/api/worker/hf/heartbeat" in kernel, "kernel heartbeats")
+check("print(KEY" not in kernel and "print(key" not in kernel.lower()
+      .replace("print(key file", ""), "kernel never prints the key")
+
+if failures:
+    print("TEMPLATE LANE CHECK FAILURES:")
+    for f in failures:
+        print(" -", f)
+    sys.exit(1)
+print("ALL TEMPLATE LANE CHECKS PASSED")
