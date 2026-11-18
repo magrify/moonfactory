@@ -5,7 +5,10 @@ Jack's order: wire the community Wan 2.2 NSFW LoRA
 its own lane. The H file drives the high-noise expert, the L
 file the low-noise expert, the worker prepends the trigger
 token for this lane only, and the platform prices the lane
-exactly like the house Production lane.
+exactly like the house Production lane. The lane also carries
+a worker side distilled variant (the LightX2V recipe with the
+pair stacked in the same chain), pinned below; stock remains
+the default the platform routes.
 
 No Modal, no network, no generation: reads the worker and
 platform sources, extracts literals by AST, and replays the
@@ -148,6 +151,92 @@ check(len(samplers) == 2
       and all(s["inputs"]["steps"] == 20 for s in samplers)
       and all(s["inputs"]["cfg"] == 3.5 for s in samplers),
       "stock sampler path changed (expected 20 steps at cfg 3.5)")
+
+# --- The distilled variant (2026-11-18) -------------------------
+# A worker side sampler variant of this lane: the production
+# LightX2V recipe with the NSFW pair stacked in the same chain,
+# built to test whether the fast recipe (the stock proof
+# measured 80.5 cents a segment against the 15-cent entry) makes
+# the lane's pricing honest. Stock stays the default everywhere.
+check(literal(WTREE, "NSFW_VARIANTS") == ("stock", "distilled"),
+      "nsfw variant list drifted")
+check(dict_literal(WTREE, "NSFW_WORKFLOWS")
+      == {"stock": "prod_i2v_a14b.json",
+          "distilled": "prod_i2v_a14b_distilled.json"},
+      "nsfw variant template map drifted")
+check(WORKER.count('nsfw_variant: str = "stock"') >= 2,
+      "builder and dispatcher no longer default the variant to stock")
+check("template = NSFW_WORKFLOWS[nsfw_variant]" in WORKER,
+      "builder no longer picks the lane template by variant")
+check('detail=f"nsfw_variant must be one of {list(NSFW_VARIANTS)}"'
+      in WORKER, "endpoint no longer refuses an unknown variant")
+check('detail="nsfw_variant applies to the nsfw lane only"' in WORKER,
+      "endpoint no longer refuses a distilled variant on another lane")
+check('"nsfw_variant": nsfw_variant if lane == NSFW_LANE else None'
+      in WORKER, "job record no longer carries the variant on nsfw jobs")
+check('"effect", "effect_prompt", "nsfw_variant")' in WORKER,
+      "job status response no longer exposes the variant")
+
+# The distilled patch, replayed on the real distilled template:
+# the template's own LightX2V pair sits at 17/18 as authored,
+# the NSFW pair chains in behind it at 19/20, and each
+# ModelSamplingSD3 is rewired through its expert's NSFW node.
+dwf = json.loads(
+    (ROOT / "workflows" / "prod_i2v_a14b_distilled.json").read_text())
+check("19" not in dwf and "20" not in dwf,
+      "distilled template node ids 19/20 are no longer free")
+check(dwf["17"]["inputs"]["lora_name"]
+      == "wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors"
+      and dwf["17"]["inputs"]["model"] == ["1", 0]
+      and dwf["17"]["inputs"]["strength_model"] == 1.0,
+      "distilled template high-noise LightX2V node drifted")
+check(dwf["18"]["inputs"]["lora_name"]
+      == "wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors"
+      and dwf["18"]["inputs"]["model"] == ["2", 0]
+      and dwf["18"]["inputs"]["strength_model"] == 1.0,
+      "distilled template low-noise LightX2V node drifted")
+dwf["19"] = {
+    "class_type": "LoraLoaderModelOnly",
+    "inputs": {"lora_name": "NSFW-22-H-e8.safetensors",
+               "model": ["17", 0], "strength_model": 1.0},
+}
+dwf["20"] = {
+    "class_type": "LoraLoaderModelOnly",
+    "inputs": {"lora_name": "NSFW-22-L-e8.safetensors",
+               "model": ["18", 0], "strength_model": 1.0},
+}
+for node in dwf.values():
+    if node.get("class_type") == "ModelSamplingSD3":
+        src = node.get("inputs", {}).get("model")
+        if src == ["17", 0]:
+            node["inputs"]["model"] = ["19", 0]
+        elif src == ["18", 0]:
+            node["inputs"]["model"] = ["20", 0]
+dsampling = [n for n in dwf.values()
+             if n.get("class_type") == "ModelSamplingSD3"]
+check(sorted(n["inputs"]["model"] for n in dsampling)
+      == [["19", 0], ["20", 0]],
+      "distilled ModelSamplingSD3 nodes are not both rewired "
+      "through the stacked NSFW pair")
+check(dwf["19"]["inputs"]["lora_name"] == "NSFW-22-H-e8.safetensors"
+      and dwf["19"]["inputs"]["model"] == ["17", 0]
+      and dwf["19"]["inputs"]["strength_model"] == 1.0,
+      "high-noise chain is not UNET, LightX2V, NSFW at strength 1.0")
+check(dwf["20"]["inputs"]["lora_name"] == "NSFW-22-L-e8.safetensors"
+      and dwf["20"]["inputs"]["model"] == ["18", 0]
+      and dwf["20"]["inputs"]["strength_model"] == 1.0,
+      "low-noise chain is not UNET, LightX2V, NSFW at strength 1.0")
+check(dwf["17"]["inputs"]["lora_name"].startswith("wan2.2_i2v_lightx2v")
+      and dwf["18"]["inputs"]["lora_name"].startswith("wan2.2_i2v_lightx2v"),
+      "the stack replaced the LightX2V pair instead of chaining behind it")
+# The distilled sampler path: the production recipe's authored
+# values, untouched by the stack.
+dsamplers = [n for n in dwf.values()
+             if n.get("class_type") == "KSamplerAdvanced"]
+check(len(dsamplers) == 2
+      and all(s["inputs"]["steps"] == 4 for s in dsamplers)
+      and all(s["inputs"]["cfg"] == 1.0 for s in dsamplers),
+      "distilled sampler path changed (expected 4 steps at cfg 1.0)")
 
 # --- The platform shelf entry ----------------------------------
 MODELS = literal(PTREE, "MODELS")

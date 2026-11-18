@@ -47,6 +47,7 @@ Request JSON:
 | `camera_pose` | string | no | One of `Static`, `Pan Up`, `Pan Down`, `Pan Left`, `Pan Right`, `Zoom In`, `Zoom Out`, `Anti Clockwise (ACW)`, `ClockWise (CW)`. Switches the render to the Fun Camera path (below). Production lane only, exactly 1 segment, no end image (422 otherwise). |
 | `camera_speed` | number | no | Fun Camera move speed, 0.1 to 3.0, default 1.0 (422 outside). Only meaningful with `camera_pose`. |
 | `effect` | string | no | One effect id from the effects table (below). Switches the render to the effects path: the record's lane becomes `"effects"`, a start image is required, exactly 1 segment, no end image, no `camera_pose` (422 otherwise). |
+| `nsfw_variant` | string | no | `"stock"` (default) or `"distilled"`. The `nsfw` lane's sampler variant: stock runs the authored A14B recipe (20 steps, cfg 3.5) with the lane's LoRA pair on the base experts; distilled runs the production LightX2V template (4 steps, cfg 1.0) with the pair stacked behind the LightX2V pair. Any other value, or a non-stock variant on another lane, is a 422. The record carries `nsfw_variant` on nsfw jobs. The platform routes stock; distilled exists to be measured. |
 ### Fun Camera path (camera conditioning, live 2026-11-16)
 
 A job with `camera_pose` set renders through
