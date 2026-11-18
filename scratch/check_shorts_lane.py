@@ -1,0 +1,329 @@
+"""Local checks for the faceless shorts lane (2026-11-18).
+No Modal calls, no network: imports the platform module and the
+shorts pipeline module, exercises the pure pieces (script
+splitting, search terms, caption timing, stock response parsing
+against canned payloads, the dark-safe topic gate), runs one
+tiny real ffmpeg assembly from generated clips, and pins the
+lane wiring in the source (zero price, free cap counting, paid
+daily cap, voice gate, poll bound, studio surface).
+
+Run:  modal-venv python scratch/check_shorts_lane.py
+"""
+import json
+import os
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+ROOT = Path(__file__).parent.parent
+sys.path.insert(0, str(ROOT / "platform"))
+
+import app  # noqa: E402
+import shorts  # noqa: E402
+
+failures = []
+
+
+def check(cond, msg):
+    if not cond:
+        failures.append(msg)
+    return cond
+
+
+SRC = (ROOT / "platform" / "app.py").read_text()
+SHORTS_SRC = (ROOT / "platform" / "shorts.py").read_text()
+
+# --- constants ---------------------------------------------------------
+check(app.SHORTS_DAILY_CAP_PAID == 20, "shorts paid daily cap is 20")
+check(app.TEMPLATE_DAILY_CAP_PAID == 20,
+      "shorts cap mirrors the titles cap")
+check(app.SHORT_POLL_LIMIT_SECONDS == 3900,
+      "short poll bound is 3900s, the clip bound shape")
+check(app.SHORTS_STAGES == (
+    "Finding footage", "Recording the narration",
+    "Timing the captions", "Putting it together"),
+    "four shorts stages exist")
+for stage in app.SHORTS_STAGES:
+    check(":" not in stage and ";" not in stage and "-" not in stage,
+          f"stage copy follows the plain copy rule: {stage}")
+check(shorts.WIDTH == 1080 and shorts.HEIGHT == 1920,
+      "shorts are vertical 1080 x 1920")
+check(shorts.SHORTS_MAX_LINES == 12, "script line cap is 12")
+
+# --- script splitting ----------------------------------------------------
+lines = shorts.split_script(
+    "The ocean covers most of our planet. Sunlight only reaches "
+    "the top layer. Down deep it is cold and dark.")
+check(lines == [
+    "The ocean covers most of our planet.",
+    "Sunlight only reaches the top layer.",
+    "Down deep it is cold and dark."], "prose splits into sentences")
+lined = shorts.split_script("First line here.\nSecond line follows.")
+check(lined == ["First line here.", "Second line follows."],
+      "author line breaks are honored")
+long_line = ("word " * 90).strip() + "."
+wrapped = shorts.split_script(long_line + " Short closer.")
+check(all(len(ln) <= shorts.SHORTS_MAX_LINE_CHARS for ln in wrapped),
+      "overlong lines wrap to the per line cap")
+check(len(wrapped) >= 3, "wrapping makes more scenes")
+
+
+def raises_value(fn):
+    try:
+        fn()
+    except ValueError:
+        return True
+    return False
+
+
+check(raises_value(lambda: shorts.split_script("")),
+      "empty script rejected")
+check(raises_value(lambda: shorts.split_script("Just one line.")),
+      "one line is not a short")
+check(raises_value(lambda: shorts.split_script("x " * 900)),
+      "overlong script rejected")
+check(raises_value(lambda: shorts.split_script(
+    "\n".join(f"Line number {i}." for i in range(14)))),
+    "too many lines rejected")
+
+# --- search terms ---------------------------------------------------------
+terms = shorts.search_terms_for_line(
+    "Sunlight only reaches the top layer of the water.", "the ocean")
+check("sunlight" in terms and "water" in terms,
+      "terms come from the line's content words")
+check("the" not in terms.split() and "only" not in terms.split(),
+      "stopwords stay out of the terms")
+fallback = shorts.search_terms_for_line("It is on.", "deep ocean")
+check("ocean" in fallback, "thin lines fall back to the topic")
+check(shorts.search_terms_for_line("It is on.", "") == "nature",
+      "the last resort term is nature")
+check(shorts._query_ladder("deep water cold") == [
+    "deep water cold", "deep water", "deep"],
+    "the commons query ladder broadens step by step")
+check(shorts._query_ladder("ocean") == ["ocean"],
+      "a single word has no ladder")
+
+# --- captions --------------------------------------------------------------
+timings = [(0.0, 3.0), (3.35, 3.2), (6.9, 2.8)]
+events = shorts.caption_events(lines, timings)
+check(all(events[i][0] <= events[i + 1][0]
+          for i in range(len(events) - 1)),
+      "caption events are in order")
+check(all(len(text.split()) <= shorts.CAPTION_MAX_WORDS
+          for _s, _e, text in events),
+      "caption chunks hold at most four words")
+check(all(end <= 9.7 + 1e-6 for _s, end, _t in events),
+      "captions stay inside the narration")
+check(events[0][0] == 0.0, "captions start with the narration")
+ass = shorts.build_captions_ass(lines, timings)
+check("PlayResX: 1080" in ass and "PlayResY: 1920" in ass,
+      "caption canvas is the short's shape")
+check("Dialogue:" in ass and "The ocean covers most" in ass,
+      "caption words are in the file")
+evil = shorts.build_captions_ass(["A {brace} test.", "Second {x} line."],
+                                 [(0.0, 1.0), (1.35, 1.0)])
+check("{brace}" not in evil, "caption braces are escaped")
+
+# --- topic writing is dark-safe -------------------------------------------
+saved_env = {}
+for key in ("GEMINI_API_KEY", "OPENROUTER_API_KEY"):
+    saved_env[key] = os.environ.pop(key, None)
+try:
+    check(shorts.script_routes_configured() is False,
+          "no keys means no topic route")
+    try:
+        shorts.script_from_topic("the ocean")
+        check(False, "topic writing raises with no route configured")
+    except RuntimeError:
+        check(True, "topic writing raises with no route configured")
+finally:
+    for key, value in saved_env.items():
+        if value is not None:
+            os.environ[key] = value
+
+# --- stock response parsing (canned payloads, no network) ------------------
+canned_pexels = {
+    "videos": [{
+        "id": 1, "width": 1080, "height": 1920, "duration": 8,
+        "url": "https://www.pexels.com/video/1",
+        "user": {"name": "Pat Maker"},
+        "video_files": [
+            {"file_type": "video/mp4", "width": 640, "height": 360,
+             "link": "https://files.example/small.mp4"},
+            {"file_type": "video/mp4", "width": 1080, "height": 1920,
+             "link": "https://files.example/good.mp4"},
+        ],
+    }, {
+        "id": 2, "url": "https://www.pexels.com/video/2",
+        "user": {"name": "No Files"}, "video_files": [],
+    }],
+}
+real_get_json = shorts._get_json
+shorts._get_json = lambda url, headers=None: canned_pexels
+try:
+    found = shorts.pexels_search_videos("ocean", "test-key")
+finally:
+    shorts._get_json = real_get_json
+check(len(found) == 1, "pexels results without files are skipped")
+check(found and found[0]["download_url"].endswith("good.mp4"),
+      "the file nearest the frame width is chosen")
+check(found and found[0]["credit"] == "Pat Maker",
+      "the photographer credit is carried")
+
+canned_commons = {
+    "query": {"pages": {"7": {
+        "title": "File:Ocean waves.webm",
+        "canonicalurl": "https://commons.wikimedia.org/wiki/File:Ocean",
+        "videoinfo": [{
+            "derivatives": [
+                {"src": "https://upload.example/small.webm",
+                 "width": 320, "type": "video/webm"},
+                {"src": "https://upload.example/big.mp4",
+                 "width": 1024, "type": "video/mp4"},
+            ],
+        }],
+        "imageinfo": [{"extmetadata": {
+            "Artist": {"value": "Jo Maker"},
+            "LicenseShortName": {"value": "CC BY 4.0"},
+        }}],
+    }}},
+}
+shorts._get_json = lambda url, headers=None: canned_commons
+try:
+    found_c = shorts.commons_search_videos("ocean waves")
+finally:
+    shorts._get_json = real_get_json
+check(len(found_c) == 1, "commons results parse")
+check(found_c and found_c[0]["download_url"].endswith("big.mp4"),
+      "the mp4 derivative nearest the frame is chosen")
+check(found_c and found_c[0]["license"] == "CC BY 4.0",
+      "the commons license name is carried")
+check(found_c and found_c[0]["credit"] == "Jo Maker",
+      "the commons artist is carried")
+
+# --- one tiny real assembly --------------------------------------------------
+if subprocess.run(["which", "ffmpeg"], capture_output=True).returncode == 0:
+    with tempfile.TemporaryDirectory() as tmp:
+        work = Path(tmp)
+        clips = []
+        for i, color in enumerate(("navy", "teal")):
+            clip = work / f"src_{i}.mp4"
+            subprocess.run(
+                ["ffmpeg", "-y", "-f", "lavfi", "-i",
+                 f"color=c={color}:s=640x360:d=3:r=30",
+                 "-c:v", "libx264", "-pix_fmt", "yuv420p", str(clip)],
+                capture_output=True, check=True)
+            clips.append(clip)
+        wavs = []
+        durations = []
+        for i, freq in enumerate((440, 520)):
+            wav = work / f"line_{i}.wav"
+            subprocess.run(
+                ["ffmpeg", "-y", "-f", "lavfi", "-i",
+                 f"sine=frequency={freq}:duration=0.9",
+                 "-ar", "24000", "-ac", "1", str(wav)],
+                capture_output=True, check=True)
+            wavs.append(wav)
+            durations.append(0.9)
+        narration = shorts.build_narration_track(wavs, durations, work)
+        scene_durations = [
+            durations[0] + shorts.LINE_GAP_SECONDS,
+            durations[1] + shorts.TAIL_SECONDS,
+        ]
+        ass_path = work / "captions.ass"
+        ass_path.write_text(shorts.build_captions_ass(
+            ["First tiny scene speaks.", "Second tiny scene speaks."],
+            [(0.0, 0.9), (scene_durations[0], 0.9)]), encoding="utf-8")
+        bed = work / "bed.wav"
+        subprocess.run(
+            ["ffmpeg", "-y", "-f", "lavfi", "-i",
+             "sine=frequency=220:duration=3", "-ar", "24000",
+             "-ac", "1", str(bed)], capture_output=True, check=True)
+        out = work / "out.mp4"
+        info = shorts.assemble_short(
+            clips, scene_durations, narration, ass_path, out, work,
+            bed_path=bed, watermark=True)
+        check(info["width"] == 1080 and info["height"] == 1920,
+              "assembled short is 1080 x 1920")
+        check(info["has_audio"], "assembled short carries audio")
+        check(abs(info["duration"] - sum(scene_durations)) < 0.35,
+              "assembled length matches the scenes")
+
+# --- lane wiring in the source ----------------------------------------------
+lane = SRC.split("# -- faceless shorts lane", 1)[1].split(
+    '@web.get("/api/jobs/{job_id}/thumb")', 1)[0]
+check('"charged_cents": 0' in lane, "short jobs charge zero")
+check("_place_hold" not in lane, "the shorts lane places no holds")
+check("FREE_CLIPS_TOTAL" in lane,
+      "unpaid accounts count against the free lifetime cap")
+check("FREE_PLATFORM_TOTAL_CEILING" in lane,
+      "platform free ceiling applies")
+check("freecount:total" in lane,
+      "free jobs increment the platform counter")
+check("SHORTS_DAILY_CAP_PAID" in lane, "paid accounts hit the daily cap")
+check("process_short_job.spawn" in lane, "creation spawns the runner")
+check("picking a voice is a paid feature" in lane,
+      "voice picking keeps the paid gate")
+check("SPEECH_VOICES" in lane, "the picker set is the platform set")
+check("script_from_topic" in lane,
+      "topic mode rides the wired text routes")
+check("split_script" in lane, "scripts are validated at creation")
+
+processor = SRC.split("def process_short_job", 1)[1].split(
+    "# ---------------------------------------------------------------------------\n# Config", 1)[0]
+check('from_name(\n            "sinclip-audio", "generate_voiceover")'
+      in processor or '"sinclip-audio", "generate_voiceover"' in processor,
+      "narration calls the platform Kokoro stage")
+check("find_stock_clip" in processor, "the runner finds stock per line")
+check("build_captions_ass" in processor, "the runner times captions")
+check("assemble_short" in processor, "the runner assembles the short")
+check("_short_word_check" in processor,
+      "the runner word checks the finished short")
+check('"the short could not be made, nothing was charged"' in processor,
+      "failures charge nothing")
+
+mirror = SRC.split("def mirror_status", 1)[1].split(
+    "def _poll_limit_for", 1)[0]
+check('provider") == "shorts"' in mirror, "mirror has the shorts branch")
+check("SHORT_POLL_LIMIT_SECONDS" in mirror,
+      "mirror enforces the short bound")
+processed = SRC.split("def ensure_processed", 1)[1].split(
+    "def ensure_poster", 1)[0]
+check('provider") == "shorts"' in processed,
+      "finished shorts serve as made")
+check('"Faceless short"' in SRC, "the library label exists")
+check(SRC.count('"/platform/shorts.py"') == 2,
+      "shorts.py ships in both images that run it")
+check("PEXELS_API_KEY" in SHORTS_SRC, "the stock key is named in the module")
+check('"Authorization"' in SHORTS_SRC, "the pexels key rides its header")
+check("api.pexels.com" in SHORTS_SRC, "the pexels api base is wired")
+check("commons.wikimedia.org" in SHORTS_SRC,
+      "the commons fallback is wired")
+
+# --- studio surface ------------------------------------------------------------
+check('id="tab-shorts"' in SRC, "the studio has the Shorts tab")
+check('id="shorts-pane"' in SRC, "the studio has the Shorts pane")
+check('id="short-topic"' in SRC and 'id="short-script"' in SRC,
+      "the pane takes a topic or a script")
+check('id="short-voice"' in SRC, "the pane carries the voice picker")
+check('id="botcheck5"' in SRC and "'botcheck5'" in SRC,
+      "the pane has its bot check widget")
+check("loadShortsConfig" in SRC, "the pane loads its config")
+check("/api/shorts" in SRC, "the pane posts to the shorts route")
+pane = SRC.split('id="shorts-pane"', 1)[1].split('id="short-msg"', 1)[0]
+pane_voices = {
+    part.split('"')[0]
+    for part in pane.split('<option value="')[1:]
+}
+check(pane_voices == set(app.SPEECH_VOICES),
+      "the pane picker offers exactly the platform voice set")
+check(";" not in pane.split("<p class=\"muted\">")[1].split("</p>")[0],
+      "pane copy follows the plain copy rule")
+
+if failures:
+    print("SHORTS LANE CHECK FAILURES:")
+    for f in failures:
+        print(" -", f)
+    sys.exit(1)
+print("ALL SHORTS LANE CHECKS PASSED")

@@ -1,0 +1,774 @@
+"""Faceless shorts lane: the MoneyPrinterTurbo shape (harry0703/
+MoneyPrinterTurbo, MIT) rebuilt from Moonfactory's own pieces
+instead of ported. A topic or a pasted script goes in; a vertical
+narrated short comes out.
+
+Pipeline, one pass per line of the script:
+
+1. The script splits into lines (sentences, wrapped to a spoken
+   length). A topic becomes a script first, through the text
+   routes the platform already has wired for the Clip lane's
+   picking brain (the platform Gemini key, then the free
+   OpenRouter models), behind the same dark-safe gates: no key,
+   no call, and the caller falls back to asking for a pasted
+   script. No new provider is wired for this lane.
+2. Each line gets stock search terms drawn from its own words.
+3. One stock clip per line: Pexels when its key is configured
+   (PEXELS_API_KEY in the platform secret; the Pexels API terms
+   ask for a prominent link back and photographer credit where
+   possible, both recorded per scene on the job record), and
+   openly licensed Wikimedia Commons clips otherwise, so the
+   lane works before the key lands and the credit trail exists
+   either way.
+4. Narration per line from the platform's Kokoro stage (called
+   by the processor in app.py, not here: this module never talks
+   to Modal). The measured length of each line's wav is that
+   scene's length, the MoneyPrinterTurbo timing rule.
+5. Captions timed from those same measured lengths: each line's
+   words are placed across its own audio by character share and
+   grouped into short chunks, burned in as an ASS track. The
+   finished short's audio still goes through the platform's
+   word check stage in the processor, which holds the real
+   faster-whisper word timings and the same-voice fix pass.
+6. A music bed under the narration and one ffmpeg assembly at
+   1080 x 1920.
+
+This module is pure pipeline (stdlib + ffmpeg subprocesses), the
+way clipping.py is: app.py's process_short_job drives it and owns
+the job record, the quotas, and the audio stage calls.
+"""
+
+import json
+import os
+import re
+import subprocess
+import urllib.error
+import urllib.parse
+import urllib.request
+from pathlib import Path
+
+WIDTH = 1080
+HEIGHT = 1920
+FPS = 30
+
+# Script shape: a short is a handful of spoken lines. The total
+# cap keeps a short under roughly two minutes of narration; the
+# per line cap keeps one scene's stock clip and caption chunks
+# honest (a line is one breath, one scene).
+SHORTS_MAX_LINES = 12
+SHORTS_MAX_SCRIPT_CHARS = 1600
+SHORTS_MAX_LINE_CHARS = 300
+SHORTS_MIN_LINES = 2
+# The pause the narration track leaves between lines, and the
+# tail after the last one. Scene lengths include the pause, so
+# picture and voice change together.
+LINE_GAP_SECONDS = 0.35
+TAIL_SECONDS = 0.4
+CAPTION_MAX_WORDS = 4
+CAPTION_MIN_SECONDS = 0.35
+
+PEXELS_API_BASE = "https://api.pexels.com/v1"
+COMMONS_API = "https://commons.wikimedia.org/w/api.php"
+# Wikimedia's robot policy asks automated clients for a
+# descriptive agent string with a contact, and throttles
+# anonymous bursts; the retry below rides out its 429s.
+USER_AGENT = ("Moonfactory/1.0 (https://magrify.com; "
+              "support@magrify.com) faceless shorts lane")
+
+# The platform's Gemini chain, mirrored from clipping.py's
+# GEMINI_PICK_MODELS (same key, same models, same order): the
+# Clip lane's picking brain is the route this lane borrows for
+# topic writing.
+GEMINI_SCRIPT_MODELS = ("gemini-3.8-flash", "gemini-3.5-flash-lite")
+
+_STOPWORDS = frozenset("""
+a an the and or but if then else when while of at by for with
+about into through after over under again further once here there
+all any both each few more most other some such no nor not only
+own same so than too very can will just is are was were be been
+being have has had having do does did doing would should could
+ought i you he she it we they them his her its our their this
+that these those am an as from on in to out up down
+""".split())
+
+
+# ---------------------------------------------------------------------------
+# Script shape
+# ---------------------------------------------------------------------------
+
+def _wrap_long_line(line: str) -> list:
+    """Split one overlong sentence into spoken length pieces at
+    word boundaries, preferring clause punctuation."""
+    pieces = []
+    rest = line.strip()
+    while len(rest) > SHORTS_MAX_LINE_CHARS:
+        cut = rest.rfind(" ", 0, SHORTS_MAX_LINE_CHARS)
+        if cut < SHORTS_MAX_LINE_CHARS // 2:
+            cut = SHORTS_MAX_LINE_CHARS
+            # Never split a word in half if a boundary exists
+            # anywhere reasonable; a hard cut is the last resort.
+            boundary = rest.rfind(" ", 0, SHORTS_MAX_LINE_CHARS + 40)
+            if boundary > 0:
+                cut = boundary
+        pieces.append(rest[:cut].strip())
+        rest = rest[cut:].strip()
+    if rest:
+        pieces.append(rest)
+    return pieces
+
+
+def split_script(text: str) -> list:
+    """Split a pasted or generated script into narration lines.
+
+    Newlines are the author's own scene breaks and are honored
+    first; a block of prose splits into sentences. Every line is
+    wrapped to the per line cap. Raises ValueError on anything
+    the lane cannot speak: empty, too few lines, too many lines,
+    or over the total cap."""
+    text = (text or "").strip()
+    if not text:
+        raise ValueError("write or paste a script first")
+    if len(text) > SHORTS_MAX_SCRIPT_CHARS:
+        raise ValueError(
+            f"that script is too long, keep it under "
+            f"{SHORTS_MAX_SCRIPT_CHARS} characters")
+    blocks = [b.strip() for b in text.splitlines() if b.strip()]
+    lines = []
+    for block in blocks:
+        if len(block) <= SHORTS_MAX_LINE_CHARS and "\n" in text:
+            lines.append(block)
+            continue
+        # Prose block (or an overlong pasted line): sentences
+        # first, then wrap whatever is still too long.
+        for m in re.finditer(r"[^.!?]+[.!?]*", block):
+            piece = m.group(0).strip()
+            if piece:
+                lines.extend(_wrap_long_line(piece))
+    lines = [ln.strip() for ln in lines if ln.strip()]
+    if len(lines) < SHORTS_MIN_LINES:
+        raise ValueError("a short needs at least two lines of script")
+    if len(lines) > SHORTS_MAX_LINES:
+        raise ValueError(
+            f"that script makes {len(lines)} scenes, keep it to "
+            f"{SHORTS_MAX_LINES} lines or fewer")
+    return lines
+
+
+def search_terms_for_line(line: str, topic: str = "") -> str:
+    """Stock search terms for one line: its strongest content
+    words, in order, with the topic's words as the fallback and
+    a plain nature query as the last resort. Deterministic, so a
+    scene's footage choice is reproducible from the job record."""
+    def content_words(text):
+        out = []
+        for word in re.findall(r"[a-z0-9']+", (text or "").lower()):
+            word = word.strip("'")
+            if len(word) >= 4 and word not in _STOPWORDS \
+                    and word not in out:
+                out.append(word)
+        return out
+
+    words = content_words(line)[:4]
+    if len(words) < 2:
+        words = (words + content_words(topic))[:4]
+    if not words:
+        return "nature"
+    return " ".join(words)
+
+
+# ---------------------------------------------------------------------------
+# Topic to script: the platform's already wired text routes
+# ---------------------------------------------------------------------------
+
+_SCRIPT_PROMPT = (
+    "Write a narration script for a vertical short video about: "
+    "{topic}\n"
+    "Write 5 to 8 lines. Each line is one short spoken sentence "
+    "of at most 25 words. Put one line on each line of the reply. "
+    "No title, no numbering, no stage directions, no quotation "
+    "marks. Plain spoken English only."
+)
+
+
+def _gemini_text(prompt: str, api_key: str) -> str:
+    """One text generation call on the platform's Gemini key,
+    shaped like clipping._gemini_pick but returning the raw
+    text: the script writer wants prose, not the picker's JSON."""
+    body = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"temperature": 0.7},
+    }
+    last_exc = None
+    for model in GEMINI_SCRIPT_MODELS:
+        url = (
+            "https://generativelanguage.googleapis.com/v1beta/models/"
+            f"{model}:generateContent?key=" + urllib.parse.quote(api_key)
+        )
+        req = urllib.request.Request(
+            url, data=json.dumps(body).encode(),
+            headers={"Content-Type": "application/json"}, method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                data = json.loads(resp.read())
+            text = data["candidates"][0]["content"]["parts"][0]["text"]
+            if text and text.strip():
+                return text
+        except Exception as exc:  # noqa: BLE001 - next model
+            last_exc = exc
+    raise RuntimeError(f"gemini script writing unavailable: {last_exc}")
+
+
+def _env_value(name):
+    """One environment value by name, or an empty string.
+    Written as a scan so call sites stay plain."""
+    for key, value in os.environ.items():
+        if key == name:
+            return value
+    return ""
+
+
+def _openrouter_text(prompt: str) -> str:
+    """One text generation call on the free OpenRouter chain the
+    Clip lane's picking fallback uses (llm_providers.PICK_CHAIN,
+    free models only, so this lane adds no text cost either).
+    Raises when the key is absent or every free model fails."""
+    import llm_providers
+
+    last_exc = None
+    for provider_id, model in llm_providers.PICK_CHAIN:
+        provider = llm_providers._provider(provider_id)
+        key_name = provider["key_env"]
+        bearer = _env_value(key_name)
+        if not bearer or not provider["base_url"]:
+            continue
+        url = provider["base_url"].rstrip("/") + "/chat/completions"
+        body = {
+            "model": model,
+            "temperature": 0.7,
+            "messages": [{"role": "user", "content": prompt}],
+        }
+        req = urllib.request.Request(
+            url, data=json.dumps(body).encode(),
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": "Bearer " + bearer,
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                data = json.loads(resp.read())
+            text = data["choices"][0]["message"]["content"] or ""
+            if text.strip():
+                return text
+        except Exception as exc:  # noqa: BLE001 - next free model
+            last_exc = exc
+    raise RuntimeError(f"free script writing unavailable: {last_exc}")
+
+
+def script_routes_configured() -> bool:
+    """Whether any wired route could write a script from a
+    topic: the platform Gemini key, or the free picking fallback
+    chain. The studio reads this to offer topic mode only when
+    it can work."""
+    if os.environ.get("GEMINI_API_KEY"):
+        return True
+    try:
+        import llm_providers
+
+        return llm_providers.any_configured()
+    except Exception:  # noqa: BLE001 - module not shipped, no route
+        return False
+
+
+def script_from_topic(topic: str) -> str:
+    """Write a script for a topic through the wired routes, in
+    the Clip lane's order: Gemini first (the primary brain), the
+    free OpenRouter chain after. Returns script text the caller
+    validates with split_script. Raises RuntimeError when no
+    route is configured or every route fails; the create route
+    turns that into a clean ask for a pasted script."""
+    topic = (topic or "").strip()
+    if not topic:
+        raise ValueError("give the short a topic first")
+    prompt = _SCRIPT_PROMPT.format(topic=topic)
+    errors = []
+    if os.environ.get("GEMINI_API_KEY"):
+        try:
+            return _gemini_text(prompt, os.environ["GEMINI_API_KEY"])
+        except Exception as exc:  # noqa: BLE001 - try the free chain
+            errors.append(str(exc))
+    try:
+        import llm_providers
+
+        configured = llm_providers.any_configured()
+    except Exception:  # noqa: BLE001
+        configured = False
+    if configured:
+        try:
+            return _openrouter_text(prompt)
+        except Exception as exc:  # noqa: BLE001
+            errors.append(str(exc))
+    if not errors:
+        raise RuntimeError("no script writing route is configured")
+    raise RuntimeError("script writing failed: " + "; ".join(errors)[:200])
+
+
+# ---------------------------------------------------------------------------
+# Stock footage
+# ---------------------------------------------------------------------------
+
+def _open_with_retry(req, timeout: int):
+    """Open one request, riding out the transient 429 and 503
+    answers both stock sources give anonymous bursts."""
+    import time
+
+    last_exc = None
+    for attempt, wait in enumerate((0, 5, 15)):
+        if wait:
+            time.sleep(wait)
+        try:
+            return urllib.request.urlopen(req, timeout=timeout)
+        except urllib.error.HTTPError as exc:
+            last_exc = exc
+            if exc.code not in (429, 503):
+                raise
+    raise last_exc
+
+
+def _get_json(url: str, headers: dict = None) -> dict:
+    req = urllib.request.Request(
+        url, headers={"User-Agent": USER_AGENT, **(headers or {})})
+    with _open_with_retry(req, timeout=60) as resp:
+        return json.loads(resp.read())
+
+
+def _download(url: str, dest: Path) -> Path:
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    with _open_with_retry(req, timeout=300) as resp, \
+            dest.open("wb") as fh:
+        while True:
+            chunk = resp.read(1024 * 1024)
+            if not chunk:
+                break
+            fh.write(chunk)
+    if dest.stat().st_size < 10_000:
+        dest.unlink(missing_ok=True)
+        raise RuntimeError("stock download came back empty")
+    return dest
+
+
+def pexels_search_videos(query: str, api_key: str, per_page: int = 6) -> list:
+    """Search Pexels videos (portrait first, this lane is
+    vertical). Returns scene candidates with the download link,
+    the photographer's name, and the Pexels page, the credit
+    trail the API terms ask us to keep."""
+    url = PEXELS_API_BASE + "/videos/search?" + urllib.parse.urlencode({
+        "query": query, "orientation": "portrait",
+        "per_page": per_page,
+    })
+    data = _get_json(url, headers={"Authorization": api_key})
+    out = []
+    for video in data.get("videos") or []:
+        files = [
+            f for f in video.get("video_files") or []
+            if f.get("file_type") == "video/mp4" and f.get("link")
+        ]
+        if not files:
+            continue
+        usable = [f for f in files if (f.get("height") or 0) >= 720]
+        pool = usable or files
+        chosen = min(
+            pool,
+            key=lambda f: abs((f.get("width") or 0) - WIDTH))
+        out.append({
+            "provider": "pexels",
+            "download_url": chosen["link"],
+            "width": chosen.get("width"),
+            "height": chosen.get("height"),
+            "duration": video.get("duration"),
+            "page_url": video.get("url"),
+            "credit": (video.get("user") or {}).get("name") or "",
+        })
+    return out
+
+
+def commons_search_videos(query: str, per_page: int = 8) -> list:
+    """Search Wikimedia Commons for openly licensed video. Uses
+    the videoinfo derivatives (the transcoded webm and mp4
+    versions Commons itself publishes) and carries the artist
+    and license names from the file's metadata as the credit."""
+    params = {
+        "action": "query", "format": "json",
+        "generator": "search",
+        "gsrsearch": f"filetype:video {query}",
+        "gsrnamespace": 6, "gsrlimit": per_page,
+        "prop": "videoinfo|imageinfo",
+        "viprop": "url|size|mime|derivatives",
+        "iiprop": "url|extmetadata",
+    }
+    url = COMMONS_API + "?" + urllib.parse.urlencode(params)
+    data = _get_json(url)
+    pages = (data.get("query") or {}).get("pages") or {}
+    out = []
+    for page in pages.values():
+        info = (page.get("videoinfo") or [{}])[0]
+        derivatives = [
+            d for d in info.get("derivatives") or [] if d.get("src")
+        ]
+        if not derivatives:
+            continue
+        mp4s = [d for d in derivatives
+                if (d.get("type") or "").startswith("video/mp4")]
+        pool = mp4s or derivatives
+        chosen = min(pool, key=lambda d: abs((d.get("width") or 0) - WIDTH))
+        meta = ((page.get("imageinfo") or [{}])[0]
+                .get("extmetadata") or {})
+        artist = re.sub(
+            r"<[^>]+>", "",
+            (meta.get("Artist") or {}).get("value") or "").strip()
+        license_name = (meta.get("LicenseShortName") or {}).get(
+            "value") or ""
+        out.append({
+            "provider": "commons",
+            "download_url": chosen["src"],
+            "width": chosen.get("width"),
+            "height": chosen.get("height"),
+            "duration": None,
+            "page_url": (page.get("canonicalurl")
+                         or info.get("descriptionurl") or ""),
+            "credit": artist,
+            "license": license_name,
+        })
+    return out
+
+
+def _query_ladder(terms: str) -> list:
+    """Search queries from most specific to broadest. Pexels
+    ranks a full phrase well; Commons search matches loosely,
+    so a scene whose phrase finds nothing there retries with
+    its first two words, then its first word alone."""
+    words = terms.split()
+    ladder = [terms]
+    if len(words) > 2:
+        ladder.append(" ".join(words[:2]))
+    if len(words) > 1:
+        ladder.append(words[0])
+    return ladder
+
+
+def find_stock_clip(terms: str, dest_dir: Path, index: int,
+                    api_key: str = "") -> dict:
+    """One stock clip for one scene: Pexels when its key is
+    configured, Wikimedia Commons otherwise and as the fallback
+    when Pexels has nothing for the terms. Downloads the file
+    into dest_dir and returns the scene record (provider, terms,
+    page, credit) the job record keeps. Raises RuntimeError when
+    no source yields a usable clip."""
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    errors = []
+    candidates = []
+    if api_key:
+        try:
+            candidates = pexels_search_videos(terms, api_key)
+        except Exception as exc:  # noqa: BLE001 - fall to Commons
+            errors.append(f"pexels: {exc}")
+    used_query = terms
+    if not candidates:
+        # Commons search matches loosely and its video corpus
+        # is small, so the ladder works harder there and a
+        # relevance gate keeps the loose matches honest: a
+        # candidate counts as a match only when one of the
+        # scene's content words appears in its file title
+        # (Commons titles describe their footage). The ladder
+        # runs the full phrase, then title searches for the
+        # scene's longest (rarest) words first, then the plain
+        # broadening ladder. If nothing passes the gate, the
+        # first answer set still serves: a loose match beats
+        # no short, and the job record keeps the terms either
+        # way. Within a set, usable widths go first.
+        content = [w for w in terms.split() if len(w) >= 4]
+
+        def relevant(cand):
+            title = (cand.get("page_url") or "").lower()
+            variants = set()
+            for w in content:
+                variants.add(w)
+                if w.endswith("s") and len(w) > 4:
+                    variants.add(w[:-1])
+            return any(
+                re.search(r"(?<![a-z])" + re.escape(w) + r"(?![a-z])",
+                          title)
+                for w in variants)
+
+        def by_width(found):
+            return sorted(
+                found,
+                key=lambda c: 0 if (c.get("width") or 0) >= 480
+                else 1)
+
+        queries = [terms]
+        for word in sorted(content, key=len, reverse=True):
+            queries.append(f"intitle:{word}")
+        queries += _query_ladder(terms)[1:]
+        first_found = None
+        seen = set()
+        for query in queries:
+            if query in seen:
+                continue
+            seen.add(query)
+            try:
+                found = commons_search_videos(query)
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"commons: {exc}")
+                continue
+            if not found:
+                continue
+            if first_found is None:
+                first_found = (query, found)
+            gated = [c for c in found if relevant(c)]
+            if gated:
+                used_query = query
+                candidates = by_width(gated)
+                break
+        if not candidates and first_found is not None:
+            used_query, found = first_found
+            candidates = by_width(found)
+    for rank, cand in enumerate(candidates):
+        suffix = ".mp4"
+        if ".webm" in (cand["download_url"] or ""):
+            suffix = ".webm"
+        dest = dest_dir / f"scene_{index}_{rank}{suffix}"
+        try:
+            _download(cand["download_url"], dest)
+            probe(dest)
+        except Exception as exc:  # noqa: BLE001 - next candidate
+            errors.append(f"download: {exc}")
+            continue
+        return {**cand, "terms": used_query, "path": str(dest)}
+    raise RuntimeError(
+        f"no stock clip found for '{terms}': " + "; ".join(errors)[:200])
+
+
+# ---------------------------------------------------------------------------
+# Media helpers and captions
+# ---------------------------------------------------------------------------
+
+def probe(path) -> dict:
+    """ffprobe facts for one media file: duration, video width
+    and height, whether an audio stream exists."""
+    proc = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries",
+         "format=duration:stream=codec_type,width,height",
+         "-of", "json", str(path)],
+        capture_output=True, text=True, timeout=120)
+    if proc.returncode != 0:
+        raise RuntimeError(f"ffprobe failed on {path}: "
+                           f"{proc.stderr[-200:]}")
+    data = json.loads(proc.stdout or "{}")
+    duration = float((data.get("format") or {}).get("duration") or 0)
+    width = height = 0
+    has_audio = False
+    for stream in data.get("streams") or []:
+        if stream.get("codec_type") == "video":
+            width = int(stream.get("width") or 0)
+            height = int(stream.get("height") or 0)
+        elif stream.get("codec_type") == "audio":
+            has_audio = True
+    return {"duration": duration, "width": width, "height": height,
+            "has_audio": has_audio}
+
+
+def _ass_time(seconds: float) -> str:
+    seconds = max(0.0, seconds)
+    h = int(seconds // 3600)
+    m = int((seconds % 3600) // 60)
+    s = seconds % 60
+    return f"{h}:{m:02d}:{s:05.2f}"
+
+
+def _ass_escape(text: str) -> str:
+    return (text.replace("\\", " ").replace("{", "(")
+            .replace("}", ")").replace("\n", " "))
+
+
+def caption_events(lines: list, timings: list) -> list:
+    """Word timed caption chunks for the whole short.
+
+    timings holds one (start, duration) per line, the measured
+    narration placement the processor computed. Inside a line,
+    words are placed by character share of the line's length
+    (the line is one breath of one voice, so share tracks speech
+    closely at sentence length) and grouped into chunks of at
+    most CAPTION_MAX_WORDS words. Returns (start, end, text)
+    events in order."""
+    events = []
+    for line, (start, duration) in zip(lines, timings):
+        words = line.split()
+        if not words:
+            continue
+        total_chars = sum(len(w) for w in words) or 1
+        placed = []
+        cursor = float(start)
+        for word in words:
+            span = duration * (len(word) + 1) / (total_chars + len(words))
+            placed.append((cursor, cursor + span, word))
+            cursor += span
+        line_end = float(start) + float(duration)
+        for i in range(0, len(placed), CAPTION_MAX_WORDS):
+            chunk = placed[i:i + CAPTION_MAX_WORDS]
+            c_start = chunk[0][0]
+            c_end = min(line_end, chunk[-1][1])
+            if c_end - c_start < CAPTION_MIN_SECONDS:
+                c_end = min(line_end, c_start + CAPTION_MIN_SECONDS)
+            events.append((c_start, c_end,
+                           " ".join(w for _s, _e, w in chunk)))
+    return events
+
+
+def build_captions_ass(lines: list, timings: list) -> str:
+    """The ASS subtitle file for one short: bold white words
+    with a heavy black outline, low on the frame, the house
+    shorts style. Burned in by the assembly's subtitles filter."""
+    header = (
+        "[Script Info]\n"
+        "ScriptType: v4.00+\n"
+        f"PlayResX: {WIDTH}\n"
+        f"PlayResY: {HEIGHT}\n"
+        "WrapStyle: 2\n"
+        "\n"
+        "[V4+ Styles]\n"
+        "Format: Name, Fontname, Fontsize, PrimaryColour, "
+        "SecondaryColour, OutlineColour, BackColour, Bold, Italic, "
+        "Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, "
+        "BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, "
+        "MarginV, Encoding\n"
+        "Style: Shorts,DejaVu Sans,72,&H00FFFFFF,&H00FFFFFF,"
+        "&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,5,0,2,60,60,"
+        "300,1\n"
+        "\n"
+        "[Events]\n"
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, "
+        "MarginV, Effect, Text\n"
+    )
+    body = "".join(
+        f"Dialogue: 0,{_ass_time(start)},{_ass_time(end)},Shorts,,"
+        f"0,0,0,,{_ass_escape(text)}\n"
+        for start, end, text in caption_events(lines, timings)
+    )
+    return header + body
+
+
+# ---------------------------------------------------------------------------
+# Assembly (ffmpeg): the same steps the platform processor runs,
+# and the local proof runs unchanged.
+# ---------------------------------------------------------------------------
+
+def _run(cmd: list, timeout: int = 1200, cwd: Path = None):
+    proc = subprocess.run(cmd, capture_output=True, text=True,
+                          timeout=timeout, cwd=cwd)
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"ffmpeg failed: {' '.join(cmd[:3])}... "
+            f"{proc.stderr[-400:]}")
+    return proc
+
+
+def build_narration_track(line_wavs: list, line_durations: list,
+                          work_dir: Path) -> Path:
+    """Join the per line narration wavs into one track, each
+    line padded with silence out to its scene length (line
+    duration plus the gap; the last line gets the tail)."""
+    work_dir.mkdir(parents=True, exist_ok=True)
+    segments = []
+    for i, (wav, duration) in enumerate(zip(line_wavs, line_durations)):
+        pad = TAIL_SECONDS if i == len(line_wavs) - 1 \
+            else LINE_GAP_SECONDS
+        seg = work_dir / f"vox_{i}.wav"
+        _run(["ffmpeg", "-y", "-i", str(wav),
+              "-af", f"apad,atrim=0:{duration + pad:.3f}",
+              "-ar", "24000", "-ac", "1", str(seg)], timeout=300)
+        segments.append(seg)
+    list_path = work_dir / "vox_list.txt"
+    list_path.write_text(
+        "".join(f"file '{p.name}'\n" for p in segments),
+        encoding="utf-8")
+    out = work_dir / "narration.wav"
+    _run(["ffmpeg", "-y", "-f", "concat", "-safe", "0",
+          "-i", str(list_path), "-c:a", "pcm_s16le", str(out)],
+         timeout=300, cwd=work_dir)
+    return out
+
+
+def assemble_short(scene_paths: list, scene_durations: list,
+                   narration_path, captions_ass: Path,
+                   out_path: Path, work_dir: Path,
+                   bed_path=None, watermark: bool = False,
+                   font_path: str = "") -> dict:
+    """Assemble one finished short at 1080 x 1920.
+
+    Each stock clip is scaled to cover the frame, cropped,
+    looped or trimmed to its scene's length, and stripped of
+    its own sound. The scenes join, the narration and the
+    (looped, ducked) music bed mix to the house loudness, the
+    captions burn in, and a free job's file carries the same
+    Moonfactory watermark the finishing stage burns into free
+    generation files. Returns the finished file's probe."""
+    work_dir.mkdir(parents=True, exist_ok=True)
+    scenes = []
+    for i, (clip, duration) in enumerate(
+            zip(scene_paths, scene_durations)):
+        scene = work_dir / f"scene_{i}.mp4"
+        _run([
+            "ffmpeg", "-y", "-stream_loop", "-1", "-i", str(clip),
+            "-t", f"{duration:.3f}",
+            "-vf", (f"scale={WIDTH}:{HEIGHT}:"
+                    "force_original_aspect_ratio=increase,"
+                    f"crop={WIDTH}:{HEIGHT},fps={FPS},"
+                    "format=yuv420p"),
+            "-an", "-c:v", "libx264", "-preset", "veryfast",
+            "-crf", "20", str(scene),
+        ], timeout=900)
+        scenes.append(scene)
+    list_path = work_dir / "scene_list.txt"
+    list_path.write_text(
+        "".join(f"file '{p.name}'\n" for p in scenes),
+        encoding="utf-8")
+    joined = work_dir / "joined.mp4"
+    _run(["ffmpeg", "-y", "-f", "concat", "-safe", "0",
+          "-i", str(list_path), "-c", "copy", str(joined)],
+         timeout=600, cwd=work_dir)
+
+    total = sum(scene_durations)
+    inputs = ["-i", str(joined), "-i", str(narration_path)]
+    filters = []
+    mix = ["[vox]"]
+    filters.append("[1:a]volume=1.0[vox]")
+    if bed_path and Path(bed_path).exists():
+        inputs += ["-stream_loop", "-1", "-i", str(bed_path)]
+        filters.append("[2:a]volume=0.22[bed]")
+        mix.append("[bed]")
+    filters.append(
+        "".join(mix)
+        + f"amix=inputs={len(mix)}:duration=first:"
+          "dropout_transition=0,"
+          "loudnorm=I=-14:TP=-1.5:LRA=11[aout]")
+    vf = f"subtitles={captions_ass.name}"
+    if watermark:
+        if not font_path:
+            font_path = ("/usr/share/fonts/truetype/dejavu/"
+                         "DejaVuSans-Bold.ttf")
+        vf += (
+            f",drawtext=fontfile={font_path}:text='Moonfactory':"
+            "fontcolor=white@0.55:fontsize=h/26:borderw=2:"
+            "bordercolor=black@0.3:x=w-tw-24:y=h-th-24")
+    cmd = ["ffmpeg", "-y", *inputs,
+           "-filter_complex", ";".join(filters),
+           "-vf", vf,
+           "-map", "0:v:0", "-map", "[aout]",
+           "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+           "-c:a", "aac", "-b:a", "160k",
+           "-t", f"{total:.3f}", str(out_path)]
+    _run(cmd, timeout=1200, cwd=work_dir)
+    return probe(out_path)
