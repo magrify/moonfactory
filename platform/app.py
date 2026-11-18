@@ -9302,6 +9302,18 @@ _CSS = """
   .job video{max-width:360px}
   .job img.thumb{width:140px;border-radius:10px}
   footer{max-width:960px;margin:0 auto;padding:0 24px 44px;color:var(--faint);font-size:13.5px;display:flex;justify-content:space-between}
+  /* Accessibility pass (2026-11-18, audit F1/F4/F5): a
+     visually hidden utility for the live regions, one focus
+     ring that reads on the dark theme for every interactive
+     element the form field rule does not already cover, and
+     a reduced motion block that stills transitions and
+     animations for users who ask for it, the same treatment
+     magrify.com gives its own motion. */
+  .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+  :focus-visible{outline:2px solid var(--accent-bright);outline-offset:2px}
+  @media (prefers-reduced-motion: reduce){
+    *,*::before,*::after{animation-duration:.01ms !important;animation-iteration-count:1 !important;transition-duration:.01ms !important;scroll-behavior:auto !important}
+  }
   @media(max-width:700px){
     h1{font-size:34px}
     .strip{grid-template-columns:repeat(2,1fr)}
@@ -10135,10 +10147,13 @@ APP_HTML = (
   <nav><a href="/gallery">Gallery</a><span class="profile" id="profile" style="display:none"><button class="avatar" id="avatar" type="button" aria-haspopup="true" aria-expanded="false" aria-label="Account menu"></button><span class="menu" id="profile-menu" style="display:none"><span class="menu-email" id="menu-email"></span><a href="#" id="menu-account">Account</a><a href="#" id="menu-billing">Billing</a><a href="/help">Help</a><button type="button" id="menu-logout">Log out</button></span></span></nav>
 </header>
 
+<div id="live-status" class="sr-only" role="status" aria-live="polite"></div>
+<div id="live-alert" class="sr-only" role="alert" aria-live="assertive"></div>
+
 <div id="auth" class="card" style="max-width:640px;margin-left:auto;margin-right:auto">
   <h2>Sign in or create an account</h2>
-  <label>Email</label><input id="email" type="email" autocomplete="email">
-  <label>Password (8+ characters)</label><input id="password" type="password" autocomplete="current-password">
+  <label for="email">Email</label><input id="email" type="email" autocomplete="email">
+  <label for="password">Password (8+ characters)</label><input id="password" type="password" autocomplete="current-password">
   <div id="botcheck"></div>
   <p>
     <button class="btn" id="login">Sign in</button>
@@ -10664,7 +10679,20 @@ async function api(path, opts) {
   if (!r.ok) throw new Error(body.detail || ('HTTP ' + r.status));
   return body;
 }
-function msg(id, text, cls) { const el = $(id); el.textContent = text; el.className = cls || ''; }
+// Screen reader announcements (audit F1, 2026-11-18): every
+// status and error surface in the studio writes through msg(),
+// so routing msg() through the two live regions announces job,
+// upload, and billing feedback without touching each call site.
+// Errors go to the assertive region, everything else to the
+// polite one. The region is cleared first so a repeated message
+// is announced again.
+function announce(text, assertive) {
+  const el = $(assertive ? 'live-alert' : 'live-status');
+  if (!el || !text) return;
+  el.textContent = '';
+  setTimeout(() => { el.textContent = text; }, 40);
+}
+function msg(id, text, cls) { const el = $(id); el.textContent = text; el.className = cls || ''; announce(text, cls === 'err'); }
 
 // Start image: one reader path for the file input, the drop zone's
 // click, and drag-and-drop, so all three set the same state.
@@ -10914,6 +10942,9 @@ function selectedLook() {
 
 $('signup').onclick = async () => {
   try {
+    // One password field serves both forms, so each button
+    // sets the autocomplete its own flow needs (audit F3).
+    $('password').autocomplete = 'new-password';
     msg('auth-msg', 'Working on the bot check...');
     const bot = await botFields('botcheck');
     const r = await api('/api/signup', { method: 'POST', headers: {'Content-Type': 'application/json'},
@@ -10923,6 +10954,7 @@ $('signup').onclick = async () => {
 };
 $('login').onclick = async () => {
   try {
+    $('password').autocomplete = 'current-password';
     const r = await api('/api/login', { method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ email: $('email').value, password: $('password').value }) });
     showStudio(r.user);
@@ -11467,6 +11499,28 @@ function costLine(j) {
   if (j.free_tier) return '<br><span class="muted">Free clip, nothing charged</span>';
   return '';
 }
+// Job state announcements (audit F1, 2026-11-18): the poll
+// loop below is the only place job states change, so it diffs
+// each job against the last status it saw and announces the
+// moves a sighted user watches happen. The first list after
+// sign in only primes the map, so history is never read out.
+// A job first seen already finished (a clip output, a fast
+// image) still announces, because it landed while the user
+// waited.
+const jobStatusSeen = {};
+let jobsPrimed = false;
+function announceJobStates(jobs) {
+  for (const j of jobs) {
+    const prev = jobStatusSeen[j.id];
+    jobStatusSeen[j.id] = j.status;
+    if (!jobsPrimed || prev === j.status) continue;
+    const name = j.kind === 'clip_output' ? (j.hook || 'Clip') : (j.model || 'Video');
+    if (j.status === 'done') announce(name + ' is ready.');
+    else if (j.status === 'error') announce(name + ' failed. ' + (j.error || ''), true);
+    else if (j.status === 'running' && prev !== undefined) announce(name + ' is rendering.');
+  }
+  jobsPrimed = true;
+}
 async function loadJobs() {
   try {
     const r = await api('/api/jobs');
@@ -11508,6 +11562,7 @@ async function loadJobs() {
       div.innerHTML = html; box.appendChild(div);
     }
     if (active) setTimeout(loadJobs, 10000);
+    announceJobStates(r.jobs);
     renderClipResults(r.jobs);
   } catch (e) { /* signed out */ }
 }
