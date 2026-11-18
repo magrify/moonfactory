@@ -411,8 +411,54 @@ CUSTOM_AUDIO_MAX_CHARS = 300
 # platform's Kokoro voiceover stage speaks it in post. Paid-only,
 # like the custom music prompt.
 SPEECH_SCRIPT_MAX_CHARS = 1000
-SPEECH_VOICES = ("af_heart", "af_bella", "am_michael", "am_adam",
-                 "bf_emma", "bm_george")
+# The full English Kokoro voice set (voice picker, Jack,
+# 2026-11-18): 11 American women, 9 American men, 4 British
+# women, 4 British men. Every id verified against hexgrad's own
+# Kokoro-TTS demo choices and the Kokoro-82M VOICES.md list; an
+# id that cannot be verified stays out. af_heart stays the
+# default everywhere. SPEECH_VOICE_LABELS holds the plain name
+# the studio picker shows for each id; raw ids never reach the
+# page as visible text.
+DEFAULT_SPEECH_VOICE = "af_heart"
+SPEECH_VOICES = (
+    "af_heart", "af_alloy", "af_aoede", "af_bella", "af_jessica",
+    "af_kore", "af_nicole", "af_nova", "af_river", "af_sarah",
+    "af_sky",
+    "am_adam", "am_echo", "am_eric", "am_fenrir", "am_liam",
+    "am_michael", "am_onyx", "am_puck", "am_santa",
+    "bf_alice", "bf_emma", "bf_isabella", "bf_lily",
+    "bm_daniel", "bm_fable", "bm_george", "bm_lewis",
+)
+SPEECH_VOICE_LABELS = {
+    "af_heart": "Heart, American woman",
+    "af_alloy": "Alloy, American woman",
+    "af_aoede": "Aoede, American woman",
+    "af_bella": "Bella, American woman",
+    "af_jessica": "Jessica, American woman",
+    "af_kore": "Kore, American woman",
+    "af_nicole": "Nicole, American woman",
+    "af_nova": "Nova, American woman",
+    "af_river": "River, American woman",
+    "af_sarah": "Sarah, American woman",
+    "af_sky": "Sky, American woman",
+    "am_adam": "Adam, American man",
+    "am_echo": "Echo, American man",
+    "am_eric": "Eric, American man",
+    "am_fenrir": "Fenrir, American man",
+    "am_liam": "Liam, American man",
+    "am_michael": "Michael, American man",
+    "am_onyx": "Onyx, American man",
+    "am_puck": "Puck, American man",
+    "am_santa": "Santa, American man",
+    "bf_alice": "Alice, British woman",
+    "bf_emma": "Emma, British woman",
+    "bf_isabella": "Isabella, British woman",
+    "bf_lily": "Lily, British woman",
+    "bm_daniel": "Daniel, British man",
+    "bm_fable": "Fable, British man",
+    "bm_george": "George, British man",
+    "bm_lewis": "Lewis, British man",
+}
 HANDLE_RE = re.compile(r"[A-Za-z0-9_-]{3,20}")
 
 BED_PATH = Path("/worker-models/audio/music_bed_first.wav")
@@ -7197,7 +7243,7 @@ def api():
             generate_voiceover = modal.Function.from_name(
                 "sinclip-audio", "generate_voiceover")
             data = generate_voiceover.remote(
-                script, job.get("speech_voice") or "af_heart")
+                script, job.get("speech_voice") or DEFAULT_SPEECH_VOICE)
             voice_file.parent.mkdir(parents=True, exist_ok=True)
             voice_file.write_bytes(data)
             job["voiceover_status"] = "ready"
@@ -10248,6 +10294,38 @@ APP_HTML = (
       <label>Spoken line (optional)</label>
       <textarea id="speech" rows="2" maxlength="1000" placeholder="the words a voice should say in this video"></textarea>
       <p class="muted" id="speech-note"></p>
+      <label>Voice</label>
+      <select id="speech-voice">
+        <option value="af_heart" selected>Heart, American woman</option>
+        <option value="af_alloy">Alloy, American woman</option>
+        <option value="af_aoede">Aoede, American woman</option>
+        <option value="af_bella">Bella, American woman</option>
+        <option value="af_jessica">Jessica, American woman</option>
+        <option value="af_kore">Kore, American woman</option>
+        <option value="af_nicole">Nicole, American woman</option>
+        <option value="af_nova">Nova, American woman</option>
+        <option value="af_river">River, American woman</option>
+        <option value="af_sarah">Sarah, American woman</option>
+        <option value="af_sky">Sky, American woman</option>
+        <option value="am_adam">Adam, American man</option>
+        <option value="am_echo">Echo, American man</option>
+        <option value="am_eric">Eric, American man</option>
+        <option value="am_fenrir">Fenrir, American man</option>
+        <option value="am_liam">Liam, American man</option>
+        <option value="am_michael">Michael, American man</option>
+        <option value="am_onyx">Onyx, American man</option>
+        <option value="am_puck">Puck, American man</option>
+        <option value="am_santa">Santa, American man</option>
+        <option value="bf_alice">Alice, British woman</option>
+        <option value="bf_emma">Emma, British woman</option>
+        <option value="bf_isabella">Isabella, British woman</option>
+        <option value="bf_lily">Lily, British woman</option>
+        <option value="bm_daniel">Daniel, British man</option>
+        <option value="bm_fable">Fable, British man</option>
+        <option value="bm_george">George, British man</option>
+        <option value="bm_lewis">Lewis, British man</option>
+      </select>
+      <p class="muted" id="voice-note"></p>
 
       <p class="group-label">Details</p>
       <label>Anything to avoid (optional)</label>
@@ -10893,6 +10971,7 @@ function showStudio(u) {
     $('music-note').textContent = 'Describe the music and it is generated for this video.';
     $('speech').disabled = false;
     $('speech-note').textContent = 'On models that talk, the model performs the line. On the rest, a voice speaks it over the video.';
+    $('speech-voice').disabled = false;
     applyEffectGate();
   } else {
     opt.disabled = true; opt.checked = false;
@@ -10905,6 +10984,7 @@ function showStudio(u) {
     $('music-note').textContent = 'Custom audio unlocks with any payment. Free clips get the house music track.';
     $('speech').disabled = true; $('speech').value = '';
     $('speech-note').textContent = 'Voiceover unlocks with any payment.';
+    $('speech-voice').disabled = true;
     selectedEffect = null;
     applyEffectGate();
   }
@@ -11183,6 +11263,15 @@ function updateModelUI() {
     }
     fetchQuote();
   }
+  // Voice note (voice picker, 2026-11-18): on a speech native
+  // lane the model performs the line with its own voice, and
+  // the picked voice governs the platform voiceover stage on
+  // every other lane. Say which one applies for this model.
+  const vEntry = ((catalogCfg && catalogCfg.models) || []).find(x => x.id === m);
+  const nativeSpeech = !!(vEntry && vEntry.audio && vEntry.audio.native_speech);
+  $('voice-note').textContent = nativeSpeech
+    ? 'This model talks with its own voice. Your voice pick applies when Moonfactory speaks the line.'
+    : 'Moonfactory speaks your line with the voice you pick.';
   applyModelGates();
   updateHousePrice();
 }
@@ -11288,6 +11377,7 @@ $('create').onclick = async () => {
       ? { model: model, lane: selectedEffect ? 'effects' : $('lane').value, prompt: $('prompt').value,
           music_prompt: $('music').disabled ? '' : $('music').value,
           speech_script: $('speech').disabled ? '' : $('speech').value,
+          speech_voice: $('speech').disabled ? '' : $('speech-voice').value,
           effect: selectedEffect || undefined,
           ...startFields, end_image_png_b64: selectedEffect ? null : endImageB64,
           aspect_ratio: $('aspect').value, segments: selectedEffect ? 1 : Number($('segments').value),
@@ -11295,6 +11385,7 @@ $('create').onclick = async () => {
       : { model: model, prompt: $('prompt').value,
           music_prompt: $('music').disabled ? '' : $('music').value,
           speech_script: $('speech').disabled ? '' : $('speech').value,
+          speech_voice: $('speech').disabled ? '' : $('speech-voice').value,
           aspect_ratio: $('aspect').value,
           duration_seconds: Number($('duration').value), resolution: $('resolution').value,
           ...startFields, ...camera, ...detailFields, ...motionFields, ...charFields, ...bot };
