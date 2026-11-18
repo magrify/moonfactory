@@ -1057,7 +1057,9 @@ def hf_kaggle_push(token: str, script_text: str) -> tuple:
     import requests as _requests
 
     payload = {
-        "id": HF_KERNEL_SLUG,
+        # The push endpoint's "id" field is the numeric kernel id;
+        # a kernel is created and addressed by its string "slug".
+        "slug": HF_KERNEL_SLUG,
         "newTitle": "Moonfactory Hyperframes Worker",
         "text": script_text,
         "language": "python",
