@@ -38,6 +38,12 @@ MEASURED_COST_CENTS = {
     # the bottom of this file; the entry lands at the Production
     # worst case when the distilled recipe measures inside it.
     "effects": 15,
+    # The house Uncut lane (2026-11-18, Jack's order): the
+    # community Wan 2.2 NSFW LoRA pair on the house A14B worker.
+    # Priced exactly as the house Production lane (same measured
+    # cost entry, so the shared formulas give it the same job
+    # price and the same raw cost for the owner).
+    "nsfw": 15,
 }
 
 CREATOR_PRICE_CENTS = 2000  # $20/mo

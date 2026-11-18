@@ -533,6 +533,74 @@ def download_effects_distill():
     return {EFFECTS_DISTILL_FILE: size}
 
 
+NSFW_LORA_REPO = "lopi999/Wan2.2-I2V_General-NSFW-LoRA"
+# (file in repo, path inside the ComfyUI models dir, bytes, sha256).
+# Sizes and hashes from the repo listing (HF resolve headers,
+# verified 2026-11-18). The pair is the community general NSFW
+# LoRA for Wan2.2-I2V-A14B (a mirror of a Civitai model): the H
+# file drives the high-noise expert, the L file the low-noise
+# expert, and the pair is driven by the trigger token below.
+NSFW_LORA_FILES = [
+    ("NSFW-22-H-e8.safetensors", "loras/NSFW-22-H-e8.safetensors",
+     613516752,
+     "34e2144d3cd65360f97d09ccbe03e1c39a096df6c9234af5fe3899d1b63cda39"),
+    ("NSFW-22-L-e8.safetensors", "loras/NSFW-22-L-e8.safetensors",
+     613516752,
+     "d6b783742f4d5fd63a0223ae1d5bf64fc995a6b408480ac2a00528ae0d4146db"),
+]
+NSFW_LORA_HIGH = "NSFW-22-H-e8.safetensors"
+NSFW_LORA_LOW = "NSFW-22-L-e8.safetensors"
+NSFW_TRIGGER = "nsfwsks"
+NSFW_LANE = "nsfw"
+
+
+@app.function(image=download_image, volumes={"/models": volume}, timeout=1800)
+def download_nsfw_lora():
+    """Stage the community Wan 2.2 NSFW LoRA pair for the house
+    Uncut lane. Byte-verified and sha256-verified against the
+    repo listing, the same discipline as the effects distill
+    staging: a file that does not match is refused, never
+    silently kept."""
+    import hashlib
+    import shutil
+
+    from huggingface_hub import hf_hub_download
+
+    def _digest(path):
+        h = hashlib.sha256()
+        with open(path, "rb") as fh:
+            for chunk in iter(lambda: fh.read(1 << 20), b""):
+                h.update(chunk)
+        return h.hexdigest()
+
+    results = {}
+    for src, dst, expected_size, expected_sha in NSFW_LORA_FILES:
+        final = Path("/models") / dst
+        if final.exists() and final.stat().st_size == expected_size \
+                and _digest(final) == expected_sha:
+            print(f"already present and verified: {dst}")
+            results[dst] = final.stat().st_size
+            continue
+        print(f"downloading {NSFW_LORA_REPO}:{src} ...", flush=True)
+        staged = hf_hub_download(
+            repo_id=NSFW_LORA_REPO, filename=src,
+            local_dir="/models/_stage_nsfw",
+        )
+        final.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(staged, final)
+        size = final.stat().st_size
+        digest = _digest(final)
+        print(f"stored {dst}: {size} bytes "
+              f"(expected {expected_size}, match={size == expected_size}); "
+              f"sha256 match={digest == expected_sha}", flush=True)
+        if size != expected_size or digest != expected_sha:
+            raise RuntimeError(f"NSFW LoRA byte verification failed: {dst}")
+        results[dst] = size
+    shutil.rmtree("/models/_stage_nsfw", ignore_errors=True)
+    volume.commit()
+    return results
+
+
 @app.function(image=download_image, volumes={"/models": volume}, timeout=600)
 def fetch_output(filename: str):
     """Fallback retrieval path: read a persisted output from the Volume."""
@@ -567,6 +635,12 @@ LANE_WORKFLOWS = {
     # template (prod_i2v_a14b.json) is kept for reference and for
     # the local render-prod / chain modes.
     "production": "prod_i2v_a14b_distilled.json",
+    # The Uncut lane (2026-11-18): the stock A14B template, with
+    # the community NSFW LoRA pair patched in by
+    # _build_lane_workflow. The stock sampler path is deliberate:
+    # the LoRA was trained on the full base model, so the lane
+    # does not stack it on the LightX2V distilled recipe.
+    "nsfw": "prod_i2v_a14b.json",
 }
 LANE_DEFAULT_IMAGES = {
     "draft": "/assets/test_start.png",
@@ -623,6 +697,8 @@ ASPECT_RATIOS = ("9:16", "16:9", "1:1")
 LANE_DIMS = {
     "draft": {"9:16": (480, 832), "16:9": (800, 448), "1:1": (640, 640)},
     "production": {"9:16": (720, 1280), "16:9": (1280, 720), "1:1": (960, 960)},
+    # The Uncut lane renders at the production house dimensions.
+    "nsfw": {"9:16": (720, 1280), "16:9": (1280, 720), "1:1": (960, 960)},
 }
 
 # Start-image generation (Pass 3): one still image per job at the
@@ -660,6 +736,12 @@ def _build_image_workflow(prompt: str, seed: int, aspect: str = "9:16",
 def _build_lane_workflow(lane: str, prompt: str, negative: str, seed: int,
                          aspect: str = "9:16", text_only: bool = False,
                          prefix: str = ""):
+    if lane == NSFW_LANE:
+        # The community NSFW LoRA is driven by its trigger token,
+        # prepended here, server side, for this lane only. The
+        # caller's prompt text is never altered on any other lane,
+        # and the job record keeps the caller's own words.
+        prompt = f"{NSFW_TRIGGER}, {prompt}" if prompt else NSFW_TRIGGER
     workflow = json.loads(
         (Path("/workflows") / LANE_WORKFLOWS[lane]).read_text()
     )
@@ -687,6 +769,36 @@ def _build_lane_workflow(lane: str, prompt: str, negative: str, seed: int,
                 inputs.pop("start_image", None)
         elif ct == "VHS_VideoCombine":
             inputs["filename_prefix"] = prefix
+    if lane == NSFW_LANE:
+        # Patch the LoRA pair into the stock graph exactly where
+        # the distilled template carries its LightX2V pair: one
+        # LoraLoaderModelOnly per UNET at strength 1.0 (the
+        # workflow's existing LoRA convention), with each
+        # ModelSamplingSD3 rewired through its expert's LoRA. The
+        # sampler stays exactly as authored (20 steps, cfg 3.5,
+        # 10/10 split): the standard sampler path for the base
+        # model this LoRA was trained on.
+        workflow["17"] = {
+            "class_type": "LoraLoaderModelOnly",
+            "inputs": {
+                "lora_name": NSFW_LORA_HIGH,
+                "model": ["1", 0], "strength_model": 1.0,
+            },
+        }
+        workflow["18"] = {
+            "class_type": "LoraLoaderModelOnly",
+            "inputs": {
+                "lora_name": NSFW_LORA_LOW,
+                "model": ["2", 0], "strength_model": 1.0,
+            },
+        }
+        for node in workflow.values():
+            if node.get("class_type") == "ModelSamplingSD3":
+                src = node.get("inputs", {}).get("model")
+                if src == ["1", 0]:
+                    node["inputs"]["model"] = ["17", 0]
+                elif src == ["2", 0]:
+                    node["inputs"]["model"] = ["18", 0]
     if text_only:
         for nid in [k for k, n in workflow.items()
                     if n.get("class_type") == "LoadImage"]:
@@ -1254,6 +1366,10 @@ def api():
             raise HTTPException(
                 status_code=422,
                 detail="the production lane needs a start image; text-only jobs run on the draft lane")
+        if lane == NSFW_LANE and not start_image:
+            raise HTTPException(
+                status_code=422,
+                detail="the nsfw lane needs a start image; it is an image-to-video lane")
         # Fun Camera conditioning: a camera_pose switches the
         # production render to the Fun Camera workflow. It is a
         # single conditioned move: production lane only, one
@@ -1743,6 +1859,13 @@ def main(mode: str = "render"):
         for name, size in sizes.items():
             print(f"{name}: {size} bytes")
         print(f"total lora set: {sum(sizes.values()) / 1e9:.2f} GB")
+        return
+
+    if mode == "download-nsfw":
+        sizes = download_nsfw_lora.remote()
+        for name, size in sizes.items():
+            print(f"{name}: {size} bytes")
+        print(f"total nsfw lora set: {sum(sizes.values()) / 1e9:.2f} GB")
         return
 
     if mode == "fetch-distilled":

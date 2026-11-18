@@ -550,6 +550,15 @@ MODELS = [
     # ~/workspace/sinclip/spicyapi-video-catalog-2026-11-17.md).
     {"id": "wan3prime_unc", "label": "Wan 3.0 Prime", "paid_only": True},
     {"id": "wan22_lora_unc", "label": "Wan 2.2 LoRA", "paid_only": True},
+    # House Uncut lane (2026-11-18, Jack's order): the community
+    # Wan 2.2 NSFW LoRA pair staged on our own worker, running
+    # the stock A14B sampler path. Not a per-second lane: it
+    # settles on the house price table (pricing lane "nsfw"),
+    # routed in create_job like the effects lane. The label is
+    # the differentiator from the house Wan 2.2 and the hosted
+    # Wan 2.2 LoRA build; the Uncensored suffix comes from
+    # UNCENSORED_VIDEO_MODELS like the rest.
+    {"id": "wan22_uncut", "label": "Wan 2.2 Uncut", "paid_only": True},
     {"id": "seedance2_unc", "label": "Seedance 2.0", "paid_only": True},
     {"id": "seedance2fast_unc", "label": "Seedance 2.0 Fast", "paid_only": True},
     {"id": "seedance2mini_unc", "label": "Seedance 2.0 Mini", "paid_only": True},
@@ -573,7 +582,18 @@ UNCENSORED_VIDEO_MODELS = (
     "wan3prime_unc", "wan22_lora_unc", "seedance2_unc",
     "seedance2fast_unc", "seedance2mini_unc", "seedance15pro_unc",
     "ltx23_unc", "ltx23_lora_unc",
+    # The house Uncut lane: our own worker, open weights, no
+    # provider moderation layer.
+    "wan22_uncut",
 )
+# House video models: served by our own worker on the per-job
+# price table rather than the per-second shelf. Each maps to the
+# pricing lane its jobs settle on (the ceiling, the included
+# budget, the balance price and the refunds all read the lane).
+HOUSE_MODEL_PRICING_LANE = {
+    "wan2.2": "production",
+    "wan22_uncut": "nsfw",
+}
 # Price tier signs for the studio dropdown (Jack, 2026-11-16):
 # Google-Maps-style $ signs banded on FIXED edges over the model's
 # lowest customer sell rate in cents per second (see
@@ -731,6 +751,8 @@ def provider_for(model: str, resolution: str = None) -> str:
 # ---------------------------------------------------------------------------
 LANE_AUDIO = {
     "wan2.2": {"native_speech": False, "native_audio": False,
+               "note": "house model is silent; music bed and the voiceover path run in post"},
+    "wan22_uncut": {"native_speech": False, "native_audio": False,
                "note": "house model is silent; music bed and the voiceover path run in post"},
     "wan3": {"native_speech": False, "native_audio": True,
              "note": "native audio is music/SFX-led; speech is not reliable"},
@@ -2483,8 +2505,9 @@ def api():
         Production job price spread over the standard 5-second
         segment (99c / 5s = 19.8c/s). None when the lane has no
         customer per-second price (the price-paused lanes)."""
-        if model_id == DEFAULT_MODEL:
-            return pricing.JOB_PRICE_CENTS["production"] / 5.0
+        if model_id in HOUSE_MODEL_PRICING_LANE:
+            return pricing.JOB_PRICE_CENTS[
+                HOUSE_MODEL_PRICING_LANE[model_id]] / 5.0
         rates = (table.get("rates") or {}).get(model_id) or {}
         sells = []
         for res in rates:
@@ -2550,7 +2573,7 @@ def api():
                     offered_lengths(m["id"])
                     if m["id"] in PER_SECOND_MODELS else []),
                 "available": (
-                    True if m["id"] == DEFAULT_MODEL
+                    True if m["id"] in HOUSE_MODEL_PRICING_LANE
                     else not api_lane_state(m["id"])["paused"]
                 ),
             }
@@ -6513,6 +6536,35 @@ def api():
                     status_code=422,
                     detail="effects do not combine with camera presets")
             lane = "effects"
+        # House Uncut lane (2026-11-18, Jack's order): the
+        # community Wan 2.2 NSFW LoRA pair on our own worker.
+        # The model choice is the lane. It is paid only (the free
+        # path below refuses every non Draft lane), it needs a
+        # start image because the LoRA is image to video only,
+        # and it combines with neither an effect nor a Fun Camera
+        # preset. An end image is refused by the house shape
+        # checks below, the same as every non Production lane.
+        # Everything downstream (the ceiling, the included
+        # budget, the balance price, the dispatch) reads the
+        # worker lane exactly as it does for Production.
+        if model == "wan22_uncut":
+            if pricing.lane_paused("nsfw"):
+                raise HTTPException(
+                    status_code=503,
+                    detail="this lane is paused while its costs are reviewed")
+            if effect_id:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Effects run on Wan 2.2. Pick that model for an effect video")
+            if fun_preset is not None:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Fun Camera presets run on Wan 2.2. Pick that model for a camera move")
+            if not start_image:
+                raise HTTPException(
+                    status_code=422,
+                    detail="This lane needs a start image. Upload the photo the video starts from")
+            lane = "nsfw"
         if model in PER_SECOND_MODELS:
             # Per-second lanes take their length from
             # duration_seconds (the nine-length menu), never from
@@ -6688,7 +6740,7 @@ def api():
             "user_id": user["id"],
             "worker_job_id": worker_job_id,
             "lane": lane,
-            "model": DEFAULT_MODEL,
+            "model": model,
             "prompt": prompt,
             "user_prompt": camera["user_prompt"],
             "camera_presets": camera["camera_presets"],
@@ -6719,9 +6771,9 @@ def api():
             "word_check_listen_at": [],
             "character_id": body.get("character_id"),
             # Built-in lip sync (Jack's rule, 2026-11-17): the
-            # house lane does not speak natively, so a spoken line
+            # house lanes do not speak natively, so a spoken line
             # here always plans the finishing lip sync stage.
-            "lip_sync": lip_sync_applies(DEFAULT_MODEL, speech_script),
+            "lip_sync": lip_sync_applies(model, speech_script),
             "lipsync_status": (
                 "planned" if speech_script else None),
             "lipsync_cost_cents": 0.0,
@@ -11180,6 +11232,11 @@ function buildSegmentsSeg() {
 // has always read; /api/pricing supplies the lengths and sizes.
 let catalogCfg = null;
 let pricingData = null;
+// House models run on our own worker with the house form
+// (segments and a start image), never the per-second form. The
+// list mirrors HOUSE_MODEL_PRICING_LANE in the platform code.
+const HOUSE_MODEL_IDS = ['wan2.2', 'wan22_uncut'];
+function isHouseModel(id) { return HOUSE_MODEL_IDS.includes(id); }
 function moneyC(c) { return '$' + (c / 100).toFixed(2); }
 function buildCatalog() {
   const sel = $('model');
@@ -11210,7 +11267,7 @@ function applyModelGates() {
 function updateHousePrice() {
   const el = $('house-price');
   if (!el) return;
-  if (!pricingData || !currentUser || $('model').value !== 'wan2.2') { el.textContent = ''; return; }
+  if (!pricingData || !currentUser || !isHouseModel($('model').value)) { el.textContent = ''; return; }
   const jp = pricingData.job_price_cents || {};
   if (!currentUser.paid_customer) {
     el.textContent = 'Free plan. A Draft video uses one of your free clips.';
@@ -11224,7 +11281,8 @@ function updateHousePrice() {
     return;
   }
   const segs = Number($('segments').value) || 1;
-  const per = $('lane').value === 'production' ? (jp.production || 0) : (jp.draft || 0);
+  const per = $('model').value === 'wan22_uncut' ? (jp.nsfw || 0)
+    : $('lane').value === 'production' ? (jp.production || 0) : (jp.draft || 0);
   el.textContent = 'It costs ' + moneyC(per * segs) + ' from your balance for ' +
     segs + (segs === 1 ? ' segment' : ' segments') + ' at ' + moneyC(per) +
     ' per segment. Creator members pay from their included budget instead.';
@@ -11232,10 +11290,13 @@ function updateHousePrice() {
 }
 function updateModelUI() {
   const m = $('model').value;
-  const api = m !== 'wan2.2';
+  const api = !isHouseModel(m);
   $('length-api').style.display = api ? '' : 'none';
   $('length-house').style.display = api ? 'none' : '';
   $('lane-wrap').style.display = api ? 'none' : '';
+  // The Draft and Production lane choice belongs to Wan 2.2
+  // alone. The Uncut lane is its own lane, so the choice hides.
+  if (m !== 'wan2.2') $('lane-wrap').style.display = 'none';
   $('house-more').style.display = api ? 'none' : '';
   $('resolution-wrap').style.display = api ? '' : 'none';
   $('api-opts').style.display = api ? '' : 'none';
@@ -11373,7 +11434,7 @@ $('create').onclick = async () => {
       : {};
     const charFields = $('character').value
       ? { character_id: $('character').value } : {};
-    const jobBody = model === 'wan2.2'
+    const jobBody = isHouseModel(model)
       ? { model: model, lane: selectedEffect ? 'effects' : $('lane').value, prompt: $('prompt').value,
           music_prompt: $('music').disabled ? '' : $('music').value,
           speech_script: $('speech').disabled ? '' : $('speech').value,
@@ -11391,7 +11452,7 @@ $('create').onclick = async () => {
           ...startFields, ...camera, ...detailFields, ...motionFields, ...charFields, ...bot };
     const r = await api('/api/jobs', { method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(jobBody) });
-    msg('job-msg', model === 'wan2.2'
+    msg('job-msg', isHouseModel(model)
       ? 'Job queued. Draft renders take roughly 6 to 13 minutes. Production takes about 25.'
       : 'Job queued. This model usually finishes in a few minutes.', 'ok');
     loadJobs();
