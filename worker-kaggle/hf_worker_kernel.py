@@ -31,9 +31,36 @@ import requests
 PLATFORM = "https://magrify--moonfactory-api.us-east.modal.run"
 INPUT = Path("/kaggle/input")
 WORKING = Path("/kaggle/working")
-TOOLCHAIN_TAR = INPUT / "moonfactory-hf-toolchain" / "toolchain.tar.gz"
-KEY_FILE = INPUT / "moonfactory-hf-key" / "worker_key.txt"
 TOOLCHAIN_DIR = WORKING / "hf-toolchain"
+
+
+def find_dataset_file(slug: str, filename: str) -> Path:
+    """Locate one attached dataset file. Kaggle's mount layout
+    has moved over the years (today it is
+    /kaggle/input/datasets/<owner>/<slug>/<file>), so search the
+    input tree for the dataset folder instead of hardcoding one
+    generation's path."""
+    for hit in INPUT.rglob(filename):
+        if hit.parent.name == slug:
+            return hit
+    raise RuntimeError(f"dataset {slug} is not attached (no {filename})")
+
+
+def find_toolchain_mount() -> Path:
+    """The toolchain dataset's mount folder. The toolchain
+    rides as .tar.xz archives, which Kaggle leaves as raw
+    files in the mount (it only unpacks .tar.gz uploads, and
+    extracting locally is far faster than copying tens of
+    thousands of small files off the mount). The Node archive
+    is the marker to search by."""
+    for hit in INPUT.rglob("node-v22.23.5-linux-x64.tar.xz"):
+        return hit.parent
+    raise RuntimeError("toolchain dataset is not attached "
+                       "(no node archive)")
+
+
+TOOLCHAIN_MOUNT = find_toolchain_mount()
+KEY_FILE = find_dataset_file("moonfactory-hf-key", "worker_key.txt")
 IDLE_LIMIT_SECONDS = 600
 SESSION_CAP_SECONDS = 55 * 60
 POLL_SECONDS = 20
@@ -74,13 +101,41 @@ def setup_toolchain() -> dict:
     """Extract the persistent toolchain dataset and return the
     environment the renderer runs with. Nothing is installed:
     Node, the CLI and the browser all ride in the tar."""
-    if not TOOLCHAIN_TAR.exists():
-        raise RuntimeError(f"toolchain dataset missing at {TOOLCHAIN_TAR}")
     if not (TOOLCHAIN_DIR / "app").exists():
         TOOLCHAIN_DIR.mkdir(parents=True, exist_ok=True)
-        log("extracting toolchain dataset")
-        with tarfile.open(TOOLCHAIN_TAR, "r:gz") as tar:
-            tar.extractall(TOOLCHAIN_DIR)
+        log("staging toolchain from the dataset mount")
+        # The archives extract straight onto the working disk:
+        # fast, and the staged tree is writable, which the
+        # renderer's browser cache needs.
+        for name in ("node-v22.23.5-linux-x64.tar.xz",
+                     "app.tar.xz", "hf-cache.tar.xz",
+                     "syslibs.tar.xz"):
+            with tarfile.open(TOOLCHAIN_MOUNT / name, "r:*") as tar:
+                tar.extractall(TOOLCHAIN_DIR)
+        (TOOLCHAIN_DIR / "gsap").mkdir(parents=True, exist_ok=True)
+        shutil.copy(TOOLCHAIN_MOUNT / "gsap.min.js",
+                    TOOLCHAIN_DIR / "gsap" / "gsap.min.js")
+        # The Node archive carries its versioned folder name;
+        # the rest of the toolchain expects it at node/.
+        versioned = TOOLCHAIN_DIR / "node-v22.23.5-linux-x64"
+        if versioned.exists() and not (TOOLCHAIN_DIR / "node").exists():
+            versioned.rename(TOOLCHAIN_DIR / "node")
+        shutil.rmtree(TOOLCHAIN_DIR / "node" / "include",
+                      ignore_errors=True)
+        # Kaggle's dataset extraction strips execute bits, so
+        # every binary the renderer runs gets its bit back:
+        # anything in a bin folder, plus the known binaries by
+        # name wherever they sit.
+        for path in TOOLCHAIN_DIR.rglob("*"):
+            try:
+                if path.is_file() and (
+                        path.parent.name in ("bin", ".bin")
+                        or path.name in ("node", "esbuild",
+                                         "chrome-headless-shell",
+                                         "hyperframes")):
+                    path.chmod(path.stat().st_mode | 0o111)
+            except Exception:
+                pass
     node_bin = TOOLCHAIN_DIR / "node" / "bin"
     cache_dir = TOOLCHAIN_DIR / "hf-cache"
     try:
@@ -89,16 +144,31 @@ def setup_toolchain() -> dict:
         pass
     env = dict(os.environ)
     env["PATH"] = f"{node_bin}:{env.get('PATH', '')}"
+    # Kaggle's image lacks four libraries the headless browser
+    # links (libatk, libatk-bridge, libatspi, libXcomposite);
+    # they ride in the toolchain dataset and are offered to the
+    # loader here. Nothing else is missing: ldd on the browser
+    # binary inside Kaggle named exactly those four.
+    syslibs = TOOLCHAIN_DIR / "usr" / "lib" / "x86_64-linux-gnu"
+    if syslibs.exists():
+        env["LD_LIBRARY_PATH"] = (
+            f"{syslibs}:{env.get('LD_LIBRARY_PATH', '')}")
     env["HYPERFRAMES_CACHE_DIR"] = str(cache_dir)
     env["TMPDIR"] = str(WORKING / "hf-tmp")
     Path(env["TMPDIR"]).mkdir(parents=True, exist_ok=True)
-    cli = TOOLCHAIN_DIR / "app" / "node_modules" / ".bin" / "hyperframes"
-    if not cli.exists():
-        raise RuntimeError("hyperframes CLI missing from toolchain")
+    # The CLI is invoked through node on its real entry file.
+    # The node_modules/.bin shortcut cannot be used: it is a
+    # symlink locally, and Kaggle's dataset extraction turns
+    # symlinks into empty files.
+    entry = (TOOLCHAIN_DIR / "app" / "node_modules" / "hyperframes"
+             / "bin" / "hyperframes.mjs")
+    if not entry.exists() or entry.stat().st_size == 0:
+        raise RuntimeError("hyperframes entry missing from toolchain")
     if not shutil.which("ffmpeg"):
         raise RuntimeError("ffmpeg missing from the Kaggle image")
     log("toolchain ready")
-    return {"env": env, "cli": str(cli)}
+    return {"env": env, "node": str(node_bin / "node"),
+            "entry": str(entry)}
 
 
 def render_job(job: dict, tools: dict) -> Path:
@@ -128,7 +198,7 @@ def render_job(job: dict, tools: dict) -> Path:
     out_path = job_dir / "out.mp4"
     log(f"job {job['id']}: rendering")
     proc = subprocess.run(
-        [tools["cli"], "render", "-o", str(out_path),
+        [tools["node"], tools["entry"], "render", "-o", str(out_path),
          "-q", "standard", "--workers", "2"],
         cwd=job_dir, env=tools["env"],
         capture_output=True, text=True, timeout=RENDER_TIMEOUT_SECONDS)
@@ -148,6 +218,7 @@ def fail_job(job_id: str, message: str):
 
 
 def main():
+    heartbeat()
     tools = setup_toolchain()
     idle = 0
     heartbeat()
