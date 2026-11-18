@@ -3871,6 +3871,8 @@ def api():
             "has_speech_script": bool(job.get("speech_script")),
             "voiceover_status": job.get("voiceover_status"),
             "lipsync_status": job.get("lipsync_status"),
+            "word_check_status": job.get("word_check_status"),
+            "word_check_listen_at": job.get("word_check_listen_at") or [],
             "native_speech": lane_audio(
                 job.get("model") or DEFAULT_MODEL)["native_speech"],
             "kind": job.get("kind") or "generation",
@@ -6177,6 +6179,8 @@ def api():
             "speech_script": speech_script or None,
             "speech_voice": speech_voice or None,
             "voiceover_status": None,
+            "word_check_status": None,
+            "word_check_listen_at": [],
             "character_id": body.get("character_id"),
             # Built-in lip sync (Jack's rule, 2026-11-17): planned
             # at creation when the job carries speech on a lane
@@ -6665,6 +6669,8 @@ def api():
             "speech_script": speech_script or None,
             "speech_voice": speech_voice or None,
             "voiceover_status": None,
+            "word_check_status": None,
+            "word_check_listen_at": [],
             "character_id": body.get("character_id"),
             # Built-in lip sync (Jack's rule, 2026-11-17): the
             # house lane does not speak natively, so a spoken line
@@ -7203,6 +7209,77 @@ def api():
             jobs[job["id"]] = job
             return None
 
+    def _word_check_for_job(job: dict, out_path: Path):
+        """The word check stage (Jack's call, 2026-11-18, the UGC
+        Studio word fix idea rebuilt for Moonfactory): once the
+        delivered file exists, its final audio is transcribed word
+        by word and aligned against the job's speech_script by the
+        word_check callable in the sinclip-audio app. Running
+        against the final audio means the check sees what the
+        customer hears, after lip sync, native generation and the
+        voiceover mix alike. Jobs the platform voiced itself carry
+        a same-voice clean track, so the stage may also splice a
+        corrected word back in; when it returns repaired audio, the
+        delivered file's audio track is swapped for it here.
+        Outcomes land on the job record: passed, fixed, flagged
+        (with word_check_listen_at naming the seconds to listen
+        to), take_failed (more than a fifth of the script still
+        wrong; the video still delivers), or unavailable (the stage
+        itself failed). Like every audio stage here, a failure
+        never blocks delivery and never changes the price: the
+        check is a finishing stage, not a charge."""
+        script = (job.get("speech_script") or "").strip()
+        if not script or job.get("word_check_status"):
+            return
+        audio_path = FILES_DIR / f"{job['id']}.wordcheck.wav"
+        fixed_path = FILES_DIR / f"{job['id']}.wordfix.wav"
+        swapped_path = FILES_DIR / f"{job['id']}.wordfix.mp4"
+        try:
+            proc = subprocess.run(
+                ["ffmpeg", "-y", "-i", str(out_path), "-vn",
+                 "-acodec", "pcm_s16le", str(audio_path)],
+                capture_output=True, text=True, timeout=600)
+            if proc.returncode != 0 or not audio_path.exists():
+                raise RuntimeError("final audio extraction failed")
+            # The fix pass is only possible where the platform's
+            # Kokoro stage voiced the job: that clean track is the
+            # same voice. Native lanes get the check and the flag.
+            voice = ""
+            if job.get("voiceover_status") == "ready":
+                voice = job.get("speech_voice") or "af_heart"
+            word_check = modal.Function.from_name(
+                "sinclip-audio", "word_check")
+            result = word_check.remote(
+                audio_path.read_bytes(), script, voice)
+            fixed = result.pop("audio", None)
+            if fixed:
+                fixed_path.write_bytes(fixed)
+                proc = subprocess.run(
+                    ["ffmpeg", "-y", "-i", str(out_path),
+                     "-i", str(fixed_path),
+                     "-map", "0:v:0", "-map", "1:a:0",
+                     "-c:v", "copy", "-c:a", "aac", "-b:a", "160k",
+                     "-shortest", str(swapped_path)],
+                    capture_output=True, text=True, timeout=1800)
+                if proc.returncode != 0 or not swapped_path.exists():
+                    raise RuntimeError("fixed audio swap failed")
+                swapped_path.replace(out_path)
+            job["word_check_status"] = result.get("status") \
+                or "unavailable"
+            job["word_check_listen_at"] = \
+                result.get("listen_at") or []
+            job["word_check_wrong"] = result.get("wrong") or []
+            jobs[job["id"]] = job
+        except Exception:
+            job["word_check_status"] = "unavailable"
+            jobs[job["id"]] = job
+        finally:
+            for path in (audio_path, fixed_path, swapped_path):
+                try:
+                    path.unlink(missing_ok=True)
+                except Exception:
+                    pass
+
     def _bed_for_job(job: dict):
         """The music bed for a job's delivery. Jobs without a music
         prompt get the house bed. Jobs with one (paid customers
@@ -7359,6 +7436,12 @@ def api():
                                   job.get("plan_at_job") == "free")),
                               bed_path=_bed_for_job(job),
                               voice_path=voice)
+            # Word check (2026-11-18): the delivered file's final
+            # audio is checked against the spoken line, and a
+            # same-voice repair is spliced in when one is possible.
+            # The stage flags the job record and never blocks the
+            # delivery above.
+            _word_check_for_job(job, out_path)
             data_volume.commit()
         return out_path
 
