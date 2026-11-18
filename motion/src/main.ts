@@ -15,7 +15,7 @@ const W = 1080, H = 1920;
 const props = (window as unknown as { __motion: MotionProps }).__motion;
 const canvas = document.getElementById("gl") as HTMLCanvasElement;
 
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, stencil: false, powerPreference: "high-performance" });
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, stencil: false, powerPreference: "high-performance", preserveDrawingBuffer: true });
 renderer.setPixelRatio(1);
 renderer.setSize(W, H, false);
 renderer.shadowMap.enabled = true;
@@ -57,17 +57,26 @@ function renderAt(t: number) {
 
 let resolveReady: () => void = () => {};
 const ready = new Promise<void>((r) => { resolveReady = r; });
-(window as unknown as { __hf: { buildReady: Record<string, Promise<void>> } }).__hf =
-  (window as unknown as { __hf: { buildReady: Record<string, Promise<void>> } }).__hf || { buildReady: {} };
-window.__hf.buildReady["motion"] = ready;
+// The HyperFrames runtime may already own window.__hf when this script runs (it does in the
+// render pipeline, not in a plain page), and its object has no buildReady map. Create the map
+// if it is missing; never assume the shape, and never let this registration kill the scene.
+try {
+  const hf = (window as unknown as { __hf?: { buildReady?: Record<string, Promise<void>> } }).__hf
+    || ((window as unknown as { __hf: { buildReady?: Record<string, Promise<void>> } }).__hf = {});
+  if (!hf.buildReady) hf.buildReady = {};
+  hf.buildReady["motion"] = ready;
+} catch { /* the seek listener below is the part that matters */ }
 
 window.addEventListener("hf-seek", (e) => {
-  renderAt((e as CustomEvent<{ time: number }>).detail.time);
+  const detail = (e as CustomEvent<{ time: number; waitUntil: (p: Promise<unknown>) => void }>).detail;
+  renderAt(detail.time);
+  detail.waitUntil(Promise.resolve());
 });
 
-// warm up every shader and texture before the first captured frame, then open the gate
-// (synchronous on purpose: the seek protocol forbids leaning on rAF or timers during setup)
+// Warm up every shader and texture before the first captured frame, then open the gate.
+// Synchronous on purpose: the seek protocol forbids leaning on rAF or timers during setup.
+// Two frames only, one per light grade: the readiness gate on the render side is not
+// patient, and the first captured seek re-poses the scene anyway.
 renderAt(0);
 renderAt(Math.max(0, props.scenes[props.scenes.length - 1].a + 0.5));
-renderAt(0);
 resolveReady();
