@@ -1,14 +1,19 @@
 # Moonfactory HyperFrames worker: a Kaggle kernel (script type).
 #
 # Renders the platform's free template lane (title cards, captions
-# over a clip, stat cards, promo cards) with HyperFrames and sends
-# the finished MP4 back. Kaggle datasets persist, so the whole
-# toolchain (Node 22, the HyperFrames CLI, its Chromium, GSAP) is
-# built once and carried in the magrify/moonfactory-hf-toolchain
-# dataset; a session only extracts it and renders. The worker key
-# rides in its own tiny private dataset (magrify/moonfactory-hf-key)
-# because Kaggle secret attachments do not survive API pushes.
-# The key is read into memory only: never printed, never copied
+# over a clip, stat cards, promo cards, logo stings) with
+# HyperFrames and sends the finished MP4 back. Motion jobs (the
+# animated story short) ride the same loop: the claim payload
+# flags them, the worker stages the scene script that ships in
+# the toolchain dataset beside the composition, and synthesizes
+# the score with the audio kit that ships there too. Kaggle
+# datasets persist, so the whole toolchain (Node 22, the
+# HyperFrames CLI, its Chromium, GSAP) is built once and carried
+# in the magrify/moonfactory-hf-toolchain dataset; a session
+# only extracts it and renders. The worker key rides in its own
+# tiny private dataset (magrify/moonfactory-hf-key) because
+# Kaggle secret attachments do not survive API pushes. The key
+# is read into memory only: never printed, never copied
 # anywhere else.
 #
 # The loop heartbeats while alive, claims queued jobs one at a
@@ -65,6 +70,11 @@ IDLE_LIMIT_SECONDS = 600
 SESSION_CAP_SECONDS = 55 * 60
 POLL_SECONDS = 20
 RENDER_TIMEOUT_SECONDS = 1200
+# Story shorts run far longer than the card templates (a town
+# scene at 30 frames a second for up to about 47 seconds of
+# film), so their renders get a bigger bound that still fits
+# inside the session cap.
+MOTION_RENDER_TIMEOUT_SECONDS = 2400
 
 STARTED = time.time()
 
@@ -115,6 +125,18 @@ def setup_toolchain() -> dict:
         (TOOLCHAIN_DIR / "gsap").mkdir(parents=True, exist_ok=True)
         shutil.copy(TOOLCHAIN_MOUNT / "gsap.min.js",
                     TOOLCHAIN_DIR / "gsap" / "gsap.min.js")
+        # Motion wing assets ride as loose files in the same
+        # dataset (the scene script and the score kit). A
+        # toolchain dataset from before the motion wing simply
+        # has none of them; motion jobs then fail with a clear
+        # reason while title jobs keep rendering.
+        motion_dir = TOOLCHAIN_DIR / "motion"
+        motion_dir.mkdir(parents=True, exist_ok=True)
+        for name in ("motion-scene.js", "motion_audio.py",
+                     "dsp.py", "instruments.py"):
+            src = TOOLCHAIN_MOUNT / name
+            if src.exists():
+                shutil.copy(src, motion_dir / name)
         # The Node archive carries its versioned folder name;
         # the rest of the toolchain expects it at node/.
         versioned = TOOLCHAIN_DIR / "node-v22.23.5-linux-x64"
@@ -166,9 +188,13 @@ def setup_toolchain() -> dict:
         raise RuntimeError("hyperframes entry missing from toolchain")
     if not shutil.which("ffmpeg"):
         raise RuntimeError("ffmpeg missing from the Kaggle image")
+    motion_dir = TOOLCHAIN_DIR / "motion"
+    motion_ready = (motion_dir / "motion-scene.js").exists() \
+        and (motion_dir / "motion_audio.py").exists()
     log("toolchain ready")
     return {"env": env, "node": str(node_bin / "node"),
-            "entry": str(entry)}
+            "entry": str(entry), "motion": motion_ready,
+            "motion_dir": str(motion_dir)}
 
 
 def render_job(job: dict, tools: dict) -> Path:
@@ -195,13 +221,39 @@ def render_job(job: dict, tools: dict) -> Path:
             with open(job_dir / "source.mp4", "wb") as fh:
                 for chunk in resp.iter_content(1024 * 1024):
                     fh.write(chunk)
+    render_timeout = RENDER_TIMEOUT_SECONDS
+    if job.get("motion"):
+        # The story short: stage the scene script the
+        # composition loads, then synthesize the score from the
+        # plan the platform sent (music and scene change sounds
+        # on the scene cuts), written beside the composition as
+        # mix.wav where its audio clip points.
+        if not tools["motion"]:
+            raise RuntimeError("motion assets missing from the "
+                               "toolchain dataset")
+        shutil.copy(Path(tools["motion_dir"]) / "motion-scene.js",
+                    job_dir / "motion-scene.js")
+        plan = job.get("audio_plan") or {}
+        duration = float(plan.get("duration") or 30.0)
+        scenes = ",".join(str(float(s)) for s in plan.get("scenes") or [0])
+        log(f"job {job['id']}: synthesizing the score")
+        audio = subprocess.run(
+            [sys.executable,
+             str(Path(tools["motion_dir"]) / "motion_audio.py"),
+             str(duration), scenes, str(job_dir / "mix.wav")],
+            cwd=tools["motion_dir"], capture_output=True, text=True,
+            timeout=900)
+        if audio.returncode != 0 or not (job_dir / "mix.wav").exists():
+            tail = (audio.stderr or audio.stdout or "")[-400:]
+            raise RuntimeError(f"score synthesis failed: {tail}")
+        render_timeout = MOTION_RENDER_TIMEOUT_SECONDS
     out_path = job_dir / "out.mp4"
     log(f"job {job['id']}: rendering")
     proc = subprocess.run(
         [tools["node"], tools["entry"], "render", "-o", str(out_path),
          "-q", "standard", "--workers", "2"],
         cwd=job_dir, env=tools["env"],
-        capture_output=True, text=True, timeout=RENDER_TIMEOUT_SECONDS)
+        capture_output=True, text=True, timeout=render_timeout)
     if proc.returncode != 0 or not out_path.exists():
         tail = (proc.stderr or proc.stdout or "")[-400:]
         raise RuntimeError(f"render failed ({proc.returncode}): {tail}")

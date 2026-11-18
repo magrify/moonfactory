@@ -966,6 +966,17 @@ HF_TEMPLATES = {
         "duration": 7.0,
         "fields": ("headline", "subline", "cta"),
     },
+    "story": {
+        "name": "Animated story short",
+        "duration": None,  # the story plan sets it, one scene per line
+        "fields": ("title", "lines"),
+        "motion": True,
+    },
+    "sting": {
+        "name": "Logo sting",
+        "duration": 4.0,
+        "fields": ("headline", "subline"),
+    },
 }
 
 _HF_FIELD_LIMITS = {
@@ -975,6 +986,8 @@ _HF_FIELD_LIMITS = {
     "stat": 20,
     "label": 90,
     "cta": 40,
+    "title": 90,
+    "lines": 1100,
 }
 
 
@@ -988,6 +1001,9 @@ def hf_clean_fields(template_id: str, body: dict) -> dict:
         raise ValueError("pick one of the templates on the list")
     out = {}
     for field in spec["fields"]:
+        if field == "lines":
+            out[field] = _hf_clean_lines(body.get(field))
+            continue
         value = str(body.get(field) or "").strip()
         limit = _HF_FIELD_LIMITS[field]
         if len(value) > limit:
@@ -998,6 +1014,8 @@ def hf_clean_fields(template_id: str, body: dict) -> dict:
         "captions": ("caption",),
         "stat": ("stat", "label"),
         "promo": ("headline",),
+        "story": ("title", "lines"),
+        "sting": ("headline",),
     }[template_id]
     for field in required:
         if not out.get(field):
@@ -1007,6 +1025,62 @@ def hf_clean_fields(template_id: str, body: dict) -> dict:
         raise ValueError("that color does not look right, pick one from the color box")
     out["color"] = color
     return out
+
+
+def _hf_clean_lines(raw) -> str:
+    """The story template's lines: one story line per scene,
+    three to eight of them, each short enough to read on screen.
+    Accepts the studio textarea text or a list. Stored as one
+    newline joined string in the job's fields."""
+    if isinstance(raw, (list, tuple)):
+        items = [str(x) for x in raw]
+    else:
+        items = str(raw or "").split("\n")
+    lines = []
+    for item in items:
+        line = " ".join(str(item).split())
+        if not line:
+            continue
+        if len(line) > 120:
+            raise ValueError("keep each story line under 120 characters")
+        lines.append(line)
+    if len(lines) < 3:
+        raise ValueError("write at least three story lines, one on each row")
+    if len(lines) > 8:
+        raise ValueError("keep it to eight story lines at most")
+    return "\n".join(lines)
+
+
+def hf_story_plan(title: str, lines: list) -> list:
+    """The animated story short's scene plan, the single source
+    of truth the composition, the scene script and the audio
+    generator all read. A title scene, one scene per story line
+    timed to a reading pace, and a closing scene in golden
+    light. Boundaries land on whole frames at 30 frames a
+    second. Camera programs cycle the town framings."""
+    fps = 30
+    spans = []
+    frame = 0
+
+    def add(kind, line, light, program, seconds):
+        nonlocal frame
+        frames = max(1, round(seconds * fps))
+        spans.append({
+            "a": round(frame / fps, 4),
+            "b": round((frame + frames) / fps, 4),
+            "kind": kind, "line": line, "light": light,
+            "program": program,
+        })
+        frame += frames
+
+    add("title", -1, "day", 0, 4.5)
+    last = len(lines) - 1
+    for i, line in enumerate(lines):
+        words = len(str(line).split())
+        seconds = min(7.5, max(4.2, 2.4 + 0.38 * words))
+        add("line", i, "golden" if i == last else "day", 1 + (i % 5), seconds)
+    add("outro", -1, "golden", 6, 3.5)
+    return spans
 
 
 def _hf_page(duration: float, accent: str, clips: str, timeline: str) -> str:
@@ -1113,7 +1187,119 @@ def build_hf_composition(template_id: str, fields: dict,
       </div>"""
         timeline = """      tl.fromTo(".capwrap", { opacity: 0, y: 50 }, { opacity: 1, y: 0, duration: 0.45, ease: "back.out(1.8)" }, 0.3);"""
         return _hf_page(dur, accent, clips, timeline)
+    if template_id == "sting":
+        # Timing follows the motion design tables the wing was
+        # built under: a short anticipation hold, a dramatic
+        # reveal for the ring, a standard word stagger, and an
+        # exit at about seventy percent of the entrance time.
+        words = " ".join(
+            f'<span class="sting-word" style="display:inline-block;">{esc(w)}</span>'
+            for w in (fields.get("headline") or "").split())
+        sub = fields.get("subline") or ""
+        sub_clip = (
+            f"""      <p id="sting-sub" style="position:absolute;left:90px;top:1180px;width:900px;text-align:center;font-size:44px;font-weight:400;color:#b8b8c0;">{esc(sub)}</p>"""
+            if sub else "")
+        clips = f"""      <div class="clip" data-start="0" data-duration="4" data-track-index="0" style="position:absolute;left:0;top:0;width:1080px;height:1920px;">
+        <svg width="1080" height="1920" viewBox="0 0 1080 1920" style="position:absolute;left:0;top:0;">
+          <circle id="sting-dot" cx="540" cy="740" r="26" fill="{accent}" style="transform-box:fill-box;transform-origin:center;" />
+          <circle id="sting-ring" cx="540" cy="740" r="150" fill="none" stroke="{accent}" stroke-width="10" stroke-linecap="round" stroke-dasharray="943" stroke-dashoffset="943" transform="rotate(-90 540 740)" />
+        </svg>
+        <h1 id="sting-head" style="position:absolute;left:90px;top:990px;width:900px;text-align:center;font-size:92px;font-weight:800;line-height:1.12;letter-spacing:-0.01em;">{words}</h1>
+{sub_clip}
+        <div id="sting-sweep" style="position:absolute;top:0;left:0;width:260px;height:1920px;background:linear-gradient(100deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.10) 50%, rgba(255,255,255,0) 100%);"></div>
+      </div>"""
+        timeline = """      tl.fromTo("#sting-dot", { scale: 0 }, { scale: 1, duration: 0.35, ease: "expo.out" }, 0.1);
+      tl.to("#sting-ring", { strokeDashoffset: 0, duration: 0.95, ease: "power2.inOut" }, 0.3);
+      tl.fromTo(".sting-word", { opacity: 0, y: 34 }, { opacity: 1, y: 0, duration: 0.5, ease: "expo.out", stagger: 0.08 }, 1.15);
+      tl.fromTo("#sting-sub", { opacity: 0, y: 26 }, { opacity: 1, y: 0, duration: 0.45, ease: "expo.out" }, 1.75);
+      tl.fromTo("#sting-sweep", { x: -320 }, { x: 1420, duration: 1.1, ease: "sine.inOut" }, 2.1);
+      tl.to(["#sting-ring", "#sting-dot", "#sting-head", "#sting-sub"], { opacity: 0, duration: 0.65, ease: "power2.in" }, 3.3);"""
+        return _hf_page(4.0, accent, clips, timeline)
+    if template_id == "story":
+        return _hf_story_page(fields)
     raise ValueError(f"unknown template {template_id}")
+
+
+def _hf_story_page(fields: dict) -> str:
+    """The animated story short's composition: the town scene
+    script draws the film on a canvas, the story words ride as
+    timed panels over it, and the worker writes the synthesized
+    score beside this file as mix.wav before rendering."""
+    import html as _html
+    import json as _json
+
+    esc = _html.escape
+    title = fields.get("title") or ""
+    lines = [ln for ln in (fields.get("lines") or "").split("\n") if ln.strip()]
+    accent = fields.get("color") or "#6366f1"
+    plan = hf_story_plan(title, lines)
+    duration = plan[-1]["b"]
+    props = {"title": title, "lines": lines, "color": accent,
+             "duration": duration, "scenes": plan}
+    props_js = _json.dumps(props).replace("</", "<\\/")
+    title_span = plan[0]
+    outro_span = plan[-1]
+    clips = [
+        f"""      <canvas id="gl" class="clip" data-start="0" data-duration="{duration:g}" data-track-index="0" width="1080" height="1920" style="position:absolute;left:0;top:0;width:1080px;height:1920px;"></canvas>""",
+        f"""      <audio id="mix" class="clip" data-start="0" data-duration="{duration:g}" data-track-index="8" src="mix.wav"></audio>""",
+        f"""      <div id="story-title" class="clip" data-start="0" data-duration="{title_span["b"]:g}" data-track-index="2" style="position:absolute;left:0;top:0;width:1080px;height:1920px;opacity:0;">
+        <div id="story-bar" style="position:absolute;left:50%;top:796px;width:170px;height:14px;margin-left:-85px;background:{accent};border-radius:7px;"></div>
+        <h1 style="position:absolute;left:70px;top:852px;width:940px;text-align:center;font-size:88px;font-weight:800;line-height:1.12;letter-spacing:-0.01em;text-shadow:0 6px 44px rgba(0,0,0,0.55);">{esc(title)}</h1>
+      </div>""",
+    ]
+    timeline = [
+        """      tl.fromTo("#story-bar", { scaleX: 0, transformOrigin: "center" }, { scaleX: 1, duration: 0.55, ease: "expo.out" }, 0.3);""",
+        """      tl.fromTo("#story-title", { opacity: 0, y: 44 }, { opacity: 1, y: 0, duration: 0.7, ease: "expo.out" }, 0.45);""",
+        f"""      tl.to("#story-title", {{ opacity: 0, y: -30, duration: 0.45, ease: "power2.in" }}, {max(0.6, title_span["b"] - 0.5):g});""",
+    ]
+    for span in plan:
+        if span["kind"] != "line":
+            continue
+        i = span["line"]
+        a, b = span["a"], span["b"]
+        clips.append(f"""      <div id="story-line-{i}" class="clip" data-start="{a:g}" data-duration="{b - a:g}" data-track-index="3" style="position:absolute;left:64px;bottom:118px;width:952px;opacity:0;background:rgba(10,10,16,0.58);border-radius:30px;padding:38px 44px;">
+        <p style="font-size:52px;font-weight:600;line-height:1.32;color:#f7f4ec;text-shadow:0 2px 18px rgba(0,0,0,0.4);">{esc(lines[i])}</p>
+      </div>""")
+        timeline.append(f"""      tl.fromTo("#story-line-{i}", {{ opacity: 0, y: 46 }}, {{ opacity: 1, y: 0, duration: 0.6, ease: "expo.out" }}, {a + 0.3:g});""")
+        timeline.append(f"""      tl.to("#story-line-{i}", {{ opacity: 0, y: -26, duration: 0.45, ease: "power2.in" }}, {b - 0.5:g});""")
+    clips.append(f"""      <div id="story-outro" class="clip" data-start="{outro_span["a"]:g}" data-duration="{outro_span["b"] - outro_span["a"]:g}" data-track-index="2" style="position:absolute;left:0;top:0;width:1080px;height:1920px;opacity:0;">
+        <h1 style="position:absolute;left:70px;top:826px;width:940px;text-align:center;font-size:64px;font-weight:800;line-height:1.15;text-shadow:0 6px 44px rgba(0,0,0,0.55);">{esc(title)}</h1>
+        <p style="position:absolute;left:70px;top:1000px;width:940px;text-align:center;font-size:40px;color:#d8d5cc;">The end</p>
+      </div>
+      <div id="story-fade" style="position:absolute;left:0;top:0;width:1080px;height:1920px;background:#000000;opacity:0;"></div>""")
+    timeline.append(f"""      tl.fromTo("#story-outro", {{ opacity: 0, y: 30 }}, {{ opacity: 1, y: 0, duration: 0.7, ease: "expo.out" }}, {outro_span["a"] + 0.35:g});""")
+    timeline.append(f"""      tl.to("#story-fade", {{ opacity: 1, duration: 0.6, ease: "power1.in" }}, {duration - 0.6:g});""")
+    clips_js = "\n".join(clips)
+    timeline_js = "\n".join(timeline)
+    return f"""<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <script src="gsap.min.js"></script>
+    <style>
+      * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+      html, body {{ margin: 0; width: 1080px; height: 1920px; overflow: hidden; background: #0c0c0f; }}
+      #root {{ position: relative; width: 1080px; height: 1920px; background: #0c0c0f;
+        font-family: sans-serif; color: #f4f4f1; overflow: hidden; }}
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0"
+      data-duration="{duration:g}" data-width="1080" data-height="1920" data-fps="30">
+{clips_js}
+    </div>
+    <script>window.__motion = {props_js};</script>
+    <script>
+      window.__timelines = window.__timelines || {{}};
+      const tl = gsap.timeline({{ paused: true }});
+{timeline_js}
+      window.__timelines["main"] = tl;
+    </script>
+    <script src="motion-scene.js"></script>
+  </body>
+</html>
+"""
 
 
 def hf_kaggle_push(token: str, script_text: str) -> tuple:
@@ -8065,11 +8251,18 @@ def api():
                     status_code=429,
                     detail="you have made your free titles for today, the rest wait until tomorrow")
         spec = HF_TEMPLATES[template_id]
-        duration = source_duration if template_id == "captions" \
-            else float(spec["duration"])
+        if template_id == "story":
+            plan = hf_story_plan(fields["title"],
+                                 fields["lines"].split("\n"))
+            duration = plan[-1]["b"]
+        elif template_id == "captions":
+            duration = source_duration
+        else:
+            duration = float(spec["duration"])
         display = (
             fields.get("headline") or fields.get("caption")
-            or fields.get("stat") or spec["name"])
+            or fields.get("stat") or fields.get("title")
+            or spec["name"])
         job = {
             "id": pysecrets.token_hex(8),
             "user_id": user["id"],
@@ -8137,7 +8330,7 @@ def api():
         job["stage"] = "Rendering now"
         job["claimed_at"] = _now()
         jobs[job["id"]] = job
-        return {"job": {
+        payload = {
             "id": job["id"],
             "template": job["template"],
             "fields": job.get("hf_fields") or {},
@@ -8145,7 +8338,21 @@ def api():
                 job["template"], job.get("hf_fields") or {},
                 job.get("source_duration") or 0.0),
             "has_source": bool(job.get("upload_path")),
-        }}
+        }
+        if job["template"] == "story":
+            # The worker stages the scene script beside the
+            # composition and synthesizes the score before
+            # rendering. The plan rides along so the music and
+            # the scene change sounds land on the scene cuts.
+            fields = job.get("hf_fields") or {}
+            plan = hf_story_plan(fields.get("title") or "",
+                                 (fields.get("lines") or "").split("\n"))
+            payload["motion"] = True
+            payload["audio_plan"] = {
+                "duration": plan[-1]["b"],
+                "scenes": [span["a"] for span in plan],
+            }
+        return {"job": payload}
 
     @web.get("/api/worker/hf/jobs/{job_id}/source")
     def hf_job_source(job_id: str, x_api_key: str = Header(default="")):
@@ -10479,15 +10686,21 @@ APP_HTML = (
   <div id="titles-pane" style="display:none">
   <div class="card" style="max-width:640px;margin-left:auto;margin-right:auto">
     <div class="create-head">
-      <h2>Titles</h2>
+      <h2>Titles and motion</h2>
     </div>
-    <p class="muted">Make a title card, a stat card or a promo card, or put captions over one of your clips. These are free. They run on spare computers, so one can take a few minutes to start.</p>
+    <p class="muted">Make a title card, a stat card or a promo card, put captions over one of your clips, tell a short animated story, or open with a logo sting. These are free. They run on spare computers, so one can take a few minutes to start.</p>
     <label>Template</label>
     <select id="tpl-template">
+      <optgroup label="Titles">
       <option value="title">Title card</option>
       <option value="captions">Captions over a clip</option>
       <option value="stat">Stat card</option>
       <option value="promo">Promo card</option>
+      </optgroup>
+      <optgroup label="Motion">
+      <option value="story">Animated story short</option>
+      <option value="sting">Logo sting</option>
+      </optgroup>
     </select>
     <div id="tpl-fields-title">
       <label>Headline</label>
@@ -10515,9 +10728,22 @@ APP_HTML = (
       <label>Button words at the end</label>
       <input id="tpl-promo-cta" type="text" maxlength="40" placeholder="Book now">
     </div>
+    <div id="tpl-fields-story" style="display:none">
+      <label>Story title</label>
+      <input id="tpl-story-title" type="text" maxlength="90" placeholder="The day the river sang">
+      <label>Your story</label>
+      <textarea id="tpl-story-lines" rows="8" maxlength="1100" placeholder="First line of your story"></textarea>
+      <p class="muted">Write one line on each row. Use three to eight lines. Each line gets its own scene in a little animated town, with music made for the story.</p>
+    </div>
+    <div id="tpl-fields-sting" style="display:none">
+      <label>Name or words for the sting</label>
+      <input id="tpl-sting-headline" type="text" maxlength="90" placeholder="Your big words go here">
+      <label>Smaller line under it</label>
+      <input id="tpl-sting-subline" type="text" maxlength="120" placeholder="One short line says the rest">
+    </div>
     <label>Accent color</label>
     <input id="tpl-color" type="color" value="#6366f1" style="width:90px;height:44px;padding:2px">
-    <p class="muted" id="tpl-note">Free titles count toward the five free clips on a free account. Paid accounts can make 20 a day.</p>
+    <p class="muted" id="tpl-note">Free titles and motion pieces count toward the five free clips on a free account. Paid accounts can make 20 a day.</p>
     <div id="botcheck4"></div>
     <button class="btn gen" id="make-title">Make it for free</button>
     <p id="tpl-msg"></p>
@@ -11632,7 +11858,7 @@ $('make-clips').onclick = async () => {
 let tplUploadId = null;
 function tplShowFields() {
   const t = $('tpl-template').value;
-  for (const name of ['title', 'captions', 'stat', 'promo']) {
+  for (const name of ['title', 'captions', 'stat', 'promo', 'story', 'sting']) {
     $('tpl-fields-' + name).style.display = name === t ? '' : 'none';
   }
 }
@@ -11668,6 +11894,12 @@ $('make-title').onclick = async () => {
       payload.headline = $('tpl-promo-headline').value;
       payload.subline = $('tpl-promo-subline').value;
       payload.cta = $('tpl-promo-cta').value;
+    } else if (t === 'story') {
+      payload.title = $('tpl-story-title').value;
+      payload.lines = $('tpl-story-lines').value;
+    } else if (t === 'sting') {
+      payload.headline = $('tpl-sting-headline').value;
+      payload.subline = $('tpl-sting-subline').value;
     }
     msg('tpl-msg', 'Working on the bot check...');
     const bot = await botFields('botcheck4');

@@ -33,8 +33,17 @@ check(app.TEMPLATE_DAILY_CAP_PAID == 20,
       "paid daily cap is 20")
 check(app.TEMPLATE_MAX_SOURCE_SECONDS == 60,
       "captions source cap is 60s")
-check(set(app.HF_TEMPLATES) == {"title", "captions", "stat", "promo"},
-      "four starter templates exist")
+check(set(app.HF_TEMPLATES) == {"title", "captions", "stat", "promo",
+                                 "story", "sting"},
+      "four starter templates plus the two motion templates exist")
+check(app.HF_TEMPLATES["story"]["name"] == "Animated story short",
+      "story template carries its studio name")
+check(app.HF_TEMPLATES["story"].get("motion") is True,
+      "story template is flagged as a motion job")
+check(app.HF_TEMPLATES["sting"]["name"] == "Logo sting",
+      "sting template carries its studio name")
+check(float(app.HF_TEMPLATES["sting"]["duration"]) == 4.0,
+      "sting runs four seconds")
 
 # --- field cleaning -----------------------------------------------------
 clean = app.hf_clean_fields("title", {"headline": "Hello", "subline": ""})
@@ -65,6 +74,54 @@ check(raises(lambda: app.hf_clean_fields("promo", {"subline": "x"})),
       "promo without headline rejected")
 check(raises(lambda: app.hf_clean_fields("stat", {"stat": "42"})),
       "stat without label rejected")
+
+# --- the motion wing: story fields and plan ------------------------------
+STORY_BODY = {
+    "title": "The Miller of Willow Ford",
+    "lines": ("The miller woke before the sun.\n"
+              "A letter had come in the night.\n"
+              "By noon the whole town knew."),
+}
+story_clean = app.hf_clean_fields("story", STORY_BODY)
+check(story_clean["title"] == "The Miller of Willow Ford",
+      "story title passes through")
+check(story_clean["lines"].count("\n") == 2,
+      "story lines are stored newline joined")
+check(raises(lambda: app.hf_clean_fields(
+    "story", {"title": "T", "lines": "one\ntwo"})),
+      "fewer than three story lines rejected")
+check(raises(lambda: app.hf_clean_fields(
+    "story", {"title": "T", "lines": "\n".join(f"line {i}" for i in range(9))})),
+      "more than eight story lines rejected")
+check(raises(lambda: app.hf_clean_fields(
+    "story", {"title": "T", "lines": "a\n" + "x" * 121 + "\nb"})),
+      "a story line over 120 characters rejected")
+check(raises(lambda: app.hf_clean_fields(
+    "story", {"lines": "a\nb\nc"})),
+      "story without a title rejected")
+check(raises(lambda: app.hf_clean_fields("sting", {"subline": "x"})),
+      "sting without headline rejected")
+listed = app.hf_clean_fields(
+    "story", {"title": "T", "lines": [" one ", "", "two", "three"]})
+check(listed["lines"] == "one\ntwo\nthree",
+      "story lines accept a list and drop blank rows")
+
+plan = app.hf_story_plan("T", ["one", "two", "three"])
+check(len(plan) == 5, "plan is a title scene, one scene per line, a closing scene")
+check(plan[0]["kind"] == "title" and plan[0]["light"] == "day"
+      and plan[0]["program"] == 0, "plan opens on the title scene")
+check(plan[-1]["kind"] == "outro" and plan[-1]["light"] == "golden"
+      and plan[-1]["program"] == 6, "plan closes in golden light")
+check(plan[-2]["light"] == "golden", "the last story line plays in golden light")
+check(all(plan[i]["b"] == plan[i + 1]["a"] for i in range(len(plan) - 1)),
+      "plan scenes are contiguous")
+check(all(abs(s["a"] * 30 - round(s["a"] * 30)) < 1e-6
+          and abs(s["b"] * 30 - round(s["b"] * 30)) < 1e-6 for s in plan),
+      "plan boundaries land on whole frames")
+long_plan = app.hf_story_plan("T", ["word " * 30] * 8)
+check(long_plan[-1]["b"] <= 68.0, "the longest story stays inside the render bound")
+short_plan = app.hf_story_plan("T", ["a", "b", "c"])
+check(short_plan[-1]["b"] >= 20.0, "the shortest story still plays as a short film")
 
 # --- composition building ----------------------------------------------
 title_html = app.build_hf_composition(
@@ -103,6 +160,41 @@ promo_html = app.build_hf_composition(
               "cta": "Book now", "color": "#6366f1"})
 check("Book now" in promo_html, "promo card carries the button words")
 
+# --- the motion wing: compositions ---------------------------------------
+story_fields = app.hf_clean_fields("story", STORY_BODY)
+story_html = app.build_hf_composition("story", story_fields)
+story_plan = app.hf_story_plan(story_fields["title"],
+                               story_fields["lines"].split("\n"))
+check('id="gl"' in story_html, "story composition carries the scene canvas")
+check("motion-scene.js" in story_html,
+      "story composition loads the scene script")
+check('src="mix.wav"' in story_html,
+      "story composition carries the score the worker writes")
+check("window.__motion" in story_html,
+      "story composition carries its props for the scene script")
+check(f'data-duration="{story_plan[-1]["b"]:g}"' in story_html,
+      "story composition length follows the plan")
+check("The Miller of Willow Ford" in story_html,
+      "story title is in the composition")
+check(all(ln in story_html for ln in story_fields["lines"].split("\n")),
+      "every story line is in the composition")
+check("__timelines" in story_html, "story timeline is registered")
+evil_story = app.build_hf_composition("story", app.hf_clean_fields(
+    "story", {"title": "<b>Hi</b>", "lines": "a <script>x</script>\nb\nc"}))
+check("<script>x</script>" not in evil_story.replace(
+    '<script src="gsap.min.js"></script>', "").replace(
+    '<script src="motion-scene.js"></script>', ""),
+      "story words never land as raw html")
+
+sting_html = app.build_hf_composition(
+    "sting", {"headline": "Willow Ford Bakery", "subline": "fresh daily",
+              "color": "#e8833a"})
+check("sting-ring" in sting_html, "sting composition draws its ring")
+check("Willow" in sting_html and "Bakery" in sting_html,
+      "sting composition carries its words")
+check('data-duration="4"' in sting_html, "sting composition runs four seconds")
+check("strokeDashoffset" in sting_html, "sting ring is animated on the timeline")
+
 # --- lane wiring in the source ------------------------------------------
 lane = SRC.split("# -- template lane", 1)[1].split(
     '@web.get("/api/jobs/{job_id}/thumb")', 1)[0]
@@ -131,6 +223,22 @@ check("hyperframes" in poll and "TEMPLATE_POLL_LIMIT_SECONDS" in poll,
 check("moonfactory-kaggle" in SRC, "api function carries the kaggle secret")
 check("hf_worker_kernel.py" in SRC, "worker script ships in the api image")
 
+# --- the motion wing: claim payload and studio surface -------------------
+check('payload["motion"] = True' in SRC,
+      "story claims are flagged as motion jobs for the worker")
+check('payload["audio_plan"]' in SRC,
+      "story claims carry the audio plan for the score")
+check('template_id == "story"' in SRC,
+      "story job length comes from the plan at create time")
+check('<optgroup label="Motion">' in SRC,
+      "studio select groups the motion templates")
+check('id="tpl-fields-story"' in SRC and 'id="tpl-fields-sting"' in SRC,
+      "studio has field blocks for both motion templates")
+check("'story', 'sting'" in SRC,
+      "studio field switcher knows the motion templates")
+check('id="tpl-story-lines"' in SRC,
+      "studio story form takes the lines")
+
 # --- kernel -------------------------------------------------------------
 kernel = (ROOT / "worker-kaggle" / "hf_worker_kernel.py").read_text()
 check("moonfactory-hf-toolchain" in kernel,
@@ -144,6 +252,13 @@ check("IDLE_LIMIT_SECONDS = 600" in kernel,
 check("/api/worker/hf/heartbeat" in kernel, "kernel heartbeats")
 check("print(KEY" not in kernel and "print(key" not in kernel.lower()
       .replace("print(key file", ""), "kernel never prints the key")
+check("motion-scene.js" in kernel, "kernel stages the motion scene script")
+check("motion_audio.py" in kernel, "kernel synthesizes the story score")
+check("MOTION_RENDER_TIMEOUT_SECONDS = 2400" in kernel,
+      "motion renders get the bigger timeout")
+check('job.get("motion")' in kernel, "kernel branches on the motion flag")
+check("sys.executable" in kernel,
+      "score synthesis runs on the kernel python")
 
 if failures:
     print("TEMPLATE LANE CHECK FAILURES:")
