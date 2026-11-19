@@ -46,8 +46,8 @@ catalog = SRC.split("function buildCatalog()", 1)[1].split(
     "function applyModelGates()", 1)[0]
 check("tc.value = TITLE_CARDS_ID" in catalog,
       "buildCatalog appends the title cards entry")
-check("tc.textContent = 'Title cards · Free'" in catalog,
-      "the entry is labeled plainly and marked free")
+check("tc.textContent = 'Title cards'" in catalog,
+      "the entry is labeled with its plain name, the group marks it free")
 check("freeGroup.appendChild(tc)" in catalog,
       "the entry lands in the picker Free group")
 check("freeGroup.label = 'Free'" in catalog,
@@ -55,7 +55,7 @@ check("freeGroup.label = 'Free'" in catalog,
 check("sel.appendChild(freeGroup)" in catalog,
       "the Free group lands in the model picker")
 check(catalog.index("sel.appendChild(freeGroup)")
-      < catalog.index("for (const m of catalogCfg.models)"),
+      < catalog.index(".filter(m => classOf(m) === cls)"),
       "the Free group leads the picker, ahead of the paid models")
 check(catalog.index("freeGroup.appendChild(tc)")
       < catalog.index("freeGroup.appendChild(sh)"),

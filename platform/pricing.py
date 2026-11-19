@@ -1240,7 +1240,8 @@ IMAGE_LANES = {
         "raw_cents": {"1024x1024": 5.3},
     },
     "seedream55_unc": {
-        "label": "Seedream 5.5 · Uncensored $$", "provider": "wiro",
+        "label": "Seedream 5.5 $$", "provider": "wiro",
+        "uncensored": True,
         "endpoint": "bytedance/seedream-5-5-uncensored",
         # Wiro's own model page (read 2026-11-17) sells three
         # resolutions: 1k $0.028, 1.5k $0.028, 2k $0.043. Only 2K
@@ -1248,15 +1249,17 @@ IMAGE_LANES = {
         "raw_cents": {"1K": 2.8, "1.5K": 2.8, "2K": 4.3},
     },
     "seedream5pro_unc": {
-        "label": "Seedream 5.0 Pro · Uncensored $$",
+        "label": "Seedream 5.0 Pro $$",
         "provider": "spicyapi",
+        "uncensored": True,
         "endpoint": "bytedance/seedream-5-0-pro/text-to-image",
         # SpicyAPI's own model page (read 2026-11-17): 1k $0.036,
         # 1.5k $0.040, 2k $0.072. The 1.5k tier was not wired.
         "raw_cents": {"1K": 3.6, "1.5K": 4.0, "2K": 7.2},
     },
     "zimage_unc": {
-        "label": "Z-Image · Uncensored $", "provider": "spicyapi",
+        "label": "Z-Image $", "provider": "spicyapi",
+        "uncensored": True,
         "endpoint": "alibaba/z-image-spicy/text-to-image",
         # SpicyAPI's own model page (read 2026-11-17): no
         # resolution tiers at all; width and height are set
@@ -1270,7 +1273,8 @@ IMAGE_LANES = {
                       "1536x1024": 1.235, "1536x1536": 1.235},
     },
     "zimage_pro_unc": {
-        "label": "Z-Image Pro · Uncensored $", "provider": "spicyapi",
+        "label": "Z-Image Pro $", "provider": "spicyapi",
+        "uncensored": True,
         "endpoint": "alibaba/z-image-spicy-pro/text-to-image",
         # SpicyAPI's own model page (read 2026-11-17): the Pro
         # tier of the Z-Image line. Same shape as the base tier
@@ -1284,8 +1288,9 @@ IMAGE_LANES = {
                       "2560x1440": 1.9, "1440x2560": 1.9},
     },
     "qwen_edit_unc": {
-        "label": "Qwen Image Edit · Uncensored $",
+        "label": "Qwen Image Edit $",
         "provider": "spicyapi",
+        "uncensored": True,
         "endpoint": "alibaba/qwen-image-spicy-edit/edit",
         # SpicyAPI's own model page (read 2026-11-17): an EDIT
         # model, not text-to-image. One source image (image_url)

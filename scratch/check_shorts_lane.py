@@ -358,13 +358,13 @@ catalog = SRC.split("function buildCatalog()", 1)[1].split(
     "function applyModelGates()", 1)[0]
 check("sh.value = SHORTS_ID" in catalog,
       "buildCatalog appends the faceless shorts entry")
-check("sh.textContent = 'Faceless shorts · Free'" in catalog,
-      "the entry is labeled plainly and marked free")
+check("sh.textContent = 'Faceless shorts'" in catalog,
+      "the entry is labeled with its plain name, the group marks it free")
 check("freeGroup.appendChild(sh)" in catalog,
       "the entry lands in the picker Free group")
 check("const keep = sel.value || SHORTS_ID;" in catalog,
       "a first catalog build lands on the faceless shorts entry")
-check('<option value="faceless_shorts">Faceless shorts · Free</option>'
+check('<option value="faceless_shorts">Faceless shorts</option>'
       in SRC,
       "the served picker opens on the faceless shorts entry")
 check(catalog.index("freeGroup.appendChild(sh)")
@@ -415,6 +415,11 @@ check('<option value="60" selected>' in length_select,
       "the length picker starts on 1 minute")
 check('id="short-script-estimate"' in pane,
       "script mode carries the spoken length estimate line")
+length_note = "Your video length is estimated from your script length."
+check(length_note in pane,
+      "script mode says the length is estimated from the script length")
+check(all(mark not in length_note for mark in (":", ";", "-", "–", "—")),
+      "the length note follows the plain copy rule")
 check('maxlength="2200"' in pane,
       "the script box fits a full two minutes")
 check("payload.length_seconds" in SRC,

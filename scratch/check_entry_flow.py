@@ -21,6 +21,7 @@ ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT / "platform"))
 
 import app  # noqa: E402
+import pricing  # noqa: E402
 
 failures = []
 
@@ -278,6 +279,72 @@ check("spinMsg('tpl-msg', 'Uploading your clip...')" in SRC
 check("function renderDropLoading()" in SRC
       and "Reading your image..." in SRC,
       "the start image drop shows a reading state while the file loads")
+
+# --- picker groups: Free, Paid Models, Uncensored Models -----------------
+# Both pickers group by a class that comes from data (the same
+# flags the gallery filter reads), never from label text, and
+# each group sorts by customer cost inside itself (2026-11-19).
+for m in app.MODELS:
+    want = ("uncensored" if m["id"] in app.UNCENSORED_VIDEO_MODELS
+            else "paid")
+    check(app.model_picker_class(m["id"]) == want,
+          f"video model {m['id']} class is not {want}")
+check(app.model_picker_class("wan2.2") == "uncensored",
+      "the house Wan 2.2 groups as uncensored, the flag the gallery reads")
+check(app.model_picker_class("wan22_uncut") == "uncensored",
+      "the Uncut lane groups as uncensored")
+check(app.model_picker_class("wan3") == "paid",
+      "a moderated lane groups as paid")
+check(app.image_picker_class("house") == "paid",
+      "Moonfactory Image groups as paid, it carries a per image price")
+for lane_id in ("seedream55_unc", "seedream5pro_unc", "zimage_unc",
+                "zimage_pro_unc", "qwen_edit_unc"):
+    check(app.image_picker_class(lane_id) == "uncensored",
+          f"image lane {lane_id} groups as uncensored")
+    check(pricing.IMAGE_LANES[lane_id].get("uncensored") is True,
+          f"image lane {lane_id} carries its uncensored flag in pricing")
+for lane_id in ("nano_banana_21", "nano_banana_pro", "nano_banana_2",
+                "gpt_image_26"):
+    check(app.image_picker_class(lane_id) == "paid",
+          f"image lane {lane_id} groups as paid")
+for lane_id, lane in pricing.IMAGE_LANES.items():
+    check("·" not in lane["label"],
+          f"image lane {lane_id} label carries no bullet decoration")
+check(app.image_smallest_size(pricing.IMAGE_LANES["seedream55_unc"]) == "1K",
+      "a tiered lane's smallest size is its lowest tier")
+check(app.image_smallest_size(pricing.IMAGE_LANES["zimage_pro_unc"])
+      == "1024x1024",
+      "a pixel lane's smallest size is its smallest area")
+check(app.image_smallest_size(pricing.IMAGE_LANES["qwen_edit_unc"]) == "match",
+      "the edit lane's only size is match")
+check(app.image_picker_price_cents("house")
+      == float(pricing.IMAGE_PRICE_CENTS),
+      "the house image sort price is its flat per image price")
+check(abs(app.image_picker_price_cents("zimage_unc") - 1.235 * 1.25) < 1e-9,
+      "an uncensored lane sorts by its customer price at its smallest size")
+check(abs(app.image_picker_price_cents("nano_banana_21") - 1.6 * 1.25) < 1e-9,
+      "a paid lane sorts by its customer price at its smallest size")
+
+catalog = SRC.split("function buildCatalog()", 1)[1].split(
+    "function applyModelGates()", 1)[0]
+check("[['paid', 'Paid Models']," in catalog
+      and "['uncensored', 'Uncensored Models']]" in catalog,
+      "the video picker builds the Paid and Uncensored groups in order")
+check("rate_cents_per_second" in catalog and "picker_class" in catalog,
+      "the video picker groups and sorts from the config class and rate")
+check("· Uncensored" not in catalog and "· Free" not in catalog,
+      "no bullet class tags survive in the video picker labels")
+check("· Free" not in HTML and "· Uncensored" not in HTML,
+      "no bullet class tags survive anywhere in the served studio page")
+image_builder = SRC.split("function buildImageModels()", 1)[1].split(
+    "function buildImageSizes()", 1)[0]
+check("[['free', 'Free'], ['paid', 'Paid Models']," in image_builder
+      and "['uncensored', 'Uncensored Models']]" in image_builder,
+      "the image picker builds the same three groups in the same order")
+check("picker_class" in image_builder and "price_cents" in image_builder,
+      "the image picker groups and sorts from the config class and price")
+check("if (!members.length) continue;" in image_builder,
+      "an empty image group is left out of the picker")
 
 if failures:
     print("FAIL")

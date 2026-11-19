@@ -725,13 +725,13 @@ MODELS = [
     {"id": "runway_gen45", "label": "Runway Gen-4.5", "paid_only": True},
     # Uncensored video lanes (2026-11-17 wiring pass): uncensored
     # builds of shelf models on suppliers that add no refusal
-    # layer, flagged in UNCENSORED_VIDEO_MODELS below so the
-    # picker shows them with the " · Uncensored" suffix. Labels
-    # are the plain model names (Jack's ruling): the suffix is
-    # the differentiator from the moderated lane of the same
-    # model. Supplier model ids keep their real names in the
-    # submit tables only; nothing user-facing names a supplier
-    # or a build nickname.
+    # layer, flagged in UNCENSORED_VIDEO_MODELS below. Labels
+    # are the plain model names (Jack's ruling): since
+    # 2026-11-19 the picker's Uncensored Models group heading
+    # is the differentiator from the moderated lane of the same
+    # model, and no label carries a suffix. Supplier model ids
+    # keep their real names in the submit tables only; nothing
+    # user-facing names a supplier or a build nickname.
     {"id": "wan22_unc", "label": "Wan 2.2", "paid_only": True},
     {"id": "wan3_unc", "label": "Wan 3.0", "paid_only": True},
     {"id": "minimax_h3_unc", "label": "MiniMax H3", "paid_only": True},
@@ -753,8 +753,8 @@ MODELS = [
     # settles on the house price table (pricing lane "nsfw"),
     # routed in create_job like the effects lane. The label is
     # the differentiator from the house Wan 2.2 and the hosted
-    # Wan 2.2 LoRA build; the Uncensored suffix comes from
-    # UNCENSORED_VIDEO_MODELS like the rest.
+    # Wan 2.2 LoRA build; its Uncensored Models picker group
+    # comes from UNCENSORED_VIDEO_MODELS like the rest.
     {"id": "wan22_uncut", "label": "Wan 2.2 Uncut", "paid_only": True},
     {"id": "seedance2_unc", "label": "Seedance 2.0", "paid_only": True},
     {"id": "seedance2fast_unc", "label": "Seedance 2.0 Fast", "paid_only": True},
@@ -817,6 +817,66 @@ def job_is_nsfw(job: dict) -> bool:
         # clips with no model field were still listed).
         model = DEFAULT_MODEL
     return model in UNCENSORED_VIDEO_MODELS
+
+
+# Picker classes (Jack, 2026-11-19): both model pickers group
+# their entries Free, Paid Models, Uncensored Models. The class
+# is data, never label text: a video model is uncensored when
+# the same UNCENSORED_VIDEO_MODELS flag the gallery filter
+# reads says so (the house Wan 2.2 carries that flag: open
+# weights on our own worker, no provider moderation), and an
+# image lane is uncensored when its pricing entry carries the
+# matching flag. Everything else with a price is paid; the
+# zero credit lanes (title cards, faceless shorts, the motion
+# templates) are free and live in the studio page itself, not
+# in these tables.
+def model_picker_class(model_id: str) -> str:
+    return ("uncensored" if model_id in UNCENSORED_VIDEO_MODELS
+            else "paid")
+
+
+def image_picker_class(lane_id: str) -> str:
+    if lane_id == "house":
+        return "paid"
+    lane = pricing.IMAGE_LANES.get(lane_id) or {}
+    return "uncensored" if lane.get("uncensored") else "paid"
+
+
+def _image_size_rank(size: str) -> float:
+    """Rank one image size so a lane's smallest size sorts
+    first: K tiers by their number, pixel sizes by area in
+    megapixels, anything else (the edit lane's "match") at 0.
+    A lane only ever mixes sizes from one family."""
+    if size.endswith("K"):
+        try:
+            return float(size[:-1])
+        except ValueError:
+            return 0.0
+    if "x" in size:
+        try:
+            w, h = size.split("x", 1)
+            return int(w) * int(h) / 1_000_000.0
+        except ValueError:
+            return 0.0
+    return 0.0
+
+
+def image_smallest_size(lane: dict) -> str:
+    return min(lane["raw_cents"], key=_image_size_rank)
+
+
+def image_picker_price_cents(lane_id: str) -> float:
+    """The per image customer price a picker sorts by: the
+    house lane's flat image price, or a shelf lane's customer
+    price at its smallest size."""
+    if lane_id == "house":
+        return float(pricing.image_price_cents())
+    lane = pricing.IMAGE_LANES[lane_id]
+    _raw, debit = pricing.image_lane_price(
+        lane_id, image_smallest_size(lane))
+    return debit
+
+
 # Price tier signs for the studio dropdown (Jack, 2026-11-16):
 # Google-Maps-style $ signs banded on FIXED edges over the model's
 # lowest customer sell rate in cents per second (see
@@ -2981,6 +3041,13 @@ def api():
                 "label": m["label"],
                 "paid_only": m["paid_only"],
                 "uncensored": m["id"] in UNCENSORED_VIDEO_MODELS,
+                # The picker group this model sits in and the
+                # customer rate the group sorts by (Jack,
+                # 2026-11-19): class from the flag above, rate
+                # the same lowest sell rate the $ signs read.
+                "picker_class": model_picker_class(m["id"]),
+                "rate_cents_per_second": model_lowest_sell_rate(
+                    m["id"], tier_table),
                 "price_tier": model_price_tier(m["id"], tier_table),
                 "audio": {
                     "native_speech": lane_audio(m["id"])["native_speech"],
@@ -3039,7 +3106,14 @@ def api():
                  "size_labels": {
                      a: pricing.image_size_label("house", a)
                      for a in HOUSE_ASPECTS},
-                 "paid_only": False, "edit": False},
+                 "paid_only": False, "edit": False,
+                 # The house image lane (Z-Image Turbo on the
+                 # house worker) carries a per image price, so
+                 # it groups with the paid image lanes (Jack,
+                 # 2026-11-19).
+                 "picker_class": image_picker_class("house"),
+                 "price_cents": image_picker_price_cents("house"),
+                 "uncensored": False},
             ] + [
                 {"id": mid, "label": lane["label"],
                  "sizes": list(lane["raw_cents"].keys()),
@@ -3047,7 +3121,10 @@ def api():
                      s: pricing.image_size_label(mid, s)
                      for s in lane["raw_cents"]},
                  "paid_only": True,
-                 "edit": bool(lane.get("edit"))}
+                 "edit": bool(lane.get("edit")),
+                 "picker_class": image_picker_class(mid),
+                 "price_cents": image_picker_price_cents(mid),
+                 "uncensored": bool(lane.get("uncensored"))}
                 for mid, lane in pricing.IMAGE_LANES.items()
             ],
             "effects": {
@@ -11113,7 +11190,7 @@ APP_HTML = (
       <div class="grow">
         <label class="flabel" for="model">Model</label>
         <select id="model">
-          <option value="faceless_shorts">Faceless shorts · Free</option>
+          <option value="faceless_shorts">Faceless shorts</option>
         </select>
       </div>
       <div id="length-house">
@@ -11229,6 +11306,7 @@ APP_HTML = (
     <div id="short-script-wrap" style="display:none">
       <label>Your script</label>
       <textarea id="short-script" rows="8" maxlength="2200" placeholder="One line for each scene. The voice reads it exactly as written."></textarea>
+      <p class="muted" id="short-script-length-note">Your video length is estimated from your script length.</p>
       <p class="muted" id="short-script-estimate"></p>
     </div>
     <label>Voice</label>
@@ -12642,27 +12720,31 @@ function buildCatalog() {
   // the shorts entry, whose form updateModelUI then shows.
   const keep = sel.value || SHORTS_ID;
   sel.innerHTML = '';
-  // The free lanes lead the picker (Jack, 2026-11-19): cost
-  // order, free first. Title cards, faceless shorts, and the
-  // motion templates all ride lanes that never charge (zero
-  // credits; on a free account they count toward the five free
-  // clips); the paid models follow in config order.
+  // The picker is grouped by class (Jack, 2026-11-19): Free,
+  // Paid Models, Uncensored Models, in that order, each group
+  // sorted by customer cost inside itself. The free lanes lead
+  // because they never charge (zero credits; on a free account
+  // they count toward the five free clips). The model classes
+  // and rates ride the config payload (picker_class and
+  // rate_cents_per_second, from the same flags the gallery
+  // filter reads), never the label text; the group headings
+  // carry the class, so option labels are the plain model
+  // names with their $ tier signs and nothing else.
   const freeGroup = document.createElement('optgroup');
   freeGroup.label = 'Free';
-  // Title cards (the folded Titles lane), marked free because
-  // the lane never charges. Picking the entry swaps the
-  // composer to the template form; the jobs still go out
-  // through /api/templates exactly as before.
+  // Title cards (the folded Titles lane). Picking the entry
+  // swaps the composer to the template form; the jobs still
+  // go out through /api/templates exactly as before.
   const tc = document.createElement('option');
   tc.value = TITLE_CARDS_ID;
-  tc.textContent = 'Title cards · Free';
+  tc.textContent = 'Title cards';
   freeGroup.appendChild(tc);
-  // Faceless shorts (the folded Shorts lane) ride the group the
-  // same way: picking the entry swaps the composer to the
+  // Faceless shorts (the folded Shorts lane) ride the group
+  // the same way: picking the entry swaps the composer to the
   // shorts form; jobs go out through /api/shorts.
   const sh = document.createElement('option');
   sh.value = SHORTS_ID;
-  sh.textContent = 'Faceless shorts · Free';
+  sh.textContent = 'Faceless shorts';
   freeGroup.appendChild(sh);
   for (const t of MOTION_TEMPLATES) {
     const o = document.createElement('option');
@@ -12671,14 +12753,33 @@ function buildCatalog() {
     freeGroup.appendChild(o);
   }
   sel.appendChild(freeGroup);
-  for (const m of catalogCfg.models) {
-    const o = document.createElement('option');
-    o.value = m.id;
-    o.textContent = m.label
-      + (m.price_tier ? ' ' + '$'.repeat(m.price_tier) : '')
-      + (m.uncensored ? ' · Uncensored' : '')
-      + (m.available ? '' : ' (unavailable)');
-    sel.appendChild(o);
+  const classOf = m => m.picker_class
+    || (m.uncensored ? 'uncensored' : 'paid');
+  const byCost = (a, b) => {
+    const ra = a.rate_cents_per_second, rb = b.rate_cents_per_second;
+    if (ra == null && rb == null)
+      return a.label.localeCompare(b.label) || (a.id < b.id ? -1 : 1);
+    if (ra == null) return 1;
+    if (rb == null) return -1;
+    return (ra - rb) || a.label.localeCompare(b.label)
+      || (a.id < b.id ? -1 : 1);
+  };
+  for (const [cls, name] of [['paid', 'Paid Models'],
+                             ['uncensored', 'Uncensored Models']]) {
+    const members = catalogCfg.models
+      .filter(m => classOf(m) === cls).sort(byCost);
+    if (!members.length) continue;
+    const group = document.createElement('optgroup');
+    group.label = name;
+    for (const m of members) {
+      const o = document.createElement('option');
+      o.value = m.id;
+      o.textContent = m.label
+        + (m.price_tier ? ' ' + '$'.repeat(m.price_tier) : '')
+        + (m.available ? '' : ' (unavailable)');
+      group.appendChild(o);
+    }
+    sel.appendChild(group);
   }
   if ([...sel.options].some(o => o.value === keep)) sel.value = keep;
   applyModelGates();
@@ -13628,9 +13729,32 @@ function buildImageModels() {
   const sel = $('image-model');
   const keep = sel.value;
   sel.innerHTML = '';
-  for (const m of (cfg.image_models || [])) {
-    const o = document.createElement('option');
-    o.value = m.id; o.textContent = m.label; sel.appendChild(o);
+  // The image picker carries the same class groups as the
+  // video picker (Jack, 2026-11-19): Free, Paid Models,
+  // Uncensored Models, each sorted by the per image customer
+  // price at the lane's smallest size. Class and price ride
+  // the config payload; a group with no lanes is left out.
+  const byPrice = (a, b) => {
+    const pa = a.price_cents, pb = b.price_cents;
+    if (pa == null && pb == null)
+      return a.label.localeCompare(b.label) || (a.id < b.id ? -1 : 1);
+    if (pa == null) return 1;
+    if (pb == null) return -1;
+    return (pa - pb) || a.label.localeCompare(b.label)
+      || (a.id < b.id ? -1 : 1);
+  };
+  for (const [cls, name] of [['free', 'Free'], ['paid', 'Paid Models'],
+                             ['uncensored', 'Uncensored Models']]) {
+    const members = (cfg.image_models || [])
+      .filter(m => (m.picker_class || 'paid') === cls).sort(byPrice);
+    if (!members.length) continue;
+    const group = document.createElement('optgroup');
+    group.label = name;
+    for (const m of members) {
+      const o = document.createElement('option');
+      o.value = m.id; o.textContent = m.label; group.appendChild(o);
+    }
+    sel.appendChild(group);
   }
   if ([...sel.options].some(o => o.value === keep)) sel.value = keep;
   buildImageSizes();
