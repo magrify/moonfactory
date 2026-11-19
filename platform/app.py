@@ -830,6 +830,15 @@ def job_is_nsfw(job: dict) -> bool:
 # zero credit lanes (title cards, faceless shorts, the motion
 # templates) are free and live in the studio page itself, not
 # in these tables.
+# The house image lane's display name (Jack, 2026-11-19): the
+# lane runs Z-Image Turbo on the house worker, so it carries
+# its real model's name everywhere the name prints (the image
+# picker serves it from the config below, the gallery falls
+# back to it). The $$$$ is the same fixed tier banding as
+# every other lane, read on its 47c per image price.
+HOUSE_IMAGE_LABEL = "Z-Image Turbo · $$$$"
+
+
 def model_picker_class(model_id: str) -> str:
     return ("uncensored" if model_id in UNCENSORED_VIDEO_MODELS
             else "paid")
@@ -3101,18 +3110,15 @@ def api():
             # image lane plus a few provider image models, priced
             # per image. The studio's image mode reads this.
             "image_models": [
-                {"id": "house", "label": "Moonfactory Image · $$$$",
+                {"id": "house", "label": HOUSE_IMAGE_LABEL,
                  "sizes": list(HOUSE_ASPECTS),
                  "size_labels": {
                      a: pricing.image_size_label("house", a)
                      for a in HOUSE_ASPECTS},
                  "paid_only": False, "edit": False,
-                 # The house image lane (Z-Image Turbo on the
-                 # house worker) carries a per image price, so
-                 # it groups with the paid image lanes (Jack,
-                 # 2026-11-19). Its label's $$$$ is the same
-                 # fixed tier banding as the video picker, read
-                 # on its 47c per image price (Jack, 2026-11-19).
+                 # The house image lane carries a per image
+                 # price, so it groups with the paid image lanes
+                 # (Jack, 2026-11-19).
                  "picker_class": image_picker_class("house"),
                  "price_cents": image_picker_price_cents("house"),
                  "uncensored": False},
@@ -9233,7 +9239,7 @@ def api():
         if is_image:
             lane = pricing.IMAGE_LANES.get(
                 job.get("image_model") or "") or {}
-            model_label = lane.get("label") or "Moonfactory's own image maker"
+            model_label = lane.get("label") or HOUSE_IMAGE_LABEL
             cost_cents = int(job.get("image_charge_cents")
                              or job.get("charged_cents") or 0)
         else:

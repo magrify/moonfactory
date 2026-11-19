@@ -296,7 +296,8 @@ check(app.model_picker_class("wan22_uncut") == "uncensored",
 check(app.model_picker_class("wan3") == "paid",
       "a moderated lane groups as paid")
 check(app.image_picker_class("house") == "paid",
-      "Moonfactory Image groups as paid, it carries a per image price")
+      "the house image lane (Z-Image Turbo) groups as paid, "
+      "it carries a per image price")
 for lane_id in ("seedream55_unc", "seedream5pro_unc", "zimage_unc",
                 "zimage_pro_unc", "qwen_edit_unc"):
     check(app.image_picker_class(lane_id) == "uncensored",
@@ -340,10 +341,20 @@ for lane_id, base in (("nano_banana_21", "Nano Banana 2.1"),
             + _image_tier_marks(app.image_picker_price_cents(lane_id)))
     check(pricing.IMAGE_LANES[lane_id]["label"] == want,
           f"image lane {lane_id} label carries its banded tier mark")
-check('"label": "Moonfactory Image · '
+check('HOUSE_IMAGE_LABEL = "Z-Image Turbo · '
       + _image_tier_marks(float(pricing.IMAGE_PRICE_CENTS)) + '"' in SRC,
-      "the house image label carries its banded tier mark "
-      "behind the bullet")
+      "the house image label is its real model name, carrying "
+      "its banded tier mark behind the bullet")
+check(app.HOUSE_IMAGE_LABEL == "Z-Image Turbo · "
+      + _image_tier_marks(float(pricing.IMAGE_PRICE_CENTS)),
+      "the served house image label recomputes from its price")
+check('"label": HOUSE_IMAGE_LABEL' in SRC,
+      "the config serves the house image label from the one constant")
+check("or HOUSE_IMAGE_LABEL" in SRC,
+      "the gallery reads the house image name from the same constant")
+check("Moonfactory Image" not in SRC
+      and "own image maker" not in SRC,
+      "no second hard coded copy of the house image name survives")
 check("' · ' + '$'.repeat(m.price_tier)" in SRC,
       "the video picker sets its tier marks behind the bullet")
 check(app.image_smallest_size(pricing.IMAGE_LANES["seedream55_unc"]) == "1K",
