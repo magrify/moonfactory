@@ -1,0 +1,338 @@
+[
+ {
+  "repo": "Comfy-Org/Wan_2.2_ComfyUI_Repackaged",
+  "file": "split_files/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+  "dest": "text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+  "size": 6735906897,
+  "sha256": "c3355d30191f1f066b26d93fba017ae9809dce6c627dda5f6a66eaa651204f68",
+  "family": "shared"
+ },
+ {
+  "repo": "Comfy-Org/Wan_2.2_ComfyUI_Repackaged",
+  "file": "split_files/vae/wan_2.1_vae.safetensors",
+  "dest": "vae/wan_2.1_vae.safetensors",
+  "size": 253815318,
+  "sha256": "2fc39d31359a4b0a64f55876d8ff7fa8d780956ae2cb13463b0223e15148976b",
+  "family": "shared"
+ },
+ {
+  "repo": "Comfy-Org/Wan_2.1_ComfyUI_repackaged",
+  "file": "split_files/clip_vision/clip_vision_h.safetensors",
+  "dest": "clip_vision/clip_vision_h.safetensors",
+  "size": 1264219396,
+  "sha256": "64a7ef761bfccbadbaa3da77366aac4185a6c58fa5de5f589b42a65bcc21f161",
+  "family": "shared"
+ },
+ {
+  "repo": "Comfy-Org/Wan_2.2_ComfyUI_Repackaged",
+  "file": "split_files/diffusion_models/wan2.2_ti2v_5B_fp16.safetensors",
+  "dest": "diffusion_models/wan2.2_ti2v_5B_fp16.safetensors",
+  "size": 9999658848,
+  "sha256": "456f901338bd9eadbded3828b819109a9b68e8a525ca5cf8d0049a69fcfeca1e",
+  "family": "draft"
+ },
+ {
+  "repo": "Comfy-Org/Wan_2.2_ComfyUI_Repackaged",
+  "file": "split_files/vae/wan2.2_vae.safetensors",
+  "dest": "vae/wan2.2_vae.safetensors",
+  "size": 1409400960,
+  "sha256": "e40321bd36b9709991dae2530eb4ac303dd168276980d3e9bc4b6e2b75fed156",
+  "family": "draft"
+ },
+ {
+  "repo": "Comfy-Org/Wan_2.2_ComfyUI_Repackaged",
+  "file": "split_files/diffusion_models/wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors",
+  "dest": "diffusion_models/wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors",
+  "size": 14294742832,
+  "sha256": "6122e79d55e0f235698d11d657f3b196c5273c830da00b2b013c5a048d5e6a42",
+  "family": "a14b"
+ },
+ {
+  "repo": "Comfy-Org/Wan_2.2_ComfyUI_Repackaged",
+  "file": "split_files/diffusion_models/wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors",
+  "dest": "diffusion_models/wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors",
+  "size": 14294742832,
+  "sha256": "5471a457b6ac404202a5fbe6c11595a3d5641fc766b00f38763f72303fffc21e",
+  "family": "a14b"
+ },
+ {
+  "repo": "Comfy-Org/Wan_2.2_ComfyUI_Repackaged",
+  "file": "split_files/loras/wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors",
+  "dest": "loras/wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors",
+  "size": 1226977424,
+  "sha256": "d176c808d6fc461999b68e321efcb7501b20b8c3797523ed0df14f7d1deff11e",
+  "family": "a14b"
+ },
+ {
+  "repo": "Comfy-Org/Wan_2.2_ComfyUI_Repackaged",
+  "file": "split_files/loras/wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors",
+  "dest": "loras/wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors",
+  "size": 1226977424,
+  "sha256": "024f21de095bc8fad9809ded3e9e49a2e170dcf27075da8145ba7d60d8aab7f9",
+  "family": "a14b"
+ },
+ {
+  "repo": "lopi999/Wan2.2-I2V_General-NSFW-LoRA",
+  "file": "NSFW-22-H-e8.safetensors",
+  "dest": "loras/NSFW-22-H-e8.safetensors",
+  "size": 613516752,
+  "sha256": "34e2144d3cd65360f97d09ccbe03e1c39a096df6c9234af5fe3899d1b63cda39",
+  "family": "a14b"
+ },
+ {
+  "repo": "lopi999/Wan2.2-I2V_General-NSFW-LoRA",
+  "file": "NSFW-22-L-e8.safetensors",
+  "dest": "loras/NSFW-22-L-e8.safetensors",
+  "size": 613516752,
+  "sha256": "d6b783742f4d5fd63a0223ae1d5bf64fc995a6b408480ac2a00528ae0d4146db",
+  "family": "a14b"
+ },
+ {
+  "repo": "Comfy-Org/Wan_2.2_ComfyUI_Repackaged",
+  "file": "split_files/diffusion_models/wan2.2_fun_camera_high_noise_14B_fp8_scaled.safetensors",
+  "dest": "diffusion_models/wan2.2_fun_camera_high_noise_14B_fp8_scaled.safetensors",
+  "size": 15301408048,
+  "sha256": "89a99cb5ab29e388f2e24fddac48eab4d88ca339d236c7a8d96aabacd0f525ae",
+  "family": "camera"
+ },
+ {
+  "repo": "Comfy-Org/Wan_2.2_ComfyUI_Repackaged",
+  "file": "split_files/diffusion_models/wan2.2_fun_camera_low_noise_14B_fp8_scaled.safetensors",
+  "dest": "diffusion_models/wan2.2_fun_camera_low_noise_14B_fp8_scaled.safetensors",
+  "size": 15301408048,
+  "sha256": "a2b7b361e3fad907958aa6ad662a3673bad5ffdce14706cffde4baabb98f9020",
+  "family": "camera"
+ },
+ {
+  "repo": "Comfy-Org/Wan_2.1_ComfyUI_repackaged",
+  "file": "split_files/diffusion_models/wan2.1_i2v_480p_14B_fp8_scaled.safetensors",
+  "dest": "diffusion_models/wan2.1_i2v_480p_14B_fp8_scaled.safetensors",
+  "size": 16401356938,
+  "sha256": "b2de21b99b2e72cb0ff15253b07e926f26e7cf1b7e229efc32f94ad1f1ed9395",
+  "family": "effects"
+ },
+ {
+  "repo": "Remade-AI/360-Orbit",
+  "file": "360_Orbit.safetensors",
+  "dest": "loras/360_Orbit.safetensors",
+  "size": 359257680,
+  "sha256": "5a99f1fd2db47344211fe6836a8664cfd5f053d03647b67c981cf163d65ffa82",
+  "family": "effects"
+ },
+ {
+  "repo": "Remade-AI/Arc_shot",
+  "file": "Arc_shot.safetensors",
+  "dest": "loras/Arc_shot.safetensors",
+  "size": 359257680,
+  "sha256": "d2b378c704e4a5239be6405d085bb7d2518fe7d332999d472def91cff772e8bb",
+  "family": "effects"
+ },
+ {
+  "repo": "Remade-AI/Hero-run",
+  "file": "Hero_run.safetensors",
+  "dest": "loras/Hero_run.safetensors",
+  "size": 359257680,
+  "sha256": "f08deffaed3ac8eb34cb2bf36848737607b1c11b27d65a2244de706cfe27f0bb",
+  "family": "effects"
+ },
+ {
+  "repo": "joyfox/Wan2.1-BulletTime-LoRA",
+  "file": "Wan21_I2V_rotation_000003750.safetensors",
+  "dest": "loras/Wan21_I2V_rotation_000003750.safetensors",
+  "size": 359258136,
+  "sha256": "f57e89047a740d4d706f22823f1e1eb2f9d74fc93856a9beeb9c2f8ba290b1a1",
+  "family": "effects"
+ },
+ {
+  "repo": "Remade-AI/angry-face",
+  "file": "angry_face_5_epochs.safetensors",
+  "dest": "loras/angry_face_5_epochs.safetensors",
+  "size": 359257680,
+  "sha256": "5c1345180ed79eadd88b2b95a9b5da9b782568c1f21d9bd310f63a3321084ac1",
+  "family": "effects"
+ },
+ {
+  "repo": "Remade-AI/Cakeify",
+  "file": "cakeify_16_epochs.safetensors",
+  "dest": "loras/cakeify_16_epochs.safetensors",
+  "size": 359257680,
+  "sha256": "4078cd32c45ad6f0206b87bd8de7e25700bd8419b9c0e0267bb828aec7eb6bf1",
+  "family": "effects"
+ },
+ {
+  "repo": "Remade-AI/Car-chase",
+  "file": "car_chase.safetensors",
+  "dest": "loras/car_chase.safetensors",
+  "size": 359257680,
+  "sha256": "169fd04f2c4025e1a65f4cb7253ecc2808d03432d75d4768f50f5950006534c4",
+  "family": "effects"
+ },
+ {
+  "repo": "Remade-AI/Crane-down",
+  "file": "crane_down.safetensors",
+  "dest": "loras/crane_down.safetensors",
+  "size": 359257680,
+  "sha256": "3fb8cbd8f042c66e490d37ad1e5335b9893f406894ec41c5f519a7a990ee4b64",
+  "family": "effects"
+ },
+ {
+  "repo": "Remade-AI/Crane_over_the_head",
+  "file": "crane_overhead.safetensors",
+  "dest": "loras/crane_overhead.safetensors",
+  "size": 359257680,
+  "sha256": "971fd1fdd159f31928fe67f57fac6274cc9c86644697d9045670cec7d5fc76f7",
+  "family": "effects"
+ },
+ {
+  "repo": "Remade-AI/Crane_up",
+  "file": "crane_up.safetensors",
+  "dest": "loras/crane_up.safetensors",
+  "size": 359257680,
+  "sha256": "78c048652e034ffc6115e08feac8b2c84191715f9b2e6312f3180f8dcb75a69d",
+  "family": "effects"
+ },
+ {
+  "repo": "Remade-AI/Crash-zoom-in",
+  "file": "crash_zoom_in.safetensors",
+  "dest": "loras/crash_zoom_in.safetensors",
+  "size": 359257680,
+  "sha256": "bcc26f0e2ae5f1d2fbe08e8278c2a89c7ef0c0ff7f595ebecc7f4602a92ffdd8",
+  "family": "effects"
+ },
+ {
+  "repo": "Remade-AI/Crush",
+  "file": "crush_20_epochs.safetensors",
+  "dest": "loras/crush_20_epochs.safetensors",
+  "size": 359257680,
+  "sha256": "c2d67e9600edbd0be40febcdb262a0fe145a5962767ac23c644c4a42df2e4ec3",
+  "family": "effects"
+ },
+ {
+  "repo": "Remade-AI/crying",
+  "file": "crying_20_epochs.safetensors",
+  "dest": "loras/crying_20_epochs.safetensors",
+  "size": 359257680,
+  "sha256": "644eb73f513d66d37789f6910c8f04de1f3a2cbea40defc8c63d1f4ffed842c7",
+  "family": "effects"
+ },
+ {
+  "repo": "Remade-AI/Deflate",
+  "file": "deflate_20_epochs.safetensors",
+  "dest": "loras/deflate_20_epochs.safetensors",
+  "size": 359257680,
+  "sha256": "7bb4107dea9966b3533613fb3bc625d8b6bfa7cbf68985f37a33c04aebe53e46",
+  "family": "effects"
+ },
+ {
+  "repo": "Remade-AI/Electrify",
+  "file": "electrify_50_epochs.safetensors",
+  "dest": "loras/electrify_50_epochs.safetensors",
+  "size": 359257680,
+  "sha256": "7fb8712b03377c5f8d7eace7332c2afec3252cc14f86a6ccd24ae06676588e4b",
+  "family": "effects"
+ },
+ {
+  "repo": "Remade-AI/Explode",
+  "file": "explode_30_epochs.safetensors",
+  "dest": "loras/explode_30_epochs.safetensors",
+  "size": 359257680,
+  "sha256": "040dfee5d106acd4e027b6a493b2f228cef2adf090c23fb2040ff6ce016eccc5",
+  "family": "effects"
+ },
+ {
+  "repo": "Remade-AI/Inflate",
+  "file": "inflate_20_epochs.safetensors",
+  "dest": "loras/inflate_20_epochs.safetensors",
+  "size": 359257680,
+  "sha256": "978f493aec4b98ed910abfb9963522d05092c264c69182e5462514cee043eb96",
+  "family": "effects"
+ },
+ {
+  "repo": "Remade-AI/Laughing",
+  "file": "laughing_15_epochs.safetensors",
+  "dest": "loras/laughing_15_epochs.safetensors",
+  "size": 359257680,
+  "sha256": "5c22fa4ea852a10ccd167955e60436486626e2d2effd55f4a1f8e7547348e62f",
+  "family": "effects"
+ },
+ {
+  "repo": "Kijai/WanVideo_comfy",
+  "file": "Lightx2v/lightx2v_I2V_14B_480p_cfg_step_distill_rank64_bf16.safetensors",
+  "dest": "loras/lightx2v_I2V_14B_480p_cfg_step_distill_rank64_bf16.safetensors",
+  "size": 738005744,
+  "sha256": "85c4a61c30e0497aa44b91d93a893b624708461a56fe5485183b28fa07e2dfb3",
+  "family": "effects"
+ },
+ {
+  "repo": "joyfox/WAN2.1-I2V-480P-Falling_US_dollars",
+  "file": "money_000003000.safetensors",
+  "dest": "loras/money_000003000.safetensors",
+  "size": 359258168,
+  "sha256": "b5c5c9b1158d602b5b5e32875acc6021292728fde8147c8c9a3938415aa9887e",
+  "family": "effects"
+ },
+ {
+  "repo": "Remade-AI/Puppy",
+  "file": "puppy_50_epochs.safetensors",
+  "dest": "loras/puppy_50_epochs.safetensors",
+  "size": 359257680,
+  "sha256": "79b8b7d153610036a027725a8564d18f59cd975e9a51cd3cdb2a43e21e5dfa61",
+  "family": "effects"
+ },
+ {
+  "repo": "Remade-AI/Rotate",
+  "file": "rotate_20_epochs.safetensors",
+  "dest": "loras/rotate_20_epochs.safetensors",
+  "size": 359257680,
+  "sha256": "43ce56166b6941eb0037fd7a7675885a221e8cfd53486c4d923b3464f1db1560",
+  "family": "effects"
+ },
+ {
+  "repo": "Remade-AI/Squish",
+  "file": "squish_18.safetensors",
+  "dest": "loras/squish_18.safetensors",
+  "size": 359257680,
+  "sha256": "c2195da8077b02674775929e94b43caa30dc069ed74b1818a2e2adf8fe559cf7",
+  "family": "effects"
+ },
+ {
+  "repo": "lvfengchun/wan21_i2v_boiling_point",
+  "file": "wan21_penqi_000003500.safetensors",
+  "dest": "loras/wan21_penqi_000003500.safetensors",
+  "size": 359258120,
+  "sha256": "19756a95e0f101addd9a57166f13f4b0ffa842fc5762daa444e1a550c4b99919",
+  "family": "effects"
+ },
+ {
+  "repo": "ostris/wan21_i2v_dolly_zoom_lora",
+  "file": "wan_21_i2v_dolly_zoom.safetensors",
+  "dest": "loras/wan_21_i2v_dolly_zoom.safetensors",
+  "size": 359258120,
+  "sha256": "5980c83c32ec0dbfe7e6e8262318031c468cc032f5fcc8fedba578ee82c208f6",
+  "family": "effects"
+ },
+ {
+  "repo": "Comfy-Org/z_image_turbo",
+  "file": "split_files/diffusion_models/z_image_turbo_int8_convrot.safetensors",
+  "dest": "diffusion_models/z_image_turbo_int8_convrot.safetensors",
+  "size": 6201001296,
+  "sha256": "be517ebd47c912a5626a588e1aeea43e6be4a43c0cdcd2b48a2a780d9f358635",
+  "family": "image"
+ },
+ {
+  "repo": "Comfy-Org/z_image_turbo",
+  "file": "split_files/text_encoders/qwen_3_4b_fp8_mixed.safetensors",
+  "dest": "text_encoders/qwen_3_4b_fp8_mixed.safetensors",
+  "size": 5631994051,
+  "sha256": "72450b19758172c5a7273cf7de729d1c17e7f434a104a00167624cba94f68f15",
+  "family": "image"
+ },
+ {
+  "repo": "Comfy-Org/z_image_turbo",
+  "file": "split_files/vae/ae.safetensors",
+  "dest": "vae/ae.safetensors",
+  "size": 335304388,
+  "sha256": "afc8e28272cd15db3919bacdb6918ce9c1ed22e96cb12c4d5ed0fba823529e38",
+  "family": "image"
+ }
+]

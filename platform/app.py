@@ -75,6 +75,10 @@ image = (
         str(Path(__file__).parent.parent
             / "worker-kaggle" / "hf_worker_kernel.py"),
         "/platform/hf_worker_kernel.py")
+    .add_local_file(
+        str(Path(__file__).parent.parent
+            / "worker-kaggle" / "comfy_worker_kernel.py"),
+        "/platform/comfy_worker_kernel.py")
     .add_local_file(str(Path(__file__).parent / "clipping.py"), "/platform/clipping.py")
     .add_local_file(str(Path(__file__).parent / "fun_camera.py"), "/platform/fun_camera.py")
     .add_local_file(str(Path(__file__).parent / "llm_providers.py"), "/platform/llm_providers.py")
@@ -1290,6 +1294,61 @@ TEMPLATE_MAX_UPLOAD_BYTES = 200 * 1024 * 1024
 HF_HEARTBEAT_STALE_SECONDS = 180
 HF_TRIGGER_MIN_INTERVAL_SECONDS = 180
 
+# ---------------------------------------------------------------------------
+# ComfyUI lane: the self hosted generation lanes on Kaggle
+# (Jack, 2026-11-19). The house video lanes (Draft, Production,
+# Effects, Uncut) and the house image lane (Z-Image Turbo) run
+# on Kaggle's free GPU quota from a ComfyUI worker kernel
+# instead of the Modal worker: the expensive self hosted lanes
+# and the uncensored lanes run where the compute is free. The
+# shape mirrors the template lane exactly: the platform queues
+# the job, wakes the kernel with a version push when no
+# heartbeat is fresh, and the kernel claims, renders, and
+# uploads the finished file through the worker endpoints
+# below. Models are downloaded from Hugging Face at session
+# start (the single copy decision: the model set lives only
+# in the Modal volume; no Kaggle dataset copy). There is NO
+# Modal fallback for these lanes: a job whose render cannot
+# run fails clean at its poll bound with everything restored,
+# the template lane's behavior. The Modal worker keeps the
+# audio apps' finishing stages company only; it no longer
+# receives house generation jobs.
+#
+# Settlement is unchanged by the move: a job record carries
+# the lane's measured cost entry exactly as it did on Modal
+# (that figure is the platform's accounting basis for the
+# ceiling, the included budget, and the owner's raw cost),
+# while the cash cost of the render itself is zero inside
+# the free weekly quota. The job record also stamps its
+# route and the worker's measured render seconds, so the
+# record itself shows where the job ran.
+# ---------------------------------------------------------------------------
+
+COMFY_KERNEL_SLUG = "magrify/moonfactory-comfy-worker"
+COMFY_WORKER_SCRIPT_PATH = Path("/platform/comfy_worker_kernel.py")
+COMFY_HEARTBEAT_STALE_SECONDS = 180
+COMFY_TRIGGER_MIN_INTERVAL_SECONDS = 180
+# A queued or running ComfyUI job whose kernel heartbeat has
+# been stale this long is dead (the session ended without
+# failing the job); before this window a fresh heartbeat
+# means a live kernel is working, however long the render
+# takes on the free GPU class.
+COMFY_DEAD_HEARTBEAT_SECONDS = 600
+COMFY_DEAD_JOB_MIN_AGE_SECONDS = 1800
+# A ComfyUI job still queued past this bound was never
+# claimed (the weekly quota was gone, or every wake failed);
+# a running job past the running bound is dead whatever its
+# heartbeat says (one kernel session caps at five hours, so
+# six bounds every real render with room to spare).
+COMFY_QUEUED_LIMIT_SECONDS = 7200
+COMFY_RUNNING_LIMIT_SECONDS = 21600
+# The house lanes that execute on the Kaggle ComfyUI worker.
+# Every house video lane moved (2026-11-19): the two models
+# (house Wan 2.2 in its Draft, Production and Effects shapes,
+# and Wan 2.2 Uncut) carry the $$$ band, and Draft's measured
+# entry (50c) is the highest per job cost on the house shelf.
+KAGGLE_COMFY_LANES = ("draft", "production", "effects", "nsfw")
+
 HF_TEMPLATES = {
     "title": {
         "name": "Title card",
@@ -1653,21 +1712,35 @@ def hf_kaggle_push(token: str, script_text: str) -> tuple:
     which is what makes Kaggle run it. Returns (ok, detail). The
     token rides in the Authorization header only; nothing about
     it is logged here."""
+    return kaggle_push(
+        token, script_text, slug=HF_KERNEL_SLUG,
+        title="Moonfactory Hyperframes Worker",
+        datasets=[HF_TOOLCHAIN_DATASET, HF_KEY_DATASET], gpu=False)
+
+
+def kaggle_push(token: str, script_text: str, slug: str,
+                title: str, datasets: list, gpu: bool) -> tuple:
+    """The general kernel push both Kaggle workers ride: one
+    SaveKernel call against Kaggle's public API, pushing a
+    fresh version of the worker kernel, which is what makes
+    Kaggle run it. Returns (ok, detail). The token rides in
+    the Authorization header only; nothing about it is logged
+    here."""
     import requests as _requests
 
     payload = {
         # The push endpoint's "id" field is the numeric kernel id;
         # a kernel is created and addressed by its string "slug".
-        "slug": HF_KERNEL_SLUG,
-        "newTitle": "Moonfactory Hyperframes Worker",
+        "slug": slug,
+        "newTitle": title,
         "text": script_text,
         "language": "python",
         "kernelType": "script",
         "isPrivate": True,
-        "enableGpu": False,
+        "enableGpu": gpu,
         "enableTpu": False,
         "enableInternet": True,
-        "datasetDataSources": [HF_TOOLCHAIN_DATASET, HF_KEY_DATASET],
+        "datasetDataSources": datasets,
         "competitionDataSources": [],
         "kernelDataSources": [],
         "modelDataSources": [],
@@ -4426,6 +4499,12 @@ def api():
         (Rule 8): the balance charge returns, the included-budget
         debit returns, and the dispatch-time settled cost comes
         back off the account's ceiling total."""
+        if job.get("provider") == "kaggle-comfy":
+            # Kaggle ComfyUI image jobs drive their own status
+            # through the worker endpoints; the mirror's only
+            # work is the dead-kernel bound in mirror_status,
+            # which runs before this is ever called.
+            return job
         if job["status"] in ("queued", "running") and _now() - job.get("last_poll", 0) > 8:
             try:
                 resp = requests.get(
@@ -4507,6 +4586,38 @@ def api():
                     "short job passed its runner time limit")
                 job["stage"] = None
                 jobs[job["id"]] = job
+            return job
+        if job.get("provider") == "kaggle-comfy":
+            # Kaggle ComfyUI jobs (the house lanes, 2026-11-19)
+            # are worked by the Kaggle kernel, which drives
+            # status through the worker endpoints. The mirror
+            # only enforces the dead-kernel bound and nudges a
+            # kernel awake for a queued job. A job is dead when
+            # no kernel heartbeat has been fresh for the dead
+            # window and the job is past the minimum age: the
+            # session ended (quota, cap, or a kill) without
+            # failing it. It then fails clean through
+            # _fail_stale_job, which restores exactly what the
+            # Modal error path restored. A live kernel's fresh
+            # heartbeat keeps a long render alive past every
+            # fixed bound: the free GPU class is slow, and the
+            # heartbeat, not the clock, is the liveness signal.
+            age = _now() - float(job.get("created_at") or _now())
+            if job["status"] == "queued":
+                if age > COMFY_QUEUED_LIMIT_SECONDS:
+                    # No kernel ever claimed it (the weekly
+                    # quota was gone, or every wake failed):
+                    # fail clean with everything restored, the
+                    # template lane's no-show behavior.
+                    _fail_stale_job(job)
+                else:
+                    _comfy_maybe_trigger()
+            elif job["status"] == "running" and (
+                    age > COMFY_RUNNING_LIMIT_SECONDS
+                    or (_now() - float(meta.get("comfy:heartbeat") or 0)
+                        > COMFY_DEAD_HEARTBEAT_SECONDS
+                        and age > COMFY_DEAD_JOB_MIN_AGE_SECONDS)):
+                _fail_stale_job(job)
             return job
         if job["status"] in ("queued", "running") and \
                 _now() - float(job.get("created_at") or _now()) \
@@ -7446,34 +7557,46 @@ def api():
                         raise HTTPException(status_code=402, detail=reload_fail_detail(reload_state, detail))
                 charged = price
             job_cost_cents = job_cost
-        try:
-            resp = requests.post(
-                f"{WORKER_BASE}/jobs",
-                headers=_worker_headers(),
-                json={
-                    "lane": lane,
-                    "prompt": prompt,
-                    "negative_prompt": body.get("negative_prompt") or None,
-                    "seed": body.get("seed"),
-                    "start_image_png_b64": start_image,
-                    "end_image_png_b64": end_image,
-                    "aspect_ratio": aspect,
-                    "segments": segments,
-                    "camera_pose": (
-                        (fun_preset.get("patch") or {}).get("value")
-                        if fun_preset else None
-                    ),
-                    "camera_speed": camera_speed if fun_preset else None,
-                    "camera_recipe": camera_recipe if fun_preset else None,
-                    "effect": effect_id,
-                },
-                timeout=30,
-            )
-        except Exception as exc:
-            raise HTTPException(status_code=502, detail=f"generation worker unreachable: {exc}")
-        if resp.status_code != 202:
-            raise HTTPException(status_code=502, detail=f"generation worker refused the job ({resp.status_code})")
-        worker_job_id = resp.json()["job_id"]
+        # Dispatch routing (2026-11-19): every house lane runs
+        # on the Kaggle ComfyUI worker now (KAGGLE_COMFY_LANES);
+        # the Modal worker takes no house generation jobs. A
+        # Kaggle job has no synchronous dispatch: the record
+        # below queues it, the commit that follows is its
+        # acceptance, and the worker claims it through the
+        # worker endpoints. Its failure handling is the fail
+        # endpoint and the mirror's dead-kernel bound, which
+        # restore exactly what the Modal error path restored.
+        on_kaggle = lane in KAGGLE_COMFY_LANES
+        worker_job_id = None
+        if not on_kaggle:
+            try:
+                resp = requests.post(
+                    f"{WORKER_BASE}/jobs",
+                    headers=_worker_headers(),
+                    json={
+                        "lane": lane,
+                        "prompt": prompt,
+                        "negative_prompt": body.get("negative_prompt") or None,
+                        "seed": body.get("seed"),
+                        "start_image_png_b64": start_image,
+                        "end_image_png_b64": end_image,
+                        "aspect_ratio": aspect,
+                        "segments": segments,
+                        "camera_pose": (
+                            (fun_preset.get("patch") or {}).get("value")
+                            if fun_preset else None
+                        ),
+                        "camera_speed": camera_speed if fun_preset else None,
+                        "camera_recipe": camera_recipe if fun_preset else None,
+                        "effect": effect_id,
+                    },
+                    timeout=30,
+                )
+            except Exception as exc:
+                raise HTTPException(status_code=502, detail=f"generation worker unreachable: {exc}")
+            if resp.status_code != 202:
+                raise HTTPException(status_code=502, detail=f"generation worker refused the job ({resp.status_code})")
+            worker_job_id = resp.json()["job_id"]
         # Commit the quota/balance only after the worker accepted the job.
         if is_free_job:
             u["free_jobs"] += 1
@@ -7497,9 +7620,18 @@ def api():
             "id": pysecrets.token_hex(8),
             "user_id": user["id"],
             "worker_job_id": worker_job_id,
+            # Kaggle ComfyUI jobs carry their route on the
+            # record (2026-11-19): the mirror, the worker
+            # endpoints, and the delivery path all read it.
+            # Modal dispatched jobs predate the field and the
+            # mirror treats its absence as the Modal route.
+            **({"provider": "kaggle-comfy", "route": "kaggle"}
+               if on_kaggle else {}),
             "lane": lane,
             "model": model,
             "prompt": prompt,
+            "negative_prompt": body.get("negative_prompt") or None,
+            "seed": body.get("seed"),
             "user_prompt": camera["user_prompt"],
             "camera_presets": camera["camera_presets"],
             "camera_preset_names": camera["camera_preset_names"],
@@ -7554,6 +7686,8 @@ def api():
         if job_is_nsfw(job):
             job["gallery_public"] = False
         jobs[job["id"]] = job
+        if on_kaggle:
+            _comfy_maybe_trigger()
         return JSONResponse(public_job(job), status_code=202)
 
     @web.get("/api/jobs")
@@ -7811,22 +7945,11 @@ def api():
                     status_code=402,
                     detail=f"included budget used up. A first frame costs {payment['charge_cents']} cents of prepaid balance")
             job_cost_cents = float(pricing.IMAGE_MEASURED_COST_CENTS)
-        try:
-            resp = requests.post(
-                f"{WORKER_BASE}/image-jobs",
-                headers=_worker_headers(),
-                json={
-                    "prompt": prompt,
-                    "aspect_ratio": aspect,
-                    "seed": body.get("seed"),
-                },
-                timeout=30,
-            )
-        except Exception as exc:
-            raise HTTPException(status_code=502, detail=f"generation worker unreachable: {exc}")
-        if resp.status_code != 202:
-            raise HTTPException(status_code=502, detail=f"generation worker refused the job ({resp.status_code})")
-        worker_job_id = resp.json()["job_id"]
+        # The house image lane runs on the Kaggle ComfyUI
+        # worker (2026-11-19), like the house video lanes: no
+        # synchronous dispatch, the record below queues the
+        # job and the commit is its acceptance.
+        worker_job_id = None
         # Commit the quota/balance only after the worker accepted
         # the job, exactly like the video lanes.
         if is_free_job:
@@ -7847,11 +7970,13 @@ def api():
             "id": pysecrets.token_hex(8),
             "user_id": user["id"],
             "worker_job_id": worker_job_id,
-            "provider": "worker-image",
+            "provider": "kaggle-comfy",
+            "route": "kaggle",
             "kind": "image",
             "lane": "image",
             "model": None,
             "prompt": prompt,
+            "seed": body.get("seed"),
             "user_prompt": prompt,
             "camera_presets": [],
             "camera_preset_names": [],
@@ -7871,6 +7996,7 @@ def api():
             "aspect_ratio": aspect,
         }
         jobs[job["id"]] = job
+        _comfy_maybe_trigger()
         return JSONResponse(
             {**public_job(job), "quote": pricing.image_quote(owner=is_owner(user))},
             status_code=202)
@@ -9107,6 +9233,260 @@ def api():
         job["stage"] = None
         jobs[job["id"]] = job
         return {"ok": True}
+
+    # -- Kaggle ComfyUI worker (the house lanes, 2026-11-19) --------------
+    # The house video lanes and the house image lane run on the
+    # Kaggle ComfyUI worker kernel (worker-kaggle/
+    # comfy_worker_kernel.py). The worker authenticates with
+    # the same worker key as the template worker: the endpoints
+    # are separate, and the key never leaves its two homes (the
+    # moonfactory-secrets Modal secret and the private key
+    # dataset the kernel reads). The claim shape mirrors the
+    # template lane: heartbeat, claim, file, fail.
+
+    def _comfy_worker_ok(x_api_key: str) -> bool:
+        return _hf_worker_ok(x_api_key)
+
+    def _comfy_maybe_trigger() -> None:
+        """Wake the ComfyUI kernel when a job waits and no
+        kernel heartbeat is fresh: the same discipline as
+        _hf_maybe_trigger, with its own meta keys and kernel.
+        Never raises: a failed wake leaves the job queued and
+        the mirror retries on its next pass."""
+        try:
+            if _now() - float(meta.get("comfy:heartbeat") or 0) \
+                    < COMFY_HEARTBEAT_STALE_SECONDS:
+                return
+            if _now() - float(meta.get("comfy:last_trigger") or 0) \
+                    < COMFY_TRIGGER_MIN_INTERVAL_SECONDS:
+                return
+            token = os.environ.get("KAGGLE_API_TOKEN") or ""
+            if not token:
+                return
+            script_text = COMFY_WORKER_SCRIPT_PATH.read_text()
+            meta["comfy:last_trigger"] = _now()
+            ok, detail = kaggle_push(
+                token, script_text, slug=COMFY_KERNEL_SLUG,
+                title="Moonfactory Comfy Worker",
+                datasets=[HF_KEY_DATASET], gpu=True)
+            if not ok:
+                meta["comfy:last_trigger_error"] = detail
+        except Exception:
+            pass
+
+    def _settle_comfy_partial(job: dict) -> None:
+        """The partial delivery settlement, carried over from
+        the Modal mirror's math exactly: the delivered
+        fraction of the segments stands at its pro rated
+        price and cost, the rest comes back."""
+        user = users.get(job["user_id"])
+        if not user:
+            return
+        total = max(1, int(job.get("segments_total") or 1))
+        done = max(0, int(job.get("segments_done") or 0))
+        frac = done / total
+        charged = int(job.get("charged_cents") or 0)
+        if charged and not job.get("partial_refunded"):
+            refund = int(round(charged * (1 - frac)))
+            if refund > 0:
+                user["balance_cents"] = (
+                    user.get("balance_cents", 0) + refund)
+                job["partial_refunded"] = True
+                job["partial_refund_cents"] = refund
+        settled = float(job.get("cost_cents") or 0.0)
+        if settled and not job.get("partial_cost_released"):
+            release = round(settled * (1 - frac), 4)
+            if release > 0:
+                user["cost_settled_cents"] = max(
+                    0.0, float(user.get("cost_settled_cents") or 0.0)
+                    - release)
+                job["partial_cost_released"] = True
+                job["partial_cost_release_cents"] = release
+        save_user(user)
+
+    def _fail_comfy_job(job: dict, error_text: str,
+                        internal: str) -> None:
+        """Fail a ComfyUI job with the restores its Modal route
+        made: an image job restores everything through
+        _restore_house_image; a video job restores the balance
+        charge and the settled cost, exactly the Modal mirror's
+        error legs (the included budget debit was never
+        restored on the house video route)."""
+        job["status"] = "error"
+        job["error"] = error_text
+        job["internal_error"] = internal[:300]
+        if job.get("kind") == "image":
+            _restore_house_image(job)
+        else:
+            user = users.get(job["user_id"])
+            if user:
+                if job.get("charged_cents") and not job.get("refunded"):
+                    user["balance_cents"] = (
+                        user.get("balance_cents", 0)
+                        + int(job["charged_cents"]))
+                    job["refunded"] = True
+                if job.get("cost_cents") and not job.get("cost_released"):
+                    user["cost_settled_cents"] = max(
+                        0.0, float(user.get("cost_settled_cents") or 0.0)
+                        - float(job["cost_cents"]))
+                    job["cost_released"] = True
+                save_user(user)
+        jobs[job["id"]] = job
+
+    @web.post("/api/worker/comfy/heartbeat")
+    def comfy_heartbeat(x_api_key: str = Header(default="")):
+        if not _comfy_worker_ok(x_api_key):
+            raise HTTPException(status_code=401, detail="bad worker key")
+        meta["comfy:heartbeat"] = _now()
+        return {"ok": True}
+
+    @web.get("/api/worker/comfy/jobs/next")
+    def comfy_job_next(x_api_key: str = Header(default="")):
+        if not _comfy_worker_ok(x_api_key):
+            raise HTTPException(status_code=401, detail="bad worker key")
+        meta["comfy:heartbeat"] = _now()
+        queued = []
+        for key in list(jobs.keys()):
+            job = jobs.get(key)
+            if job and job.get("provider") == "kaggle-comfy" \
+                    and job["status"] == "queued":
+                queued.append(job)
+        if not queued:
+            return {"job": None}
+        queued.sort(key=lambda j: float(j.get("created_at") or 0))
+        job = queued[0]
+        job["status"] = "running"
+        job["worker_job_id"] = job["id"]
+        jobs[job["id"]] = job
+        return {"job": {
+            "id": job["id"],
+            "kind": job.get("kind") or "video",
+            "lane": job.get("lane"),
+            "prompt": job.get("prompt"),
+            "negative_prompt": job.get("negative_prompt"),
+            "seed": job.get("seed"),
+            "aspect_ratio": job.get("aspect_ratio") or "9:16",
+            "segments": int(job.get("segments_total") or 1),
+            "camera_pose": job.get("camera_pose"),
+            "camera_speed": job.get("camera_speed"),
+            "camera_recipe": job.get("camera_recipe"),
+            "effect": job.get("effect"),
+            "has_start_image": bool(job.get("start_image_png_b64")),
+            "has_end_image": bool(job.get("end_image_png_b64")),
+        }}
+
+    def _comfy_job_image(job_id: str, field: str,
+                         x_api_key: str):
+        if not _comfy_worker_ok(x_api_key):
+            raise HTTPException(status_code=401, detail="bad worker key")
+        job = jobs.get(job_id)
+        if not job or job.get("provider") != "kaggle-comfy":
+            raise HTTPException(status_code=404, detail="unknown job")
+        encoded = job.get(field)
+        if not encoded:
+            raise HTTPException(status_code=404, detail="no such image")
+        return Response(content=base64.b64decode(encoded),
+                        media_type="image/png")
+
+    @web.get("/api/worker/comfy/jobs/{job_id}/start-image")
+    def comfy_job_start_image(job_id: str,
+x_api_key: str = Header(default="")):
+        return _comfy_job_image(job_id, "start_image_png_b64", x_api_key)
+
+    @web.get("/api/worker/comfy/jobs/{job_id}/end-image")
+    def comfy_job_end_image(job_id: str,
+x_api_key: str = Header(default="")):
+        return _comfy_job_image(job_id, "end_image_png_b64", x_api_key)
+
+    @web.post("/api/worker/comfy/jobs/{job_id}/file")
+    async def comfy_job_file(job_id: str, request: Request,
+x_api_key: str = Header(default="")):
+        if not _comfy_worker_ok(x_api_key):
+            raise HTTPException(status_code=401, detail="bad worker key")
+        job = jobs.get(job_id)
+        if not job or job.get("provider") != "kaggle-comfy":
+            raise HTTPException(status_code=404, detail="unknown job")
+        if job["status"] != "running":
+            raise HTTPException(status_code=409, detail=f"job status is {job['status']}")
+        data = await request.body()
+        if not data or len(data) > 500 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail="bad file size")
+        FILES_DIR.mkdir(parents=True, exist_ok=True)
+        if job.get("kind") == "image":
+            out_path = FILES_DIR / f"{job_id}.png"
+            out_path.write_bytes(data)
+            data_volume.commit()
+            job["bytes"] = len(data)
+            exec_seconds = request.headers.get("x-comfy-exec-seconds")
+            if exec_seconds is not None:
+                try:
+                    job["gpu_seconds"] = float(exec_seconds)
+                except Exception:
+                    pass
+            job["status"] = "done"
+            jobs[job["id"]] = job
+            return {"ok": True, "bytes": len(data)}
+        # Video: the raw render lands where the finishing
+        # chain looks for it, then ensure_processed takes the
+        # job the rest of the way (watermark, bed, voiceover,
+        # word check, captions), exactly as a Modal render did.
+        out_path = FILES_DIR / f"{job_id}.raw.mp4"
+        out_path.write_bytes(data)
+        data_volume.commit()
+        job["bytes"] = len(data)
+        try:
+            info = clipping.probe(out_path)
+            job["duration_seconds"] = round(float(info["duration"]), 2)
+        except Exception:
+            pass
+        render_seconds = request.headers.get("x-comfy-render-seconds")
+        if render_seconds is not None:
+            try:
+                job["render_seconds"] = float(render_seconds)
+            except Exception:
+                pass
+        segments_done = request.headers.get("x-comfy-segments-done")
+        if segments_done is not None:
+            try:
+                job["segments_done"] = int(segments_done)
+            except Exception:
+                pass
+        gpu = request.headers.get("x-comfy-gpu")
+        if gpu:
+            job["worker_gpu"] = gpu[:80]
+        if request.headers.get("x-comfy-partial") == "1":
+            # A session cap cut the chain short: the delivered
+            # segments stand as the job's result, settled pro
+            # rated, and the record says why.
+            job["partial"] = True
+            job["partial_reason"] = (
+                request.headers.get("x-comfy-partial-error") or "")[:300]
+            _settle_comfy_partial(job)
+        job["status"] = "done"
+        jobs[job["id"]] = job
+        return {"ok": True, "bytes": len(data)}
+
+    @web.post("/api/worker/comfy/jobs/{job_id}/fail")
+    async def comfy_job_fail(job_id: str, request: Request,
+x_api_key: str = Header(default="")):
+        if not _comfy_worker_ok(x_api_key):
+            raise HTTPException(status_code=401, detail="bad worker key")
+        job = jobs.get(job_id)
+        if not job or job.get("provider") != "kaggle-comfy":
+            raise HTTPException(status_code=404, detail="unknown job")
+        if job["status"] not in ("queued", "running"):
+            raise HTTPException(status_code=409, detail=f"job status is {job['status']}")
+        body = await request.json()
+        if job.get("kind") == "image":
+            _fail_comfy_job(
+                job, "the first frame could not be made, nothing was charged",
+                str(body.get("error") or ""))
+        else:
+            _fail_comfy_job(
+                job, "the render failed, nothing was charged",
+                str(body.get("error") or ""))
+        return {"ok": True}
+
 
     # -- faceless shorts lane ----------------------------------------------
     # The MoneyPrinterTurbo shape on the platform's own pieces
