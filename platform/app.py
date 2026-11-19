@@ -10654,7 +10654,6 @@ APP_HTML = (
     <button class="btn" id="tab-tryit">Try It</button>
     <button class="btn secondary" id="tab-create">Create</button>
     <button class="btn secondary" id="tab-clip">Clip</button>
-    <button class="btn secondary" id="tab-titles">Titles</button>
   </div></div>
 
   <div id="create-pane">
@@ -10773,6 +10772,50 @@ APP_HTML = (
     </div>
     <p class="muted" id="model-note"></p>
     <p class="muted" id="segments-note"></p>
+
+    <div id="titlecard-fields" style="display:none">
+    <p class="muted">Make a title card, a stat card or a promo card, or put captions over one of your clips. These are free. They run on spare computers, so one can take a few minutes to start.</p>
+    <label>Style</label>
+    <select id="tpl-template">
+      <optgroup label="Titles">
+      <option value="title">Title card</option>
+      <option value="captions">Captions over a clip</option>
+      <option value="stat">Stat card</option>
+      <option value="promo">Promo card</option>
+      </optgroup>
+    </select>
+    <div id="tpl-fields-title">
+      <label>Headline</label>
+      <input id="tpl-title-headline" type="text" maxlength="90" placeholder="Your big words go here">
+      <label>Smaller line under it</label>
+      <input id="tpl-title-subline" type="text" maxlength="120" placeholder="One short line says the rest">
+    </div>
+    <div id="tpl-fields-captions" style="display:none">
+      <label>Your clip</label>
+      <input id="tpl-clip-file" type="file" accept="video/*">
+      <label>Words on the clip</label>
+      <input id="tpl-caption" type="text" maxlength="120" placeholder="The words that sit on your clip">
+    </div>
+    <div id="tpl-fields-stat" style="display:none">
+      <label>The big number or short stat</label>
+      <input id="tpl-stat" type="text" maxlength="20" placeholder="12000">
+      <label>What the stat means</label>
+      <input id="tpl-stat-label" type="text" maxlength="90" placeholder="happy guests this year">
+    </div>
+    <div id="tpl-fields-promo" style="display:none">
+      <label>Headline</label>
+      <input id="tpl-promo-headline" type="text" maxlength="90" placeholder="Your big words go here">
+      <label>Smaller line under it</label>
+      <input id="tpl-promo-subline" type="text" maxlength="120" placeholder="One short line says the rest">
+      <label>Button words at the end</label>
+      <input id="tpl-promo-cta" type="text" maxlength="40" placeholder="Book now">
+    </div>
+    <label>Accent color</label>
+    <input id="tpl-color" type="color" value="#6366f1" style="width:90px;height:44px;padding:2px">
+    <p class="muted" id="tpl-note">Free titles count toward the five free clips on a free account. Paid accounts can make 20 a day.</p>
+    <div id="botcheck4"></div>
+    <p id="tpl-msg"></p>
+    </div>
 
     <details class="more" id="more-opts">
       <summary>More options</summary>
@@ -10998,53 +11041,6 @@ APP_HTML = (
   <div id="clip-results" style="max-width:640px;margin:0 auto"><p class="muted">No clips yet. Paste a link above and your clips will show up here.</p></div>
   </div>
 
-  <div id="titles-pane" style="display:none">
-  <div class="card" style="max-width:640px;margin-left:auto;margin-right:auto">
-    <div class="create-head">
-      <h2>Titles</h2>
-    </div>
-    <p class="muted">Make a title card, a stat card or a promo card, or put captions over one of your clips. These are free. They run on spare computers, so one can take a few minutes to start.</p>
-    <label>Template</label>
-    <select id="tpl-template">
-      <option value="title">Title card</option>
-      <option value="captions">Captions over a clip</option>
-      <option value="stat">Stat card</option>
-      <option value="promo">Promo card</option>
-    </select>
-    <div id="tpl-fields-title">
-      <label>Headline</label>
-      <input id="tpl-title-headline" type="text" maxlength="90" placeholder="Your big words go here">
-      <label>Smaller line under it</label>
-      <input id="tpl-title-subline" type="text" maxlength="120" placeholder="One short line says the rest">
-    </div>
-    <div id="tpl-fields-captions" style="display:none">
-      <label>Your clip</label>
-      <input id="tpl-clip-file" type="file" accept="video/*">
-      <label>Words on the clip</label>
-      <input id="tpl-caption" type="text" maxlength="120" placeholder="The words that sit on your clip">
-    </div>
-    <div id="tpl-fields-stat" style="display:none">
-      <label>The big number or short stat</label>
-      <input id="tpl-stat" type="text" maxlength="20" placeholder="12000">
-      <label>What the stat means</label>
-      <input id="tpl-stat-label" type="text" maxlength="90" placeholder="happy guests this year">
-    </div>
-    <div id="tpl-fields-promo" style="display:none">
-      <label>Headline</label>
-      <input id="tpl-promo-headline" type="text" maxlength="90" placeholder="Your big words go here">
-      <label>Smaller line under it</label>
-      <input id="tpl-promo-subline" type="text" maxlength="120" placeholder="One short line says the rest">
-      <label>Button words at the end</label>
-      <input id="tpl-promo-cta" type="text" maxlength="40" placeholder="Book now">
-    </div>
-    <label>Accent color</label>
-    <input id="tpl-color" type="color" value="#6366f1" style="width:90px;height:44px;padding:2px">
-    <p class="muted" id="tpl-note">Free titles count toward the five free clips on a free account. Paid accounts can make 20 a day.</p>
-    <div id="botcheck4"></div>
-    <button class="btn gen" id="make-title">Make it for free</button>
-    <p id="tpl-msg"></p>
-  </div>
-  </div>
 
   <h2 style="max-width:640px;margin:30px auto 6px">Your videos</h2>
   <div id="jobs" style="max-width:640px;margin:0 auto"><p class="muted">Loading...</p></div>
@@ -11605,6 +11601,7 @@ async function fetchQuote() {
   const q = $('quote');
   if (imageMode) return;
   if (isMotionTemplate($('model').value)) { q.textContent = ''; return; }
+  if ($('model').value === TITLE_CARDS_ID) { q.textContent = ''; return; }
   if (!currentUser || !currentUser.paid_customer) { q.textContent = ''; return; }
   const seq = ++quoteSeq;
   const want = { model: $('model').value,
@@ -11813,6 +11810,14 @@ function buildCatalog() {
     motionGroup.appendChild(o);
   }
   sel.appendChild(motionGroup);
+  // Title cards (the folded Titles lane) ride the same picker as
+  // one more entry, marked free because the lane never charges.
+  // Picking it swaps the composer to the template form; the jobs
+  // still go out through /api/templates exactly as before.
+  const tc = document.createElement('option');
+  tc.value = TITLE_CARDS_ID;
+  tc.textContent = 'Title cards · Free';
+  sel.appendChild(tc);
   if ([...sel.options].some(o => o.value === keep)) sel.value = keep;
   applyModelGates();
   updateModelUI();
@@ -11820,11 +11825,11 @@ function buildCatalog() {
 function applyModelGates() {
   const sel = $('model');
   const paid = !!(currentUser && currentUser.paid_customer);
-  // Motion templates stay open to everyone: they are free, and
-  // on a free account they count toward the five free clips,
-  // exactly like the title cards always have.
-  [...sel.options].forEach(o => { if (o.value !== 'wan2.2' && !isMotionTemplate(o.value)) o.disabled = !paid; });
-  if (!paid && sel.value !== 'wan2.2' && !isMotionTemplate(sel.value) && [...sel.options].some(o => o.value === 'wan2.2')) sel.value = 'wan2.2';
+  // Motion templates and title cards stay open to everyone: they
+  // are free, and on a free account they count toward the five
+  // free clips, exactly as the title cards always have.
+  [...sel.options].forEach(o => { if (o.value !== 'wan2.2' && o.value !== TITLE_CARDS_ID && !isMotionTemplate(o.value)) o.disabled = !paid; });
+  if (!paid && sel.value !== 'wan2.2' && sel.value !== TITLE_CARDS_ID && !isMotionTemplate(sel.value) && [...sel.options].some(o => o.value === 'wan2.2')) sel.value = 'wan2.2';
 }
 // The price of the house-lane job being composed, from the served
 // pricing data, shown under the Create button before anything runs.
@@ -11877,8 +11882,36 @@ function applyMotionUI() {
   }
   return motion;
 }
+// Title cards are the folded Titles lane: one entry in the
+// model picker, not a model the catalog serves. Picking it swaps
+// the composer to the template form.
+const TITLE_CARDS_ID = 'title_cards';
+function showTitleCardForm() {
+  $('titlecard-fields').style.display = '';
+  $('motion-fields').style.display = 'none';
+  const hide = [$('dropzone'), document.querySelector('label[for="start-source"]'),
+    $('start-source'), document.querySelector('label[for="prompt"]'), $('prompt'),
+    $('length-house'), $('length-api'), document.querySelector('details.more'),
+    $('api-opts'), $('house-price')];
+  for (const el of hide) if (el) el.style.display = 'none';
+  $('segments-note').textContent = '';
+  $('model-note').textContent = 'Title cards are free. They count toward the five free clips on a free account, and paid accounts can make 20 a day.';
+  $('quote').textContent = '';
+  $('create').textContent = 'Make it for free';
+  applyModelGates();
+}
 function updateModelUI() {
   const m = $('model').value;
+  if (m === TITLE_CARDS_ID) { showTitleCardForm(); return; }
+  $('titlecard-fields').style.display = 'none';
+  if (!imageMode) {
+    // Restore the video fields the title card form hid. The
+    // length and price blocks are managed by the body below.
+    for (const el of [$('dropzone'), document.querySelector('label[for="start-source"]'),
+      $('start-source'), document.querySelector('label[for="prompt"]'), $('prompt'),
+      document.querySelector('details.more'), $('house-price')]) if (el) el.style.display = '';
+    syncStartSource();
+  }
   const motion = applyMotionUI();
   if (motion) {
     for (const id of ['length-api', 'length-house', 'lane-wrap', 'house-more', 'resolution-wrap', 'api-opts', 'motion-opts']) {
@@ -12015,6 +12048,7 @@ document.querySelectorAll('[data-topup]').forEach(b => b.onclick = async () => {
 $('create').onclick = async () => {
   try {
     if (imageMode) { await makeImage(); return; }
+    if ($('model').value === TITLE_CARDS_ID) { await makeTitleCard(); return; }
     msg('job-msg', 'Working on the bot check...');
     const bot = await botFields('botcheck2');
     const model = $('model').value;
@@ -12200,22 +12234,18 @@ function showTab(which) {
   // prompt in their place.
   const paidSurface = isPaidSurface();
   const pane = which === 'tryit' ? 'create'
-    : which === 'titles' ? 'titles'
     : which === 'clip' ? (paidSurface ? 'clip' : 'upgrade')
     : (paidSurface ? 'create' : 'upgrade');
   $('create-pane').style.display = pane === 'create' ? 'block' : 'none';
   $('clip-pane').style.display = pane === 'clip' ? 'block' : 'none';
-  $('titles-pane').style.display = pane === 'titles' ? 'block' : 'none';
   $('upgrade-pane').style.display = pane === 'upgrade' ? 'block' : 'none';
   $('tab-tryit').className = which === 'tryit' ? 'btn' : 'btn secondary';
   $('tab-create').className = which === 'create' ? 'btn' : 'btn secondary';
   $('tab-clip').className = which === 'clip' ? 'btn' : 'btn secondary';
-  $('tab-titles').className = which === 'titles' ? 'btn' : 'btn secondary';
 }
 $('tab-tryit').onclick = () => showTab('tryit');
 $('tab-create').onclick = () => showTab('create');
 $('tab-clip').onclick = () => showTab('clip');
-$('tab-titles').onclick = () => showTab('titles');
 $('upgrade-creator').onclick = () => $('buy-creator').click();
 $('upgrade-topup').onclick = () => {
   const b = document.querySelector('[data-topup="1000"]');
@@ -12273,7 +12303,12 @@ $('make-clips').onclick = async () => {
   } catch (e) { msg('clip-msg', e.message, 'err'); }
 };
 
-// ---- Titles tab (free template lane) ----
+// ---- Title cards (the free template lane, folded into Create) ----
+// The form lives in the Create card and shows when the Title
+// cards entry is picked in the model picker. Submission goes
+// through /api/templates, the same route the old Titles tab used,
+// so the job kind, the Kaggle dispatch, and the pricing rules are
+// the ones the lane has always had.
 let tplUploadId = null;
 function tplShowFields() {
   const t = $('tpl-template').value;
@@ -12295,7 +12330,7 @@ $('tpl-clip-file').addEventListener('change', async () => {
     msg('tpl-msg', 'Clip ready. It runs ' + q.duration_seconds + ' seconds.', 'ok');
   } catch (e) { msg('tpl-msg', e.message, 'err'); }
 });
-$('make-title').onclick = async () => {
+async function makeTitleCard() {
   try {
     const t = $('tpl-template').value;
     const payload = { template: t, color: $('tpl-color').value };
@@ -12322,7 +12357,7 @@ $('make-title').onclick = async () => {
     msg('tpl-msg', 'Started. Free renders take a few minutes to start, and yours shows up in your videos below as soon as it is done.', 'ok');
     loadJobs();
   } catch (e) { msg('tpl-msg', e.message, 'err'); }
-};
+}
 // Characters: saved once, reused across jobs. The picker lists
 // the account's characters; the create form rides along in More
 // options so the studio stays one calm card.
@@ -12448,6 +12483,7 @@ async function refreshImageQuote() {
 }
 function setImageMode(on) {
   imageMode = on;
+  if (on) $('titlecard-fields').style.display = 'none';
   $('mode-video').className = 'btn' + (on ? ' secondary' : '');
   $('mode-image').className = 'btn' + (on ? '' : ' secondary');
   $('image-opts').style.display = on ? '' : 'none';
