@@ -5019,12 +5019,24 @@ def api():
             "queue_position": queue_position,
         }
 
-    def _api_job_params(body: dict, model: str = "") -> dict:
+    def _api_job_params(body: dict, model: str = "",
+                        for_quote: bool = False) -> dict:
         """Validate a per-second-lane job's shape once, for both the
         quote and the create path, so the two can never disagree.
         Duration and resolution limits are per model: each lane
         refuses what its model cannot actually produce instead of
-        letting the provider silently change the order."""
+        letting the provider silently change the order.
+
+        The quote path passes for_quote (2026-11-19): a price
+        depends on the composition (model, seconds, resolution,
+        billed reference seconds, spoken line), never on whether
+        the inputs create requires are attached yet, so the
+        input-presence refusals (a start image for the
+        image-to-video-only lanes and for Vidu Q4, the motion
+        lane's subject and driving video) are create-only. The
+        duration plan, the resolution list and the billed
+        reference checks still apply to a quote: a composition
+        the model cannot produce at all has no price to show."""
         try:
             duration = int(body.get("duration_seconds") or 5)
         except (TypeError, ValueError):
@@ -5124,9 +5136,12 @@ def api():
             mode = "image"
         else:
             mode = "text"
-        if model == "vidu_q4" and mode == "text":
+        if model == "vidu_q4" and mode == "text" and not for_quote:
             # Vidu Q4 has no text-to-video mode on any published
             # route; it animates a start image or references.
+            # Create refuses; a quote still prices the composition
+            # (the lane is price-paused today, so the quote reports
+            # the pause rather than this refusal).
             raise HTTPException(
                 status_code=422,
                 detail="this model needs a start image or reference images",
@@ -5136,11 +5151,14 @@ def api():
                      "seedance2_unc", "seedance2fast_unc",
                      "seedance2mini_unc", "seedance15pro_unc",
                      "ltx23_unc", "ltx23_lora_unc", "wan26_unc",
-                     "wan27_unc") and mode != "image":
+                     "wan27_unc") and mode != "image" and not for_quote:
             # The uncensored builds' wired supplier publishes an
             # image-to-video endpoint only for them (its catalog,
             # read 2026-11-17): no text or reference mode exists
-            # to send a job to.
+            # to send a job to. Create refuses; a quote still
+            # prices the composition, because the per-second rate
+            # is the same whether the start image is attached yet
+            # or not (Jack, 2026-11-19: "needs to show cost").
             raise HTTPException(
                 status_code=422,
                 detail="this model needs a start image",
@@ -5152,31 +5170,47 @@ def api():
             # video's length, so the plan is a single segment of
             # that length, and the reference seconds are not
             # billed on top: the output IS the reference length.
-            if not start_image:
-                raise HTTPException(
-                    status_code=422,
-                    detail="motion transfer needs a subject image")
-            if end_image:
-                raise HTTPException(
-                    status_code=422,
-                    detail="motion transfer takes no end frame")
-            if len(ref_videos) != 1:
-                raise HTTPException(
-                    status_code=422,
-                    detail="motion transfer needs exactly one motion reference video")
-            if ref_images or ref_audios:
-                raise HTTPException(
-                    status_code=422,
-                    detail="motion transfer takes no other references")
             driving = ref_video_seconds or float(duration)
-            if driving < 2 or driving > 30:
-                raise HTTPException(
-                    status_code=422,
-                    detail="the motion video must be 2 to 30 seconds long")
-            duration = int(round(driving))
-            plan = {"segments": [duration],
-                    "generated_seconds": float(duration), "trim": False}
-            ref_video_seconds = 0.0
+            inputs_ready = bool(
+                start_image and not end_image
+                and len(ref_videos) == 1
+                and not ref_images and not ref_audios
+                and 2 <= driving <= 30)
+            if for_quote and not inputs_ready:
+                # A quote prices the pick from the length menu
+                # until the subject image and driving video exist:
+                # the rate is per second of output either way, and
+                # the menu length is the output length the form is
+                # showing. Create below keeps every requirement.
+                plan = {"segments": [duration],
+                        "generated_seconds": float(duration),
+                        "trim": False}
+                ref_video_seconds = 0.0
+            else:
+                if not start_image:
+                    raise HTTPException(
+                        status_code=422,
+                        detail="motion transfer needs a subject image")
+                if end_image:
+                    raise HTTPException(
+                        status_code=422,
+                        detail="motion transfer takes no end frame")
+                if len(ref_videos) != 1:
+                    raise HTTPException(
+                        status_code=422,
+                        detail="motion transfer needs exactly one motion reference video")
+                if ref_images or ref_audios:
+                    raise HTTPException(
+                        status_code=422,
+                        detail="motion transfer takes no other references")
+                if driving < 2 or driving > 30:
+                    raise HTTPException(
+                        status_code=422,
+                        detail="the motion video must be 2 to 30 seconds long")
+                duration = int(round(driving))
+                plan = {"segments": [duration],
+                        "generated_seconds": float(duration), "trim": False}
+                ref_video_seconds = 0.0
         cap_images, cap_videos, cap_audios = ref_caps_for(model)
         if (len(ref_images) > cap_images or len(ref_videos) > cap_videos
                 or len(ref_audios) > cap_audios):
@@ -5310,23 +5344,24 @@ def api():
         if body.get("start_image_job_id") and not body.get("start_image_png_b64"):
             # A generated start frame attaches by job id; the
             # create path resolves it into the image itself, and
-            # the quote resolves it the same way, so the quote
-            # validates the composition the job will really run
-            # (2026-11-19).
+            # the quote resolves it the same way when the frame is
+            # ready, so the quote validates the composition the
+            # job will really run (2026-11-19). A frame that is
+            # still rendering, or an id that does not resolve,
+            # never blanks the price: the price does not depend
+            # on the frame's bytes, so the quote carries on
+            # without it and create keeps the real checks.
             image_job = jobs.get(body["start_image_job_id"])
-            if not image_job or image_job.get("user_id") != user["id"] \
-                    or image_job.get("kind") != "image":
-                raise HTTPException(status_code=404, detail="unknown start image")
-            image_job = mirror_status(image_job)
-            if image_job["status"] != "done":
-                raise HTTPException(
-                    status_code=409, detail="that first frame is not finished yet")
-            body["start_image_png_b64"] = base64.b64encode(
-                ensure_image_file(image_job).read_bytes()).decode()
+            if image_job and image_job.get("user_id") == user["id"] \
+                    and image_job.get("kind") == "image":
+                image_job = mirror_status(image_job)
+                if image_job["status"] == "done":
+                    body["start_image_png_b64"] = base64.b64encode(
+                        ensure_image_file(image_job).read_bytes()).decode()
         if model in PER_SECOND_MODELS:
             if not is_paid(user):
                 raise HTTPException(status_code=403, detail="model switching is a paid feature")
-            return _quote_for(user, model, _api_job_params(body, model))
+            return _quote_for(user, model, _api_job_params(body, model, for_quote=True))
         return {
             "model": model,
             "model_label": MODEL_LABELS[model],

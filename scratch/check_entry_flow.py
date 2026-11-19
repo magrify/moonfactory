@@ -492,6 +492,30 @@ check('body.get("start_image_job_id")' in _quote_ep
       and 'body["start_image_png_b64"] = base64.b64encode(' in _quote_ep,
       "the quote endpoint resolves a generated start frame like create")
 
+# The quote prices every priced composition (Jack, 2026-11-19:
+# "bro fix all of them. needs to show cost."): a price depends
+# on the composition, never on whether the inputs create
+# requires are attached yet. _api_job_params takes for_quote;
+# the quote endpoint passes it and the input-presence refusals
+# (start image on the image-only lanes and Vidu Q4, the motion
+# lane's inputs) are create-only, while create keeps the plain
+# call and every refusal. A start frame job that has not
+# finished resolving never blanks the price either.
+check("_api_job_params(body, model, for_quote=True)" in _quote_ep,
+      "the quote endpoint prices with for_quote")
+check('and mode != "image" and not for_quote:' in SRC
+      and 'and mode == "text" and not for_quote:' in SRC,
+      "the start image refusals are create-only")
+check("if for_quote and not inputs_ready:" in SRC,
+      "the motion lane prices from the length menu until its inputs exist")
+_create_call = SRC.split("def create_api_job(", 1)[1].split(
+    "params = _api_job_params(body, model)", 1)
+check(len(_create_call) == 2,
+      "create keeps the full validation call, no for_quote")
+check("that first frame is not finished yet" not in _quote_ep
+      and 'status_code=404, detail="unknown start image"' not in _quote_ep,
+      "an unresolved start frame never refuses a quote")
+
 # Image aspect shapes (provider research, 2026-11-19): the
 # tier priced lanes whose providers publish an aspect ratio
 # priced by the tier alone offer every published shape at its
