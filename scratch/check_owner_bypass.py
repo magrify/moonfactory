@@ -84,8 +84,8 @@ if OPTIONAL_LINE in SRC:
 # muted styling as the panel's other info lines.
 check('<p class="muted">The plan is optional.' in SRC,
       "the plan is optional line lost the muted note styling")
-check('<p class="muted">Try It is the free plan.' in SRC
-      and '<p class="muted">Any payment opens Create' in SRC,
+check('<p class="muted">The free plan is Wan 2.2 Draft clips' in SRC
+      and '<p class="muted">Any payment opens the paid studio' in SRC,
       "the paywall info paragraphs lost the muted note styling")
 check('<option value="100">$1</option>' in SRC,
       "auto reload amount picker has no $1 option")

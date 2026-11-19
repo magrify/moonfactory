@@ -160,8 +160,8 @@ def run_smoke(base: str) -> dict:
 
     # -- /api/me surfaces ----------------------------------------------------
     me_free = free_s.get(f"{base}/api/me", timeout=30).json()
-    rec("me_free_tryit_surface", me_free.get("access_surface") == "tryit"
-        and me_free.get("surface_label") == "Try It", me_free.get("access_surface"))
+    rec("me_free_create_surface", me_free.get("access_surface") == "create"
+        and me_free.get("surface_label") == "Create", me_free.get("access_surface"))
     me_owner = owner_s.get(f"{base}/api/me", timeout=30).json()
     rec("me_owner_create_surface", me_owner.get("access_surface") == "create"
         and me_owner.get("surface_label") == "Create",

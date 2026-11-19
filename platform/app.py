@@ -2990,17 +2990,17 @@ def api():
             "verified": user["verified"],
             "plan": user["plan"],
             "paid_customer": is_paid(user),
-            # The access model (Jack, 2026-11-16): the free,
-            # pre-payment surface is "Try It"; the paid studio is
-            # "Create". A paid account's surface is Create and Try
-            # It disappears from its navigation entirely; a free
-            # account's surface is Try It, and Create is an upgrade
-            # prompt. The server gates behind this split are the
+            # The access model (Jack, 2026-11-16; surfaces merged
+            # 2026-11-19): there is one composer surface, Create,
+            # for every account, and it is the page's first paint.
+            # The old free surface survives nowhere; the free
+            # plan's gates live inside the composer, behind the
             # is_paid checks at job creation (Draft lane only,
             # model switching, custom audio, voiceover, effects,
-            # multi-segment, clipping, gallery opt-out).
-            "access_surface": "create" if is_paid(user) else "tryit",
-            "surface_label": "Create" if is_paid(user) else "Try It",
+            # multi-segment, clipping, gallery opt-out). The
+            # studio reads paid_customer for those gates.
+            "access_surface": "create",
+            "surface_label": "Create",
             "handle": display_handle(user),
             "gallery_opt_out": bool(user.get("gallery_opt_out")),
             "past_due": user.get("past_due", False),
@@ -11645,17 +11645,16 @@ APP_HTML = (
 
 <div id="studio">
   <div class="tabs"><div class="seg">
-    <button class="btn" id="tab-tryit">Try It</button>
-    <button class="btn secondary" id="tab-create">Create</button>
+    <button class="btn" id="tab-create">Create</button>
     <button class="btn secondary" id="tab-clip">Clip</button>
   </div></div>
 
   <div id="create-pane">
   <div class="card" style="max-width:640px;margin-left:auto;margin-right:auto">
     <div class="create-head">
-      <h2 id="composer-heading">Try It</h2>
+      <h2 id="composer-heading">Create</h2>
     </div>
-    <p class="muted" id="composer-note"></p>
+    <p class="muted" id="composer-note">Build your video first. When you hit Create, you sign in or make a free account, and your video starts right away, exactly as you built it.</p>
 
     <div class="mode-toggle">
       <button class="btn" id="mode-video" type="button">Video</button>
@@ -12024,15 +12023,14 @@ APP_HTML = (
       <h2>Create</h2>
     </div>
     <div class="paywall">
-      <p class="muted">Try It is the free plan. Wan 2.2 Draft clips, 5 per account total,
+      <p class="muted">The free plan is Wan 2.2 Draft clips, 5 per account total,
       watermarked. Every model beyond Wan 2.2, the Production lane,
       custom music and voiceover, effects, longer videos in segments,
-      clipping, and hiding your clips from the gallery live here,
-      locked until an account has paid.</p>
-      <p class="muted">Any payment opens Create, in one of two ways. Creator, a monthly
+      clipping, and hiding your clips from the gallery live in the
+      paid studio, locked until an account has paid.</p>
+      <p class="muted">Any payment opens the paid studio, in one of two ways. Creator, a monthly
       plan with an included generation budget. Or a single top up and
-      pay per video, no subscription. Once you have paid, Try It disappears and
-      you open straight into Create.</p>
+      pay per video, no subscription.</p>
     </div>
     <p>
       <button class="btn" id="upgrade-creator">Get Creator, $20/month</button>
@@ -12920,7 +12918,7 @@ function showGuestStudio() {
   $('composer-heading').textContent = 'Create';
   $('composer-note').textContent = 'Build your video first. When you hit Create, you sign in or make a free account, and your video starts right away, exactly as you built it.';
   $('jobs').innerHTML = '<p class="muted">Your videos will show up here once you make one.</p>';
-  showTab('tryit');
+  showTab('create');
   updateModelUI();
 }
 
@@ -12965,15 +12963,14 @@ for (const pid of ['panel-account', 'panel-billing']) {
 $('menu-logout').onclick = async () => { await api('/api/logout', { method: 'POST' }); location.reload(); };
 
 let currentUser = null;
-// The access model: a paid account's surface is Create (Try It is
-// gone from its navigation); a free account's surface is Try It,
-// and Create is an upgrade prompt. The server reports the surface
-// on /api/me; paid_customer is the same fact under its older name.
+// The access model: one composer surface, Create, for every
+// account (the old free surface was merged into it, 2026-11-19).
+// What this reads is the paid fact itself, from /api/me: a paid
+// account opens the paid features directly, a free account or a
+// guest meets the free gates inside the same composer.
 function isPaidSurface() {
   if (!currentUser) return false;
-  return currentUser.access_surface
-    ? currentUser.access_surface === 'create'
-    : !!currentUser.paid_customer;
+  return !!currentUser.paid_customer;
 }
 // The Generate button carries the exact price, Direction C style:
 // the button is the quote. The line under it keeps the detail.
@@ -12998,18 +12995,17 @@ function showStudio(u) {
   $('account-email').textContent = u.email;
   renderAutoReload(u);
   const paidSurface = isPaidSurface();
-  $('tab-tryit').style.display = paidSurface ? 'none' : '';
-  $('composer-heading').textContent = paidSurface ? 'Create' : 'Try It';
+  $('composer-heading').textContent = 'Create';
   $('composer-note').textContent = paidSurface
     ? 'The full studio. Every model, custom sound, longer clips.'
-    : 'Try It is the free plan. Wan 2.2, Draft lane, watermarked. Create, the full studio, opens with any payment.';
+    : 'The free plan. Wan 2.2, Draft lane, watermarked. Every other model and the paid features open with any payment.';
   genLabel(null);
   const inc = u.plan === 'creator'
     ? ('Included production time, ' + Math.max(0, u.included_seconds_total - u.included_seconds_used).toFixed(0) + 's left of ' + u.included_seconds_total + 's. ')
     : (u.paid_customer
       ? 'Pay per video. You pay per clip from your balance, and every paid feature is unlocked. '
       : ('Free clips, ' + u.free_jobs_used + ' of ' + u.free_jobs_limit + ' used in total. The free plan never refills. '));
-  $('account').textContent = 'Your plan is ' + u.plan + ' · ' + (paidSurface ? 'Create' : 'Try It') + '. ' + inc +
+  $('account').textContent = 'Your plan is ' + u.plan + '. ' + inc +
     'Your prepaid balance is $' + (u.balance_cents / 100).toFixed(2) + '.' +
     (u.verified ? '' : ' Your email is not verified yet, so creating is off.');
   $('handle').value = u.handle || '';
@@ -13052,7 +13048,7 @@ function showStudio(u) {
   }
   buildSegmentsSeg();
   updateModelUI();
-  showTab(paidSurface ? 'create' : 'tryit');
+  showTab('create');
   loadJobs();
   loadCharacters();
   loadShortsConfig();
@@ -14033,23 +14029,20 @@ $('jobs').addEventListener('click', async e => {
 let clipUploadId = null;
 let clipQuote = null;
 function showTab(which) {
-  // Try It always opens the composer (for a free account it is the
-  // Draft-only Try It composer; the tab itself is hidden once an
-  // account has paid). Create and Clip are the paid studio: a paid
-  // account opens them directly, a free account gets the upgrade
-  // prompt in their place.
+  // One composer surface (Jack, 2026-11-19): Create is the
+  // composer for every visitor, signed out, free, or paid, and
+  // it is the page's first paint; the free gates live inside
+  // it. Clip is a paid feature, so a free account or a guest
+  // gets the upgrade prompt in its place.
   const paidSurface = isPaidSurface();
-  const pane = which === 'tryit' ? 'create'
-    : which === 'clip' ? (paidSurface ? 'clip' : 'upgrade')
-    : (paidSurface ? 'create' : 'upgrade');
+  const pane = which === 'clip' ? (paidSurface ? 'clip' : 'upgrade')
+    : 'create';
   $('create-pane').style.display = pane === 'create' ? 'block' : 'none';
   $('clip-pane').style.display = pane === 'clip' ? 'block' : 'none';
   $('upgrade-pane').style.display = pane === 'upgrade' ? 'block' : 'none';
-  $('tab-tryit').className = which === 'tryit' ? 'btn' : 'btn secondary';
   $('tab-create').className = which === 'create' ? 'btn' : 'btn secondary';
   $('tab-clip').className = which === 'clip' ? 'btn' : 'btn secondary';
 }
-$('tab-tryit').onclick = () => showTab('tryit');
 $('tab-create').onclick = () => showTab('create');
 $('tab-clip').onclick = () => showTab('clip');
 $('upgrade-creator').onclick = () => $('buy-creator').click();

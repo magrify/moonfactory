@@ -67,6 +67,30 @@ gates = SRC.split("function applyModelGates()", 1)[1].split(
 check("if (!currentUser) return;" in gates,
       "the model gates do not narrow a signed out visitor's picker")
 
+# --- first paint is the studio itself (Jack, 2026-11-19) -----------------
+# The old free surface used to be the page's shipped default:
+# an active Try It tab and a Try It heading that the script
+# repainted as Create once /api/me landed, which flickered on
+# every load. The surfaces are merged now. Create is the one
+# composer surface, it is what the initial HTML paints, and no
+# Try It markup or routing survives anywhere in the page.
+check('id="tab-tryit"' not in HTML and "Try It" not in HTML,
+      "no Try It markup ships in the studio page")
+check('<button class="btn" id="tab-create">Create</button>' in HTML,
+      "the Create tab paints active")
+check('<h2 id="composer-heading">Create</h2>' in HTML,
+      "the composer heading paints as Create")
+check("Build your video first. When you hit Create, you sign in"
+      in HTML,
+      "the guest composer note is part of the first paint")
+check("showTab('tryit')" not in SRC and '"tryit"' not in SRC
+      and "tab-tryit" not in SRC,
+      "nothing routes to, reports, or styles a Try It surface")
+check("showTab('create');" in SRC,
+      "the studio opens on the Create surface for every visitor")
+check("return !!currentUser.paid_customer;" in SRC,
+      "the paid fact is read from paid_customer, not a surface name")
+
 # --- generate while signed out captures, never submits -------------------
 create_btn = SRC.split("$('create').onclick", 1)[1].split(
     "function costLine", 1)[0]
