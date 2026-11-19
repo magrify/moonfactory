@@ -52,6 +52,18 @@ pub = pricing.public_pricing()
 check(pub["topup_packs_cents"] == [100, 500, 1000, 2000],
       "public pricing does not expose the $1 pack")
 check('data-topup="100"' in SRC, "Billing panel has no Top up $1 button")
+# The Billing panel must say plainly that the Creator plan is
+# optional (Jack, 2026-11-19): the line sits inside the Monthly
+# plan block, before the Credits block, in its own paragraph.
+OPTIONAL_LINE = ("The plan is optional. You can skip it and just "
+                 "top up credits and pay per video instead.")
+check(OPTIONAL_LINE in SRC,
+      "Billing panel lost the plan is optional line")
+if OPTIONAL_LINE in SRC:
+    check(SRC.index('<p class="group-label">Monthly plan</p>')
+          < SRC.index(OPTIONAL_LINE)
+          < SRC.index('<p class="group-label">Credits</p>'),
+          "plan is optional line is not inside the Monthly plan block")
 check('<option value="100">$1</option>' in SRC,
       "auto reload amount picker has no $1 option")
 

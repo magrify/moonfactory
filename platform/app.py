@@ -11602,6 +11602,7 @@ APP_HTML = (
       <div class="panel-head"><h2>Billing</h2><button type="button" class="panel-close" data-close-panel aria-label="Close">×</button></div>
       <p class="muted">Paying saves your card and turns on auto reload, so your work never stops over balance. Change the amount or turn it off below at any time.</p>
       <p class="group-label">Monthly plan</p>
+      <p>The plan is optional. You can skip it and just top up credits and pay per video instead.</p>
       <p>
         <button class="btn" id="buy-creator">Get Creator, $20/month</button>
       </p>
