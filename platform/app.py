@@ -11319,6 +11319,10 @@ APP_HTML = (
           <select id="image-size"></select>
         </div>
       </div>
+      <div id="image-gen-prompt-wrap">
+        <label class="flabel" for="image-gen-prompt">Prompt</label>
+        <textarea id="image-gen-prompt" rows="3" placeholder="Describe the image… e.g. a lighthouse at dusk, waves crashing, dramatic sky"></textarea>
+      </div>
       <div id="image-edit-wrap" style="display:none">
         <label class="flabel" for="image-edit-file">Image to edit (PNG or JPEG)</label>
         <input id="image-edit-file" type="file" accept="image/png,image/jpeg">
@@ -11626,10 +11630,10 @@ APP_HTML = (
       <input id="seed" type="number" min="0" step="1" placeholder="Random">
     </details>
 
-    <div id="botcheck2"></div>
-    <button class="btn gen" id="create">Create video</button>
     <div id="api-opts" style="display:none"><p class="under" id="quote"></p></div>
     <p class="under" id="house-price"></p>
+    <div id="botcheck2"></div>
+    <button class="btn gen" id="create">Create video</button>
     <p id="job-msg"></p>
   </div>
   </div>
@@ -12443,12 +12447,12 @@ function restoreCreateForm(d) {
     if (b.aspect_ratio) $('image-size').value = b.aspect_ratio;
     // A restored edit creation's instruction goes back into
     // the edit form's own box; every other image creation
-    // restores into the shared prompt, as it always has.
+    // restores into the image form's own prompt box.
     const restoredLane = imageLane();
     if (restoredLane && restoredLane.edit) {
       $('image-edit-prompt').value = b.prompt || '';
     } else {
-      $('prompt').value = b.prompt || '';
+      $('image-gen-prompt').value = b.prompt || '';
     }
     return;
   }
@@ -12605,6 +12609,7 @@ function genLabel(priceCents) {
 }
 function showStudio(u) {
   currentUser = u;
+  loadPricing();
   $('auth').style.display = 'none'; $('studio').style.display = 'block';
   $('nav-signin').style.display = 'none';
   $('profile').style.display = 'inline-block';
@@ -12980,11 +12985,22 @@ function applyModelGates() {
   if (!paid && sel.value !== 'wan2.2' && sel.value !== TITLE_CARDS_ID && sel.value !== SHORTS_ID && !isMotionTemplate(sel.value) && [...sel.options].some(o => o.value === 'wan2.2')) sel.value = 'wan2.2';
 }
 // The price of the house-lane job being composed, from the served
-// pricing data, shown under the Create button before anything runs.
+// pricing data, shown above the Create button before anything
+// runs (the line sat under the button until 2026-11-19, out of
+// the composer's view, which is why the form read as having no
+// cost estimate at all).
 function updateHousePrice() {
   const el = $('house-price');
   if (!el) return;
-  if (!pricingData || !currentUser || !isHouseModel($('model').value)) { el.textContent = ''; return; }
+  if (!pricingData || !currentUser || !isHouseModel($('model').value)) {
+    el.textContent = '';
+    // A house pick owns the button's price: never leave a
+    // stale one sitting there when the data is not ready.
+    // (API picks are left to fetchQuote, which runs its own
+    // sequence discipline.)
+    if (isHouseModel($('model').value)) genLabel(null);
+    return;
+  }
   const jp = pricingData.job_price_cents || {};
   if (!currentUser.paid_customer) {
     el.textContent = 'Free plan. A Draft video uses one of your free clips.';
@@ -14002,6 +14018,10 @@ function buildImageSizes() {
   }
   const isEdit = !!(lane && lane.edit);
   $('image-edit-wrap').style.display = isEdit ? '' : 'none';
+  // The generation lanes carry their own prompt box in the
+  // image form; an edit lane shows its instruction box in
+  // the edit wrap instead, never both.
+  $('image-gen-prompt-wrap').style.display = isEdit ? 'none' : '';
   refreshImageQuote();
 }
 async function refreshImageQuote() {
@@ -14010,10 +14030,14 @@ async function refreshImageQuote() {
   if (!lane) return;
   const btn = $('create');
   // An edit lane's instruction lives in its own box inside
-  // the edit form; the text to image lanes read the shared
-  // prompt, exactly as they always have.
+  // the edit form; the text to image lanes read the image
+  // form's own prompt box. (They used to read the shared
+  // video prompt, which the form swaps hide in the default
+  // flow, so image jobs built from it carried an empty or
+  // stale prompt until the image form got its own box,
+  // 2026-11-19.)
   const promptText = lane.edit
-    ? $('image-edit-prompt').value : $('prompt').value;
+    ? $('image-edit-prompt').value : $('image-gen-prompt').value;
   const body = lane.id === 'house'
     ? { prompt: promptText || 'image', aspect_ratio: $('image-size').value }
     : { prompt: promptText || 'image', image_model: lane.id, image_size: $('image-size').value };
@@ -14042,9 +14066,12 @@ function setImageMode(on) {
     $('model').closest('.row'), $('model-note'), document.querySelector('details.more'),
     $('api-opts'), $('house-price'), $('segments-note'), $('motion-fields')];
   for (const el of videoBits) if (el) el.style.display = on ? 'none' : '';
-  $('prompt').placeholder = on
-    ? 'Describe the image… e.g. a lighthouse at dusk, waves crashing, dramatic sky'
-    : 'Describe what happens… e.g. a red hot air balloon rising over green hills, gentle forward camera movement, bright daylight';
+  // The image placeholder belongs to the image form's own
+  // prompt box; the video prompt keeps its own placeholder
+  // in both modes, exactly as it always reads in the video
+  // form.
+  if (on) $('image-gen-prompt').placeholder = 'Describe the image… e.g. a lighthouse at dusk, waves crashing, dramatic sky';
+  else $('prompt').placeholder = 'Describe what happens… e.g. a red hot air balloon rising over green hills, gentle forward camera movement, bright daylight';
   if (on) { buildImageModels(); }
   else { $('create').textContent = 'Create video'; updateModelUI(); }
 }
@@ -14072,7 +14099,7 @@ function buildImage() {
   if (!lane) { msg('job-msg', 'Pick an image model first.', 'err'); return null; }
   if (lane.edit && !editSourceDataUrl) { msg('job-msg', 'Add the image you want edited first.', 'err'); return null; }
   const promptText = lane.edit
-    ? $('image-edit-prompt').value : $('prompt').value;
+    ? $('image-edit-prompt').value : $('image-gen-prompt').value;
   const body = lane.id === 'house'
     ? { prompt: promptText, aspect_ratio: $('image-size').value }
     : { prompt: promptText, image_model: lane.id, image_size: $('image-size').value };
@@ -14123,7 +14150,16 @@ $('image-use-start').onclick = () => {
   msg('job-msg', 'Start image attached. Describe the video and create it.', 'ok');
 };
 fetch('/api/config').then(r => r.json()).then(c => { cfg = c; catalogCfg = c; renderBotChecks(); buildCatalog(); });
-fetch('/api/pricing').then(r => r.json()).then(p => { pricingData = p; buildCatalog(); updateHousePrice(); }).catch(() => {});
+// The pricing payload is account aware (the owner's own
+// session sees raw costs), so it is fetched once at page
+// load and again whenever a studio session starts: an in
+// place sign in must replace the anonymous copy, or the
+// house readout would quote a signed in owner the customer
+// prices his own jobs never charge.
+function loadPricing() {
+  return fetch('/api/pricing').then(r => r.json()).then(p => { pricingData = p; buildCatalog(); updateHousePrice(); }).catch(() => {});
+}
+loadPricing();
 const prefillPrompt = new URLSearchParams(location.search).get('prompt');
 if (prefillPrompt) $('prompt').value = prefillPrompt;
 buildSegmentsSeg();

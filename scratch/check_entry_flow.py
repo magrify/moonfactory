@@ -386,15 +386,54 @@ for lane_id, tier in (("house", 4), ("zimage_unc", 1),
           f"image lane {lane_id} serves tier {tier} as data")
 
 # The Qwen edit instruction box (Jack, 2026-11-19): the edit
-# lane reads its own textarea inside the edit form; the text
-# to image lanes keep reading the shared prompt untouched.
+# lane reads its own textarea inside the edit form.
 check('id="image-edit-prompt"' in SRC,
       "the edit form carries its own instruction box")
 check("const promptText = lane.edit" in SRC
-      and "$('image-edit-prompt').value : $('prompt').value;" in SRC,
-      "the image submit and quote read the edit box for edit lanes")
+      and "$('image-edit-prompt').value : $('image-gen-prompt').value;" in SRC,
+      "the image submit and quote read the edit box for edit lanes "
+      "and the image form's own prompt box for generation lanes")
 check("$('image-edit-prompt').value = b.prompt || '';" in SRC,
       "a restored edit creation refills the edit box")
+
+# The image form's own prompt box (Jack, 2026-11-19): the
+# text to image lanes used to read the shared video prompt,
+# which the form swaps hide in the default flow (the picker
+# opens on Faceless shorts), so generation jobs built with
+# an empty or stale prompt. The image form now carries its
+# own box beside the model and size, shown for generation
+# lanes and hidden for the edit lane, which keeps its own
+# instruction box; the two boxes are never merged.
+_img_opts = SRC.split('id="image-opts"', 1)[1].split('id="image-result-wrap"', 1)[0]
+check('id="image-gen-prompt"' in _img_opts
+      and 'id="image-gen-prompt-wrap"' in _img_opts,
+      "the image form carries its own prompt box with the model and size")
+check("$('image-gen-prompt-wrap').style.display = isEdit ? 'none' : '';" in SRC,
+      "the generation prompt box hides for the edit lane and shows otherwise")
+check("$('image-gen-prompt').value = b.prompt || '';" in SRC,
+      "a restored image creation refills the image form's prompt box")
+check("if (on) $('image-gen-prompt').placeholder = 'Describe the image" in SRC,
+      "the image mode swap writes its placeholder on the image form's box")
+check("$('image-edit-prompt').value : $('prompt').value;" not in SRC,
+      "no image path reads the shared video prompt anymore")
+
+# The video cost readout (Jack, 2026-11-19): the quote line
+# and the house price line are the same elements the quote
+# paths have always written, moved above the Create button
+# so the price is in view before Generate is pressed; the
+# house line's writer clears a stale button price when its
+# data is not ready, and the account aware pricing payload
+# is re-fetched when a studio session starts so a signed in
+# owner is quoted his raw costs, not the anonymous copy.
+_create_card = SRC.split('id="create-pane"', 1)[1].split('id="upgrade-pane"', 1)[0]
+check(_create_card.index('id="house-price"') < _create_card.index('id="create"')
+      and _create_card.index('id="quote"') < _create_card.index('id="create"'),
+      "the price lines render above the Create button")
+check("if (isHouseModel($('model').value)) genLabel(null);" in SRC,
+      "a house pick never leaves a stale price on the button")
+check("function loadPricing()" in SRC and "loadPricing();" in SRC
+      and "currentUser = u;\n  loadPricing();" in SRC,
+      "the pricing payload reloads when a studio session starts")
 
 # Image aspect shapes (provider research, 2026-11-19): the
 # tier priced lanes whose providers publish an aspect ratio
