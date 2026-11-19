@@ -668,7 +668,10 @@ def process_short_job(job_id: str):
         set_stage(SHORTS_STAGES[2])
         ass_path = work / "captions.ass"
         ass_path.write_text(
-            shorts.build_captions_ass(lines, timings),
+            shorts.build_captions_ass(
+                lines, timings,
+                style=job.get("short_caption_style")
+                or shorts.CAPTION_STYLE_DEFAULT),
             encoding="utf-8")
 
         set_stage(SHORTS_STAGES[3])
@@ -9771,6 +9774,10 @@ x_api_key: str = Header(default="")):
                 {"id": key, "label": entry["label"]}
                 for key, entry in SHORTS_MUSIC_STYLES.items()
             ],
+            "caption_styles": [
+                {"id": key, "label": entry["label"]}
+                for key, entry in shorts.CAPTION_STYLES.items()
+            ],
         }
 
     @web.post("/api/shorts")
@@ -9868,6 +9875,12 @@ x_api_key: str = Header(default="")):
             raise HTTPException(
                 status_code=422,
                 detail="pick one of the music choices on the list")
+        caption_style = (body.get("caption_style") or "").strip() \
+            or shorts.CAPTION_STYLE_DEFAULT
+        if caption_style not in shorts.CAPTION_STYLES:
+            raise HTTPException(
+                status_code=422,
+                detail="pick one of the caption styles on the list")
         is_free_job = False
         if not is_paid(user):
             if free_jobs_total(user) >= FREE_CLIPS_TOTAL:
@@ -9910,6 +9923,7 @@ x_api_key: str = Header(default="")):
             "short_split": split_mode if script_source == "pasted"
             else "auto",
             "short_music": music,
+            "short_caption_style": caption_style,
             "script_source": script_source,
             "speech_script": " ".join(lines),
             "speech_voice": voice,
@@ -12191,6 +12205,12 @@ APP_HTML = (
       <option value="upbeat">Upbeat pop</option>
       <option value="cinematic">Cinematic strings</option>
       <option value="none">No music</option>
+    </select>
+    <label>Captions</label>
+    <select id="short-captions">
+      <option value="classic" selected>Classic</option>
+      <option value="big">Big</option>
+      <option value="quiet">Quiet</option>
     </select>
     <p class="muted" id="short-note">Free shorts count toward the five free clips on a free account. Paid accounts can make 20 a day.</p>
     <div id="botcheck5"></div>
@@ -14575,7 +14595,8 @@ $('short-script').addEventListener('input', shortScriptEstimate);
 function buildShort() {
   const payload = { voice: $('short-voice').value,
     visuals: $('short-visuals').value,
-    music: $('short-music').value };
+    music: $('short-music').value,
+    caption_style: $('short-captions').value };
   if (payload.visuals === 'ai') payload.style = $('short-style').value;
   if (shortMode === 'topic') {
     payload.topic = $('short-topic').value;

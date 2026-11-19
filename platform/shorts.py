@@ -834,10 +834,31 @@ def caption_events(lines: list, timings: list) -> list:
     return events
 
 
-def build_captions_ass(lines: list, timings: list) -> str:
+# The caption looks a short can wear. Classic is the house
+# style the lane shipped with (bold white words, heavy black
+# outline, low on the frame); Big runs larger and sits higher,
+# Quiet runs smaller and thinner. The set is deliberately
+# small: this is a caption choice, not a template system (the
+# full template gallery stays a named gap, see the run record).
+CAPTION_STYLES = {
+    "classic": {"label": "Classic", "fontsize": 72,
+                "outline": 5, "margin_v": 300},
+    "big": {"label": "Big", "fontsize": 96,
+            "outline": 7, "margin_v": 430},
+    "quiet": {"label": "Quiet", "fontsize": 58,
+              "outline": 3, "margin_v": 220},
+}
+CAPTION_STYLE_DEFAULT = "classic"
+
+
+def build_captions_ass(lines: list, timings: list,
+                       style: str = CAPTION_STYLE_DEFAULT) -> str:
     """The ASS subtitle file for one short: bold white words
-    with a heavy black outline, low on the frame, the house
-    shorts style. Burned in by the assembly's subtitles filter."""
+    with a black outline, low on the frame, in the picked
+    caption look (classic is the house shorts style). Burned in
+    by the assembly's subtitles filter."""
+    look = CAPTION_STYLES.get(style) or \
+        CAPTION_STYLES[CAPTION_STYLE_DEFAULT]
     header = (
         "[Script Info]\n"
         "ScriptType: v4.00+\n"
@@ -851,9 +872,10 @@ def build_captions_ass(lines: list, timings: list) -> str:
         "Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, "
         "BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, "
         "MarginV, Encoding\n"
-        "Style: Shorts,DejaVu Sans,72,&H00FFFFFF,&H00FFFFFF,"
-        "&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,5,0,2,60,60,"
-        "300,1\n"
+        f"Style: Shorts,DejaVu Sans,{look['fontsize']},"
+        "&H00FFFFFF,&H00FFFFFF,"
+        "&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,"
+        f"{look['outline']},0,2,60,60,{look['margin_v']},1\n"
         "\n"
         "[Events]\n"
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, "

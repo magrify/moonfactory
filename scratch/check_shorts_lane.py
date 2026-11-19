@@ -202,6 +202,20 @@ check("Dialogue:" in ass and "The ocean covers most" in ass,
 evil = shorts.build_captions_ass(["A {brace} test.", "Second {x} line."],
                                  [(0.0, 1.0), (1.35, 1.0)])
 check("{brace}" not in evil, "caption braces are escaped")
+check(set(shorts.CAPTION_STYLES) == {"classic", "big", "quiet"},
+      "the caption looks are classic, big, and quiet")
+check("DejaVu Sans,72," in ass and ",300,1" in ass,
+      "the classic look keeps the shipped caption style")
+big_ass = shorts.build_captions_ass(lines, timings, style="big")
+check("DejaVu Sans,96," in big_ass and ",430,1" in big_ass,
+      "the big look runs larger and sits higher")
+quiet_ass = shorts.build_captions_ass(lines, timings, style="quiet")
+check("DejaVu Sans,58," in quiet_ass,
+      "the quiet look runs smaller")
+check(shorts.build_captions_ass(lines, timings, style="bogus") == ass,
+      "an unknown caption look falls back to classic")
+check(shorts.build_captions_ass(lines, timings) == ass,
+      "classic is the default caption look")
 
 # --- topic writing is dark-safe -------------------------------------------
 saved_env = {}
@@ -433,6 +447,10 @@ check('"short_music"' in lane and "SHORTS_MUSIC_STYLES" in lane,
       "creation takes, validates, and records the music choice")
 check('"music_styles"' in lane,
       "the config offers the music choices")
+check('"short_caption_style"' in lane and "CAPTION_STYLES" in lane,
+      "creation takes, validates, and records the caption style")
+check('"caption_styles"' in lane,
+      "the config offers the caption styles")
 check("short_parent" in SRC,
       "AI picture jobs carry the short parent mark")
 check('not job.get("short_parent")' in SRC,
@@ -563,6 +581,18 @@ check(music_values == set(app.SHORTS_MUSIC_STYLES),
       "the music picker offers exactly the music choices")
 check("$('short-music')" in SRC,
       "the submit sends the music choice")
+check('id="short-captions"' in pane,
+      "the form carries the caption style picker")
+caption_select = pane.split('id="short-captions"', 1)[1].split(
+    '</select>', 1)[0]
+caption_values = {
+    part.split('"')[0]
+    for part in caption_select.split('<option value="')[1:]
+}
+check(caption_values == set(shorts.CAPTION_STYLES),
+      "the caption picker offers exactly the caption styles")
+check("$('short-captions')" in SRC,
+      "the submit sends the caption style")
 voice_select = pane.split('id="short-voice"', 1)[1].split(
     '</select>', 1)[0]
 pane_voices = {
