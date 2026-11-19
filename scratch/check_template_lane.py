@@ -230,14 +230,27 @@ check('payload["audio_plan"]' in SRC,
       "story claims carry the audio plan for the score")
 check('template_id == "story"' in SRC,
       "story job length comes from the plan at create time")
-check('<optgroup label="Motion">' in SRC,
-      "studio select groups the motion templates")
-check('id="tpl-fields-story"' in SRC and 'id="tpl-fields-sting"' in SRC,
-      "studio has field blocks for both motion templates")
-check("'story', 'sting'" in SRC,
-      "studio field switcher knows the motion templates")
-check('id="tpl-story-lines"' in SRC,
-      "studio story form takes the lines")
+check("const MOTION_TEMPLATES = [" in SRC
+      and "{ id: 'story', name: 'Animated story short' }" in SRC
+      and "{ id: 'sting', name: 'Logo sting' }" in SRC,
+      "the Create picker carries the motion templates under their studio names")
+check("motionGroup.label = 'Motion'" in SRC
+      and "sel.appendChild(motionGroup)" in SRC,
+      "the picker groups the motion templates as their own entries")
+check('id="motion-fields-story"' in SRC and 'id="motion-fields-sting"' in SRC,
+      "the Create form has field blocks for both motion templates")
+check('id="mf-story-lines"' in SRC and 'id="mf-story-title"' in SRC
+      and 'id="mf-sting-headline"' in SRC and 'id="mf-color"' in SRC,
+      "the Create form takes the story lines, the titles and the accent color")
+check("function applyMotionUI()" in SRC
+      and "isMotionTemplate(sel.value)" in SRC,
+      "picking a motion template swaps the composer fields and stays open to free accounts")
+check("payload.title = $('mf-story-title').value" in SRC
+      and "payload.headline = $('mf-sting-headline').value" in SRC
+      and SRC.count("api('/api/templates'") >= 2,
+      "the Create button sends motion picks to the template lane")
+check('id="tpl-fields-story"' not in SRC and 'value="story"' not in SRC,
+      "the Titles pane no longer carries the motion templates")
 
 # --- kernel -------------------------------------------------------------
 kernel = (ROOT / "worker-kaggle" / "hf_worker_kernel.py").read_text()

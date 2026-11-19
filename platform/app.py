@@ -10460,10 +10460,28 @@ APP_HTML = (
         <p class="muted">Every model offers every length, starting at its own shortest clip. Longer than one single clip, your video is made in segments and joined into one finished video. Longer videos are priced per second across the segments, exactly like separate clips.</p>
       </div>
     </div>
+    <div id="motion-fields" style="display:none">
+      <div id="motion-fields-story" style="display:none">
+        <label>Story title</label>
+        <input id="mf-story-title" type="text" maxlength="90" placeholder="The day the river sang">
+        <label>Your story</label>
+        <textarea id="mf-story-lines" rows="8" maxlength="1100" placeholder="First line of your story"></textarea>
+        <p class="muted">Write one line on each row. Use three to eight lines. Each line gets its own scene in a little animated town, with music made for the story.</p>
+      </div>
+      <div id="motion-fields-sting" style="display:none">
+        <label>Name or words for the sting</label>
+        <input id="mf-sting-headline" type="text" maxlength="90" placeholder="Your big words go here">
+        <label>Smaller line under it</label>
+        <input id="mf-sting-subline" type="text" maxlength="120" placeholder="One short line says the rest">
+      </div>
+      <label>Accent color</label>
+      <input id="mf-color" type="color" value="#6366f1" style="width:90px;height:44px;padding:2px">
+      <p class="muted">Free for everyone. Free accounts count it toward their five free clips. Paid accounts can make 20 a day.</p>
+    </div>
     <p class="muted" id="model-note"></p>
     <p class="muted" id="segments-note"></p>
 
-    <details class="more">
+    <details class="more" id="more-opts">
       <summary>More options</summary>
 
       <div id="lane-wrap">
@@ -10686,21 +10704,15 @@ APP_HTML = (
   <div id="titles-pane" style="display:none">
   <div class="card" style="max-width:640px;margin-left:auto;margin-right:auto">
     <div class="create-head">
-      <h2>Titles and motion</h2>
+      <h2>Titles</h2>
     </div>
-    <p class="muted">Make a title card, a stat card or a promo card, put captions over one of your clips, tell a short animated story, or open with a logo sting. These are free. They run on spare computers, so one can take a few minutes to start.</p>
+    <p class="muted">Make a title card, a stat card or a promo card, or put captions over one of your clips. These are free. They run on spare computers, so one can take a few minutes to start.</p>
     <label>Template</label>
     <select id="tpl-template">
-      <optgroup label="Titles">
       <option value="title">Title card</option>
       <option value="captions">Captions over a clip</option>
       <option value="stat">Stat card</option>
       <option value="promo">Promo card</option>
-      </optgroup>
-      <optgroup label="Motion">
-      <option value="story">Animated story short</option>
-      <option value="sting">Logo sting</option>
-      </optgroup>
     </select>
     <div id="tpl-fields-title">
       <label>Headline</label>
@@ -10728,22 +10740,9 @@ APP_HTML = (
       <label>Button words at the end</label>
       <input id="tpl-promo-cta" type="text" maxlength="40" placeholder="Book now">
     </div>
-    <div id="tpl-fields-story" style="display:none">
-      <label>Story title</label>
-      <input id="tpl-story-title" type="text" maxlength="90" placeholder="The day the river sang">
-      <label>Your story</label>
-      <textarea id="tpl-story-lines" rows="8" maxlength="1100" placeholder="First line of your story"></textarea>
-      <p class="muted">Write one line on each row. Use three to eight lines. Each line gets its own scene in a little animated town, with music made for the story.</p>
-    </div>
-    <div id="tpl-fields-sting" style="display:none">
-      <label>Name or words for the sting</label>
-      <input id="tpl-sting-headline" type="text" maxlength="90" placeholder="Your big words go here">
-      <label>Smaller line under it</label>
-      <input id="tpl-sting-subline" type="text" maxlength="120" placeholder="One short line says the rest">
-    </div>
     <label>Accent color</label>
     <input id="tpl-color" type="color" value="#6366f1" style="width:90px;height:44px;padding:2px">
-    <p class="muted" id="tpl-note">Free titles and motion pieces count toward the five free clips on a free account. Paid accounts can make 20 a day.</p>
+    <p class="muted" id="tpl-note">Free titles count toward the five free clips on a free account. Paid accounts can make 20 a day.</p>
     <div id="botcheck4"></div>
     <button class="btn gen" id="make-title">Make it for free</button>
     <p id="tpl-msg"></p>
@@ -11291,6 +11290,7 @@ let quoteSeq = 0;
 async function fetchQuote() {
   const q = $('quote');
   if (imageMode) return;
+  if (isMotionTemplate($('model').value)) { q.textContent = ''; return; }
   if (!currentUser || !currentUser.paid_customer) { q.textContent = ''; return; }
   const seq = ++quoteSeq;
   const want = { model: $('model').value,
@@ -11463,6 +11463,18 @@ let pricingData = null;
 // list mirrors HOUSE_MODEL_PRICING_LANE in the platform code.
 const HOUSE_MODEL_IDS = ['wan2.2', 'wan22_uncut'];
 function isHouseModel(id) { return HOUSE_MODEL_IDS.includes(id); }
+// Motion templates ride the same picker as the models (Jack,
+// 2026-11-18: one Create, no separate wing). They are not
+// generation models: picking one swaps the composer to the
+// template fields and the Create button posts to the free
+// template lane, which renders on the same spare computers as
+// the title cards. The names match the template names the
+// server reports, and the template lane checks pin that.
+const MOTION_TEMPLATES = [
+  { id: 'story', name: 'Animated story short' },
+  { id: 'sting', name: 'Logo sting' }
+];
+function isMotionTemplate(id) { return MOTION_TEMPLATES.some(t => t.id === id); }
 function moneyC(c) { return '$' + (c / 100).toFixed(2); }
 function buildCatalog() {
   const sel = $('model');
@@ -11478,6 +11490,15 @@ function buildCatalog() {
       + (m.available ? '' : ' (unavailable)');
     sel.appendChild(o);
   }
+  const motionGroup = document.createElement('optgroup');
+  motionGroup.label = 'Motion';
+  for (const t of MOTION_TEMPLATES) {
+    const o = document.createElement('option');
+    o.value = t.id;
+    o.textContent = t.name;
+    motionGroup.appendChild(o);
+  }
+  sel.appendChild(motionGroup);
   if ([...sel.options].some(o => o.value === keep)) sel.value = keep;
   applyModelGates();
   updateModelUI();
@@ -11485,8 +11506,11 @@ function buildCatalog() {
 function applyModelGates() {
   const sel = $('model');
   const paid = !!(currentUser && currentUser.paid_customer);
-  [...sel.options].forEach(o => { if (o.value !== 'wan2.2') o.disabled = !paid; });
-  if (!paid && sel.value !== 'wan2.2' && [...sel.options].some(o => o.value === 'wan2.2')) sel.value = 'wan2.2';
+  // Motion templates stay open to everyone: they are free, and
+  // on a free account they count toward the five free clips,
+  // exactly like the title cards always have.
+  [...sel.options].forEach(o => { if (o.value !== 'wan2.2' && !isMotionTemplate(o.value)) o.disabled = !paid; });
+  if (!paid && sel.value !== 'wan2.2' && !isMotionTemplate(sel.value) && [...sel.options].some(o => o.value === 'wan2.2')) sel.value = 'wan2.2';
 }
 // The price of the house-lane job being composed, from the served
 // pricing data, shown under the Create button before anything runs.
@@ -11514,8 +11538,46 @@ function updateHousePrice() {
     ' per segment. Creator members pay from their included budget instead.';
   genLabel(per * segs);
 }
+// Motion picks swap the whole composer: the generation controls
+// (start image, prompt, lengths, more options) step aside and
+// the template fields for the pick show instead. Switching back
+// restores them, and updateModelUI then repaints the model
+// specific blocks itself, as it always has.
+function applyMotionUI() {
+  const m = $('model').value;
+  const motion = isMotionTemplate(m) ? m : null;
+  $('motion-fields').style.display = motion ? '' : 'none';
+  const bits = [$('dropzone'), $('start-source'),
+    document.querySelector('label[for="start-source"]'),
+    document.querySelector('label[for="prompt"]'), $('prompt'),
+    $('more-opts'), $('segments-note')];
+  for (const el of bits) if (el) el.style.display = motion ? 'none' : '';
+  if (motion) {
+    $('motion-fields-story').style.display = m === 'story' ? '' : 'none';
+    $('motion-fields-sting').style.display = m === 'sting' ? '' : 'none';
+    $('start-upload-wrap').style.display = 'none';
+    $('start-gen-wrap').style.display = 'none';
+  } else {
+    $('start-upload-wrap').style.display = $('start-source').value === 'upload' ? '' : 'none';
+    $('start-gen-wrap').style.display = $('start-source').value === 'generate' ? '' : 'none';
+  }
+  return motion;
+}
 function updateModelUI() {
   const m = $('model').value;
+  const motion = applyMotionUI();
+  if (motion) {
+    for (const id of ['length-api', 'length-house', 'lane-wrap', 'house-more', 'resolution-wrap', 'api-opts', 'motion-opts']) {
+      $(id).style.display = 'none';
+    }
+    $('model-note').textContent = motion === 'story'
+      ? 'A little animated town tells your story, with music made for it. It renders free, so it can take a while to start.'
+      : 'Your words open the show inside a ring of light. It renders free, so it can take a while to start.';
+    $('house-price').textContent = '';
+    genLabel(null);
+    applyModelGates();
+    return;
+  }
   const api = !isHouseModel(m);
   $('length-api').style.display = api ? '' : 'none';
   $('length-house').style.display = api ? 'none' : '';
@@ -11642,6 +11704,24 @@ $('create').onclick = async () => {
     msg('job-msg', 'Working on the bot check...');
     const bot = await botFields('botcheck2');
     const model = $('model').value;
+    if (isMotionTemplate(model)) {
+      // A motion pick is a template job, not a generation: same
+      // free template lane, same queue and library as everything
+      // else, at zero credits.
+      const payload = { template: model, color: $('mf-color').value, ...bot };
+      if (model === 'story') {
+        payload.title = $('mf-story-title').value;
+        payload.lines = $('mf-story-lines').value;
+      } else {
+        payload.headline = $('mf-sting-headline').value;
+        payload.subline = $('mf-sting-subline').value;
+      }
+      await api('/api/templates', { method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload) });
+      msg('job-msg', 'Started. Free renders take a few minutes to start, and yours shows up in your videos below as soon as it is done.', 'ok');
+      loadJobs();
+      return;
+    }
     const camera = { camera_presets: selectedPresets, camera_look: selectedLook() };
     if (selectedFunPreset()) camera.camera_speed = Number($('camera-speed').value);
     const startFields = $('start-source').value === 'generate' && generatedImageJobId
@@ -11858,7 +11938,7 @@ $('make-clips').onclick = async () => {
 let tplUploadId = null;
 function tplShowFields() {
   const t = $('tpl-template').value;
-  for (const name of ['title', 'captions', 'stat', 'promo', 'story', 'sting']) {
+  for (const name of ['title', 'captions', 'stat', 'promo']) {
     $('tpl-fields-' + name).style.display = name === t ? '' : 'none';
   }
 }
@@ -11894,12 +11974,6 @@ $('make-title').onclick = async () => {
       payload.headline = $('tpl-promo-headline').value;
       payload.subline = $('tpl-promo-subline').value;
       payload.cta = $('tpl-promo-cta').value;
-    } else if (t === 'story') {
-      payload.title = $('tpl-story-title').value;
-      payload.lines = $('tpl-story-lines').value;
-    } else if (t === 'sting') {
-      payload.headline = $('tpl-sting-headline').value;
-      payload.subline = $('tpl-sting-subline').value;
     }
     msg('tpl-msg', 'Working on the bot check...');
     const bot = await botFields('botcheck4');
@@ -12041,7 +12115,7 @@ function setImageMode(on) {
   const videoBits = [$('dropzone'), $('start-source'), $('start-upload-wrap'), $('start-gen-wrap'),
     document.querySelector('label[for="start-source"]'),
     $('model').closest('.row'), $('model-note'), document.querySelector('details.more'),
-    $('api-opts'), $('house-price'), $('segments-note')];
+    $('api-opts'), $('house-price'), $('segments-note'), $('motion-fields')];
   for (const el of videoBits) if (el) el.style.display = on ? 'none' : '';
   $('prompt').placeholder = on
     ? 'Describe the image… e.g. a lighthouse at dusk, waves crashing, dramatic sky'
