@@ -332,6 +332,10 @@ check('id="short-topic"' in SRC and 'id="short-script"' in SRC,
 check('id="short-voice"' in SRC, "the form carries the voice picker")
 check('id="botcheck5"' in SRC and "'botcheck5'" in SRC,
       "the form has its bot check widget")
+shorts_swap = SRC.split("function showShortsForm()", 1)[1].split(
+    "function updateModelUI()", 1)[0]
+check("$('botcheck2')" in shorts_swap,
+      "the shorts form hides the video form's bot check widget")
 check("loadShortsConfig" in SRC, "the form loads its config")
 check("/api/shorts" in SRC, "the form posts to the shorts route")
 pane = SRC.split('id="shorts-fields"', 1)[1].split('id="short-msg"', 1)[0]

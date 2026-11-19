@@ -11631,7 +11631,7 @@ async function botFields(containerId) {
 }
 function renderBotChecks() {
   if (cfg.turnstile_site_key && window.turnstile) {
-    for (const id of ['botcheck', 'botcheck2', 'botcheck3', 'botcheck5']) {
+    for (const id of ['botcheck', 'botcheck2', 'botcheck3', 'botcheck4', 'botcheck5']) {
       if (!document.getElementById(id)) continue;
       botWidgets[id] = turnstile.render('#' + id, {
         sitekey: cfg.turnstile_site_key,
@@ -12371,7 +12371,7 @@ function showTitleCardForm() {
   const hide = [$('dropzone'), document.querySelector('label[for="start-source"]'),
     $('start-source'), document.querySelector('label[for="prompt"]'), $('prompt'),
     $('length-house'), $('length-api'), document.querySelector('details.more'),
-    $('api-opts'), $('house-price')];
+    $('api-opts'), $('house-price'), $('botcheck2')];
   for (const el of hide) if (el) el.style.display = 'none';
   $('segments-note').textContent = '';
   $('model-note').textContent = 'Title cards are free. They count toward the five free clips on a free account, and paid accounts can make 20 a day.';
@@ -12389,7 +12389,7 @@ function showShortsForm() {
   const hide = [$('dropzone'), document.querySelector('label[for="start-source"]'),
     $('start-source'), document.querySelector('label[for="prompt"]'), $('prompt'),
     $('length-house'), $('length-api'), document.querySelector('details.more'),
-    $('api-opts'), $('house-price')];
+    $('api-opts'), $('house-price'), $('botcheck2')];
   for (const el of hide) if (el) el.style.display = 'none';
   $('segments-note').textContent = '';
   $('model-note').textContent = 'Faceless shorts are free. They count toward the five free clips on a free account, and paid accounts can make 20 a day.';
@@ -12408,7 +12408,7 @@ function updateModelUI() {
     // length and price blocks are managed by the body below.
     for (const el of [$('dropzone'), document.querySelector('label[for="start-source"]'),
       $('start-source'), document.querySelector('label[for="prompt"]'), $('prompt'),
-      document.querySelector('details.more'), $('house-price')]) if (el) el.style.display = '';
+      document.querySelector('details.more'), $('house-price'), $('botcheck2')]) if (el) el.style.display = '';
     syncStartSource();
   }
   const motion = applyMotionUI();

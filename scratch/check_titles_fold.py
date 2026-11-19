@@ -79,8 +79,14 @@ check("$('titlecard-fields').style.display = ''" in swap,
       "the swap shows the title form")
 for el in ("$('dropzone')", "$('start-source')", "$('prompt')",
            "$('length-house')", "$('length-api')", "details.more",
-           "$('api-opts')", "$('house-price')"):
+           "$('api-opts')", "$('house-price')", "$('botcheck2')"):
     check(el in swap, f"the swap hides the video only field {el}")
+check("'botcheck4'" in SRC.split("function renderBotChecks()", 1)[1].split("}", 1)[0],
+      "the title form's bot check widget is rendered")
+check("botFields('botcheck4')" in SRC,
+      "the template submit reads the title form's own widget")
+check("$('house-price'), $('botcheck2')]) if (el) el.style.display = '';" in SRC,
+      "the video restore path brings the card bot check back")
 check("$('create').textContent = 'Make it for free'" in swap,
       "the shared button becomes the free lane's button")
 check("for (const name of ['title', 'captions', 'stat', 'promo'])"
