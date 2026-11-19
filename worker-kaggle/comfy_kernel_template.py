@@ -60,8 +60,16 @@ PLATFORM = "https://magrify--moonfactory-api.us-east.modal.run"
 INPUT = Path("/kaggle/input")
 WORKING = Path("/kaggle/working")
 COMFY_DIR = WORKING / "ComfyUI"
-MODELS_DIR = WORKING / "comfy-models"
-STAGE_DIR = WORKING / "comfy-stage"
+# Model staging lives on the session's scratch disk, NOT in
+# /kaggle/working: the working volume is capped near 21 GB
+# (measured on the first session, 2026-11-19), while the
+# model families run 12 to 71 GB staged. The scratch disk is
+# the machine's overlay (terabytes free, measured the same
+# day) and dies with the session, which the design already
+# assumes: models download fresh every session.
+SCRATCH = Path("/tmp/moonfactory-comfy")
+MODELS_DIR = SCRATCH / "models"
+STAGE_DIR = SCRATCH / "stage"
 
 # Baked in by worker-kaggle/build_comfy_kernel.py from the
 # repo's workflow files, the Modal worker's own literals, and
@@ -163,7 +171,8 @@ _family_used = {}
 
 
 def _disk_free() -> int:
-    return shutil.disk_usage(WORKING).free
+    anchor = MODELS_DIR if MODELS_DIR.exists() else SCRATCH.parent
+    return shutil.disk_usage(anchor).free
 
 
 def _family_bytes(family: str) -> int:
@@ -589,18 +598,28 @@ def setup_comfy() -> dict:
     return info
 
 
+COMFY_LOG = WORKING / "comfyui.log"
+
+
 def start_comfy():
     global _comfy_proc
+    log_fh = open(COMFY_LOG, "ab")
     _comfy_proc = subprocess.Popen(
         [sys.executable, "main.py", "--listen", "127.0.0.1",
          "--port", "8188", "--lowvram", "--disable-auto-launch"],
         cwd=str(COMFY_DIR),
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-        text=True)
+        stdout=log_fh, stderr=subprocess.STDOUT)
     deadline = time.time() + 600
     while time.time() < deadline:
         if _comfy_proc.poll() is not None:
-            raise RuntimeError("ComfyUI exited during startup")
+            tail = ""
+            try:
+                tail = COMFY_LOG.read_bytes()[-3000:].decode(
+                    "utf-8", "replace")
+            except Exception:
+                pass
+            raise RuntimeError(
+                f"ComfyUI exited during startup; log tail: {tail}")
         try:
             r = requests.get(f"{COMFY_BASE}/system_stats", timeout=5)
             if r.status_code == 200:
