@@ -602,7 +602,9 @@ def word_check(audio: bytes, script: str, voice: str = "") -> dict:
     channel count the delivery carries). voice is the job's Kokoro
     voice when the platform voiced the job itself; only then does a
     same-voice clean track exist and the fix pass run. Returns the
-    outcome, the final wrong words with their timestamps, and, when
+    outcome, the final wrong words with their timestamps, the
+    heard words of the audio that ships (the captions stage's
+    source), and, when
     a fix was spliced in and the take is deliverable, the repaired
     audio as wav bytes in the input's own format. Raises on any
     stage failure; the platform flags that "unavailable" and
@@ -637,6 +639,12 @@ def word_check(audio: bytes, script: str, voice: str = "") -> dict:
     heard = _transcribe_words(model, in_path)
     first = evaluate_script(script, heard)
     final = first
+    # The heard words of the audio that ships: the original
+    # transcription, replaced by the repaired track's own
+    # transcription when a fix is spliced in and the repaired
+    # take is the one returned. The platform's captions stage
+    # burns these words in, timed as heard.
+    final_heard = heard
     fixed_audio = None
     applied = 0
     if first["wrong"] and voice:
@@ -650,13 +658,14 @@ def word_check(audio: bytes, script: str, voice: str = "") -> dict:
             samples, rate, script, first["wrong"], speak_sentence,
             transcribe_samples)
         if applied:
-            final = evaluate_script(
-                script, transcribe_samples(new_samples, rate))
+            fixed_heard = transcribe_samples(new_samples, rate)
+            final = evaluate_script(script, fixed_heard)
             if final["ratio"] <= TAKE_FAIL_RATIO:
                 buf = io.BytesIO()
                 sf.write(buf, new_samples, rate, format="WAV",
                          subtype="PCM_16")
                 fixed_audio = buf.getvalue()
+                final_heard = fixed_heard
     status = decide_status(first["ratio"], final["ratio"],
                            bool(applied))
     return {
@@ -670,7 +679,40 @@ def word_check(audio: bytes, script: str, voice: str = "") -> dict:
         "wrong_ratio": round(final["ratio"], 4),
         "initial_wrong_ratio": round(first["ratio"], 4),
         "audio": fixed_audio,
+        "words": final_heard,
     }
+
+
+@app.function(
+    image=wordcheck_image,
+    volumes={"/sinclip-models": volume},
+    timeout=1800,
+    memory=2048,
+    cpu=2.0,
+)
+def transcribe(audio: bytes) -> dict:
+    """Transcribe a finished job's audio track word by word.
+
+    The captions stage's source when the word check stage did
+    not already transcribe the same audio: the same
+    faster-whisper pass the word check runs (base model, int8,
+    word timestamps, English), returning the heard words with
+    their timings and nothing else. Raises on any stage failure;
+    the platform flags captions "unavailable" and delivers the
+    video uncaptioned."""
+    from faster_whisper import WhisperModel
+
+    if not audio:
+        raise ValueError("transcribe needs audio bytes")
+    in_path = Path("/tmp/tr_in.wav")
+    in_path.write_bytes(audio)
+    model = WhisperModel("base", device="cpu", compute_type="int8",
+                         download_root=WHISPER_CACHE)
+    try:
+        volume.commit()
+    except Exception:
+        pass
+    return {"words": _transcribe_words(model, in_path)}
 
 
 @app.local_entrypoint()

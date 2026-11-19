@@ -4128,6 +4128,8 @@ def api():
             "lipsync_status": job.get("lipsync_status"),
             "word_check_status": job.get("word_check_status"),
             "word_check_listen_at": job.get("word_check_listen_at") or [],
+            "captions": bool(job.get("captions")),
+            "captions_status": job.get("captions_status"),
             "native_speech": lane_audio(
                 job.get("model") or DEFAULT_MODEL)["native_speech"],
             "kind": job.get("kind") or "generation",
@@ -6346,7 +6348,8 @@ def api():
 
     def create_api_job(user: dict, body: dict, model: str, base: str,
                        prompt: str, music_prompt: str, camera: dict = None,
-                       speech_script: str = "", speech_voice: str = ""):
+                       speech_script: str = "", speech_voice: str = "",
+                       captions: bool = False):
         """Quote -> hold -> submit, per design s.3. Any failure at or
         before submission leaves an error job with the clean public
         message and the hold fully released: no charge, nothing
@@ -6436,6 +6439,8 @@ def api():
             "voiceover_status": None,
             "word_check_status": None,
             "word_check_listen_at": [],
+            "captions": bool(captions),
+            "captions_status": None,
             "character_id": body.get("character_id"),
             # Built-in lip sync (Jack's rule, 2026-11-17): planned
             # at creation when the job carries speech on a lane
@@ -6543,6 +6548,12 @@ def api():
         speech_voice = (body.get("speech_voice") or "").strip()
         if speech_voice and speech_voice not in SPEECH_VOICES:
             raise HTTPException(status_code=422, detail="unknown speech voice")
+        # Captions (Jack's call, 2026-11-18): a generation time
+        # opt in, either checked or not. The finishing stage
+        # burns word timed captions into the delivered file when
+        # the job has speech. No gate and no charge, and existing
+        # gallery videos are never captioned after the fact.
+        captions = bool(body.get("captions"))
         if speech_script and not is_paid(user):
             raise HTTPException(
                 status_code=403, detail="voiceover is a paid feature"
@@ -6806,7 +6817,7 @@ def api():
             return create_api_job(
                 user, body, model, base_url(request), prompt, music_prompt,
                 camera=camera, speech_script=speech_script,
-                speech_voice=speech_voice,
+                speech_voice=speech_voice, captions=captions,
             )
         u = usage(user)
         charged = 0
@@ -6955,6 +6966,8 @@ def api():
             "voiceover_status": None,
             "word_check_status": None,
             "word_check_listen_at": [],
+            "captions": captions,
+            "captions_status": None,
             "character_id": body.get("character_id"),
             # Built-in lip sync (Jack's rule, 2026-11-17): the
             # house lanes do not speak natively, so a spoken line
@@ -7327,6 +7340,7 @@ def api():
             "music_prompt": parent.get("music_prompt"),
             "speech_script": parent.get("speech_script"),
             "speech_voice": parent.get("speech_voice"),
+            "captions": parent.get("captions"),
             "model": parent.get("model") or DEFAULT_MODEL,
             "duration_seconds": parent.get("duration_seconds"),
             "resolution": parent.get("resolution"),
@@ -7536,6 +7550,12 @@ def api():
             result = word_check.remote(
                 audio_path.read_bytes(), script, voice)
             fixed = result.pop("audio", None)
+            heard_words = result.pop("words", None)
+            if heard_words:
+                # One transcription of the final audio serves
+                # both finishing stages: the captions stage burns
+                # these same words in when the job asked for it.
+                _CAPTION_TRANSCRIPTS[job["id"]] = heard_words
             if fixed:
                 fixed_path.write_bytes(fixed)
                 proc = subprocess.run(
@@ -7559,6 +7579,92 @@ def api():
             jobs[job["id"]] = job
         finally:
             for path in (audio_path, fixed_path, swapped_path):
+                try:
+                    path.unlink(missing_ok=True)
+                except Exception:
+                    pass
+
+    def _captions_for_job(job: dict, out_path: Path):
+        """The captions stage (Jack's call, 2026-11-18): a job
+        created with the captions box checked gets word timed
+        captions burned into its delivered file here, in the
+        Shorts lane's house style. The words and their timings
+        are the faster-whisper transcription of the final audio:
+        the one the word check stage just produced when it ran
+        (it waits in _CAPTION_TRANSCRIPTS), or a fresh run of the
+        same transcription through the sinclip-audio transcribe
+        callable when the job has none. The choice exists only
+        at generation time; existing gallery videos are never
+        captioned after the fact, and an unchecked job takes
+        exactly the path it always took. Outcomes land on the
+        job record: applied, no_speech (the job carries no
+        spoken line, or its final audio has no words to caption),
+        or unavailable (the transcription or the burn in itself
+        failed). Like every finishing stage here, a failure never
+        blocks delivery and never changes the price."""
+        if not job.get("captions"):
+            return
+        if job.get("captions_status"):
+            return
+        has_speech = bool((job.get("speech_script") or "").strip()) \
+            or job.get("voiceover_status") in ("ready", "native")
+        if not has_speech:
+            job["captions_status"] = "no_speech"
+            jobs[job["id"]] = job
+            return
+        audio_path = FILES_DIR / f"{job['id']}.captions.wav"
+        ass_path = FILES_DIR / f"{job['id']}.captions.ass"
+        burned_path = FILES_DIR / f"{job['id']}.captioned.mp4"
+        try:
+            words = _CAPTION_TRANSCRIPTS.pop(job["id"], None)
+            if not words:
+                proc = subprocess.run(
+                    ["ffmpeg", "-y", "-i", str(out_path), "-vn",
+                     "-acodec", "pcm_s16le", str(audio_path)],
+                    capture_output=True, text=True, timeout=600)
+                if proc.returncode != 0 or not audio_path.exists():
+                    raise RuntimeError("final audio extraction failed")
+                transcribe = modal.Function.from_name(
+                    "sinclip-audio", "transcribe")
+                result = transcribe.remote(audio_path.read_bytes())
+                words = result.get("words") or []
+            words = [w for w in words
+                     if str(w.get("word", "")).strip()]
+            if not words:
+                job["captions_status"] = "no_speech"
+                jobs[job["id"]] = job
+                return
+            proc = subprocess.run(
+                ["ffprobe", "-v", "error", "-select_streams", "v:0",
+                 "-show_entries", "stream=width,height",
+                 "-of", "csv=p=0", str(out_path)],
+                capture_output=True, text=True, timeout=60)
+            parts = (proc.stdout or "").strip().split(",")
+            if len(parts) != 2:
+                raise RuntimeError("finished file has no readable size")
+            width, height = int(parts[0]), int(parts[1])
+            if width <= 0 or height <= 0:
+                raise RuntimeError("finished file has no readable size")
+            ass_path.write_text(
+                build_captions_ass(words, width, height),
+                encoding="utf-8")
+            proc = subprocess.run(
+                ["ffmpeg", "-y", "-i", str(out_path),
+                 "-vf", f"subtitles={ass_path.name}",
+                 "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+                 "-c:a", "copy", str(burned_path)],
+                capture_output=True, text=True, timeout=1800,
+                cwd=FILES_DIR)
+            if proc.returncode != 0 or not burned_path.exists():
+                raise RuntimeError("caption burn in failed")
+            burned_path.replace(out_path)
+            job["captions_status"] = "applied"
+            jobs[job["id"]] = job
+        except Exception:
+            job["captions_status"] = "unavailable"
+            jobs[job["id"]] = job
+        finally:
+            for path in (audio_path, ass_path, burned_path):
                 try:
                     path.unlink(missing_ok=True)
                 except Exception:
@@ -7726,6 +7832,11 @@ def api():
             # The stage flags the job record and never blocks the
             # delivery above.
             _word_check_for_job(job, out_path)
+            # Captions (2026-11-18): after the word check, so the
+            # burned words are timed from the final audio exactly
+            # as delivered, repaired track included. Only jobs
+            # created with the box checked enter the stage.
+            _captions_for_job(job, out_path)
             data_volume.commit()
         return out_path
 
@@ -9099,6 +9210,106 @@ def api():
         return {"status": "restored"}
 
     return web
+
+
+# -- captions (Jack's call, 2026-11-18) -------------------------------------
+# A generation time opt in: the Create form's captions box.
+# Existing gallery videos are never captioned after the fact;
+# the choice exists only when a video is made. The style is the
+# Shorts lane's house caption style (bold white words, heavy
+# black outline, low on the frame), scaled from the shorts
+# frame (1080x1920) to whatever size the finished video is.
+
+CAPTIONS_MAX_WORDS = 4
+CAPTIONS_MIN_SECONDS = 0.35
+
+# Word timed transcripts of finished audio, keyed by job id.
+# The word check stage transcribes every spoken job's final
+# audio; when it ran, its words wait here so the captions stage
+# burns in from that same transcription instead of paying for a
+# second one. A missing entry just means the captions stage
+# runs the same transcription itself.
+_CAPTION_TRANSCRIPTS: dict = {}
+
+
+def _caption_ass_time(seconds: float) -> str:
+    seconds = max(0.0, seconds)
+    h = int(seconds // 3600)
+    m = int((seconds % 3600) // 60)
+    s = seconds % 60
+    return f"{h}:{m:02d}:{s:05.2f}"
+
+
+def _caption_ass_escape(text: str) -> str:
+    return (text.replace("\\", " ").replace("{", "(")
+            .replace("}", ")").replace("\n", " "))
+
+
+def caption_events(words: list) -> list:
+    """Group word timed transcript entries ({word, start, end},
+    the faster-whisper shape) into caption chunks of at most
+    CAPTIONS_MAX_WORDS words, the Shorts lane's chunking. A chunk
+    shows from its first word's start to its last word's end,
+    held at least CAPTIONS_MIN_SECONDS. Returns (start, end,
+    text) events in order."""
+    clean = []
+    for w in words or []:
+        text = str(w.get("word", "")).strip()
+        if not text:
+            continue
+        clean.append((float(w.get("start") or 0),
+                      float(w.get("end") or 0), text))
+    events = []
+    for i in range(0, len(clean), CAPTIONS_MAX_WORDS):
+        chunk = clean[i:i + CAPTIONS_MAX_WORDS]
+        start = chunk[0][0]
+        end = chunk[-1][1]
+        if end < start + CAPTIONS_MIN_SECONDS:
+            end = start + CAPTIONS_MIN_SECONDS
+        events.append((start, end,
+                       " ".join(t for _s, _e, t in chunk)))
+    return events
+
+
+def build_captions_ass(words: list, width: int, height: int) -> str:
+    """The ASS subtitle file for one finished video: the Shorts
+    lane's caption style (DejaVu Sans bold, white with a heavy
+    black outline, bottom center, low on the frame), with the
+    size, outline and margins scaled from the 1080x1920 shorts
+    frame to this video's own dimensions."""
+    scale = (height or 1920) / 1920.0
+    font_size = max(14, round(72 * scale))
+    outline = max(1, round(5 * scale))
+    margin_v = round(300 * scale)
+    margin_lr = round(60 * (width or 1080) / 1080.0)
+    header = (
+        "[Script Info]\n"
+        "ScriptType: v4.00+\n"
+        f"PlayResX: {width}\n"
+        f"PlayResY: {height}\n"
+        "WrapStyle: 2\n"
+        "\n"
+        "[V4+ Styles]\n"
+        "Format: Name, Fontname, Fontsize, PrimaryColour, "
+        "SecondaryColour, OutlineColour, BackColour, Bold, Italic, "
+        "Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, "
+        "BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, "
+        "MarginV, Encoding\n"
+        f"Style: Captions,DejaVu Sans,{font_size},&H00FFFFFF,"
+        f"&H00FFFFFF,&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,"
+        f"{outline},0,2,{margin_lr},{margin_lr},{margin_v},1\n"
+        "\n"
+        "[Events]\n"
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, "
+        "MarginV, Effect, Text\n"
+    )
+    body = "".join(
+        f"Dialogue: 0,{_caption_ass_time(start)},"
+        f"{_caption_ass_time(end)},Captions,,0,0,0,,"
+        f"{_caption_ass_escape(text)}\n"
+        for start, end, text in caption_events(words)
+    )
+    return header + body
 
 
 def _process_file(raw_path: Path, out_path: Path, watermark: bool, bed_path=None,
@@ -10585,6 +10796,10 @@ APP_HTML = (
         <option value="bm_lewis">Lewis, British man</option>
       </select>
       <p class="muted" id="voice-note"></p>
+      <label style="font-weight:400;display:block">
+        <input type="checkbox" id="captions" style="width:auto;margin:0 6px 0 0">
+        Add captions</label>
+      <p class="muted">Captions are written into the video.</p>
 
       <p class="group-label">Details</p>
       <label>Anything to avoid (optional)</label>
@@ -11665,6 +11880,7 @@ $('create').onclick = async () => {
           music_prompt: $('music').disabled ? '' : $('music').value,
           speech_script: $('speech').disabled ? '' : $('speech').value,
           speech_voice: $('speech').disabled ? '' : $('speech-voice').value,
+          captions: $('captions').checked,
           effect: selectedEffect || undefined,
           ...startFields, end_image_png_b64: selectedEffect ? null : endImageB64,
           aspect_ratio: $('aspect').value, segments: selectedEffect ? 1 : Number($('segments').value),
@@ -11673,6 +11889,7 @@ $('create').onclick = async () => {
           music_prompt: $('music').disabled ? '' : $('music').value,
           speech_script: $('speech').disabled ? '' : $('speech').value,
           speech_voice: $('speech').disabled ? '' : $('speech-voice').value,
+          captions: $('captions').checked,
           aspect_ratio: $('aspect').value,
           duration_seconds: Number($('duration').value), resolution: $('resolution').value,
           ...startFields, ...camera, ...detailFields, ...motionFields, ...charFields, ...bot };
