@@ -316,15 +316,16 @@ for lane_id, lane in pricing.IMAGE_LANES.items():
 # Image tier marks (Jack, 2026-11-19): every label that carries
 # $ marks sets them behind a bullet separator, "Name · $$", in
 # both pickers. Every image lane, paid and uncensored alike,
-# takes its marks from the platform's fixed tier bands
-# (PRICE_TIER_BANDS_CENTS_PER_SECOND) read on the customer
-# price at the smallest size (accuracy pass, 2026-11-19).
+# takes its marks from the image bands (Jack, 2026-11-19),
+# read on the customer price at the smallest size: $ up to 3c,
+# $$ above 3c up to 4.5c, $$$ above 4.5c up to 10c, $$$$ above
+# 10c. The video per second bands are separate and unchanged.
 def _image_tier_marks(debit):
-    if debit < 5.0:
+    if debit <= 3.0:
         return "$"
-    if debit < 12.0:
+    if debit <= 4.5:
         return "$$"
-    if debit < 25.0:
+    if debit <= 10.0:
         return "$$$"
     return "$$$$"
 

@@ -1212,15 +1212,15 @@ def image_price_cents(owner: bool = False) -> int:
 # on 2026-11-17, so the SpicyAPI lanes can run; he tests them
 # himself. The other providers' balances are still $0, so
 # their lanes can only fail clean until funded.
-# Label $ tier marks (Jack, 2026-11-19): the same fixed bands
-# the video picker uses (PRICE_TIER_BANDS_CENTS_PER_SECOND in
-# app.py: $ under 5c, $$ under 12c, $$$ under 25c, $$$$ above),
-# read on the lane's customer price per image at its smallest
-# size, and set behind a bullet separator ("Name · $$"), the
-# one format the whole shelf reads. Accuracy pass (Jack,
-# 2026-11-19): every lane's mark was recomputed from its
-# served customer price and set to the band it lands in, the
-# two Seedream lanes included (3.5c and 4.5c both band at $).
+# Label $ tier marks (Jack, 2026-11-19): image lanes carry
+# their own fixed bands, read on the lane's customer price per
+# image at its smallest size: $ up to 3c, $$ above 3c up to
+# 4.5c, $$$ above 4.5c up to 10c, $$$$ above 10c. (The video
+# picker's per second bands in app.py are separate and did
+# not change.) Marks sit behind a bullet separator
+# ("Name · $$"), the one format the whole shelf reads. Every
+# lane's mark is recomputed from its served customer price
+# and set to the band it lands in.
 IMAGE_LANES = {
     "nano_banana_21": {
         "label": "Nano Banana 2.1 · $", "provider": "beatapi",
@@ -1228,7 +1228,7 @@ IMAGE_LANES = {
         "raw_cents": {"1K": 1.6, "2K": 1.8, "4K": 3.5},
     },
     "nano_banana_pro": {
-        "label": "Nano Banana Pro · $$", "provider": "beatapi",
+        "label": "Nano Banana Pro · $$$", "provider": "beatapi",
         "endpoint": "google/nano-banana-pro",
         # BeatAPI's own model page (read 2026-11-17): 1K $0.05,
         # 2K $0.05, 4K $0.10. The 4K tier was not wired before.
@@ -1244,12 +1244,12 @@ IMAGE_LANES = {
         # fal's own published measured cost for a high-quality
         # 1024x1024 Flare image (about $0.053), the only size
         # sold until the funded pass measures the real charge.
-        "label": "GPT Image 2.6 · $$", "provider": "fal",
+        "label": "GPT Image 2.6 · $$$", "provider": "fal",
         "endpoint": "openai/gpt-image-2.6/flare/text-to-image",
         "raw_cents": {"1024x1024": 5.3},
     },
     "seedream55_unc": {
-        "label": "Seedream 5.5 · $", "provider": "wiro",
+        "label": "Seedream 5.5 · $$", "provider": "wiro",
         "uncensored": True,
         "endpoint": "bytedance/seedream-5-5-uncensored",
         # Wiro's own model page (read 2026-11-17) sells three
@@ -1258,7 +1258,7 @@ IMAGE_LANES = {
         "raw_cents": {"1K": 2.8, "1.5K": 2.8, "2K": 4.3},
     },
     "seedream5pro_unc": {
-        "label": "Seedream 5.0 Pro · $",
+        "label": "Seedream 5.0 Pro · $$",
         "provider": "spicyapi",
         "uncensored": True,
         "endpoint": "bytedance/seedream-5-0-pro/text-to-image",
@@ -1297,7 +1297,7 @@ IMAGE_LANES = {
                       "2560x1440": 1.9, "1440x2560": 1.9},
     },
     "qwen_edit_unc": {
-        "label": "Qwen Image Edit · $",
+        "label": "Qwen Image Edit · $$$",
         "provider": "spicyapi",
         "uncensored": True,
         "endpoint": "alibaba/qwen-image-spicy-edit/edit",

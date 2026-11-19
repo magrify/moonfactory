@@ -834,8 +834,8 @@ def job_is_nsfw(job: dict) -> bool:
 # lane runs Z-Image Turbo on the house worker, so it carries
 # its real model's name everywhere the name prints (the image
 # picker serves it from the config below, the gallery falls
-# back to it). The $$$$ is the same fixed tier banding as
-# every other lane, read on its 47c per image price.
+# back to it). The $$$$ is the image tier banding codified
+# in pricing.py (above 10c per image), read on its 47c price.
 HOUSE_IMAGE_LABEL = "Z-Image Turbo · $$$$"
 
 
