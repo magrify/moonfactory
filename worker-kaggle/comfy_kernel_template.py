@@ -538,7 +538,8 @@ def setup_comfy() -> dict:
             ["nvidia-smi", "--query-gpu=name,memory.total",
              "--format=csv,noheader"],
             capture_output=True, text=True, timeout=30)
-        info["gpu"] = (out.stdout or "").strip() or None
+        info["gpu"] = ((out.stdout or "").strip().splitlines()
+                       or [None])[0]
     except Exception:
         pass
     log(f"gpu: {info['gpu']}")
