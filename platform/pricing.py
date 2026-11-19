@@ -1217,10 +1217,10 @@ def image_price_cents(owner: bool = False) -> int:
 # app.py: $ under 5c, $$ under 12c, $$$ under 25c, $$$$ above),
 # read on the lane's customer price per image at its smallest
 # size, and set behind a bullet separator ("Name · $$"), the
-# one format the whole shelf reads. The two Seedream
-# uncensored lanes carry $$ from the 2026-11-17 shelf pass
-# although their smallest size prices (3.5c and 4.5c) band at
-# $; Jack left those marks as they are.
+# one format the whole shelf reads. Accuracy pass (Jack,
+# 2026-11-19): every lane's mark was recomputed from its
+# served customer price and set to the band it lands in, the
+# two Seedream lanes included (3.5c and 4.5c both band at $).
 IMAGE_LANES = {
     "nano_banana_21": {
         "label": "Nano Banana 2.1 · $", "provider": "beatapi",
@@ -1249,7 +1249,7 @@ IMAGE_LANES = {
         "raw_cents": {"1024x1024": 5.3},
     },
     "seedream55_unc": {
-        "label": "Seedream 5.5 · $$", "provider": "wiro",
+        "label": "Seedream 5.5 · $", "provider": "wiro",
         "uncensored": True,
         "endpoint": "bytedance/seedream-5-5-uncensored",
         # Wiro's own model page (read 2026-11-17) sells three
@@ -1258,7 +1258,7 @@ IMAGE_LANES = {
         "raw_cents": {"1K": 2.8, "1.5K": 2.8, "2K": 4.3},
     },
     "seedream5pro_unc": {
-        "label": "Seedream 5.0 Pro · $$",
+        "label": "Seedream 5.0 Pro · $",
         "provider": "spicyapi",
         "uncensored": True,
         "endpoint": "bytedance/seedream-5-0-pro/text-to-image",
