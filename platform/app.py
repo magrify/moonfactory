@@ -10188,6 +10188,10 @@ _CSS = """
   .menu a,.menu button{display:block;width:100%;box-sizing:border-box;text-align:left;background:none;border:0;color:var(--ink);font:inherit;font-size:14.5px;padding:9px 10px;border-radius:9px;cursor:pointer;text-decoration:none}
   .menu a:hover,.menu button:hover{background:var(--seg-on)}
   .menu-email{display:block;color:var(--faint);font-size:13px;padding:8px 10px 9px;border-bottom:1px solid var(--line);margin-bottom:6px;word-break:break-all}
+  .save-wrap{position:relative;display:inline-block}
+  .save-btn{display:inline-flex;align-items:center;gap:8px}
+  .save-menu{left:0;right:auto;top:calc(100% + 8px);min-width:196px}
+  .save-note{color:var(--faint);font-size:13px;line-height:1.5;padding:8px 10px 4px}
   .overlay{position:fixed;inset:0;background:rgba(6,6,9,.72);z-index:80;display:flex;align-items:flex-start;justify-content:center;padding:22px 14px;overflow-y:auto}
   .panel{background:var(--card);border:1px solid var(--line);border-radius:16px;max-width:560px;width:100%;padding:22px;margin-top:4vh}
   .panel-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
@@ -11076,7 +11080,7 @@ APP_HTML = (
       <p class="muted" id="image-shelf-note"></p>
       <div id="image-result-wrap" style="display:none">
         <img id="image-result" style="max-width:100%;border-radius:12px" alt="Your image">
-        <p><button class="btn secondary" id="image-use-start" type="button">Use as the start image for a video</button></p>
+        <p><button class="btn secondary" id="image-use-start" type="button">Use as the start image for a video</button> <span id="image-result-save"></span></p>
       </div>
     </div>
 
@@ -11707,6 +11711,7 @@ async function fireFirstFrame(d) {
       generatedImageJobId = imageJobId;
       $('image-preview').innerHTML =
         '<img src="/api/jobs/' + imageJobId + '/file" style="width:180px;border-radius:14px" alt="Your first frame">' +
+        '<p style="margin:10px 0 0">' + saveControlHtml(imageJobId, 'image') + '</p>' +
         '<p class="muted">This frame is attached as your start image. Create your video when you are ready, or make another frame first.</p>';
       msg('image-note', 'Your first frame is ready and attached.', 'ok');
       loadJobs();
@@ -12908,6 +12913,84 @@ function announceJobStates(jobs) {
   }
   jobsPrimed = true;
 }
+// Save control (Jack, 2026-11-19): every finished video or
+// photo shown to its owner carries one share icon button. It
+// opens a small menu with two options. Save to Photos goes
+// through the phone's share sheet, the only route a web page
+// has into the photo library. Save to Files is a plain
+// download under the file's proper name.
+const SAVE_ICON = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 14.5V4"/><path d="M7.8 7.6L12 3.4l4.2 4.2"/><path d="M9.5 5.8H6.2A2.2 2.2 0 0 0 4 8v10.8A2.2 2.2 0 0 0 6.2 21h11.6A2.2 2.2 0 0 0 20 18.8V8a2.2 2.2 0 0 0-2.2-2.2h-3.3"/></svg>';
+function saveControlHtml(jobId, kind) {
+  return '<span class="save-wrap"><button type="button" class="btn secondary save-btn" data-save="' + jobId + '" data-kind="' + kind + '" aria-haspopup="true" aria-expanded="false">' + SAVE_ICON + 'Save</button>' +
+    '<span class="menu save-menu" style="display:none">' +
+    '<button type="button" data-save-photos="' + jobId + '" data-kind="' + kind + '">Save to Photos</button>' +
+    '<button type="button" data-save-files="' + jobId + '" data-kind="' + kind + '">Save to Files</button>' +
+    '<span class="save-note" style="display:none"></span>' +
+    '</span></span>';
+}
+function closeSaveMenus() {
+  document.querySelectorAll('.save-menu').forEach(m => { m.style.display = 'none'; });
+  document.querySelectorAll('[data-save]').forEach(b => b.setAttribute('aria-expanded', 'false'));
+}
+async function fetchJobFile(jobId, kind) {
+  const r = await fetch('/api/jobs/' + jobId + '/file');
+  if (!r.ok) throw new Error('that file could not be loaded');
+  const blob = await r.blob();
+  const cd = r.headers.get('content-disposition') || '';
+  const m = cd.match(/filename="?([^";]+)"?/);
+  const name = m ? m[1] : 'moonfactory-' + jobId + (kind === 'image' ? '.png' : '.mp4');
+  return new File([blob], name, { type: blob.type || (kind === 'image' ? 'image/png' : 'video/mp4') });
+}
+async function saveToPhotos(btn) {
+  const menu = btn.closest('.save-menu');
+  const note = menu.querySelector('.save-note');
+  try {
+    const file = await fetchJobFile(btn.dataset.savePhotos, btn.dataset.kind);
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file] });
+      closeSaveMenus();
+    } else {
+      note.textContent = 'This browser cannot send files to your photos. Save to Files works instead.';
+      note.style.display = 'block';
+    }
+  } catch (e) {
+    if (e && e.name === 'AbortError') { closeSaveMenus(); return; }
+    note.textContent = 'That did not work. Save to Files works instead.';
+    note.style.display = 'block';
+  }
+}
+async function saveToFiles(btn) {
+  const note = btn.closest('.save-menu').querySelector('.save-note');
+  try {
+    const file = await fetchJobFile(btn.dataset.saveFiles, btn.dataset.kind);
+    const url = URL.createObjectURL(file);
+    const a = document.createElement('a');
+    a.href = url; a.download = file.name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    closeSaveMenus();
+  } catch (e) {
+    note.textContent = 'That file could not be loaded. Try again in a moment.';
+    note.style.display = 'block';
+  }
+}
+document.addEventListener('click', e => {
+  const photosBtn = e.target.closest('[data-save-photos]');
+  if (photosBtn) { saveToPhotos(photosBtn); return; }
+  const filesBtn = e.target.closest('[data-save-files]');
+  if (filesBtn) { saveToFiles(filesBtn); return; }
+  const saveBtn = e.target.closest('[data-save]');
+  if (saveBtn) {
+    const menu = saveBtn.parentElement.querySelector('.save-menu');
+    const open = menu.style.display !== 'none';
+    closeSaveMenus();
+    menu.style.display = open ? 'none' : 'flex';
+    saveBtn.setAttribute('aria-expanded', open ? 'false' : 'true');
+    return;
+  }
+  if (!e.target.closest('.save-wrap')) closeSaveMenus();
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSaveMenus(); });
 async function loadJobs() {
   try {
     const r = await api('/api/jobs');
@@ -12939,9 +13022,10 @@ async function loadJobs() {
         '<br><span class="muted">Look ' + Object.values(j.camera_look).join(' · ') + '</span>';
       if (j.has_custom_audio) html +=
         '<br><span class="muted">Music made for this video from its music prompt</span>';
-      if (j.status === 'done' && j.kind === 'image') html += '<br><img class="thumb" src="/api/jobs/' + j.id + '/file" alt="">';
+      if (j.status === 'done' && j.kind === 'image') html += '<br><img class="thumb" src="/api/jobs/' + j.id + '/file" alt="">' +
+        '<br>' + saveControlHtml(j.id, 'image');
       if (j.status === 'done' && j.kind !== 'image') html += '<br><video controls src="/api/jobs/' + j.id + '/file"></video>' +
-        '<br><a href="/api/jobs/' + j.id + '/file" download>Download</a>';
+        '<br>' + saveControlHtml(j.id, 'video');
       if (j.status === 'error') html += '<br><span class="err">' + (j.error || 'failed') + '</span>';
       if (j.status === 'done' || j.status === 'error') html +=
         '<br><button class="btn secondary" data-del="' + j.id + '">Delete</button>';
@@ -12974,7 +13058,7 @@ function renderClipResults(jobs) {
     if (j.score !== null && j.score !== undefined) h += ' · Score ' + j.score;
     if (j.has_thumb) h += '<br><img class="thumb" src="/api/jobs/' + j.id + '/thumb" alt="">';
     h += '<br><video controls src="/api/jobs/' + j.id + '/file"></video>' +
-      '<br><a href="/api/jobs/' + j.id + '/file" download>Download</a>';
+      '<br>' + saveControlHtml(j.id, 'video');
     d.innerHTML = h; box.appendChild(d);
   }
 }
@@ -13380,11 +13464,13 @@ async function fireImage(d) {
   shelfImageJobId = r.job_id;
   msg('job-msg', 'Making your image...', 'ok');
   $('image-result-wrap').style.display = 'none';
+  $('image-result-save').innerHTML = '';
   for (let i = 0; i < 90; i++) {
     await new Promise(res => setTimeout(res, 4000));
     const j = await api('/api/jobs/' + r.job_id);
     if (j.status === 'done') {
       $('image-result').src = '/api/jobs/' + r.job_id + '/file';
+      $('image-result-save').innerHTML = saveControlHtml(r.job_id, 'image');
       $('image-result-wrap').style.display = '';
       msg('job-msg', 'Your image is ready. It is also saved in your library below.', 'ok');
       loadJobs();

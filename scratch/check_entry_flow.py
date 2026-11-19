@@ -134,6 +134,45 @@ verified = SRC.split("get('verified')", 1)[1][:600]
 check("openAuthPanel();" in verified,
       "the verify link lands on the studio with sign in open in place")
 
+# --- the save control on every finished result (Jack, 2026-11-19) -------
+# One share icon button on any generated video or photo shown to
+# its owner. It opens a two option menu. Save to Photos rides
+# the share sheet, Save to Files downloads under the proper
+# name. The plain Download anchor is gone everywhere.
+check('/file" download>Download</a>' not in SRC,
+      "the plain download anchor is gone from the studio")
+check("function saveControlHtml(jobId, kind)" in SRC,
+      "the save control builder exists")
+check('class="menu save-menu"' in SRC
+      and 'data-save="' in SRC and 'aria-expanded="false"' in SRC,
+      "the button carries the share icon menu, closed by default")
+check(">Save to Photos</button>" in SRC and ">Save to Files</button>" in SRC,
+      "the menu holds exactly the two save options")
+check("M12 14.5V4" in SRC and "M7.8 7.6L12 3.4l4.2 4.2" in SRC,
+      "the button icon is the share glyph, arrow up out of a box")
+check("navigator.canShare" in SRC and "navigator.share({ files: [file] })" in SRC,
+      "Save to Photos goes through the file share sheet")
+check("This browser cannot send files to your photos." in SRC,
+      "an unsupported browser hears so plainly, in one line")
+check("content-disposition" in SRC and "a.download = file.name" in SRC,
+      "Save to Files downloads under the file's proper name")
+check("closeSaveMenus()" in SRC and "if (!e.target.closest('.save-wrap'))" in SRC,
+      "a tap outside the menu closes it")
+library = SRC.split("async function loadJobs()", 1)[1].split(
+    "function renderClipResults", 1)[0]
+check("saveControlHtml(j.id, 'image')" in library
+      and "saveControlHtml(j.id, 'video')" in library,
+      "library rows carry the control for images and videos alike")
+clips = SRC.split("function renderClipResults(jobs)", 1)[1].split(
+    "$('jobs').addEventListener", 1)[0]
+check("saveControlHtml(j.id, 'video')" in clips,
+      "clip results carry the control")
+check("saveControlHtml(imageJobId, 'image')" in SRC,
+      "the first frame preview carries the control the moment it lands")
+check('id="image-result-save"' in HTML
+      and "saveControlHtml(r.job_id, 'image')" in SRC,
+      "the image mode result carries the control")
+
 if failures:
     print("FAIL")
     for f in failures:
