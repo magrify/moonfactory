@@ -263,7 +263,7 @@ check(body.index("_word_check_for_job(job, out_path)")
       > body.index("_process_file(raw_path, out_path"),
       "the word check runs before the final mux, not after it")
 
-check(APP_SRC.count('"word_check_status": None,') == 2,
+check(APP_SRC.count('"word_check_status": None,') == 3,
       "job creation paths do not all initialize word_check_status")
 check('"word_check_status": job.get("word_check_status")' in APP_SRC,
       "the job payload does not expose word_check_status")

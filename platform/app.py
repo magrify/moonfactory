@@ -54,6 +54,7 @@ import pricing  # noqa: E402
 import clipping  # noqa: E402
 import fun_camera  # noqa: E402
 import llm_providers  # noqa: E402
+import shorts  # noqa: E402
 
 app = modal.App("moonfactory")
 
@@ -77,6 +78,7 @@ image = (
     .add_local_file(str(Path(__file__).parent / "clipping.py"), "/platform/clipping.py")
     .add_local_file(str(Path(__file__).parent / "fun_camera.py"), "/platform/fun_camera.py")
     .add_local_file(str(Path(__file__).parent / "llm_providers.py"), "/platform/llm_providers.py")
+    .add_local_file(str(Path(__file__).parent / "shorts.py"), "/platform/shorts.py")
     .add_local_file(
         str(
             Path(__file__).parent.parent
@@ -113,6 +115,7 @@ clip_image = (
     .add_local_file(str(Path(__file__).parent / "clipping.py"), "/platform/clipping.py")
     .add_local_file(str(Path(__file__).parent / "fun_camera.py"), "/platform/fun_camera.py")
     .add_local_file(str(Path(__file__).parent / "llm_providers.py"), "/platform/llm_providers.py")
+    .add_local_file(str(Path(__file__).parent / "shorts.py"), "/platform/shorts.py")
     .add_local_dir(str(Path(__file__).parent / "clip_fonts"), "/platform/clip_fonts")
 )
 
@@ -344,6 +347,200 @@ def process_clip_job(job_id: str):
         job["internal_error"] = str(exc)[:300]
         jobs[job_id] = job
         _clip_release_hold(job)
+        data_volume.commit()
+
+
+def _short_word_check(job: dict, out_path: Path):
+    """The word check stage for a finished short: the same stage
+    the generation finishing chain runs (see _word_check_for_job
+    inside api()), duplicated at top level the way the clip
+    helpers mirror their api() counterparts. The delivered audio
+    is transcribed and aligned against the spoken script, and a
+    same-voice repair is spliced in when the audio app returns
+    one. The short was voiced by the platform's own Kokoro
+    stage, so the fix pass is always eligible. Outcomes land on
+    the job record in the same fields; a stage failure flags
+    "unavailable" and never blocks the delivery."""
+    script = (job.get("speech_script") or "").strip()
+    if not script or job.get("word_check_status"):
+        return
+    files_dir = Path("/data/files")
+    audio_path = files_dir / f"{job['id']}.wordcheck.wav"
+    fixed_path = files_dir / f"{job['id']}.wordfix.wav"
+    swapped_path = files_dir / f"{job['id']}.wordfix.mp4"
+    try:
+        proc = subprocess.run(
+            ["ffmpeg", "-y", "-i", str(out_path), "-vn",
+             "-acodec", "pcm_s16le", str(audio_path)],
+            capture_output=True, text=True, timeout=600)
+        if proc.returncode != 0 or not audio_path.exists():
+            raise RuntimeError("final audio extraction failed")
+        voice = ""
+        if job.get("voiceover_status") == "ready":
+            voice = job.get("speech_voice") or DEFAULT_SPEECH_VOICE
+        word_check = modal.Function.from_name(
+            "sinclip-audio", "word_check")
+        result = word_check.remote(
+            audio_path.read_bytes(), script, voice)
+        fixed = result.pop("audio", None)
+        if fixed:
+            fixed_path.write_bytes(fixed)
+            proc = subprocess.run(
+                ["ffmpeg", "-y", "-i", str(out_path),
+                 "-i", str(fixed_path),
+                 "-map", "0:v:0", "-map", "1:a:0",
+                 "-c:v", "copy", "-c:a", "aac", "-b:a", "160k",
+                 "-shortest", str(swapped_path)],
+                capture_output=True, text=True, timeout=1800)
+            if proc.returncode != 0 or not swapped_path.exists():
+                raise RuntimeError("fixed audio swap failed")
+            swapped_path.replace(out_path)
+        job["word_check_status"] = result.get("status") \
+            or "unavailable"
+        job["word_check_listen_at"] = \
+            result.get("listen_at") or []
+        job["word_check_wrong"] = result.get("wrong") or []
+        jobs[job["id"]] = job
+    except Exception:
+        job["word_check_status"] = "unavailable"
+        jobs[job["id"]] = job
+    finally:
+        for path in (audio_path, fixed_path, swapped_path):
+            try:
+                path.unlink(missing_ok=True)
+            except Exception:
+                pass
+
+
+@app.function(
+    image=clip_image,
+    secrets=[modal.Secret.from_name("moonfactory-providers")],
+    volumes={"/data": data_volume, "/worker-models": worker_models},
+    cpu=4.0,
+    memory=8192,
+    timeout=3600,
+    scaledown_window=60,
+)
+def process_short_job(job_id: str):
+    """Run one faceless short end to end on CPU: one stock clip
+    per script line, Kokoro narration per line through the
+    platform's own audio stage, captions timed from the measured
+    narration lengths, the house music bed underneath, and one
+    ffmpeg assembly. Shorts land in the library as first-class
+    jobs (lane "shorts") with the finished file already in
+    place, the way clip jobs do, so the file, gallery, poster
+    and delete routes serve them unchanged. The lane is free:
+    there is no hold, and a failure charges nothing."""
+    job = jobs.get(job_id)
+    if not job:
+        return
+    # A warm container's Volume view can predate the job's
+    # creation; reload before touching any file.
+    try:
+        data_volume.reload()
+    except Exception:
+        pass
+    files_dir = Path("/data/files")
+    files_dir.mkdir(parents=True, exist_ok=True)
+    work = Path("/data/shorts-work") / job_id
+    work.mkdir(parents=True, exist_ok=True)
+
+    def set_stage(stage, status="running"):
+        job["stage"] = stage
+        job["status"] = status
+        jobs[job_id] = job
+
+    try:
+        lines = list(job.get("short_lines") or [])
+        if not lines:
+            raise RuntimeError("the job carries no script lines")
+        voice = job.get("speech_voice") or DEFAULT_SPEECH_VOICE
+        stock_key = shorts._env_value("PEXELS_API_KEY")
+
+        set_stage(SHORTS_STAGES[0])
+        scenes = []
+        for i, line in enumerate(lines):
+            terms = shorts.search_terms_for_line(
+                line, job.get("short_topic") or "")
+            scenes.append(shorts.find_stock_clip(
+                terms, work / "stock", i, stock_key))
+        job["short_scenes"] = [
+            {key: scene.get(key) for key in (
+                "provider", "terms", "page_url", "credit",
+                "license")}
+            for scene in scenes
+        ]
+        jobs[job_id] = job
+
+        set_stage(SHORTS_STAGES[1])
+        generate_voiceover = modal.Function.from_name(
+            "sinclip-audio", "generate_voiceover")
+        line_wavs = []
+        line_durations = []
+        for i, line in enumerate(lines):
+            data = generate_voiceover.remote(line, voice)
+            wav = work / f"line_{i}.wav"
+            wav.write_bytes(data)
+            duration = shorts.probe(wav)["duration"]
+            if duration <= 0:
+                raise RuntimeError("the narration came back empty")
+            line_wavs.append(wav)
+            line_durations.append(duration)
+        job["voiceover_status"] = "ready"
+        jobs[job_id] = job
+        narration = shorts.build_narration_track(
+            line_wavs, line_durations, work)
+        scene_durations = []
+        timings = []
+        cursor = 0.0
+        for i, duration in enumerate(line_durations):
+            pad = shorts.TAIL_SECONDS if i == len(line_durations) - 1 \
+                else shorts.LINE_GAP_SECONDS
+            scene_durations.append(duration + pad)
+            timings.append((cursor, duration))
+            cursor += duration + pad
+
+        set_stage(SHORTS_STAGES[2])
+        ass_path = work / "captions.ass"
+        ass_path.write_text(
+            shorts.build_captions_ass(lines, timings),
+            encoding="utf-8")
+
+        set_stage(SHORTS_STAGES[3])
+        out_path = files_dir / f"{job_id}.mp4"
+        info = shorts.assemble_short(
+            [Path(scene["path"]) for scene in scenes],
+            scene_durations, narration, ass_path, out_path, work,
+            bed_path=BED_PATH if BED_PATH.exists() else None,
+            watermark=bool(job.get("free_tier")),
+            font_path=FONT_PATH)
+        job["duration_seconds"] = round(float(info["duration"]), 2)
+        job["bytes"] = out_path.stat().st_size
+        jobs[job_id] = job
+        # The word check runs on the delivered file here (the
+        # processor is the finishing chain for this lane), then
+        # the poster is cut from the final file.
+        _short_word_check(job, out_path)
+        try:
+            subprocess.run(
+                ["ffmpeg", "-y", "-ss", "0.5", "-i", str(out_path),
+                 "-vframes", "1", "-q:v", "3",
+                 str(files_dir / f"{job_id}.jpg")],
+                capture_output=True, timeout=120)
+        except Exception:
+            pass
+        job["stage"] = "Done"
+        job["status"] = "done"
+        jobs[job_id] = job
+        data_volume.commit()
+    except Exception as exc:  # noqa: BLE001
+        job["status"] = "error"
+        job["error"] = "the short could not be made, nothing was charged"
+        job["internal_error"] = str(exc)[:300]
+        job["stage"] = None
+        if job.get("voiceover_status") != "ready":
+            job["voiceover_status"] = "unavailable"
+        jobs[job_id] = job
         data_volume.commit()
 
 
@@ -923,6 +1120,9 @@ PROVIDER_POLL_LIMIT_SECONDS = 7200
 HOUSE_POLL_LIMIT_SECONDS = 7200
 IMAGE_POLL_LIMIT_SECONDS = 1800
 CLIP_POLL_LIMIT_SECONDS = 3900
+# Short jobs carry the same bound shape as clip jobs: the
+# runner's own 3600 second function timeout plus margin.
+SHORT_POLL_LIMIT_SECONDS = 3900
 TRAINING_POLL_LIMIT_SECONDS = 3600
 # Template lane (HyperFrames on Kaggle, 2026-11-17): the bound is
 # generous because a cold start is a Kaggle machine starting, the
@@ -952,6 +1152,20 @@ HF_WORKER_SCRIPT_PATH = Path("/platform/hf_worker_kernel.py")
 # Paid accounts get a fair daily cap on the free lane (free
 # accounts are bounded by the lifetime free cap instead).
 TEMPLATE_DAILY_CAP_PAID = 20
+# Faceless shorts lane (2026-11-18): the MoneyPrinterTurbo shape
+# built from the platform's own pieces (platform/shorts.py). A
+# rendered lane with the Titles pricing treatment: zero credits,
+# zero charge, paid accounts capped per day, unpaid accounts
+# counting against the free lifetime clips. The pipeline runs
+# inside process_short_job on CPU; stock comes from Pexels when
+# its key is configured and from Wikimedia Commons otherwise.
+SHORTS_DAILY_CAP_PAID = 20
+SHORTS_STAGES = (
+    "Finding footage",
+    "Recording the narration",
+    "Timing the captions",
+    "Putting it together",
+)
 TEMPLATE_MAX_SOURCE_SECONDS = 60
 TEMPLATE_MAX_UPLOAD_BYTES = 200 * 1024 * 1024
 # A trigger push is attempted at most once per this many seconds,
@@ -3989,6 +4203,24 @@ def api():
                     job["status"] == "queued":
                 _hf_maybe_trigger()
             return job
+        if job.get("provider") == "shorts":
+            # Short jobs run inside process_short_job, whose
+            # runner carries a 3600 second function timeout like
+            # the clip runner. A short still marked running past
+            # the bound below is dead: fail it clean. The lane is
+            # free, so there is no hold to release and nothing to
+            # refund.
+            if job.get("kind") == "short" and \
+                    job["status"] in ("queued", "running") and \
+                    _now() - float(job.get("created_at") or _now()) \
+                    > SHORT_POLL_LIMIT_SECONDS:
+                job["status"] = "error"
+                job["error"] = "the short took too long, nothing was charged"
+                job["internal_error"] = (
+                    "short job passed its runner time limit")
+                job["stage"] = None
+                jobs[job["id"]] = job
+            return job
         if job["status"] in ("queued", "running") and \
                 _now() - float(job.get("created_at") or _now()) \
                 > _poll_limit_for(job):
@@ -4114,6 +4346,7 @@ def api():
                 else "Clip" if job.get("kind") in ("clip_job", "clip_output")
                 else (job.get("template_name") or "Title card")
                 if job.get("kind") == "template"
+                else "Faceless short" if job.get("kind") == "short"
                 else "Effects" if job.get("effect")
                 else MODEL_LABELS.get(job.get("model") or DEFAULT_MODEL, "Wan 2.2")
             ),
@@ -7782,6 +8015,18 @@ def api():
             if out_path.exists():
                 return out_path
             raise HTTPException(status_code=404, detail="this job has no file yet")
+        if job.get("provider") == "shorts":
+            # The shorts processor assembles the finished file
+            # itself, captions, narration, bed and all; there is
+            # no raw stage and no finishing chain here either.
+            if not out_path.exists():
+                try:
+                    data_volume.reload()
+                except Exception:
+                    pass
+            if out_path.exists():
+                return out_path
+            raise HTTPException(status_code=404, detail="this job has no file yet")
         if not out_path.exists():
             raw_path = FILES_DIR / f"{job_id}.raw.mp4"
             if len(job.get("chain_results") or []) > 1:
@@ -8555,6 +8800,162 @@ def api():
         jobs[job["id"]] = job
         return {"ok": True}
 
+    # -- faceless shorts lane ----------------------------------------------
+    # The MoneyPrinterTurbo shape on the platform's own pieces
+    # (platform/shorts.py): a topic or a pasted script, one stock
+    # clip per line, Kokoro narration per line, timed captions, a
+    # music bed, one assembled vertical short. A rendered lane
+    # with the Titles pricing treatment: zero credits and zero
+    # charge; unpaid accounts count against the free lifetime
+    # clips, paid accounts get a daily cap. The work runs inside
+    # process_short_job on CPU, spawned at creation like a clip
+    # job. Gating note: on generation jobs a spoken line is a
+    # paid add-on and an unpaid account is refused one; here the
+    # narration is the lane itself, so the lane's own quota is
+    # the gate, and what stays paid is the custom part, picking
+    # a voice. A free short is spoken in the standard voice.
+
+    def _shorts_daily_used(user: dict) -> int:
+        day_start = _now() - (_now() % 86400)
+        used = 0
+        for key in list(jobs.keys()):
+            other = jobs.get(key)
+            if (other and other.get("user_id") == user["id"]
+                    and other.get("kind") == "short"
+                    and float(other.get("created_at") or 0) >= day_start):
+                used += 1
+        return used
+
+    @web.get("/api/shorts/config")
+    def shorts_config(request: Request, mf_session: str = Cookie(default="")):
+        user = require_user(request, mf_session)
+        return {
+            "voices": [
+                {"id": voice, "label": SPEECH_VOICE_LABELS[voice]}
+                for voice in SPEECH_VOICES
+            ],
+            "default_voice": DEFAULT_SPEECH_VOICE,
+            "paid": is_paid(user),
+            "topic_available": shorts.script_routes_configured(),
+            "stock_provider": (
+                "pexels" if shorts._env_value("PEXELS_API_KEY")
+                else "commons"),
+            "daily_cap": SHORTS_DAILY_CAP_PAID,
+            "daily_used": _shorts_daily_used(user),
+            "free_clips_total": FREE_CLIPS_TOTAL,
+            "free_used": free_jobs_total(user),
+            "max_lines": shorts.SHORTS_MAX_LINES,
+            "max_script_chars": shorts.SHORTS_MAX_SCRIPT_CHARS,
+        }
+
+    @web.post("/api/shorts")
+    async def create_short(request: Request, mf_session: str = Cookie(default="")):
+        user = require_user(request, mf_session)
+        if _rate_limited("shortcreate", user["id"], 10):
+            raise HTTPException(status_code=429, detail="too many jobs, slow down")
+        if not user["verified"]:
+            raise HTTPException(status_code=403, detail="verify your email before creating")
+        if user.get("past_due"):
+            raise HTTPException(status_code=403, detail="your subscription payment is past due")
+        body = await request.json()
+        if not _verify_bot_check(body, client_ip(request)):
+            raise HTTPException(status_code=403, detail="bot check failed")
+        topic = (body.get("topic") or "").strip()
+        if len(topic) > 200:
+            raise HTTPException(
+                status_code=422,
+                detail="a topic must be 200 characters or fewer")
+        script_text = (body.get("script") or "").strip()
+        if script_text:
+            script_source = "pasted"
+        elif topic:
+            # Topic writing rides the text routes already wired
+            # for the Clip lane's picking brain, behind their
+            # dark-safe gates. When no route answers, the clean
+            # failure asks for the script instead of inventing
+            # one.
+            try:
+                script_text = shorts.script_from_topic(topic)
+            except Exception:
+                raise HTTPException(
+                    status_code=422,
+                    detail="we could not write that topic into a script, paste your script instead")
+            script_source = "topic"
+        else:
+            raise HTTPException(
+                status_code=422,
+                detail="give the short a topic or paste a script")
+        try:
+            lines = shorts.split_script(script_text)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        voice = (body.get("voice") or "").strip() or DEFAULT_SPEECH_VOICE
+        if voice not in SPEECH_VOICES:
+            raise HTTPException(
+                status_code=422, detail="pick one of the voices on the list")
+        if voice != DEFAULT_SPEECH_VOICE and not is_paid(user):
+            raise HTTPException(
+                status_code=403, detail="picking a voice is a paid feature")
+        is_free_job = False
+        if not is_paid(user):
+            if free_jobs_total(user) >= FREE_CLIPS_TOTAL:
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"your free clips are used up. The free plan is {FREE_CLIPS_TOTAL} clips in total")
+            if int(meta.get("freecount:total") or 0) >= FREE_PLATFORM_TOTAL_CEILING:
+                raise HTTPException(status_code=503, detail="the free tier is paused")
+            is_free_job = True
+        else:
+            if _shorts_daily_used(user) >= SHORTS_DAILY_CAP_PAID:
+                raise HTTPException(
+                    status_code=429,
+                    detail="you have made your free shorts for today, the rest wait until tomorrow")
+        display = topic or lines[0]
+        job = {
+            "id": pysecrets.token_hex(8),
+            "user_id": user["id"],
+            "worker_job_id": None,
+            "provider": "shorts",
+            "kind": "short",
+            "lane": "shorts",
+            "model": "shorts",
+            "prompt": display,
+            "user_prompt": display,
+            "camera_presets": [],
+            "camera_preset_names": [],
+            "camera_look": {},
+            "status": "queued",
+            "stage": SHORTS_STAGES[0],
+            "error": None,
+            "created_at": _now(),
+            "charged_cents": 0,
+            "short_topic": topic or None,
+            "short_lines": lines,
+            "short_scenes": [],
+            "script_source": script_source,
+            "speech_script": " ".join(lines),
+            "speech_voice": voice,
+            "voiceover_status": None,
+            "word_check_status": None,
+            "word_check_listen_at": [],
+            "duration_seconds": None,
+            "aspect_ratio": "9:16",
+            "resolution": "1080x1920",
+            "plan_at_job": user["plan"],
+            "free_tier": is_free_job,
+            "music_prompt": None,
+        }
+        jobs[job["id"]] = job
+        if is_free_job:
+            u = usage(user)
+            u["free_jobs"] += 1
+            user["free_jobs_total"] = free_jobs_total(user) + 1
+            user["usage"] = u
+            meta["freecount:total"] = int(meta.get("freecount:total") or 0) + 1
+            save_user(user)
+        process_short_job.spawn(job["id"])
+        return JSONResponse(public_job(job), status_code=202)
+
     @web.get("/api/jobs/{job_id}/thumb")
     def job_thumb(job_id: str, request: Request, mf_session: str = Cookie(default="")):
         user = require_user(request, mf_session)
@@ -8644,6 +9045,7 @@ def api():
                 "Clip" if job.get("kind") in ("clip_job", "clip_output")
                 else (job.get("template_name") or "Title card")
                 if job.get("kind") == "template"
+                else "Faceless short" if job.get("kind") == "short"
                 else "Effects" if job.get("effect")
                 else MODEL_LABELS.get(job.get("model") or DEFAULT_MODEL, "Wan 2.2")
             )
@@ -10817,6 +11219,58 @@ APP_HTML = (
     <p id="tpl-msg"></p>
     </div>
 
+    <div id="shorts-fields" style="display:none">
+    <p class="muted">Make a short with a voice telling the story over stock footage, with captions and music built in. These are free. They run on our own computers, so one can take a few minutes.</p>
+    <div class="mode-toggle">
+      <button class="btn" id="short-mode-topic" type="button">Topic</button>
+      <button class="btn secondary" id="short-mode-script" type="button">Your script</button>
+    </div>
+    <div id="short-topic-wrap">
+      <label>Topic</label>
+      <input id="short-topic" type="text" maxlength="200" placeholder="why the ocean is so deep">
+      <p class="muted" id="short-topic-note"></p>
+    </div>
+    <div id="short-script-wrap" style="display:none">
+      <label>Your script</label>
+      <textarea id="short-script" rows="6" maxlength="1600" placeholder="One line for each scene. The voice reads it exactly as written."></textarea>
+    </div>
+    <label>Voice</label>
+    <select id="short-voice">
+      <option value="af_heart" selected>Heart, American woman</option>
+      <option value="af_alloy">Alloy, American woman</option>
+      <option value="af_aoede">Aoede, American woman</option>
+      <option value="af_bella">Bella, American woman</option>
+      <option value="af_jessica">Jessica, American woman</option>
+      <option value="af_kore">Kore, American woman</option>
+      <option value="af_nicole">Nicole, American woman</option>
+      <option value="af_nova">Nova, American woman</option>
+      <option value="af_river">River, American woman</option>
+      <option value="af_sarah">Sarah, American woman</option>
+      <option value="af_sky">Sky, American woman</option>
+      <option value="am_adam">Adam, American man</option>
+      <option value="am_echo">Echo, American man</option>
+      <option value="am_eric">Eric, American man</option>
+      <option value="am_fenrir">Fenrir, American man</option>
+      <option value="am_liam">Liam, American man</option>
+      <option value="am_michael">Michael, American man</option>
+      <option value="am_onyx">Onyx, American man</option>
+      <option value="am_puck">Puck, American man</option>
+      <option value="am_santa">Santa, American man</option>
+      <option value="bf_alice">Alice, British woman</option>
+      <option value="bf_emma">Emma, British woman</option>
+      <option value="bf_isabella">Isabella, British woman</option>
+      <option value="bf_lily">Lily, British woman</option>
+      <option value="bm_daniel">Daniel, British man</option>
+      <option value="bm_fable">Fable, British man</option>
+      <option value="bm_george">George, British man</option>
+      <option value="bm_lewis">Lewis, British man</option>
+    </select>
+    <p class="muted" id="short-voice-note"></p>
+    <p class="muted" id="short-note">Free shorts count toward the five free clips on a free account. Paid accounts can make 20 a day.</p>
+    <div id="botcheck5"></div>
+    <p id="short-msg"></p>
+    </div>
+
     <details class="more" id="more-opts">
       <summary>More options</summary>
 
@@ -11166,7 +11620,7 @@ async function botFields(containerId) {
 }
 function renderBotChecks() {
   if (cfg.turnstile_site_key && window.turnstile) {
-    for (const id of ['botcheck', 'botcheck2', 'botcheck3']) {
+    for (const id of ['botcheck', 'botcheck2', 'botcheck3', 'botcheck5']) {
       if (!document.getElementById(id)) continue;
       botWidgets[id] = turnstile.render('#' + id, {
         sitekey: cfg.turnstile_site_key,
@@ -11589,6 +12043,7 @@ function showStudio(u) {
   showTab(paidSurface ? 'create' : 'tryit');
   loadJobs();
   loadCharacters();
+  loadShortsConfig();
 }
 // Quote requests carry a sequence number: only the newest one
 // may touch the price. Before this, two overlapping quotes
@@ -11602,6 +12057,7 @@ async function fetchQuote() {
   if (imageMode) return;
   if (isMotionTemplate($('model').value)) { q.textContent = ''; return; }
   if ($('model').value === TITLE_CARDS_ID) { q.textContent = ''; return; }
+  if ($('model').value === SHORTS_ID) { q.textContent = ''; return; }
   if (!currentUser || !currentUser.paid_customer) { q.textContent = ''; return; }
   const seq = ++quoteSeq;
   const want = { model: $('model').value,
@@ -11818,6 +12274,13 @@ function buildCatalog() {
   tc.value = TITLE_CARDS_ID;
   tc.textContent = 'Title cards · Free';
   sel.appendChild(tc);
+  // Faceless shorts (the folded Shorts lane) ride the picker the
+  // same way: one more free entry whose pick swaps the composer
+  // to the shorts form; jobs go out through /api/shorts.
+  const sh = document.createElement('option');
+  sh.value = SHORTS_ID;
+  sh.textContent = 'Faceless shorts · Free';
+  sel.appendChild(sh);
   if ([...sel.options].some(o => o.value === keep)) sel.value = keep;
   applyModelGates();
   updateModelUI();
@@ -11825,11 +12288,12 @@ function buildCatalog() {
 function applyModelGates() {
   const sel = $('model');
   const paid = !!(currentUser && currentUser.paid_customer);
-  // Motion templates and title cards stay open to everyone: they
-  // are free, and on a free account they count toward the five
-  // free clips, exactly as the title cards always have.
-  [...sel.options].forEach(o => { if (o.value !== 'wan2.2' && o.value !== TITLE_CARDS_ID && !isMotionTemplate(o.value)) o.disabled = !paid; });
-  if (!paid && sel.value !== 'wan2.2' && sel.value !== TITLE_CARDS_ID && !isMotionTemplate(sel.value) && [...sel.options].some(o => o.value === 'wan2.2')) sel.value = 'wan2.2';
+  // Motion templates, title cards, and faceless shorts stay open
+  // to everyone: they are free, and on a free account they count
+  // toward the five free clips, exactly as the title cards always
+  // have.
+  [...sel.options].forEach(o => { if (o.value !== 'wan2.2' && o.value !== TITLE_CARDS_ID && o.value !== SHORTS_ID && !isMotionTemplate(o.value)) o.disabled = !paid; });
+  if (!paid && sel.value !== 'wan2.2' && sel.value !== TITLE_CARDS_ID && sel.value !== SHORTS_ID && !isMotionTemplate(sel.value) && [...sel.options].some(o => o.value === 'wan2.2')) sel.value = 'wan2.2';
 }
 // The price of the house-lane job being composed, from the served
 // pricing data, shown under the Create button before anything runs.
@@ -11886,8 +12350,12 @@ function applyMotionUI() {
 // model picker, not a model the catalog serves. Picking it swaps
 // the composer to the template form.
 const TITLE_CARDS_ID = 'title_cards';
+// Faceless shorts are the folded Shorts lane, same shape: one
+// picker entry, not a catalog model.
+const SHORTS_ID = 'faceless_shorts';
 function showTitleCardForm() {
   $('titlecard-fields').style.display = '';
+  $('shorts-fields').style.display = 'none';
   $('motion-fields').style.display = 'none';
   const hide = [$('dropzone'), document.querySelector('label[for="start-source"]'),
     $('start-source'), document.querySelector('label[for="prompt"]'), $('prompt'),
@@ -11900,10 +12368,30 @@ function showTitleCardForm() {
   $('create').textContent = 'Make it for free';
   applyModelGates();
 }
+// Faceless shorts swap the composer the same way: the shorts
+// form shows, the video fields step aside, and the shared Create
+// button becomes the free lane's button.
+function showShortsForm() {
+  $('shorts-fields').style.display = '';
+  $('titlecard-fields').style.display = 'none';
+  $('motion-fields').style.display = 'none';
+  const hide = [$('dropzone'), document.querySelector('label[for="start-source"]'),
+    $('start-source'), document.querySelector('label[for="prompt"]'), $('prompt'),
+    $('length-house'), $('length-api'), document.querySelector('details.more'),
+    $('api-opts'), $('house-price')];
+  for (const el of hide) if (el) el.style.display = 'none';
+  $('segments-note').textContent = '';
+  $('model-note').textContent = 'Faceless shorts are free. They count toward the five free clips on a free account, and paid accounts can make 20 a day.';
+  $('quote').textContent = '';
+  $('create').textContent = 'Make it for free';
+  applyModelGates();
+}
 function updateModelUI() {
   const m = $('model').value;
   if (m === TITLE_CARDS_ID) { showTitleCardForm(); return; }
+  if (m === SHORTS_ID) { showShortsForm(); return; }
   $('titlecard-fields').style.display = 'none';
+  $('shorts-fields').style.display = 'none';
   if (!imageMode) {
     // Restore the video fields the title card form hid. The
     // length and price blocks are managed by the body below.
@@ -12049,6 +12537,7 @@ $('create').onclick = async () => {
   try {
     if (imageMode) { await makeImage(); return; }
     if ($('model').value === TITLE_CARDS_ID) { await makeTitleCard(); return; }
+    if ($('model').value === SHORTS_ID) { await makeShort(); return; }
     msg('job-msg', 'Working on the bot check...');
     const bot = await botFields('botcheck2');
     const model = $('model').value;
@@ -12167,7 +12656,7 @@ async function loadJobs() {
       if (j.partial) html += '<br><span class="muted">Finished shorter than planned. The later segments could not render, and you were charged only for the segments in this file.</span>';
       if (isClipOut && j.score !== null && j.score !== undefined) html += '<br><span class="muted">Score ' + j.score + '</span>';
       if (isClipOut && j.has_thumb) html += '<br><img class="thumb" src="/api/jobs/' + j.id + '/thumb" alt="">';
-      if ((isClipJob || j.kind === 'template') && j.stage && (j.status === 'queued' || j.status === 'running')) html += '<br><span class="muted">' + j.stage + '</span>';
+      if ((isClipJob || j.kind === 'template' || j.kind === 'short') && j.stage && (j.status === 'queued' || j.status === 'running')) html += '<br><span class="muted">' + j.stage + '</span>';
       if (j.camera_presets && j.camera_presets.length) html +=
         '<br><span class="muted">Camera moves ' + j.camera_presets.join(' \u2192 ') + '</span>';
       if (j.effect) html +=
@@ -12358,6 +12847,55 @@ async function makeTitleCard() {
     loadJobs();
   } catch (e) { msg('tpl-msg', e.message, 'err'); }
 }
+// ---- Shorts (free faceless shorts lane, a Create picker entry) ----
+let shortMode = 'topic';
+let shortCfg = null;
+function shortShowMode() {
+  $('short-topic-wrap').style.display = shortMode === 'topic' ? '' : 'none';
+  $('short-script-wrap').style.display = shortMode === 'script' ? '' : 'none';
+  $('short-mode-topic').className = shortMode === 'topic' ? 'btn' : 'btn secondary';
+  $('short-mode-script').className = shortMode === 'script' ? 'btn secondary' : 'btn';
+}
+$('short-mode-topic').onclick = () => { shortMode = 'topic'; shortShowMode(); };
+$('short-mode-script').onclick = () => { shortMode = 'script'; shortShowMode(); };
+async function loadShortsConfig() {
+  try {
+    const r = await api('/api/shorts/config');
+    shortCfg = r;
+    if (!r.topic_available) {
+      // Topic writing is dark until a text route is configured:
+      // the form opens on the script box, which always works.
+      shortMode = 'script';
+      $('short-mode-topic').style.display = 'none';
+    }
+    if (!r.paid) {
+      $('short-voice').disabled = true;
+      $('short-voice-note').textContent = 'The free short uses the standard voice. Picking a voice is a paid feature.';
+    } else {
+      $('short-voice-note').textContent = 'The voice reads your script over the footage.';
+    }
+    shortShowMode();
+  } catch (e) { /* signed out: the form keeps its default shape */ }
+}
+async function makeShort() {
+  try {
+    const payload = { voice: $('short-voice').value };
+    if (shortMode === 'topic') {
+      payload.topic = $('short-topic').value;
+      if (!payload.topic.trim()) { msg('short-msg', 'Give the short a topic first.', 'err'); return; }
+    } else {
+      payload.script = $('short-script').value;
+      if (!payload.script.trim()) { msg('short-msg', 'Paste your script first.', 'err'); return; }
+    }
+    msg('short-msg', 'Working on the bot check...');
+    const bot = await botFields('botcheck5');
+    Object.assign(payload, bot);
+    await api('/api/shorts', { method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload) });
+    msg('short-msg', 'Started. Your short shows up in your videos below as soon as it is done.', 'ok');
+    loadJobs();
+  } catch (e) { msg('short-msg', e.message, 'err'); }
+}
 // Characters: saved once, reused across jobs. The picker lists
 // the account's characters; the create form rides along in More
 // options so the studio stays one calm card.
@@ -12483,7 +13021,7 @@ async function refreshImageQuote() {
 }
 function setImageMode(on) {
   imageMode = on;
-  if (on) $('titlecard-fields').style.display = 'none';
+  if (on) { $('titlecard-fields').style.display = 'none'; $('shorts-fields').style.display = 'none'; }
   $('mode-video').className = 'btn' + (on ? ' secondary' : '');
   $('mode-image').className = 'btn' + (on ? '' : ' secondary');
   $('image-opts').style.display = on ? '' : 'none';
