@@ -594,6 +594,21 @@ HOUSE_MODEL_PRICING_LANE = {
     "wan2.2": "production",
     "wan22_uncut": "nsfw",
 }
+
+
+def job_is_nsfw(job: dict) -> bool:
+    """Whether a job is NSFW for public gallery purposes (Jack,
+    2026-11-18): its lane is the house NSFW lane, or its model is
+    one of the uncensored catalog models (the same
+    UNCENSORED_VIDEO_MODELS flag /api/config serves and the
+    studio picker renders as the Uncensored marker). Either
+    signal classifies. Note the set includes the house Wan 2.2
+    itself: the self-hosted lane runs open weights with no
+    provider moderation layer, so its outputs carry the flag."""
+    if not job:
+        return False
+    return (job.get("lane") == "nsfw"
+            or job.get("model") in UNCENSORED_VIDEO_MODELS)
 # Price tier signs for the studio dropdown (Jack, 2026-11-16):
 # Google-Maps-style $ signs banded on FIXED edges over the model's
 # lowest customer sell rate in cents per second (see
@@ -6485,6 +6500,11 @@ def api():
             "hold_amount": hold_amount,
             "cap_raw_cents": est["cap_raw_cents"],
         }
+        # NSFW jobs are stamped not public at creation (Jack,
+        # 2026-11-18): gallery_visible also classifies live, so
+        # the stamp is belt and braces for any other surface.
+        if job_is_nsfw(job):
+            job["gallery_public"] = False
         jobs[job["id"]] = job
         submit_api_job(job, body, params, prompt, base)
         return JSONResponse(public_job(job), status_code=202)
@@ -6974,6 +6994,11 @@ def api():
             "end_image_png_b64": end_image,
             "partial": False,
         }
+        # NSFW jobs are stamped not public at creation (Jack,
+        # 2026-11-18): gallery_visible also classifies live, so
+        # the stamp is belt and braces for any other surface.
+        if job_is_nsfw(job):
+            job["gallery_public"] = False
         jobs[job["id"]] = job
         return JSONResponse(public_job(job), status_code=202)
 
@@ -8442,13 +8467,23 @@ def api():
     # a report control, owners can delete their clips at any time
     # (which removes them here), and an admin can remove any item.
     # Opting out is a paid feature (Amendment 3); clips from
-    # accounts that have never paid always list.
+    # accounts that have never paid always list. NSFW jobs are
+    # the one hard exception (Jack, 2026-11-18): a job on the
+    # NSFW lane or on an uncensored model never lists, whatever
+    # the owner's setting. See job_is_nsfw.
 
     def gallery_visible(job: dict) -> bool:
         # Finished images list alongside finished clips (Jack,
         # 2026-11-17): an image a customer made is finished work
         # the same way a clip is, under the same rules.
         if job.get("status") != "done" or job.get("removed"):
+            return False
+        # NSFW jobs never list publicly (Jack, 2026-11-18),
+        # whatever the owner's opt-out setting: the classification
+        # is computed live here, so jobs finished before this rule
+        # existed are covered too. The gallery_public stamp set at
+        # creation is a belt-and-braces copy of the same verdict.
+        if job_is_nsfw(job) or job.get("gallery_public") is False:
             return False
         owner = users.get(f"id:{job.get('user_id')}")
         if not owner:
