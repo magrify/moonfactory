@@ -12918,7 +12918,9 @@ function announceJobStates(jobs) {
 // opens a small menu with two options. Save to Photos goes
 // through the phone's share sheet, the only route a web page
 // has into the photo library. Save to Files is a plain
-// download under the file's proper name.
+// download under the file's proper name. Opening the menu
+// starts the file fetch, so the Photos tap can share the
+// cached file while its own activation is still live.
 const SAVE_ICON = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 14.5V4"/><path d="M7.8 7.6L12 3.4l4.2 4.2"/><path d="M9.5 5.8H6.2A2.2 2.2 0 0 0 4 8v10.8A2.2 2.2 0 0 0 6.2 21h11.6A2.2 2.2 0 0 0 20 18.8V8a2.2 2.2 0 0 0-2.2-2.2h-3.3"/></svg>';
 function saveControlHtml(jobId, kind) {
   return '<span class="save-wrap"><button type="button" class="btn secondary save-btn" data-save="' + jobId + '" data-kind="' + kind + '" aria-haspopup="true" aria-expanded="false">' + SAVE_ICON + 'Save</button>' +
@@ -12938,26 +12940,66 @@ async function fetchJobFile(jobId, kind) {
   const blob = await r.blob();
   const cd = r.headers.get('content-disposition') || '';
   const m = cd.match(/filename="?([^";]+)"?/);
-  const name = m ? m[1] : 'moonfactory-' + jobId + (kind === 'image' ? '.png' : '.mp4');
+  let name = m ? m[1] : 'moonfactory-' + jobId + (kind === 'image' ? '.png' : '.mp4');
+  // The share sheet reads the File's name and type to decide
+  // where the file can go, so both must match the media: a
+  // name that lost its extension somewhere on the way gets
+  // the right one for its kind put back.
+  if (!/\.(mp4|png)$/i.test(name)) name += (kind === 'image' ? '.png' : '.mp4');
   return new File([blob], name, { type: blob.type || (kind === 'image' ? 'image/png' : 'video/mp4') });
 }
-async function saveToPhotos(btn) {
-  const menu = btn.closest('.save-menu');
-  const note = menu.querySelector('.save-note');
-  try {
-    const file = await fetchJobFile(btn.dataset.savePhotos, btn.dataset.kind);
+// Save to Photos must spend the tap itself on the share call.
+// The standard Web Share file flow asks the browser to share
+// while the tap's activation is live; a fetch awaited inside
+// the tap spends that activation, and the share is refused
+// even in browsers that share files fine. So the file is
+// fetched when the menu opens and cached here, and the Photos
+// tap shares the cached File in the same breath as the tap.
+const saveFileCache = {};
+function prefetchSaveFile(jobId, kind) {
+  const entry = saveFileCache[jobId];
+  if (entry && (entry.file || entry.promise)) return entry;
+  const fresh = { file: null, error: null, promise: null };
+  fresh.promise = fetchJobFile(jobId, kind).then(
+    file => { fresh.file = file; fresh.promise = null; },
+    err => { fresh.error = err; fresh.promise = null; });
+  saveFileCache[jobId] = fresh;
+  return fresh;
+}
+function saveNote(btn, text) {
+  const note = btn.closest('.save-menu').querySelector('.save-note');
+  note.textContent = text;
+  note.style.display = 'block';
+}
+function saveToPhotos(btn) {
+  // Read the cache as it stands: routing the tap through the
+  // prefetch would retry a failed fetch and the tap could
+  // never report the failure. Only a tap with no fetch ever
+  // started (the menu always starts one) begins it here.
+  let entry = saveFileCache[btn.dataset.savePhotos];
+  if (!entry) entry = prefetchSaveFile(btn.dataset.savePhotos, btn.dataset.kind);
+  if (entry.file) {
+    const file = entry.file;
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
-      await navigator.share({ files: [file] });
-      closeSaveMenus();
+      let shared;
+      try { shared = navigator.share({ files: [file] }); }
+      catch (e) { shared = Promise.reject(e); }
+      shared.then(
+        () => closeSaveMenus(),
+        e => {
+          if (e && e.name === 'AbortError') { closeSaveMenus(); return; }
+          saveNote(btn, 'This browser cannot send files to your photos. Save to Files works instead.');
+        });
     } else {
-      note.textContent = 'This browser cannot send files to your photos. Save to Files works instead.';
-      note.style.display = 'block';
+      saveNote(btn, 'This browser cannot send files to your photos. Save to Files works instead.');
     }
-  } catch (e) {
-    if (e && e.name === 'AbortError') { closeSaveMenus(); return; }
-    note.textContent = 'That did not work. Save to Files works instead.';
-    note.style.display = 'block';
+    return;
   }
+  if (entry.error) {
+    saveNote(btn, 'That file could not be loaded. Try again in a moment.');
+    return;
+  }
+  saveNote(btn, 'That file is still loading. Tap Save to Photos again in a moment.');
 }
 async function saveToFiles(btn) {
   const note = btn.closest('.save-menu').querySelector('.save-note');
@@ -12986,6 +13028,11 @@ document.addEventListener('click', e => {
     closeSaveMenus();
     menu.style.display = open ? 'none' : 'flex';
     saveBtn.setAttribute('aria-expanded', open ? 'false' : 'true');
+    if (!open) {
+      const note = menu.querySelector('.save-note');
+      if (note) { note.style.display = 'none'; note.textContent = ''; }
+      prefetchSaveFile(saveBtn.dataset.save, saveBtn.dataset.kind);
+    }
     return;
   }
   if (!e.target.closest('.save-wrap')) closeSaveMenus();

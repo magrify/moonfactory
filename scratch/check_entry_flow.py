@@ -154,6 +154,29 @@ check("navigator.canShare" in SRC and "navigator.share({ files: [file] })" in SR
       "Save to Photos goes through the file share sheet")
 check("This browser cannot send files to your photos." in SRC,
       "an unsupported browser hears so plainly, in one line")
+check("navigator.canShare({ files: [file] })" in SRC,
+      "the support gate is asked about the exact file being shared")
+check("const saveFileCache = {}" in SRC
+      and "function prefetchSaveFile(jobId, kind)" in SRC,
+      "the file is fetched ahead of the share tap and cached")
+check("prefetchSaveFile(saveBtn.dataset.save, saveBtn.dataset.kind)" in SRC,
+      "opening the save menu starts the file fetch")
+check("function saveToPhotos(btn)" in SRC
+      and "async function saveToPhotos" not in SRC,
+      "the Photos tap shares the cached file without awaiting first")
+check("saveFileCache[btn.dataset.savePhotos]" in SRC,
+      "the Photos tap reads the cached entry as it stands")
+check("That file could not be loaded. Try again in a moment." in SRC,
+      "a file that cannot be fetched hears so plainly, in its own line")
+check("That did not work." not in SRC,
+      "the vague failure line is gone")
+check("That file is still loading." in SRC,
+      "a tap that lands before the fetch finishes hears so plainly")
+check('filename=f"moonfactory-{job_id}.mp4"' in SRC
+      and 'media_type="video/mp4"' in SRC
+      and 'filename=f"moonfactory-{job_id}.png"' in SRC
+      and 'media_type="image/png"' in SRC,
+      "the file route serves each kind under its own type and name")
 check("content-disposition" in SRC and "a.download = file.name" in SRC,
       "Save to Files downloads under the file's proper name")
 check("closeSaveMenus()" in SRC and "if (!e.target.closest('.save-wrap'))" in SRC,
