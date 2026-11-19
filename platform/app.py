@@ -10192,6 +10192,22 @@ _CSS = """
   .save-btn{display:inline-flex;align-items:center;gap:8px}
   .save-menu{left:0;right:auto;top:calc(100% + 8px);min-width:196px}
   .save-note{color:var(--faint);font-size:13px;line-height:1.5;padding:8px 10px 4px}
+  /* Working visuals (Jack, 2026-11-19): one spinner, one
+     pulsing mark, and one progress bar, shared by every
+     submit and wait in the studio, so a pushed button always
+     shows the app is working. The reduced motion rules at
+     the bottom of this sheet still all three into a calm
+     static version of the same states. */
+  .spin{display:inline-block;width:14px;height:14px;border-radius:50%;border:2px solid rgba(255,255,255,.22);border-top-color:currentColor;vertical-align:-2px;margin-right:8px;animation:mf-spin .8s linear infinite;flex:none}
+  .spin.lg{width:22px;height:22px;border-width:3px}
+  .drop .spin{display:block;margin:0 auto 10px}
+  @keyframes mf-spin{to{transform:rotate(360deg)}}
+  .pulse-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--ok);margin-right:7px;vertical-align:1px;animation:mf-pulse 1.6s ease-in-out infinite}
+  @keyframes mf-pulse{0%,100%{opacity:1}50%{opacity:.2}}
+  .workbar{height:6px;background:var(--inset);border-radius:99px;overflow:hidden;margin:10px 0 4px;max-width:360px}
+  .workbar-fill{height:100%;width:40%;background:var(--accent);border-radius:99px;animation:mf-slide 1.3s ease-in-out infinite}
+  .workbar-fill.set{animation:none}
+  @keyframes mf-slide{0%{transform:translateX(-110%)}100%{transform:translateX(280%)}}
   .overlay{position:fixed;inset:0;background:rgba(6,6,9,.72);z-index:80;display:flex;align-items:flex-start;justify-content:center;padding:22px 14px;overflow-y:auto}
   .panel{background:var(--card);border:1px solid var(--line);border-radius:16px;max-width:560px;width:100%;padding:22px;margin-top:4vh}
   .panel-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
@@ -10289,6 +10305,15 @@ _CSS = """
   :focus-visible{outline:2px solid var(--accent-bright);outline-offset:2px}
   @media (prefers-reduced-motion: reduce){
     *,*::before,*::after{animation-duration:.01ms !important;animation-iteration-count:1 !important;transition-duration:.01ms !important;scroll-behavior:auto !important}
+  }
+  /* The working visuals under reduced motion: the spinner
+     and the pulse sit still, and the bar rests as a static
+     partial fill, so every working state still reads as
+     working without moving. */
+  @media (prefers-reduced-motion: reduce){
+    .spin{animation:none}
+    .pulse-dot{animation:none}
+    .workbar-fill{animation:none;transform:none}
   }
   @media(max-width:700px){
     h1{font-size:34px}
@@ -11623,18 +11648,74 @@ function announce(text, assertive) {
 }
 function msg(id, text, cls) { const el = $(id); el.textContent = text; el.className = cls || ''; announce(text, cls === 'err'); }
 
+// Working visuals (Jack, 2026-11-19): one spinner and one
+// button working state, shared by every submit in the
+// studio. A busy button shows the spinner and a plain label
+// that follows the flow (Starting, then the state the flow
+// is in), stays disabled while the request is in flight, and
+// gets its own label back when the request settles, success
+// or error. Holds are counted, so two flows sharing one
+// button (the Create button carries every Create card lane,
+// and a first frame holds its button across its own poll)
+// can never restore it out from under each other.
+const SPIN = '<span class="spin" aria-hidden="true"></span>';
+function btnBusy(btn, label) {
+  if (!btn) return;
+  const holds = Number(btn.dataset.holds || 0);
+  if (!holds) btn.dataset.label = btn.innerHTML;
+  btn.dataset.holds = holds + 1;
+  btn.disabled = true;
+  btn.innerHTML = SPIN + label;
+}
+function btnLabel(btn, label) {
+  if (btn && btn.dataset.holds) btn.innerHTML = SPIN + label;
+}
+function btnDone(btn) {
+  if (!btn) return;
+  const holds = Number(btn.dataset.holds || 0) - 1;
+  if (holds > 0) { btn.dataset.holds = holds; return; }
+  delete btn.dataset.holds;
+  btn.disabled = false;
+  if (btn.dataset.label !== undefined) {
+    btn.innerHTML = btn.dataset.label;
+    delete btn.dataset.label;
+  }
+}
+// A message line that carries the spinner while its flow
+// runs (an upload landing, the sign in panel starting a
+// captured video), announced through the same live region
+// msg() uses.
+function spinMsg(id, text) {
+  const el = $(id);
+  if (!el) return;
+  el.innerHTML = SPIN + text;
+  el.className = '';
+  announce(text, false);
+}
+
 // Start image: one reader path for the file input, the drop zone's
 // click, and drag-and-drop, so all three set the same state.
 function readStartFile(f) {
   if (!f) { startImageB64 = null; renderDrop(); return; }
   generatedImageJobId = null;
+  renderDropLoading();
   const reader = new FileReader();
   reader.onload = () => {
     startImageB64 = String(reader.result).split(',')[1];
     renderDrop(f);
     restoredFileArrived('start_image_png_b64', startImageB64);
   };
+  reader.onerror = () => { renderDrop(); };
   reader.readAsDataURL(f);
+}
+// While a picked start image reads in, the drop zone itself
+// shows the wait instead of sitting on the empty prompt.
+function renderDropLoading() {
+  const dz = $('dropzone');
+  dz.classList.remove('filled');
+  dz.innerHTML = '<span class="spin lg" aria-hidden="true"></span>' +
+    '<div class="big">Reading your image...</div>' +
+    '<div class="small">One moment while it loads.</div>';
 }
 function renderDrop(f) {
   const dz = $('dropzone');
@@ -11691,38 +11772,54 @@ function buildFirstFrame() {
     body: { prompt: prompt, aspect_ratio: $('aspect').value } };
 }
 async function fireFirstFrame(d) {
-  msg('image-note', 'Checking the price...');
-  const q = await api('/api/images/quote', { method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({ prompt: d.body.prompt, aspect_ratio: d.body.aspect_ratio }) });
-  const p = q.payment || {};
-  const priceText = p.method === 'free' ? 'it counts as one of your free clips'
-    : p.method === 'included' ? 'it debits $' + ((p.included_debit_cents || 0) / 100).toFixed(2) + ' of your included budget'
-    : 'it costs $' + ((q.price_cents || 0) / 100).toFixed(2) + ' from your prepaid balance';
-  msg('image-note', 'Making your first frame, ' + priceText + '...');
-  const bot = await botFields('botcheck2');
-  const r = await api('/api/images', { method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({ prompt: d.body.prompt, aspect_ratio: d.body.aspect_ratio, ...bot }) });
-  const imageJobId = r.id;
-  const poll = async () => {
-    const list = await api('/api/jobs');
-    const j = list.jobs.find(x => x.id === imageJobId);
-    if (!j) return;
-    if (j.status === 'done') {
-      generatedImageJobId = imageJobId;
-      $('image-preview').innerHTML =
-        '<img src="/api/jobs/' + imageJobId + '/file" style="width:180px;border-radius:14px" alt="Your first frame">' +
-        '<p style="margin:10px 0 0">' + saveControlHtml(imageJobId, 'image') + '</p>' +
-        '<p class="muted">This frame is attached as your start image. Create your video when you are ready, or make another frame first.</p>';
-      msg('image-note', 'Your first frame is ready and attached.', 'ok');
-      loadJobs();
-    } else if (j.status === 'error') {
-      msg('image-note', j.error || 'The first frame could not be made, nothing was charged.', 'err');
-      loadJobs();
-    } else {
-      setTimeout(poll, 5000);
-    }
-  };
-  setTimeout(poll, 3000);
+  // The button stays in its working state from the price
+  // check until the frame lands or fails: its own poll is
+  // the wait, so the hold is released inside the poll.
+  const btn = $('gen-image');
+  btnBusy(btn, 'Checking the price...');
+  let polling = false;
+  try {
+    msg('image-note', 'Checking the price...');
+    const q = await api('/api/images/quote', { method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ prompt: d.body.prompt, aspect_ratio: d.body.aspect_ratio }) });
+    const p = q.payment || {};
+    const priceText = p.method === 'free' ? 'it counts as one of your free clips'
+      : p.method === 'included' ? 'it debits $' + ((p.included_debit_cents || 0) / 100).toFixed(2) + ' of your included budget'
+      : 'it costs $' + ((q.price_cents || 0) / 100).toFixed(2) + ' from your prepaid balance';
+    msg('image-note', 'Making your first frame, ' + priceText + '...');
+    btnLabel(btn, 'Making your first frame...');
+    const bot = await botFields('botcheck2');
+    const r = await api('/api/images', { method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ prompt: d.body.prompt, aspect_ratio: d.body.aspect_ratio, ...bot }) });
+    const imageJobId = r.id;
+    const poll = async () => {
+      const list = await api('/api/jobs');
+      const j = list.jobs.find(x => x.id === imageJobId);
+      if (!j) { btnDone(btn); return; }
+      if (j.status === 'done') {
+        generatedImageJobId = imageJobId;
+        $('image-preview').innerHTML =
+          '<img src="/api/jobs/' + imageJobId + '/file" style="width:180px;border-radius:14px" alt="Your first frame">' +
+          '<p style="margin:10px 0 0">' + saveControlHtml(imageJobId, 'image') + '</p>' +
+          '<p class="muted">This frame is attached as your start image. Create your video when you are ready, or make another frame first.</p>';
+        msg('image-note', 'Your first frame is ready and attached.', 'ok');
+        btnDone(btn);
+        loadJobs();
+      } else if (j.status === 'error') {
+        msg('image-note', j.error || 'The first frame could not be made, nothing was charged.', 'err');
+        btnDone(btn);
+        loadJobs();
+      } else {
+        setTimeout(tick, 5000);
+      }
+    };
+    const tick = () => { poll().catch(() => btnDone(btn)); };
+    polling = true;
+    setTimeout(tick, 3000);
+  } catch (e) { msg('image-note', e.message, 'err'); }
+  finally {
+    if (!polling) btnDone(btn);
+  }
 }
 $('gen-image').onclick = async () => {
   const d = buildFirstFrame();
@@ -11887,11 +11984,14 @@ function selectedLook() {
 }
 
 $('signup').onclick = async () => {
+  const btn = $('signup');
+  btnBusy(btn, 'Creating your account...');
+  $('login').disabled = true;
   try {
     // One password field serves both forms, so each button
     // sets the autocomplete its own flow needs (audit F3).
     $('password').autocomplete = 'new-password';
-    msg('auth-msg', 'Working on the bot check...');
+    spinMsg('auth-msg', 'Working on the bot check...');
     const bot = await botFields('botcheck');
     const payload = { email: $('email').value, password: $('password').value, ...bot };
     // A creation built while signed out rides the sign-up: it
@@ -11907,15 +12007,28 @@ $('signup').onclick = async () => {
       msg('auth-msg', 'Account created. Open the verification link in your email, then sign in.', 'ok');
     }
   } catch (e) { msg('auth-msg', e.message, 'err'); }
+  finally { btnDone(btn); $('login').disabled = false; }
 };
 $('login').onclick = async () => {
+  const btn = $('login');
+  btnBusy(btn, 'Signing in...');
+  $('signup').disabled = true;
   try {
     $('password').autocomplete = 'current-password';
     const r = await api('/api/login', { method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ email: $('email').value, password: $('password').value }) });
-    closeAuthPanel();
-    await afterSignIn(r.user);
+    if (pendingCreate && r.user && r.user.verified) {
+      // The panel stays up while the captured creation
+      // fires, and says what it is doing: their video is
+      // starting, not a form sitting frozen.
+      spinMsg('auth-msg', 'Starting your video...');
+      await afterSignIn(r.user);
+    } else {
+      closeAuthPanel();
+      await afterSignIn(r.user);
+    }
   } catch (e) { msg('auth-msg', e.message, 'err'); }
+  finally { btnDone(btn); $('signup').disabled = false; }
 };
 
 // ---- Entry flow: build first, sign in at Generate -------------
@@ -11985,10 +12098,19 @@ function pendingOkText(d) {
   return '';
 }
 async function fireCreate(d) {
+  // The image and first frame flows hold their own buttons
+  // inside their own functions, each for the shape of its
+  // own wait. The lanes below share the Create button: it
+  // works while the submit is in flight, its label starts
+  // at Starting and follows the flow from there, and it is
+  // restored when the request settles, error included.
+  if (d.kind === 'image') { await fireImage(d); return; }
+  if (d.kind === 'first-frame') { await fireFirstFrame(d); return; }
+  const btn = $('create');
+  btnBusy(btn, 'Starting...');
   try {
-    if (d.kind === 'image') { await fireImage(d); return; }
-    if (d.kind === 'first-frame') { await fireFirstFrame(d); return; }
     msg(d.msgId, 'Working on the bot check...');
+    btnLabel(btn, 'Working on the bot check...');
     if (d.needsTplUpload) {
       await uploadTplClip();
       if (!tplUploadId) throw new Error('the clip upload did not finish');
@@ -12000,6 +12122,7 @@ async function fireCreate(d) {
     msg(d.msgId, d.okText || pendingOkText(d), 'ok');
     loadJobs();
   } catch (e) { msg(d.msgId, e.message, 'err'); }
+  finally { btnDone(btn); }
 }
 // After any sign in: a locally built pending creation fires
 // while the visitor's own form is still on screen; an account
@@ -12233,6 +12356,10 @@ function isPaidSurface() {
 // the button is the quote. The line under it keeps the detail.
 function genLabel(priceCents) {
   const b = $('create');
+  // A quote landing mid submit never stomps the working
+  // label: the button is showing its flow state until the
+  // request settles and restores the label itself.
+  if (b.dataset.holds) return;
   if (!isPaidSurface()) { b.textContent = 'Make a free clip'; return; }
   if (priceCents === null || priceCents === undefined) { b.textContent = 'Generate'; return; }
   b.textContent = 'Generate · $' + (priceCents / 100).toFixed(2);
@@ -12968,8 +13095,50 @@ function prefetchSaveFile(jobId, kind) {
 }
 function saveNote(btn, text) {
   const note = btn.closest('.save-menu').querySelector('.save-note');
+  delete note.dataset.loading;
   note.textContent = text;
   note.style.display = 'block';
+}
+// While a save is in flight, the menu line itself carries
+// the working state: the shared spinner and the plain word
+// for what the line is doing.
+function saveLineBusy(btn, label) {
+  if (btn.dataset.label === undefined) btn.dataset.label = btn.textContent;
+  btn.disabled = true;
+  btn.innerHTML = SPIN + label;
+}
+function saveLineDone(btn) {
+  if (btn.dataset.label !== undefined) {
+    btn.textContent = btn.dataset.label;
+    delete btn.dataset.label;
+  }
+  btn.disabled = false;
+}
+// One share attempt on a file already in hand, in the same
+// breath as the tap that asked for it. A deferred attempt
+// (the tap landed while the file was still loading, so the
+// share fires the moment the file arrives) can find the
+// tap's activation already spent; that refusal gets its own
+// honest line, since the file is now cached and the next
+// tap shares it in its own breath.
+function shareSaveFile(btn, file, deferred) {
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    let shared;
+    try { shared = navigator.share({ files: [file] }); }
+    catch (e) { shared = Promise.reject(e); }
+    shared.then(
+      () => closeSaveMenus(),
+      e => {
+        if (e && e.name === 'AbortError') { closeSaveMenus(); return; }
+        if (deferred && e && e.name === 'NotAllowedError') {
+          saveNote(btn, 'Your file is ready. Tap Save to Photos once more.');
+          return;
+        }
+        saveNote(btn, 'This browser cannot send files to your photos. Save to Files works instead.');
+      });
+  } else {
+    saveNote(btn, 'This browser cannot send files to your photos. Save to Files works instead.');
+  }
 }
 function saveToPhotos(btn) {
   // Read the cache as it stands: routing the tap through the
@@ -12978,31 +13147,24 @@ function saveToPhotos(btn) {
   // started (the menu always starts one) begins it here.
   let entry = saveFileCache[btn.dataset.savePhotos];
   if (!entry) entry = prefetchSaveFile(btn.dataset.savePhotos, btn.dataset.kind);
-  if (entry.file) {
-    const file = entry.file;
-    if (navigator.canShare && navigator.canShare({ files: [file] })) {
-      let shared;
-      try { shared = navigator.share({ files: [file] }); }
-      catch (e) { shared = Promise.reject(e); }
-      shared.then(
-        () => closeSaveMenus(),
-        e => {
-          if (e && e.name === 'AbortError') { closeSaveMenus(); return; }
-          saveNote(btn, 'This browser cannot send files to your photos. Save to Files works instead.');
-        });
-    } else {
-      saveNote(btn, 'This browser cannot send files to your photos. Save to Files works instead.');
-    }
-    return;
-  }
+  if (entry.file) { shareSaveFile(btn, entry.file, false); return; }
   if (entry.error) {
     saveNote(btn, 'That file could not be loaded. Try again in a moment.');
     return;
   }
-  saveNote(btn, 'That file is still loading. Tap Save to Photos again in a moment.');
+  // Still loading: the line shows the wait, and the share
+  // fires the moment the file lands.
+  saveLineBusy(btn, 'Loading...');
+  entry.promise.then(() => {
+    saveLineDone(btn);
+    if (!btn.isConnected) return;
+    if (entry.file) shareSaveFile(btn, entry.file, true);
+    else if (entry.error) saveNote(btn, 'That file could not be loaded. Try again in a moment.');
+  });
 }
 async function saveToFiles(btn) {
   const note = btn.closest('.save-menu').querySelector('.save-note');
+  saveLineBusy(btn, 'Saving...');
   try {
     const file = await fetchJobFile(btn.dataset.saveFiles, btn.dataset.kind);
     const url = URL.createObjectURL(file);
@@ -13012,9 +13174,10 @@ async function saveToFiles(btn) {
     setTimeout(() => URL.revokeObjectURL(url), 4000);
     closeSaveMenus();
   } catch (e) {
+    delete note.dataset.loading;
     note.textContent = 'That file could not be loaded. Try again in a moment.';
     note.style.display = 'block';
-  }
+  } finally { saveLineDone(btn); }
 }
 document.addEventListener('click', e => {
   const photosBtn = e.target.closest('[data-save-photos]');
@@ -13030,14 +13193,55 @@ document.addEventListener('click', e => {
     saveBtn.setAttribute('aria-expanded', open ? 'false' : 'true');
     if (!open) {
       const note = menu.querySelector('.save-note');
-      if (note) { note.style.display = 'none'; note.textContent = ''; }
-      prefetchSaveFile(saveBtn.dataset.save, saveBtn.dataset.kind);
+      if (note) { note.style.display = 'none'; note.textContent = ''; delete note.dataset.loading; }
+      const entry = prefetchSaveFile(saveBtn.dataset.save, saveBtn.dataset.kind);
+      if (entry.promise && note) {
+        // The menu says the file is on its way while the
+        // fetch runs, and the line clears when it lands.
+        note.dataset.loading = '1';
+        note.innerHTML = SPIN + 'Loading your file...';
+        note.style.display = 'block';
+        entry.promise.then(() => {
+          if (note.isConnected && note.dataset.loading) {
+            delete note.dataset.loading;
+            note.style.display = 'none';
+            note.textContent = '';
+          }
+        });
+      }
     }
     return;
   }
   if (!e.target.closest('.save-wrap')) closeSaveMenus();
 });
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSaveMenus(); });
+// Running job visuals (Jack, 2026-11-19): a job that is
+// queued or generating shows live motion in its row, the
+// shared progress bar and a pulsing mark beside its status
+// word, with an elapsed clock that ticks between renders.
+// The bar is determinate only where the pipeline reports
+// real progress (the finished segments of a multi segment
+// job); everywhere else it moves without claiming a number
+// the pipeline does not know.
+function fmtElapsed(total) {
+  const s = Math.max(0, Math.floor(total || 0));
+  const m = Math.floor(s / 60);
+  const h = Math.floor(m / 60);
+  const ss = String(s % 60).padStart(2, '0');
+  if (h) return h + ':' + String(m % 60).padStart(2, '0') + ':' + ss;
+  return m + ':' + ss;
+}
+function workBarHtml(j) {
+  if (j.segments_total > 1) {
+    const pct = Math.max(4, Math.min(100, Math.round(100 * (j.segments_done || 0) / j.segments_total)));
+    return '<div class="workbar" role="progressbar" aria-label="Making your video"><div class="workbar-fill set" style="width:' + pct + '%"></div></div>';
+  }
+  return '<div class="workbar" role="progressbar" aria-label="Working"><div class="workbar-fill"></div></div>';
+}
+function elapsedHtml(j) {
+  return '<span class="muted" data-since="' + j.created_at + '">Elapsed ' +
+    fmtElapsed(Date.now() / 1000 - j.created_at) + '</span>';
+}
 async function loadJobs() {
   try {
     const r = await api('/api/jobs');
@@ -13049,10 +13253,12 @@ async function loadJobs() {
       const div = document.createElement('div'); div.className = 'card job';
       const isClipOut = j.kind === 'clip_output';
       const isClipJob = j.kind === 'clip_job';
+      const activeJob = j.status === 'queued' || j.status === 'running';
       const title = isClipOut ? (j.hook || 'Clip') : ((j.model || 'Wan 2.2') + (j.model_id === 'wan2.2' ? ' · ' + j.lane : ''));
       const spec = j.duration_seconds ? ' · ' + j.duration_seconds + 's' + (j.resolution ? ' · ' + j.resolution : '') : '';
-      let html = '<strong>' + title + '</strong>' + spec + ' · ' + j.status + '<br><span class="muted">' +
-        j.prompt.slice(0, 120) + '</span>';
+      let html = '<strong>' + title + '</strong>' + spec + ' · ' +
+        (activeJob ? '<span class="pulse-dot" aria-hidden="true"></span>' : '') + j.status +
+        '<br><span class="muted">' + j.prompt.slice(0, 120) + '</span>';
       html += costLine(j);
       if (j.aspect_ratio && j.model_id === 'wan2.2') html += '<br><span class="muted">Shape ' + j.aspect_ratio + '</span>';
       if (j.segments_total > 1) html += '<br><span class="muted">Segment ' + Math.min(j.segments_done + (j.status === 'done' ? 0 : 1), j.segments_total) + ' of ' + j.segments_total + (j.status === 'done' ? ' joined into one video' : '') + '</span>';
@@ -13060,7 +13266,8 @@ async function loadJobs() {
       if (j.partial) html += '<br><span class="muted">Finished shorter than planned. The later segments could not render, and you were charged only for the segments in this file.</span>';
       if (isClipOut && j.score !== null && j.score !== undefined) html += '<br><span class="muted">Score ' + j.score + '</span>';
       if (isClipOut && j.has_thumb) html += '<br><img class="thumb" src="/api/jobs/' + j.id + '/thumb" alt="">';
-      if ((isClipJob || j.kind === 'template' || j.kind === 'short') && j.stage && (j.status === 'queued' || j.status === 'running')) html += '<br><span class="muted">' + j.stage + '</span>';
+      if (j.stage && activeJob) html += '<br><span class="muted">' + j.stage + '</span>';
+      if (activeJob) html += workBarHtml(j) + elapsedHtml(j);
       if (j.camera_presets && j.camera_presets.length) html +=
         '<br><span class="muted">Camera moves ' + j.camera_presets.join(' \u2192 ') + '</span>';
       if (j.effect) html +=
@@ -13076,7 +13283,7 @@ async function loadJobs() {
       if (j.status === 'error') html += '<br><span class="err">' + (j.error || 'failed') + '</span>';
       if (j.status === 'done' || j.status === 'error') html +=
         '<br><button class="btn secondary" data-del="' + j.id + '">Delete</button>';
-      if (j.status === 'queued' || j.status === 'running') active = true;
+      if (activeJob) active = true;
       div.innerHTML = html; box.appendChild(div);
     }
     if (active) setTimeout(loadJobs, 10000);
@@ -13096,7 +13303,8 @@ function renderClipResults(jobs) {
   box.innerHTML = '';
   for (const j of parents) {
     const d = document.createElement('div'); d.className = 'card';
-    d.innerHTML = '<strong>Clipping</strong> · ' + (j.stage || j.status);
+    d.innerHTML = '<strong>Clipping</strong> · <span class="pulse-dot" aria-hidden="true"></span>' +
+      (j.stage || j.status) + workBarHtml(j) + elapsedHtml(j);
     box.appendChild(d);
   }
   for (const j of clips) {
@@ -13170,8 +13378,11 @@ $('clip-url').addEventListener('change', async () => {
 $('clip-file').addEventListener('change', async () => {
   const f = $('clip-file').files[0];
   if (!f) return;
+  // The field itself shows the upload until it lands: the
+  // input sits disabled and its line carries the spinner.
+  $('clip-file').disabled = true;
   try {
-    msg('clip-msg', 'Uploading your file...');
+    spinMsg('clip-msg', 'Uploading your file...');
     const fd = new FormData(); fd.append('file', f);
     const r = await fetch('/api/clips/upload', { method: 'POST', body: fd });
     const q = await r.json().catch(() => ({}));
@@ -13180,10 +13391,14 @@ $('clip-file').addEventListener('change', async () => {
     clipChargeLine(q);
     msg('clip-msg', 'File ready.', 'ok');
   } catch (e) { msg('clip-msg', e.message, 'err'); }
+  finally { $('clip-file').disabled = false; }
 });
 $('make-clips').onclick = async () => {
+  const btn = $('make-clips');
+  btnBusy(btn, 'Starting...');
   try {
     msg('clip-msg', 'Working on the bot check...');
+    btnLabel(btn, 'Working on the bot check...');
     const bot = await botFields('botcheck3');
     const payload = { clip_count: Number($('clip-count').value), length: $('clip-length').value,
       caption_style: $('clip-style').value, layout: $('clip-layout').value, ...bot };
@@ -13195,6 +13410,7 @@ $('make-clips').onclick = async () => {
     msg('clip-msg', 'Clipping started. First we get the video, then we listen and transcribe it, pick the moments, and cut your clips.', 'ok');
     loadJobs();
   } catch (e) { msg('clip-msg', e.message, 'err'); }
+  finally { btnDone(btn); }
 };
 
 // ---- Title cards (the free template lane, folded into Create) ----
@@ -13228,8 +13444,11 @@ $('tpl-clip-file').addEventListener('change', async () => {
 async function uploadTplClip() {
   const f = tplClipFile || $('tpl-clip-file').files[0];
   if (!f) return;
+  // The field shows the upload until it lands, the same
+  // treatment as the clip lane's file pick.
+  $('tpl-clip-file').disabled = true;
   try {
-    msg('tpl-msg', 'Uploading your clip...');
+    spinMsg('tpl-msg', 'Uploading your clip...');
     const fd = new FormData(); fd.append('file', f);
     const r = await fetch('/api/templates/upload', { method: 'POST', body: fd });
     const q = await r.json().catch(() => ({}));
@@ -13238,6 +13457,7 @@ async function uploadTplClip() {
     msg('tpl-msg', 'Clip ready. It runs ' + q.duration_seconds + ' seconds.', 'ok');
     restoredFileArrived('upload_id', tplUploadId);
   } catch (e) { msg('tpl-msg', e.message, 'err'); }
+  finally { $('tpl-clip-file').disabled = false; }
 }
 function buildTitleCard() {
   const t = $('tpl-template').value;
@@ -13503,11 +13723,21 @@ function buildImage() {
   return { kind: 'image', msgId: 'job-msg', body };
 }
 async function fireImage(d) {
-  msg('job-msg', 'Working on the bot check...');
-  const bot = await botFields('botcheck2');
-  const body = { ...d.body, ...bot };
-  const r = await api('/api/images', { method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify(body) });
+  // The Create button works until the image job exists;
+  // from there the wait is a running job, and its library
+  // row carries the motion.
+  const btn = $('create');
+  btnBusy(btn, 'Starting...');
+  let r;
+  try {
+    msg('job-msg', 'Working on the bot check...');
+    btnLabel(btn, 'Working on the bot check...');
+    const bot = await botFields('botcheck2');
+    const body = { ...d.body, ...bot };
+    r = await api('/api/images', { method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body) });
+  } catch (e) { msg('job-msg', e.message, 'err'); return; }
+  finally { btnDone(btn); }
   shelfImageJobId = r.job_id;
   msg('job-msg', 'Making your image...', 'ok');
   $('image-result-wrap').style.display = 'none';
@@ -13551,6 +13781,16 @@ if (new URLSearchParams(location.search).get('verified')) {
   msg('auth-msg', 'Email verified. You can sign in now.', 'ok');
 }
 refreshMe();
+// The elapsed clock on running jobs ticks every second.
+// It only rewrites the labels the job renders already
+// placed; the job list itself keeps arriving on the poll
+// loadJobs already runs, so this is not a second poller.
+setInterval(() => {
+  const now = Date.now() / 1000;
+  document.querySelectorAll('[data-since]').forEach(el => {
+    el.textContent = 'Elapsed ' + fmtElapsed(now - Number(el.dataset.since));
+  });
+}, 1000);
 </script>
 <script>
 if ('serviceWorker' in navigator) {

@@ -170,8 +170,8 @@ check("That file could not be loaded. Try again in a moment." in SRC,
       "a file that cannot be fetched hears so plainly, in its own line")
 check("That did not work." not in SRC,
       "the vague failure line is gone")
-check("That file is still loading." in SRC,
-      "a tap that lands before the fetch finishes hears so plainly")
+check("shareSaveFile(btn, entry.file, true)" in SRC,
+      "a tap that lands before the fetch finishes fires the share when the file lands")
 check('filename=f"moonfactory-{job_id}.mp4"' in SRC
       and 'media_type="video/mp4"' in SRC
       and 'filename=f"moonfactory-{job_id}.png"' in SRC
@@ -195,6 +195,89 @@ check("saveControlHtml(imageJobId, 'image')" in SRC,
 check('id="image-result-save"' in HTML
       and "saveControlHtml(r.job_id, 'image')" in SRC,
       "the image mode result carries the control")
+
+# --- working visuals: every wait shows motion (Jack, 2026-11-19) --------
+jobs = SRC.split("async function loadJobs()", 1)[1].split(
+    "function renderClipResults", 1)[0]
+login = SRC.split("$('login').onclick", 1)[1].split(
+    "// ---- Entry flow", 1)[0]
+# One shared spinner, one button working state, one progress
+# bar treatment, reused everywhere the studio waits. A pushed
+# button enters its working state, stays disabled in flight,
+# and is restored when the request settles, error included.
+# A running job pulses beside its status word, carries the
+# bar and a ticking elapsed clock, and shows the real stage
+# words its record carries. No percentage is ever invented:
+# the bar is determinate only from reported segments.
+check(".spin{" in SRC and "@keyframes mf-spin" in SRC,
+      "one shared spinner style exists")
+check(".pulse-dot{" in SRC and "@keyframes mf-pulse" in SRC,
+      "one shared pulsing mark exists")
+check(".workbar{" in SRC and "@keyframes mf-slide" in SRC,
+      "one shared progress bar treatment exists")
+check(".workbar-fill{animation:none;transform:none}" in SRC,
+      "reduced motion rests the working visuals in a calm static state")
+check("const SPIN = " in SRC and "function btnBusy(btn, label)" in SRC
+      and "function btnDone(btn)" in SRC
+      and "function btnLabel(btn, label)" in SRC,
+      "one shared button working state exists")
+check("function spinMsg(id, text)" in SRC,
+      "a message line can carry the spinner while its flow runs")
+fire = SRC.split("async function fireCreate(d)", 1)[1].split(
+    "async function afterSignIn", 1)[0]
+check("btnBusy(btn, 'Starting...')" in fire
+      and "btnLabel(btn, 'Working on the bot check...')" in fire
+      and "finally { btnDone(btn); }" in fire,
+      "a Create submit spins its button from Starting, follows the flow, and always restores it")
+check("btnBusy(btn, 'Starting...')" in SRC.split(
+      "async function fireImage(d)", 1)[1].split(
+      "$('image-use-start')", 1)[0],
+      "an image submit works its button until the job exists")
+frame = SRC.split("async function fireFirstFrame(d)", 1)[1].split(
+    "$('gen-image').onclick", 1)[0]
+check("btnBusy(btn, 'Checking the price...')" in frame
+      and "btnDone(btn);" in frame,
+      "the first frame button works until the frame lands or fails")
+check("if (b.dataset.holds) return;" in SRC,
+      "a quote refresh never stomps a working button label")
+clips_btn = SRC.split("$('make-clips').onclick", 1)[1].split(
+    "// ---- Title cards", 1)[0]
+check("btnBusy(btn, 'Starting...')" in clips_btn
+      and "finally { btnDone(btn); }" in clips_btn,
+      "the clip lane button works while its submit is in flight")
+check("workBarHtml(j)" in jobs and "function workBarHtml(j)" in SRC,
+      "a running job carries the progress bar")
+check("j.segments_total > 1" in SRC and "workbar-fill set" in SRC,
+      "the bar is only ever as full as the segments the pipeline reports")
+check("pulse-dot" in jobs and "elapsedHtml(j)" in jobs
+      and "j.stage && activeJob" in jobs,
+      "a running job pulses beside its status, shows its stage words, and carries its clock")
+check("function fmtElapsed(total)" in SRC
+      and "document.querySelectorAll('[data-since]')" in SRC
+      and "}, 1000);" in SRC,
+      "the elapsed clock ticks between job list renders, on no second poller")
+check("spinMsg('auth-msg', 'Starting your video...')" in login,
+      "the sign in panel shows the captured creation starting, not a frozen form")
+check("btnBusy(btn, 'Signing in...')" in login
+      and "btnBusy(btn, 'Creating your account...')" in SRC,
+      "the auth buttons work while sign in and sign up are in flight")
+check("function saveLineBusy(btn, label)" in SRC
+      and "saveLineBusy(btn, 'Loading...')" in SRC
+      and "saveLineBusy(btn, 'Saving...')" in SRC,
+      "the save menu lines spin while their save is in flight")
+check("note.innerHTML = SPIN + 'Loading your file...'" in SRC,
+      "opening the save menu shows the file on its way")
+check("Your file is ready. Tap Save to Photos once more." in SRC,
+      "a deferred share that finds its tap spent says so plainly")
+check("spinMsg('clip-msg', 'Uploading your file...')" in SRC
+      and "$('clip-file').disabled = true;" in SRC,
+      "the clip lane file pick shows its upload until it lands")
+check("spinMsg('tpl-msg', 'Uploading your clip...')" in SRC
+      and "$('tpl-clip-file').disabled = true;" in SRC,
+      "the captions clip pick shows its upload until it lands")
+check("function renderDropLoading()" in SRC
+      and "Reading your image..." in SRC,
+      "the start image drop shows a reading state while the file loads")
 
 if failures:
     print("FAIL")
