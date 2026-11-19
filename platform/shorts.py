@@ -132,14 +132,45 @@ def _wrap_long_line(line: str) -> list:
     return pieces
 
 
-def split_script(text: str) -> list:
+# The split choices a pasted script offers, Pixelle's set: the
+# author decides what a scene is. Auto keeps the lane's original
+# reading (author line breaks honored, prose split into
+# sentences) and is what topic mode's generated scripts ride.
+SPLIT_MODES = ("auto", "lines", "sentences", "paragraphs")
+SPLIT_MODE_LABELS = {
+    "auto": "Auto",
+    "lines": "One scene per line",
+    "sentences": "One scene per sentence",
+    "paragraphs": "One scene per paragraph",
+}
+
+
+def _sentences(block: str) -> list:
+    """One block of prose as spoken lines: sentences first, then
+    wrap whatever is still over the per line cap."""
+    out = []
+    for m in re.finditer(r"[^.!?]+[.!?]*", block):
+        piece = m.group(0).strip()
+        if piece:
+            out.extend(_wrap_long_line(piece))
+    return out
+
+
+def split_script(text: str, mode: str = "auto") -> list:
     """Split a pasted or generated script into narration lines.
 
-    Newlines are the author's own scene breaks and are honored
-    first; a block of prose splits into sentences. Every line is
-    wrapped to the per line cap. Raises ValueError on anything
-    the lane cannot speak: empty, too few lines, too many lines,
-    or over the total cap."""
+    The mode says what a scene is. Auto (the default, and the
+    only mode generated scripts use): newlines are the author's
+    own scene breaks and are honored first; a block of prose
+    splits into sentences. Lines: every pasted line is a scene,
+    whatever punctuation it holds. Sentences: line breaks mean
+    nothing, the whole text reads as prose and splits into
+    sentences. Paragraphs: every blank line separated block is
+    one scene, split into sentences only when it runs over the
+    per line cap. Every line is wrapped to the per line cap.
+    Raises ValueError on anything the lane cannot speak: empty,
+    too few lines, too many lines, over the total cap, or a
+    split choice the lane does not offer."""
     text = (text or "").strip()
     if not text:
         raise ValueError("write or paste a script first")
@@ -147,18 +178,32 @@ def split_script(text: str) -> list:
         raise ValueError(
             f"that script is too long, keep it under "
             f"{SHORTS_MAX_SCRIPT_CHARS} characters")
+    if mode not in SPLIT_MODES:
+        raise ValueError("pick one of the split choices on the list")
     blocks = [b.strip() for b in text.splitlines() if b.strip()]
     lines = []
-    for block in blocks:
-        if len(block) <= SHORTS_MAX_LINE_CHARS and "\n" in text:
-            lines.append(block)
-            continue
-        # Prose block (or an overlong pasted line): sentences
-        # first, then wrap whatever is still too long.
-        for m in re.finditer(r"[^.!?]+[.!?]*", block):
-            piece = m.group(0).strip()
-            if piece:
-                lines.extend(_wrap_long_line(piece))
+    if mode == "lines":
+        for block in blocks:
+            lines.extend(_wrap_long_line(block))
+    elif mode == "sentences":
+        lines.extend(_sentences(" ".join(blocks)))
+    elif mode == "paragraphs":
+        for para in re.split(r"\n\s*\n", text):
+            para = " ".join(para.split())
+            if not para:
+                continue
+            if len(para) <= SHORTS_MAX_LINE_CHARS:
+                lines.append(para)
+            else:
+                lines.extend(_sentences(para))
+    else:
+        for block in blocks:
+            if len(block) <= SHORTS_MAX_LINE_CHARS and "\n" in text:
+                lines.append(block)
+                continue
+            # Prose block (or an overlong pasted line): sentences
+            # first, then wrap whatever is still too long.
+            lines.extend(_sentences(block))
     lines = [ln.strip() for ln in lines if ln.strip()]
     if len(lines) < SHORTS_MIN_LINES:
         raise ValueError("a short needs at least two lines of script")

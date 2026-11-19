@@ -9710,6 +9710,10 @@ x_api_key: str = Header(default="")):
                 {"id": key, "label": entry["label"]}
                 for key, entry in shorts.VISUAL_STYLES.items()
             ],
+            "split_modes": [
+                {"id": mode, "label": shorts.SPLIT_MODE_LABELS[mode]}
+                for mode in shorts.SPLIT_MODES
+            ],
         }
 
     @web.post("/api/shorts")
@@ -9767,8 +9771,19 @@ x_api_key: str = Header(default="")):
             raise HTTPException(
                 status_code=422,
                 detail="give the short a topic or paste a script")
+        split_mode = (body.get("split") or "auto").strip()
+        if split_mode not in shorts.SPLIT_MODES:
+            raise HTTPException(
+                status_code=422,
+                detail="pick one of the split choices on the list")
         try:
-            lines = shorts.split_script(script_text)
+            # The split choice belongs to pasted scripts: a
+            # generated script already arrives one line per
+            # scene and keeps the auto reading.
+            lines = shorts.split_script(
+                script_text,
+                mode=split_mode if script_source == "pasted"
+                else "auto")
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc))
         voice = (body.get("voice") or "").strip() or DEFAULT_SPEECH_VOICE
@@ -9830,6 +9845,8 @@ x_api_key: str = Header(default="")):
             "short_scenes": [],
             "short_visuals": visuals,
             "short_style": style or None,
+            "short_split": split_mode if script_source == "pasted"
+            else "auto",
             "script_source": script_source,
             "speech_script": " ".join(lines),
             "speech_voice": voice,
@@ -12048,6 +12065,13 @@ APP_HTML = (
       <textarea id="short-script" rows="8" maxlength="2200" placeholder="One line for each scene. The voice reads it exactly as written."></textarea>
       <p class="muted" id="short-script-length-note">Your video length is estimated from your script length.</p>
       <p class="muted" id="short-script-estimate"></p>
+      <label>Split my script</label>
+      <select id="short-split">
+        <option value="auto" selected>Auto</option>
+        <option value="lines">One scene per line</option>
+        <option value="sentences">One scene per sentence</option>
+        <option value="paragraphs">One scene per paragraph</option>
+      </select>
     </div>
     <label>Pictures</label>
     <select id="short-visuals">
@@ -14487,6 +14511,7 @@ function buildShort() {
     if (!payload.topic.trim()) { msg('short-msg', 'Give the short a topic first.', 'err'); return null; }
   } else {
     payload.script = $('short-script').value;
+    payload.split = $('short-split').value;
     if (!payload.script.trim()) { msg('short-msg', 'Paste your script first.', 'err'); return null; }
   }
   return { kind: 'short', endpoint: '/api/shorts', botId: 'botcheck5',

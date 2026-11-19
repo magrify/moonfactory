@@ -123,6 +123,39 @@ twenty = shorts.split_script(
     "\n".join(f"Line number {i} speaks." for i in range(20)))
 check(len(twenty) == 20, "twenty lines are accepted")
 
+# --- split choices -----------------------------------------------------------
+check(shorts.SPLIT_MODES == ("auto", "lines", "sentences", "paragraphs"),
+      "the split choices are auto, lines, sentences, paragraphs")
+mixed = "First part. Second part.\nThird line stands."
+check(shorts.split_script(mixed, mode="lines") == [
+    "First part. Second part.", "Third line stands."],
+    "lines mode keeps each pasted line whole")
+check(shorts.split_script(mixed, mode="sentences") == [
+    "First part.", "Second part.", "Third line stands."],
+    "sentences mode ignores line breaks and splits on sentences")
+soft = "A sentence that\nwraps over two lines. Another one follows."
+check(shorts.split_script(soft, mode="sentences") == [
+    "A sentence that wraps over two lines.", "Another one follows."],
+    "sentences mode joins soft wrapped lines before splitting")
+paras = ("Para one speaks first. Still para one talking.\n\n"
+         "Para two arrives. And para two continues.")
+check(shorts.split_script(paras, mode="paragraphs") == [
+    "Para one speaks first. Still para one talking.",
+    "Para two arrives. And para two continues."],
+    "paragraphs mode makes one scene of each paragraph")
+long_para = " ".join(
+    f"Sentence number {i} of a long paragraph." for i in range(12))
+split_para = shorts.split_script(
+    long_para + "\n\nShort closer.", mode="paragraphs")
+check(len(split_para) > 2
+      and all(len(ln) <= shorts.SHORTS_MAX_LINE_CHARS
+              for ln in split_para),
+      "an overlong paragraph splits into sentences")
+check(shorts.split_script(mixed) == shorts.split_script(
+    mixed, mode="auto"), "auto is the default split")
+check(raises_value(lambda: shorts.split_script(mixed, mode="words")),
+      "an unknown split choice is rejected")
+
 # --- search terms ---------------------------------------------------------
 terms = shorts.search_terms_for_line(
     "Sunlight only reaches the top layer of the water.", "the ocean")
@@ -383,6 +416,10 @@ check("VISUAL_STYLES" in lane,
       "creation validates the picture style against the list")
 check('"visual_styles"' in lane,
       "the config offers the picture styles")
+check("split_mode" in lane and '"short_split"' in lane,
+      "creation takes and records the split choice")
+check('"split_modes"' in lane,
+      "the config offers the split choices")
 check("short_parent" in SRC,
       "AI picture jobs carry the short parent mark")
 check('not job.get("short_parent")' in SRC,
@@ -487,6 +524,17 @@ style_values = {
 }
 check(style_values == set(shorts.VISUAL_STYLES),
       "the style picker offers exactly the picture style list")
+check('id="short-split"' in pane, "the form carries the split picker")
+split_select = pane.split('id="short-split"', 1)[1].split(
+    '</select>', 1)[0]
+split_values = {
+    part.split('"')[0]
+    for part in split_select.split('<option value="')[1:]
+}
+check(split_values == set(shorts.SPLIT_MODES),
+      "the split picker offers exactly the split choices")
+check("payload.split" in SRC,
+      "the submit sends the split choice")
 voice_select = pane.split('id="short-voice"', 1)[1].split(
     '</select>', 1)[0]
 pane_voices = {
