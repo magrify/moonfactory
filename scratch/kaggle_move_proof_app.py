@@ -167,7 +167,12 @@ def submit(which: str) -> dict:
     _snapshot_baseline()
     tracked = state.get("jobs") or {}
     if tracked.get(which):
-        return {"already_submitted": True, "job_id": tracked[which]}
+        prior = pjobs.get(tracked[which]) or {}
+        if prior.get("status") != "error":
+            return {"already_submitted": True,
+                    "job_id": tracked[which]}
+        # A failed proof job is resubmitted as a fresh job;
+        # the slot follows the new id.
     sess = _session_for(_owner())
     bot = _bot_fields(sess)
     if which == "image":
@@ -238,6 +243,9 @@ def status() -> dict:
     out["comfy_heartbeat_age_s"] = (
         round(time.time() - float(meta.get("comfy:heartbeat") or 0), 1)
         if meta.get("comfy:heartbeat") else None)
+    out["comfy_note"] = meta.get("comfy:note")
+    out["comfy_note_age_s"] = meta.get("comfy:note_age_s")
+    out["comfy_session_age_s"] = meta.get("comfy:session_age_s")
     sess = None
     for slot, job_id in tracked.items():
         rec = pjobs.get(job_id) or {}

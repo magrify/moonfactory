@@ -9674,10 +9674,24 @@ def api():
         jobs[job["id"]] = job
 
     @web.post("/api/worker/comfy/heartbeat")
-    def comfy_heartbeat(x_api_key: str = Header(default="")):
+    async def comfy_heartbeat(request: Request,
+                              x_api_key: str = Header(default="")):
         if not _comfy_worker_ok(x_api_key):
             raise HTTPException(status_code=401, detail="bad worker key")
         meta["comfy:heartbeat"] = _now()
+        # The kernel reports its current phase with each
+        # heartbeat (2026-11-19): a render on the free GPU
+        # class can run long, and the note is the difference
+        # between watching a phase and guessing at one. The
+        # body is optional; older kernel versions send none.
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if isinstance(body, dict) and body.get("note"):
+            meta["comfy:note"] = str(body["note"])[:200]
+            meta["comfy:note_age_s"] = body.get("note_age_s")
+            meta["comfy:session_age_s"] = body.get("session_age_s")
         return {"ok": True}
 
     @web.get("/api/worker/comfy/jobs/next")

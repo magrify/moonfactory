@@ -486,10 +486,23 @@ KEY = None
 HEADERS = {}
 
 
+NOTE = {"text": "starting", "since": time.time()}
+
+
+def set_note(text: str):
+    NOTE["text"] = text[:200]
+    NOTE["since"] = time.time()
+    log(f"phase: {text}")
+
+
 def heartbeat():
     try:
-        requests.post(f"{PLATFORM}/api/worker/comfy/heartbeat",
-                      headers=HEADERS, timeout=20)
+        requests.post(
+            f"{PLATFORM}/api/worker/comfy/heartbeat",
+            headers=HEADERS, timeout=20,
+            json={"note": NOTE["text"],
+                  "note_age_s": round(time.time() - NOTE["since"], 1),
+                  "session_age_s": round(time.time() - STARTED, 1)})
     except Exception:
         pass
 
@@ -553,6 +566,13 @@ def ensure_families(families) -> int:
     against the manifest. Returns how many files were
     downloaded, so the caller can restart ComfyUI when the
     model set changed under it (its file lists are cached)."""
+    set_note(f"staging families {list(families)}")
+    try:
+        import hf_transfer  # noqa: F401
+
+        os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "1"
+    except ImportError:
+        pass
     from huggingface_hub import hf_hub_download
 
     downloaded = 0
@@ -576,6 +596,8 @@ def ensure_families(families) -> int:
             dest = MODELS_DIR / m["dest"]
             if dest.exists() and dest.stat().st_size == m["size"]:
                 continue
+            set_note(f"downloading {m['dest']} "
+                     f"({m['size'] / 1e9:.1f} GB)")
             log(f"downloading {m['repo']} :: {m['file']}")
             staged = hf_hub_download(
                 repo_id=m["repo"], filename=m["file"],
@@ -1031,6 +1053,7 @@ def run_workflow(workflow: dict, image_bytes=None, image_name: str = "",
         raise RuntimeError(
             f"ComfyUI /prompt returned {r.status_code}: {r.text[:2000]}")
     data = r.json()
+    set_note(f"rendering prompt {data.get('prompt_id')}")
     if data.get("node_errors"):
         raise RuntimeError(f"ComfyUI rejected workflow: {data['node_errors']}")
     prompt_id = data["prompt_id"]
@@ -1077,6 +1100,7 @@ def run_image_workflow(workflow: dict):
         raise RuntimeError(
             f"ComfyUI /prompt returned {r.status_code}: {r.text[:2000]}")
     data = r.json()
+    set_note(f"rendering prompt {data.get('prompt_id')}")
     if data.get("node_errors"):
         raise RuntimeError(f"ComfyUI rejected workflow: {data['node_errors']}")
     prompt_id = data["prompt_id"]
@@ -1339,6 +1363,7 @@ def fail_job(job_id: str, message: str):
 
 def main():
     global KEY, HEADERS
+    set_note("setup: ComfyUI and requirements")
     KEY = read_key()
     HEADERS = {"X-API-Key": KEY}
     threading.Thread(target=heartbeat_loop, daemon=True).start()
@@ -1374,6 +1399,7 @@ def main():
                 result = run_image_job(job)
             else:
                 result = run_video_job(job)
+            set_note(f"uploading job {job['id']}")
             log(f"job {job['id']}: uploading result")
             upload_result(job["id"], result, info.get("gpu"))
             log(f"job {job['id']}: done in "
