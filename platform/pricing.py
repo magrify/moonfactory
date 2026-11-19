@@ -789,9 +789,13 @@ HIGGSFIELD_EFFECTIVE_CENTS_PER_CLIP_BY_RESOLUTION = {
 # at raw provider cost where undercutting with a markup is
 # impossible but raw cost is still below Higgsfield's price.
 # Never below raw cost. A lane whose raw cost meets or exceeds
-# Higgsfield's price even at cost is priced at cost and flagged
-# (pricing_basis "at_cost_residual" in the frontier_lane
-# payload). The x1.25 minimum yields where it blocks this rule.
+# Higgsfield's price even at cost is flagged (pricing_basis
+# "at_cost_residual" in the frontier_lane payload) and priced
+# at the cheapest non-losing figure: raw cost grossed up by the
+# Stripe percentage fee only (Jack's restatement, 2026-11-19;
+# the round-2 text here said "priced at cost" — see the
+# frontier_lane cap for the current treatment). The x1.25
+# minimum yields where it blocks this rule.
 #
 # The table below carries Higgsfield's effective per-second
 # price for the compared lanes that are NOT in the Amendment 3
@@ -931,9 +935,28 @@ def frontier_lane(model: str, resolution: str, rates=None,
         sell, can_undercut = minimum, None
     basis = "standard"
     if effective is not None and sell >= effective:
-        sell = cost
-        basis = ("at_cost_residual" if cost >= effective
-                 else "at_cost_undercut")
+        if cost >= effective:
+            # Residual exception, restated by Jack 2026-11-19:
+            # raw cost alone meets or exceeds Higgsfield's price,
+            # so the lane sells at the cheapest figure that does
+            # not lose money — raw cost grossed up by the Stripe
+            # percentage fee only. Balance is prepaid (top-ups and
+            # plan payments), so the fixed per-transaction fee is
+            # a pack-level cost the platform already carries; the
+            # per-second share of the fee is the 2.9% percentage,
+            # and cost / (1 - pct) is the smallest rate whose net
+            # after that fee is the cost itself. Selling at exact
+            # raw cost (the round-2 treatment) netted the platform
+            # a hair under cost on every prepaid second. The lane
+            # stays above Higgsfield and stays flagged
+            # (at_cost_residual); it is named to Jack, never sold
+            # below cost, and clears the moment a cheaper route
+            # or a Higgsfield price rise lets it undercut.
+            sell = _ceil3(cost / (1 - STRIPE_PCT))
+            basis = "at_cost_residual"
+        else:
+            sell = cost
+            basis = "at_cost_undercut"
         can_undercut = sell < effective
     elif effective is not None and can_undercut is None:
         can_undercut = sell < effective

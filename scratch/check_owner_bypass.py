@@ -138,6 +138,48 @@ body = func_src("attempt_auto_reload")
 check("amount not in pricing.TOPUP_PACKS_CENTS" in body,
       "auto reload lost its pack validation")
 
+# Pricing rule pins (Jack's restatement, 2026-11-19): the owner
+# pays raw cost on every per-second lane with no markup floor;
+# no customer sells below raw cost; a lane whose raw cost meets
+# or exceeds Higgsfield's price (at_cost_residual) sells at the
+# cheapest non-losing figure, raw cost grossed up by the Stripe
+# percentage fee only; a lane dropped to cost to undercut
+# (at_cost_undercut) sells at exactly raw cost.
+for _model, _tiers in pricing.PROVIDER_RATES_CENTS_PER_SECOND.items():
+    for _res in _tiers:
+        _f = pricing.frontier_lane(_model, _res)
+        _o = pricing.frontier_lane(_model, _res, owner=True)
+        check(abs(_o["sell_cents_per_second"]
+                  - _f["cost_cents_per_second"]) < 0.0011,
+              f"owner sell != raw cost on {_model} {_res}: "
+              f"{_o['sell_cents_per_second']} vs "
+              f"{_f['cost_cents_per_second']}")
+        check(_f["sell_cents_per_second"]
+              >= _f["cost_cents_per_second"] - 0.0011,
+              f"customer sell below raw cost on {_model} {_res}")
+        _hf = _f["higgsfield_effective_cents_per_second"]
+        if _hf is not None and _f["pricing_basis"] == "standard":
+            check(_f["sell_cents_per_second"] < _hf,
+                  f"standard lane not under Higgsfield on "
+                  f"{_model} {_res}")
+        if _f["pricing_basis"] == "at_cost_residual":
+            _want = pricing._ceil3(
+                _f["cost_cents_per_second"] / (1 - pricing.STRIPE_PCT))
+            check(abs(_f["sell_cents_per_second"] - _want) < 0.0011,
+                  f"residual sell not fee-grossed cost on "
+                  f"{_model} {_res}: {_f['sell_cents_per_second']} "
+                  f"vs {_want}")
+            check(_f["sell_cents_per_second"]
+                  * (1 - pricing.STRIPE_PCT)
+                  >= _f["cost_cents_per_second"] - 0.0011,
+                  f"residual sell loses money after fees on "
+                  f"{_model} {_res}")
+        if _f["pricing_basis"] == "at_cost_undercut":
+            check(abs(_f["sell_cents_per_second"]
+                      - _f["cost_cents_per_second"]) < 0.0011,
+                  f"undercut lane not at raw cost on "
+                  f"{_model} {_res}")
+
 if failures:
     print("FAILURES:")
     for f in failures:
