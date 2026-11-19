@@ -374,10 +374,10 @@ check("sel.value !== SHORTS_ID" in SRC,
 check('id="shorts-fields"' in SRC, "the create card carries the shorts form")
 check("if (m === SHORTS_ID) { showShortsForm(); return; }" in SRC,
       "picking the entry swaps the form in updateModelUI")
-check("if ($('model').value === SHORTS_ID) { await makeShort(); return; }"
-      in SRC, "the Create button routes shorts to the shorts submit")
-check("async function makeShort()" in SRC,
-      "the shorts submit survives as a named function")
+check("if (model === SHORTS_ID) return buildShort();"
+      in SRC, "the Create button routes shorts to the shorts build")
+check("function buildShort()" in SRC,
+      "the shorts build survives as a named function")
 check('id="short-topic"' in SRC and 'id="short-script"' in SRC,
       "the form takes a topic or a script")
 check('id="short-voice"' in SRC, "the form carries the voice picker")

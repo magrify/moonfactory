@@ -2809,13 +2809,14 @@ def api():
 
     @web.get("/", response_class=HTMLResponse)
     def landing(request: Request, mf_session: str = Cookie(default="")):
-        # Session-aware (Direction C rebuild, 2026-11-16): a
-        # signed-in paid member never sees Try It on the landing;
-        # their top block sends them straight to Create. Everyone
-        # else gets the Try It framing with the sign-in-first rule.
-        user = current_user(request, mf_session)
-        top = _LANDING_TOP_MEMBER if (user and is_paid(user)) else _LANDING_TOP_GUEST
-        return HTMLResponse(INDEX_HTML.replace("__LANDING_TOP__", top))
+        # Entry flow (Jack, 2026-11-19): the site opens straight
+        # onto the Create studio for every visitor, signed out
+        # included. There is no landing page, no sign-in wall,
+        # and no Open Create interstitial in front of the form:
+        # a visitor builds the whole creation first, and the
+        # sign-in step appears only when they hit a create
+        # button. Root and /app serve the same studio page.
+        return HTMLResponse(APP_HTML)
 
     @web.get("/app", response_class=HTMLResponse)
     def studio():
@@ -3185,6 +3186,56 @@ def api():
 
     # -- accounts ----------------------------------------------------------
 
+    # Pending creations (entry flow, Jack, 2026-11-19): a signed
+    # out visitor builds a whole creation and hits a create
+    # button; the sign-up stores that creation on the new
+    # account, and the verified return claims it, restores the
+    # form, and fires it once. File payloads cannot survive the
+    # email round trip, so the file fields never enter the
+    # record: their names land in file_missing instead, and the
+    # restored form asks for the file again before firing. Bot
+    # check fields never enter either; the fire runs a fresh
+    # check, like every submit.
+    PENDING_CREATE_KINDS = (
+        "video", "motion", "title", "short", "image", "first-frame")
+    PENDING_FILE_FIELDS = {
+        "start_image_png_b64": "start_image",
+        "end_image_png_b64": "end_image",
+        "source_image": "edit_image",
+        "upload_id": "captions_clip",
+    }
+    PENDING_BOT_FIELDS = (
+        "turnstile_token", "challenge_id", "challenge_nonce")
+
+    def _clean_pending_create(value):
+        """Validate and shrink one pending creation for storage
+        on an account record. Returns the stored shape, or None
+        when the value is not a creation this platform knows."""
+        if not isinstance(value, dict):
+            return None
+        kind = value.get("kind")
+        if kind not in PENDING_CREATE_KINDS:
+            return None
+        body = value.get("body")
+        if not isinstance(body, dict):
+            return None
+        missing = []
+        clean = {}
+        for key, val in body.items():
+            if key in PENDING_BOT_FIELDS:
+                continue
+            if key in PENDING_FILE_FIELDS:
+                if val:
+                    missing.append(PENDING_FILE_FIELDS[key])
+                continue
+            clean[key] = val
+        for name in value.get("file_missing") or []:
+            if name in PENDING_FILE_FIELDS.values() and name not in missing:
+                missing.append(name)
+        if len(json.dumps(clean)) > 32768:
+            return None
+        return {"kind": kind, "body": clean, "file_missing": missing}
+
     @web.post("/api/signup")
     async def signup(request: Request):
         ip = client_ip(request)
@@ -3218,6 +3269,11 @@ def api():
             "usage": {"period": _period(), "free_jobs": 0, "included_seconds": 0.0,
                       "included_cost_cents": 0.0},
         }
+        # A creation built while signed out rides the sign-up
+        # and waits on the account for the verified return.
+        pending = _clean_pending_create(body.get("pending_create"))
+        if pending:
+            user["pending_create"] = pending
         save_user(user)
         token = pysecrets.token_urlsafe(32)
         token_hash = hashlib.sha256(token.encode()).hexdigest()
@@ -3274,6 +3330,34 @@ def api():
     def me(request: Request, mf_session: str = Cookie(default="")):
         user = require_user(request, mf_session)
         return public_user(user)
+
+    @web.post("/api/me/pending-create")
+    async def store_pending_create(request: Request,
+                                   mf_session: str = Cookie(default="")):
+        """Park a signed out visitor's creation on their account
+        (the sign-in-before-verification path: they signed in
+        with an account whose email is not verified yet, so the
+        creation waits server side for the verified return)."""
+        user = require_user(request, mf_session)
+        body = await request.json()
+        pending = _clean_pending_create(body.get("pending_create"))
+        if not pending:
+            raise HTTPException(status_code=422, detail="that creation cannot be saved")
+        user["pending_create"] = pending
+        save_user(user)
+        return {"stored": True}
+
+    @web.post("/api/me/pending-create/claim")
+    def claim_pending_create(request: Request,
+                             mf_session: str = Cookie(default="")):
+        """Hand the account's pending creation to the signed in
+        studio and clear it in the same step, so a creation can
+        be restored and fired at most once, from any browser."""
+        user = require_user(request, mf_session)
+        pending = user.pop("pending_create", None)
+        if pending:
+            save_user(user)
+        return {"pending_create": pending}
 
     @web.post("/api/me/handle")
     async def set_handle(request: Request, mf_session: str = Cookie(default="")):
@@ -10212,54 +10296,6 @@ _CSS = """
 </style>
 """
 
-# ------------------------------------------------------------------
-# Landing top blocks: the landing is session-aware (Direction C
-# rebuild, 2026-11-16). A signed-in paid member never sees Try It:
-# their top block sends them straight to Create. Everyone else gets
-# the Try It framing with the sign-in-first rule stated. landing()
-# swaps the block into INDEX_HTML at the __LANDING_TOP__ token.
-# ------------------------------------------------------------------
-
-_LANDING_TOP_GUEST = """<header>
-  <a class="logo" href="/"><svg width="27" height="27" viewBox="0 0 48 48" aria-hidden="true"><path fill="#818cf8" d="M23.3 8A16 16 0 1 0 32.6 37.5A16.5 16.5 0 0 1 23.3 8Z"/><path fill="#f5d67a" stroke="#f5d67a" stroke-width="1.6" stroke-linejoin="round" d="M24 18.5L24 27.5L31.5 23Z"/></svg><span>Moon<em>factory</em></span></a>
-  <nav><a href="/gallery">Gallery</a><a href="/app" style="color:#f4f4f1;font-weight:600">Sign in</a></nav>
-</header>
-<div class="hero">
-  <h1>Turn one image into<br>a short video.</h1>
-  <p>Upload a photo, describe what happens, and get a vertical clip
-  with sound. Music, and a voice whenever someone is talking.
-  Your first 5 clips are free.</p>
-</div>
-<div class="hero-entry">
-  <div class="row2">
-    <input id="hero-prompt" type="text" maxlength="500"
-      placeholder="Describe your video, like a red hot air balloon rising over green hills">
-    <button class="btn" id="hero-go" type="button">Try It free</button>
-  </div>
-  <p class="under" style="margin-top:12px">Trying anything takes an account.
-  Sign up free, verify your email, and Try It gives you 5 clips total.
-  No card.</p>
-</div>"""
-
-_LANDING_TOP_MEMBER = """<header>
-  <a class="logo" href="/"><svg width="27" height="27" viewBox="0 0 48 48" aria-hidden="true"><path fill="#818cf8" d="M23.3 8A16 16 0 1 0 32.6 37.5A16.5 16.5 0 0 1 23.3 8Z"/><path fill="#f5d67a" stroke="#f5d67a" stroke-width="1.6" stroke-linejoin="round" d="M24 18.5L24 27.5L31.5 23Z"/></svg><span>Moon<em>factory</em></span></a>
-  <nav><a href="/gallery">Gallery</a><a href="/app" style="color:#f4f4f1;font-weight:600">Open Create</a></nav>
-</header>
-<div class="hero">
-  <h1>Turn one image into<br>a short video.</h1>
-  <p>Welcome back. Create is your studio, with every model, custom sound,
-  and the full shelf. It is one click away.</p>
-</div>
-<div class="hero-entry">
-  <div class="row2">
-    <input id="hero-prompt" type="text" maxlength="500"
-      placeholder="Describe your video, like a red hot air balloon rising over green hills">
-    <button class="btn" id="hero-go" type="button">Open Create</button>
-  </div>
-  <p class="under" style="margin-top:12px">Members open straight into Create.
-  The free trial is for people who have not paid yet, so it is not in your way.</p>
-</div>"""
-
 NOT_FOUND_HTML = """<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -10929,119 +10965,6 @@ document.getElementById('help-contact').addEventListener('submit', async (e) => 
 )
 
 
-INDEX_HTML = (
-    """<!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Moonfactory AI video generation for creators</title>
-<meta name="description" content="Turn one image into a short video with sound. Your first 5 clips are free, no card. Creator is $20/mo with an included budget, or pay per clip.">
-<meta property="og:title" content="Moonfactory AI video generation for creators">
-<meta property="og:description" content="Turn one image into a short video with sound. Your first 5 clips are free, no card.">
-<meta property="og:type" content="website">"""
-    + _CSS
-    + """<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Cpath fill='%23818cf8' d='M23.3 8A16 16 0 1 0 32.6 37.5A16.5 16.5 0 0 1 23.3 8Z'/%3E%3Cpath fill='%23f5d67a' stroke='%23f5d67a' stroke-width='1.6' stroke-linejoin='round' d='M24 18.5L24 27.5L31.5 23Z'/%3E%3C/svg%3E">
-<link rel="manifest" href="/manifest.webmanifest">
-<meta name="theme-color" content="#0c0c0f">
-<meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Moonfactory">
-<link rel="apple-touch-icon" href="/icons/icon-192.png">
-<script type="application/ld+json">
-{
-  "@context": "https://schema.org",
-  "@type": "SoftwareApplication",
-  "name": "Moonfactory",
-  "url": "https://magrify--moonfactory-api.us-east.modal.run/",
-  "applicationCategory": "MultimediaApplication",
-  "operatingSystem": "Web",
-  "offers": [
-    {
-      "@type": "Offer",
-      "name": "Free",
-      "price": 0,
-      "priceCurrency": "USD",
-      "description": "Your first 5 clips are free, no card needed."
-    },
-    {
-      "@type": "Offer",
-      "name": "Creator",
-      "price": 20,
-      "priceCurrency": "USD",
-      "description": "Creator is $20/mo with an included budget.",
-      "priceSpecification": {
-        "@type": "UnitPriceSpecification",
-        "price": 20,
-        "priceCurrency": "USD",
-        "unitText": "MON"
-      }
-    }
-  ]
-}
-</script>
-</head><body><main>
-__LANDING_TOP__
-
-<div class="strip-label" id="strip-label" style="display:none">Fresh from the community</div>
-<div class="strip" id="strip"></div>
-
-<p class="pricing-line">Your first 5 clips are <b>free</b>, no card needed.
-<b>Creator</b> is <span id="creator-price">$20</span>/mo with an included
-budget. Or <b>pay per clip</b>, with the exact price on the button before
-anything runs. No credits and no conversion math.</p>
-</main>
-<footer><span>Moonfactory</span><span><a href="/gallery">Gallery</a> &nbsp;<a href="/help">Help</a> &nbsp;<a href="/terms">Terms</a> &nbsp;<a href="/privacy">Privacy</a> &nbsp;<a href="/support">Support</a></span></footer>
-<script>
-document.getElementById('hero-go').onclick = () => {
-  const v = document.getElementById('hero-prompt').value.trim();
-  location.href = '/app' + (v ? '?prompt=' + encodeURIComponent(v) : '');
-};
-// The community strip is the public gallery's newest clips, shown
-// the same plain way the gallery shows them: clip, handle, nothing
-// else.
-fetch('/api/gallery').then(r => r.json()).then(d => {
-  const items = (d.items || []).slice(0, 4);
-  if (!items.length) return;
-  const box = document.getElementById('strip');
-  for (const item of items) {
-    const t = document.createElement('div'); t.className = 'tile';
-    const f = document.createElement('div'); f.className = 'frame';
-    if (item.kind === 'image') {
-      const img = document.createElement('img');
-      img.src = item.file_url; img.alt = ''; img.loading = 'lazy';
-      f.appendChild(img);
-    } else {
-      const v = document.createElement('video');
-      v.src = item.file_url; v.preload = 'metadata'; v.muted = true;
-      if (item.poster_url) v.poster = item.poster_url;
-      v.setAttribute('playsinline', '');
-      f.appendChild(v);
-    }
-    const h = document.createElement('div'); h.className = 'handle';
-    h.textContent = item.handle;
-    t.appendChild(f); t.appendChild(h);
-    box.appendChild(t);
-  }
-  document.getElementById('strip-label').style.display = '';
-}).catch(() => {});
-// The one pricing line takes its Creator figure from /api/pricing,
-// never hand-written.
-fetch('/api/pricing').then(r => r.json()).then(p => {
-  if (p && p.creator_price_cents) {
-    document.getElementById('creator-price').textContent =
-      '$' + (p.creator_price_cents / 100).toFixed(0);
-  }
-}).catch(() => {});
-</script>
-<script>
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch(() => {});
-  });
-}
-</script>
-</body></html>"""
-)
-
 
 APP_HTML = (
     """<!doctype html><html lang="en"><head><meta charset="utf-8">
@@ -11064,27 +10987,31 @@ APP_HTML = (
 </head><body><main>
 <header>
   <a class="logo" href="/"><svg width="27" height="27" viewBox="0 0 48 48" aria-hidden="true"><path fill="#818cf8" d="M23.3 8A16 16 0 1 0 32.6 37.5A16.5 16.5 0 0 1 23.3 8Z"/><path fill="#f5d67a" stroke="#f5d67a" stroke-width="1.6" stroke-linejoin="round" d="M24 18.5L24 27.5L31.5 23Z"/></svg><span>Moon<em>factory</em></span></a>
-  <nav><a href="/gallery">Gallery</a><span class="profile" id="profile" style="display:none"><button class="avatar" id="avatar" type="button" aria-haspopup="true" aria-expanded="false" aria-label="Account menu"></button><span class="menu" id="profile-menu" style="display:none"><span class="menu-email" id="menu-email"></span><a href="#" id="menu-account">Account</a><a href="#" id="menu-billing">Billing</a><a href="/help">Help</a><button type="button" id="menu-logout">Log out</button></span></span></nav>
+  <nav><a href="/gallery">Gallery</a><a href="#" id="nav-signin">Sign in</a><span class="profile" id="profile" style="display:none"><button class="avatar" id="avatar" type="button" aria-haspopup="true" aria-expanded="false" aria-label="Account menu"></button><span class="menu" id="profile-menu" style="display:none"><span class="menu-email" id="menu-email"></span><a href="#" id="menu-account">Account</a><a href="#" id="menu-billing">Billing</a><a href="/help">Help</a><button type="button" id="menu-logout">Log out</button></span></span></nav>
 </header>
 
 <div id="live-status" class="sr-only" role="status" aria-live="polite"></div>
 <div id="live-alert" class="sr-only" role="alert" aria-live="assertive"></div>
 
-<div id="auth" class="card" style="max-width:640px;margin-left:auto;margin-right:auto">
+<div id="auth" class="card" style="display:none;max-width:640px;margin-left:auto;margin-right:auto">
   <h2>Sign in or create an account</h2>
+  <p class="muted" id="auth-intro">Your video is ready to make. Sign in or
+  create an account and it starts right away, exactly as you built it.</p>
   <label for="email">Email</label><input id="email" type="email" autocomplete="email">
   <label for="password">Password (8+ characters)</label><input id="password" type="password" autocomplete="current-password">
   <div id="botcheck"></div>
   <p>
     <button class="btn" id="login">Sign in</button>
     <button class="btn secondary" id="signup">Create account</button>
+    <button class="btn secondary" id="auth-back" type="button">Back to your video</button>
   </p>
   <p id="auth-msg"></p>
   <p class="muted">New accounts must verify their email before creating
-  videos. Check your inbox for the link after you sign up.</p>
+  videos. Check your inbox for the link after you sign up. Anything you
+  built is saved to your account and starts once you are verified.</p>
 </div>
 
-<div id="studio" style="display:none">
+<div id="studio">
   <div class="tabs"><div class="seg">
     <button class="btn" id="tab-tryit">Try It</button>
     <button class="btn secondary" id="tab-create">Create</button>
@@ -11698,7 +11625,11 @@ function readStartFile(f) {
   if (!f) { startImageB64 = null; renderDrop(); return; }
   generatedImageJobId = null;
   const reader = new FileReader();
-  reader.onload = () => { startImageB64 = String(reader.result).split(',')[1]; renderDrop(f); };
+  reader.onload = () => {
+    startImageB64 = String(reader.result).split(',')[1];
+    renderDrop(f);
+    restoredFileArrived('start_image_png_b64', startImageB64);
+  };
   reader.readAsDataURL(f);
 }
 function renderDrop(f) {
@@ -11749,47 +11680,59 @@ function syncStartSource() {
   if (src !== 'generate') generatedImageJobId = null;
 }
 $('start-source').addEventListener('change', syncStartSource);
+function buildFirstFrame() {
+  const prompt = $('image-prompt').value.trim();
+  if (!prompt) { msg('image-note', 'Describe the first frame first.', 'err'); return null; }
+  return { kind: 'first-frame', msgId: 'image-note',
+    body: { prompt: prompt, aspect_ratio: $('aspect').value } };
+}
+async function fireFirstFrame(d) {
+  msg('image-note', 'Checking the price...');
+  const q = await api('/api/images/quote', { method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ prompt: d.body.prompt, aspect_ratio: d.body.aspect_ratio }) });
+  const p = q.payment || {};
+  const priceText = p.method === 'free' ? 'it counts as one of your free clips'
+    : p.method === 'included' ? 'it debits $' + ((p.included_debit_cents || 0) / 100).toFixed(2) + ' of your included budget'
+    : 'it costs $' + ((q.price_cents || 0) / 100).toFixed(2) + ' from your prepaid balance';
+  msg('image-note', 'Making your first frame, ' + priceText + '...');
+  const bot = await botFields('botcheck2');
+  const r = await api('/api/images', { method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ prompt: d.body.prompt, aspect_ratio: d.body.aspect_ratio, ...bot }) });
+  const imageJobId = r.id;
+  const poll = async () => {
+    const list = await api('/api/jobs');
+    const j = list.jobs.find(x => x.id === imageJobId);
+    if (!j) return;
+    if (j.status === 'done') {
+      generatedImageJobId = imageJobId;
+      $('image-preview').innerHTML =
+        '<img src="/api/jobs/' + imageJobId + '/file" style="width:180px;border-radius:14px" alt="Your first frame">' +
+        '<p class="muted">This frame is attached as your start image. Create your video when you are ready, or make another frame first.</p>';
+      msg('image-note', 'Your first frame is ready and attached.', 'ok');
+      loadJobs();
+    } else if (j.status === 'error') {
+      msg('image-note', j.error || 'The first frame could not be made, nothing was charged.', 'err');
+      loadJobs();
+    } else {
+      setTimeout(poll, 5000);
+    }
+  };
+  setTimeout(poll, 3000);
+}
 $('gen-image').onclick = async () => {
-  try {
-    const prompt = $('image-prompt').value.trim();
-    if (!prompt) { msg('image-note', 'Describe the first frame first.', 'err'); return; }
-    msg('image-note', 'Checking the price...');
-    const q = await api('/api/images/quote', { method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ prompt: prompt, aspect_ratio: $('aspect').value }) });
-    const p = q.payment || {};
-    const priceText = p.method === 'free' ? 'it counts as one of your free clips'
-      : p.method === 'included' ? 'it debits $' + ((p.included_debit_cents || 0) / 100).toFixed(2) + ' of your included budget'
-      : 'it costs $' + ((q.price_cents || 0) / 100).toFixed(2) + ' from your prepaid balance';
-    msg('image-note', 'Making your first frame, ' + priceText + '...');
-    const bot = await botFields('botcheck2');
-    const r = await api('/api/images', { method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ prompt: prompt, aspect_ratio: $('aspect').value, ...bot }) });
-    const imageJobId = r.id;
-    const poll = async () => {
-      const list = await api('/api/jobs');
-      const j = list.jobs.find(x => x.id === imageJobId);
-      if (!j) return;
-      if (j.status === 'done') {
-        generatedImageJobId = imageJobId;
-        $('image-preview').innerHTML =
-          '<img src="/api/jobs/' + imageJobId + '/file" style="width:180px;border-radius:14px" alt="Your first frame">' +
-          '<p class="muted">This frame is attached as your start image. Create your video when you are ready, or make another frame first.</p>';
-        msg('image-note', 'Your first frame is ready and attached.', 'ok');
-        loadJobs();
-      } else if (j.status === 'error') {
-        msg('image-note', j.error || 'The first frame could not be made, nothing was charged.', 'err');
-        loadJobs();
-      } else {
-        setTimeout(poll, 5000);
-      }
-    };
-    setTimeout(poll, 3000);
-  } catch (e) { msg('image-note', e.message, 'err'); }
+  const d = buildFirstFrame();
+  if (!d) return;
+  if (!currentUser) { pendingCreate = d; openAuthPanel(); return; }
+  restoredPending = null;
+  await fireCreate(d);
 };
 $('endimg').addEventListener('change', e => {
   const f = e.target.files[0]; if (!f) { endImageB64 = null; return; }
   const reader = new FileReader();
-  reader.onload = () => { endImageB64 = String(reader.result).split(',')[1]; };
+  reader.onload = () => {
+    endImageB64 = String(reader.result).split(',')[1];
+    restoredFileArrived('end_image_png_b64', endImageB64);
+  };
   reader.readAsDataURL(f);
 });
 
@@ -11945,9 +11888,19 @@ $('signup').onclick = async () => {
     $('password').autocomplete = 'new-password';
     msg('auth-msg', 'Working on the bot check...');
     const bot = await botFields('botcheck');
+    const payload = { email: $('email').value, password: $('password').value, ...bot };
+    // A creation built while signed out rides the sign-up: it
+    // is stored on the new account and fires on the verified
+    // return, so the local copy clears here (one home, one fire).
+    if (pendingCreate) payload.pending_create = serializePending(pendingCreate);
     const r = await api('/api/signup', { method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ email: $('email').value, password: $('password').value, ...bot }) });
-    msg('auth-msg', 'Account created. Open the verification link in your email, then sign in.', 'ok');
+      body: JSON.stringify(payload) });
+    if (pendingCreate) {
+      pendingCreate = null;
+      msg('auth-msg', 'Account created. Open the verification link in your email, then sign in. Your video is saved and starts as soon as you are back.', 'ok');
+    } else {
+      msg('auth-msg', 'Account created. Open the verification link in your email, then sign in.', 'ok');
+    }
   } catch (e) { msg('auth-msg', e.message, 'err'); }
 };
 $('login').onclick = async () => {
@@ -11955,9 +11908,270 @@ $('login').onclick = async () => {
     $('password').autocomplete = 'current-password';
     const r = await api('/api/login', { method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ email: $('email').value, password: $('password').value }) });
-    showStudio(r.user);
+    closeAuthPanel();
+    await afterSignIn(r.user);
   } catch (e) { msg('auth-msg', e.message, 'err'); }
 };
+
+// ---- Entry flow: build first, sign in at Generate -------------
+// A signed out visitor fills in the whole creation and hits a
+// create button. Nothing submits and nothing clears: the built
+// payload is captured as a pending creation and the sign-in form
+// opens in place on the same page. Signing in fires the pending
+// creation once, with the exact captured payload. Signing up
+// stores it on the account instead (see serializePending and
+// the server's pending-create endpoints), and the verified
+// return claims it, restores the form from it, and fires it.
+let pendingCreate = null;
+let restoredPending = null;
+
+function openAuthPanel() {
+  $('auth-intro').textContent = pendingCreate
+    ? 'Your video is ready to make. Sign in or create an account and it starts right away, exactly as you built it.'
+    : 'Sign in to keep going.';
+  $('auth').style.display = '';
+  $('auth').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+function closeAuthPanel() { $('auth').style.display = 'none'; }
+$('auth-back').onclick = () => closeAuthPanel();
+$('nav-signin').onclick = e => { e.preventDefault(); openAuthPanel(); };
+
+// File payloads are the one thing a pending creation cannot
+// carry through the sign-up round trip: the fields below are
+// swapped for a plain file_missing name, and the restored form
+// asks for the file again before the creation fires.
+const PENDING_FILE_FIELDS = {
+  start_image_png_b64: 'start_image',
+  end_image_png_b64: 'end_image',
+  source_image: 'edit_image',
+  upload_id: 'captions_clip',
+};
+function serializePending(d) {
+  const body = {};
+  const missing = [...(d.fileMissing || [])];
+  for (const [k, v] of Object.entries(d.body)) {
+    if (PENDING_FILE_FIELDS[k]) {
+      if (v && !missing.includes(PENDING_FILE_FIELDS[k])) missing.push(PENDING_FILE_FIELDS[k]);
+      continue;
+    }
+    body[k] = v;
+  }
+  return { kind: d.kind, body, file_missing: missing };
+}
+// The routes a claimed pending creation fires through, by kind:
+// the same endpoints, bot checks, and message lines the direct
+// submits have always used.
+const PENDING_ROUTES = {
+  video: { endpoint: '/api/jobs', botId: 'botcheck2', msgId: 'job-msg' },
+  motion: { endpoint: '/api/templates', botId: 'botcheck2', msgId: 'job-msg' },
+  title: { endpoint: '/api/templates', botId: 'botcheck4', msgId: 'tpl-msg' },
+  short: { endpoint: '/api/shorts', botId: 'botcheck5', msgId: 'short-msg' },
+  image: { msgId: 'job-msg' },
+  'first-frame': { msgId: 'image-note' },
+};
+function pendingOkText(d) {
+  if (d.kind === 'video') return isHouseModel(d.body.model)
+    ? 'Job queued. Draft renders take roughly 6 to 13 minutes. Production takes about 25.'
+    : 'Job queued. This model usually finishes in a few minutes.';
+  if (d.kind === 'motion' || d.kind === 'title')
+    return 'Started. Free renders take a few minutes to start, and yours shows up in your videos below as soon as it is done.';
+  if (d.kind === 'short')
+    return 'Started. Your short shows up in your videos below as soon as it is done.';
+  return '';
+}
+async function fireCreate(d) {
+  try {
+    if (d.kind === 'image') { await fireImage(d); return; }
+    if (d.kind === 'first-frame') { await fireFirstFrame(d); return; }
+    msg(d.msgId, 'Working on the bot check...');
+    if (d.needsTplUpload) {
+      await uploadTplClip();
+      if (!tplUploadId) throw new Error('the clip upload did not finish');
+      d.body.upload_id = tplUploadId;
+    }
+    const bot = await botFields(d.botId);
+    await api(d.endpoint, { method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ ...d.body, ...bot }) });
+    msg(d.msgId, d.okText || pendingOkText(d), 'ok');
+    loadJobs();
+  } catch (e) { msg(d.msgId, e.message, 'err'); }
+}
+// After any sign in: a locally built pending creation fires
+// while the visitor's own form is still on screen; an account
+// with an unverified email parks it server side instead; and
+// an account holding a stored creation from sign-up claims it.
+async function afterSignIn(u) {
+  currentUser = u;
+  if (pendingCreate) {
+    const d = pendingCreate;
+    pendingCreate = null;
+    if (u.verified) {
+      await fireCreate(d);
+      showStudio(u);
+      return;
+    }
+    showStudio(u);
+    try {
+      await api('/api/me/pending-create', { method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ pending_create: serializePending(d) }) });
+      msg('job-msg', 'Your creation is saved to your account. Verify your email, then sign in and it starts on its own.', 'ok');
+    } catch (e) {
+      msg('job-msg', 'That creation could not be saved, and this account is not verified yet. Verify your email and build it once more.', 'err');
+    }
+    return;
+  }
+  showStudio(u);
+  if (u.verified) await claimAndRestore();
+}
+async function claimAndRestore() {
+  let r;
+  try { r = await api('/api/me/pending-create/claim', { method: 'POST' }); }
+  catch (e) { return; }
+  const d = r.pending_create;
+  if (!d || !PENDING_ROUTES[d.kind]) return;
+  Object.assign(d, PENDING_ROUTES[d.kind]);
+  d.fileMissing = d.file_missing || [];
+  restoredPending = d;
+  restoreCreateForm(d);
+  if (d.fileMissing.length) {
+    const names = { start_image: 'your start image', end_image: 'your end image',
+      edit_image: 'the image to edit', captions_clip: 'your clip' };
+    const parts = d.fileMissing.map(x => names[x] || 'your file');
+    msg('job-msg', 'Welcome back. Everything you typed is back in the form. '
+      + parts.join(' and ') + ' could not be carried over. Pick it again and your video starts.', 'err');
+  } else {
+    msg('job-msg', 'Welcome back. Your video is starting, exactly as you built it.', 'ok');
+    fireRestoredIfReady();
+  }
+}
+async function fireRestoredIfReady() {
+  if (!restoredPending || restoredPending.fileMissing.length) return;
+  const d = restoredPending;
+  restoredPending = null;
+  await fireCreate(d);
+}
+// One file pick can complete a restored creation: merge the
+// fresh file field in, drop the missing mark, and fire when
+// nothing is missing anymore.
+function restoredFileArrived(field, value) {
+  if (!restoredPending) return;
+  const name = PENDING_FILE_FIELDS[field];
+  if (!name || !restoredPending.fileMissing.includes(name)) return;
+  restoredPending.body[field] = value;
+  restoredPending.fileMissing = restoredPending.fileMissing.filter(x => x !== name);
+  if (!restoredPending.fileMissing.length) {
+    msg('job-msg', 'That was the last piece. Your video is starting.', 'ok');
+    fireRestoredIfReady();
+  }
+}
+function restoreCreateForm(d) {
+  const b = d.body;
+  if (d.kind === 'first-frame') {
+    if ($('start-source').value !== 'generate') {
+      $('start-source').value = 'generate'; syncStartSource();
+    }
+    $('image-prompt').value = b.prompt || '';
+    if (b.aspect_ratio) $('aspect').value = b.aspect_ratio;
+    return;
+  }
+  if (d.kind === 'image') {
+    setImageMode(true);
+    if (b.image_model) { $('image-model').value = b.image_model; buildImageSizes(); }
+    else if ([...$('image-model').options].some(o => o.value === 'house')) {
+      $('image-model').value = 'house'; buildImageSizes();
+    }
+    if (b.image_size) $('image-size').value = b.image_size;
+    if (b.aspect_ratio) $('image-size').value = b.aspect_ratio;
+    $('prompt').value = b.prompt || '';
+    return;
+  }
+  setImageMode(false);
+  if (d.kind === 'motion') {
+    $('model').value = b.template; updateModelUI();
+    if (b.template === 'story') {
+      $('mf-story-title').value = b.title || '';
+      $('mf-story-lines').value = b.lines || '';
+    } else {
+      $('mf-sting-headline').value = b.headline || '';
+      $('mf-sting-subline').value = b.subline || '';
+    }
+    if (b.color) $('mf-color').value = b.color;
+    return;
+  }
+  if (d.kind === 'title') {
+    $('model').value = TITLE_CARDS_ID; updateModelUI();
+    $('tpl-template').value = b.template || 'title'; tplShowFields();
+    if (b.template === 'title') {
+      $('tpl-title-headline').value = b.headline || '';
+      $('tpl-title-subline').value = b.subline || '';
+    } else if (b.template === 'captions') {
+      $('tpl-caption').value = b.caption || '';
+    } else if (b.template === 'stat') {
+      $('tpl-stat').value = b.stat || '';
+      $('tpl-stat-label').value = b.label || '';
+    } else if (b.template === 'promo') {
+      $('tpl-promo-headline').value = b.headline || '';
+      $('tpl-promo-subline').value = b.subline || '';
+      $('tpl-promo-cta').value = b.cta || '';
+    }
+    if (b.color) $('tpl-color').value = b.color;
+    return;
+  }
+  if (d.kind === 'short') {
+    $('model').value = SHORTS_ID; updateModelUI();
+    if (b.script) {
+      shortMode = 'script';
+      $('short-script').value = b.script;
+    } else {
+      shortMode = 'topic';
+      $('short-topic').value = b.topic || '';
+      if (b.length_seconds) $('short-length').value = String(b.length_seconds);
+    }
+    shortShowMode();
+    if (b.voice) $('short-voice').value = b.voice;
+    shortScriptEstimate();
+    return;
+  }
+  // video
+  $('model').value = b.model || 'wan2.2'; updateModelUI();
+  $('prompt').value = b.prompt || '';
+  if (b.lane) $('lane').value = b.lane;
+  if (b.aspect_ratio) $('aspect').value = b.aspect_ratio;
+  if (b.segments) { $('segments').value = String(b.segments); buildSegmentsSeg(); }
+  if (b.duration_seconds) $('duration').value = String(b.duration_seconds);
+  if (b.resolution) $('resolution').value = b.resolution;
+  $('music').value = b.music_prompt || '';
+  $('speech').value = b.speech_script || '';
+  if (b.speech_voice) $('speech-voice').value = b.speech_voice;
+  $('captions').checked = !!b.captions;
+  $('negative').value = b.negative_prompt || '';
+  $('seed').value = (b.seed === undefined || b.seed === null) ? '' : String(b.seed);
+  if (b.reference_video_urls && b.reference_video_urls[0]) $('motion-url').value = b.reference_video_urls[0];
+  if (b.reference_video_seconds) $('motion-seconds').value = String(b.reference_video_seconds);
+  if (b.camera_presets) {
+    selectedPresets = [...b.camera_presets];
+    if (typeof renderChain === 'function') renderChain();
+  }
+  if (b.camera_look) {
+    for (const slot of Object.keys(b.camera_look)) {
+      const el = $('look-' + slot);
+      if (el) el.value = b.camera_look[slot];
+    }
+  }
+  if (b.character_id) $('character').value = b.character_id;
+  updateHousePrice();
+}
+// The signed out studio: the same Create screen, with a plain
+// note about the sign-in-at-Generate rule and an empty library.
+function showGuestStudio() {
+  currentUser = null;
+  $('nav-signin').style.display = '';
+  $('composer-heading').textContent = 'Create';
+  $('composer-note').textContent = 'Build your video first. When you hit Create, you sign in or make a free account, and your video starts right away, exactly as you built it.';
+  $('jobs').innerHTML = '<p class="muted">Your videos will show up here once you make one.</p>';
+  showTab('tryit');
+  updateModelUI();
+}
 
 // Profile menu: the header avatar opens the account menu. Account
 // and Billing each open their own panel in place. The account
@@ -12021,6 +12235,7 @@ function genLabel(priceCents) {
 function showStudio(u) {
   currentUser = u;
   $('auth').style.display = 'none'; $('studio').style.display = 'block';
+  $('nav-signin').style.display = 'none';
   $('profile').style.display = 'inline-block';
   $('avatar').textContent = (u.email || '?').trim().charAt(0).toUpperCase();
   $('menu-email').textContent = u.email;
@@ -12339,7 +12554,12 @@ function buildCatalog() {
 }
 function applyModelGates() {
   const sel = $('model');
-  const paid = !!(currentUser && currentUser.paid_customer);
+  // A signed out visitor composes with the whole picker (entry
+  // flow, 2026-11-19): the account's gates land when they sign
+  // in, and the server enforces them on every create either
+  // way, so nothing here needs to narrow a guest's form.
+  if (!currentUser) return;
+  const paid = !!currentUser.paid_customer;
   // Motion templates, title cards, and faceless shorts stay open
   // to everyone: they are free, and on a free account they count
   // toward the five free clips, exactly as the title cards always
@@ -12539,7 +12759,8 @@ $('gallery-optout').addEventListener('change', async () => {
   } catch (e) { msg('profile-msg', e.message, 'err'); $('gallery-optout').checked = false; }
 });
 async function refreshMe() {
-  try { const u = await api('/api/me'); showStudio(u); } catch (e) { /* signed out */ }
+  try { const u = await api('/api/me'); await afterSignIn(u); }
+  catch (e) { showGuestStudio(); }
 }
 $('buy-creator').onclick = async () => {
   try { const r = await api('/api/checkout/subscription', { method: 'POST' }); location.href = r.url; }
@@ -12585,75 +12806,76 @@ document.querySelectorAll('[data-topup]').forEach(b => b.onclick = async () => {
     location.href = r.url;
   } catch (e) { msg('pay-msg', e.message, 'err'); }
 });
-$('create').onclick = async () => {
-  try {
-    if (imageMode) { await makeImage(); return; }
-    if ($('model').value === TITLE_CARDS_ID) { await makeTitleCard(); return; }
-    if ($('model').value === SHORTS_ID) { await makeShort(); return; }
-    msg('job-msg', 'Working on the bot check...');
-    const bot = await botFields('botcheck2');
-    const model = $('model').value;
-    if (isMotionTemplate(model)) {
-      // A motion pick is a template job, not a generation: same
-      // free template lane, same queue and library as everything
-      // else, at zero credits.
-      const payload = { template: model, color: $('mf-color').value, ...bot };
-      if (model === 'story') {
-        payload.title = $('mf-story-title').value;
-        payload.lines = $('mf-story-lines').value;
-      } else {
-        payload.headline = $('mf-sting-headline').value;
-        payload.subline = $('mf-sting-subline').value;
-      }
-      await api('/api/templates', { method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(payload) });
-      msg('job-msg', 'Started. Free renders take a few minutes to start, and yours shows up in your videos below as soon as it is done.', 'ok');
-      loadJobs();
-      return;
+// The Create button builds its payload first (buildCreate and
+// the per lane builders below), then fires it (fireCreate). A
+// signed out visitor's build becomes the pending creation and
+// the sign-in form opens in place instead: nothing submits,
+// nothing clears.
+function buildCreate() {
+  if (imageMode) return buildImage();
+  const model = $('model').value;
+  if (model === TITLE_CARDS_ID) return buildTitleCard();
+  if (model === SHORTS_ID) return buildShort();
+  if (isMotionTemplate(model)) {
+    // A motion pick is a template job, not a generation: same
+    // free template lane, same queue and library as everything
+    // else, at zero credits.
+    const payload = { template: model, color: $('mf-color').value };
+    if (model === 'story') {
+      payload.title = $('mf-story-title').value;
+      payload.lines = $('mf-story-lines').value;
+    } else {
+      payload.headline = $('mf-sting-headline').value;
+      payload.subline = $('mf-sting-subline').value;
     }
-    const camera = { camera_presets: selectedPresets, camera_look: selectedLook() };
-    if (selectedFunPreset()) camera.camera_speed = Number($('camera-speed').value);
-    const startFields = $('start-source').value === 'generate' && generatedImageJobId
-      ? { start_image_job_id: generatedImageJobId }
-      : { start_image_png_b64: startImageB64 };
-    const neg = $('negative').value.trim();
-    const seedRaw = $('seed').value.trim();
-    const seedNum = seedRaw === '' ? null : Number(seedRaw);
-    const detailFields = {
-      ...(neg ? { negative_prompt: neg } : {}),
-      ...(seedNum !== null && Number.isInteger(seedNum) ? { seed: seedNum } : {})
-    };
-    const motionFields = model === 'wan_motion'
-      ? { reference_video_urls: [$('motion-url').value.trim()],
-          reference_video_seconds: Number($('motion-seconds').value) || Number($('duration').value) }
-      : {};
-    const charFields = $('character').value
-      ? { character_id: $('character').value } : {};
-    const jobBody = isHouseModel(model)
-      ? { model: model, lane: selectedEffect ? 'effects' : $('lane').value, prompt: $('prompt').value,
-          music_prompt: $('music').disabled ? '' : $('music').value,
-          speech_script: $('speech').disabled ? '' : $('speech').value,
-          speech_voice: $('speech').disabled ? '' : $('speech-voice').value,
-          captions: $('captions').checked,
-          effect: selectedEffect || undefined,
-          ...startFields, end_image_png_b64: selectedEffect ? null : endImageB64,
-          aspect_ratio: $('aspect').value, segments: selectedEffect ? 1 : Number($('segments').value),
-          ...(selectedEffect ? {} : camera), ...detailFields, ...charFields, ...bot }
-      : { model: model, prompt: $('prompt').value,
-          music_prompt: $('music').disabled ? '' : $('music').value,
-          speech_script: $('speech').disabled ? '' : $('speech').value,
-          speech_voice: $('speech').disabled ? '' : $('speech-voice').value,
-          captions: $('captions').checked,
-          aspect_ratio: $('aspect').value,
-          duration_seconds: Number($('duration').value), resolution: $('resolution').value,
-          ...startFields, ...camera, ...detailFields, ...motionFields, ...charFields, ...bot };
-    const r = await api('/api/jobs', { method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(jobBody) });
-    msg('job-msg', isHouseModel(model)
-      ? 'Job queued. Draft renders take roughly 6 to 13 minutes. Production takes about 25.'
-      : 'Job queued. This model usually finishes in a few minutes.', 'ok');
-    loadJobs();
-  } catch (e) { msg('job-msg', e.message, 'err'); }
+    return { kind: 'motion', endpoint: '/api/templates', botId: 'botcheck2',
+      msgId: 'job-msg', body: payload };
+  }
+  const camera = { camera_presets: selectedPresets, camera_look: selectedLook() };
+  if (selectedFunPreset()) camera.camera_speed = Number($('camera-speed').value);
+  const startFields = $('start-source').value === 'generate' && generatedImageJobId
+    ? { start_image_job_id: generatedImageJobId }
+    : { start_image_png_b64: startImageB64 };
+  const neg = $('negative').value.trim();
+  const seedRaw = $('seed').value.trim();
+  const seedNum = seedRaw === '' ? null : Number(seedRaw);
+  const detailFields = {
+    ...(neg ? { negative_prompt: neg } : {}),
+    ...(seedNum !== null && Number.isInteger(seedNum) ? { seed: seedNum } : {})
+  };
+  const motionFields = model === 'wan_motion'
+    ? { reference_video_urls: [$('motion-url').value.trim()],
+        reference_video_seconds: Number($('motion-seconds').value) || Number($('duration').value) }
+    : {};
+  const charFields = $('character').value
+    ? { character_id: $('character').value } : {};
+  const jobBody = isHouseModel(model)
+    ? { model: model, lane: selectedEffect ? 'effects' : $('lane').value, prompt: $('prompt').value,
+        music_prompt: $('music').disabled ? '' : $('music').value,
+        speech_script: $('speech').disabled ? '' : $('speech').value,
+        speech_voice: $('speech').disabled ? '' : $('speech-voice').value,
+        captions: $('captions').checked,
+        effect: selectedEffect || undefined,
+        ...startFields, end_image_png_b64: selectedEffect ? null : endImageB64,
+        aspect_ratio: $('aspect').value, segments: selectedEffect ? 1 : Number($('segments').value),
+        ...(selectedEffect ? {} : camera), ...detailFields, ...charFields }
+    : { model: model, prompt: $('prompt').value,
+        music_prompt: $('music').disabled ? '' : $('music').value,
+        speech_script: $('speech').disabled ? '' : $('speech').value,
+        speech_voice: $('speech').disabled ? '' : $('speech-voice').value,
+        captions: $('captions').checked,
+        aspect_ratio: $('aspect').value,
+        duration_seconds: Number($('duration').value), resolution: $('resolution').value,
+        ...startFields, ...camera, ...detailFields, ...motionFields, ...charFields };
+  return { kind: 'video', endpoint: '/api/jobs', botId: 'botcheck2',
+    msgId: 'job-msg', body: jobBody };
+}
+$('create').onclick = async () => {
+  const d = buildCreate();
+  if (!d) return;
+  if (!currentUser) { pendingCreate = d; openAuthPanel(); return; }
+  restoredPending = null;
+  await fireCreate(d);
 };
 function costLine(j) {
   if (j.kind === 'clip_output' || j.status === 'error') return '';
@@ -12851,6 +13073,7 @@ $('make-clips').onclick = async () => {
 // so the job kind, the Kaggle dispatch, and the pricing rules are
 // the ones the lane has always had.
 let tplUploadId = null;
+let tplClipFile = null;
 function tplShowFields() {
   const t = $('tpl-template').value;
   for (const name of ['title', 'captions', 'stat', 'promo']) {
@@ -12858,8 +13081,21 @@ function tplShowFields() {
   }
 }
 $('tpl-template').addEventListener('change', tplShowFields);
+// The captions clip uploads on pick for a signed in user. A
+// signed out visitor's pick stays in the page (the upload needs
+// an account): it uploads at fire time, right after sign in.
 $('tpl-clip-file').addEventListener('change', async () => {
   const f = $('tpl-clip-file').files[0];
+  tplClipFile = f || null;
+  if (!f) { tplUploadId = null; return; }
+  if (!currentUser) {
+    msg('tpl-msg', 'Clip picked. It uploads when you sign in, and your card starts right after.', 'ok');
+    return;
+  }
+  await uploadTplClip();
+});
+async function uploadTplClip() {
+  const f = tplClipFile || $('tpl-clip-file').files[0];
   if (!f) return;
   try {
     msg('tpl-msg', 'Uploading your clip...');
@@ -12869,35 +13105,31 @@ $('tpl-clip-file').addEventListener('change', async () => {
     if (!r.ok) throw new Error(q.detail || ('HTTP ' + r.status));
     tplUploadId = q.upload_id;
     msg('tpl-msg', 'Clip ready. It runs ' + q.duration_seconds + ' seconds.', 'ok');
+    restoredFileArrived('upload_id', tplUploadId);
   } catch (e) { msg('tpl-msg', e.message, 'err'); }
-});
-async function makeTitleCard() {
-  try {
-    const t = $('tpl-template').value;
-    const payload = { template: t, color: $('tpl-color').value };
-    if (t === 'title') {
-      payload.headline = $('tpl-title-headline').value;
-      payload.subline = $('tpl-title-subline').value;
-    } else if (t === 'captions') {
-      if (!tplUploadId) { msg('tpl-msg', 'Upload your clip first.', 'err'); return; }
-      payload.caption = $('tpl-caption').value;
-      payload.upload_id = tplUploadId;
-    } else if (t === 'stat') {
-      payload.stat = $('tpl-stat').value;
-      payload.label = $('tpl-stat-label').value;
-    } else if (t === 'promo') {
-      payload.headline = $('tpl-promo-headline').value;
-      payload.subline = $('tpl-promo-subline').value;
-      payload.cta = $('tpl-promo-cta').value;
-    }
-    msg('tpl-msg', 'Working on the bot check...');
-    const bot = await botFields('botcheck4');
-    Object.assign(payload, bot);
-    await api('/api/templates', { method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(payload) });
-    msg('tpl-msg', 'Started. Free renders take a few minutes to start, and yours shows up in your videos below as soon as it is done.', 'ok');
-    loadJobs();
-  } catch (e) { msg('tpl-msg', e.message, 'err'); }
+}
+function buildTitleCard() {
+  const t = $('tpl-template').value;
+  const payload = { template: t, color: $('tpl-color').value };
+  const d = { kind: 'title', endpoint: '/api/templates', botId: 'botcheck4',
+    msgId: 'tpl-msg', body: payload };
+  if (t === 'title') {
+    payload.headline = $('tpl-title-headline').value;
+    payload.subline = $('tpl-title-subline').value;
+  } else if (t === 'captions') {
+    if (!tplUploadId && !tplClipFile) { msg('tpl-msg', 'Upload your clip first.', 'err'); return null; }
+    payload.caption = $('tpl-caption').value;
+    if (tplUploadId) payload.upload_id = tplUploadId;
+    else d.needsTplUpload = true;
+  } else if (t === 'stat') {
+    payload.stat = $('tpl-stat').value;
+    payload.label = $('tpl-stat-label').value;
+  } else if (t === 'promo') {
+    payload.headline = $('tpl-promo-headline').value;
+    payload.subline = $('tpl-promo-subline').value;
+    payload.cta = $('tpl-promo-cta').value;
+  }
+  return d;
 }
 // ---- Shorts (free faceless shorts lane, a Create picker entry) ----
 let shortMode = 'topic';
@@ -12950,25 +13182,18 @@ function shortScriptEstimate() {
   el.textContent = text;
 }
 $('short-script').addEventListener('input', shortScriptEstimate);
-async function makeShort() {
-  try {
-    const payload = { voice: $('short-voice').value };
-    if (shortMode === 'topic') {
-      payload.topic = $('short-topic').value;
-      payload.length_seconds = parseInt($('short-length').value, 10);
-      if (!payload.topic.trim()) { msg('short-msg', 'Give the short a topic first.', 'err'); return; }
-    } else {
-      payload.script = $('short-script').value;
-      if (!payload.script.trim()) { msg('short-msg', 'Paste your script first.', 'err'); return; }
-    }
-    msg('short-msg', 'Working on the bot check...');
-    const bot = await botFields('botcheck5');
-    Object.assign(payload, bot);
-    await api('/api/shorts', { method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(payload) });
-    msg('short-msg', 'Started. Your short shows up in your videos below as soon as it is done.', 'ok');
-    loadJobs();
-  } catch (e) { msg('short-msg', e.message, 'err'); }
+function buildShort() {
+  const payload = { voice: $('short-voice').value };
+  if (shortMode === 'topic') {
+    payload.topic = $('short-topic').value;
+    payload.length_seconds = parseInt($('short-length').value, 10);
+    if (!payload.topic.trim()) { msg('short-msg', 'Give the short a topic first.', 'err'); return null; }
+  } else {
+    payload.script = $('short-script').value;
+    if (!payload.script.trim()) { msg('short-msg', 'Paste your script first.', 'err'); return null; }
+  }
+  return { kind: 'short', endpoint: '/api/shorts', botId: 'botcheck5',
+    msgId: 'short-msg', body: payload };
 }
 // Characters: saved once, reused across jobs. The picker lists
 // the account's characters; the create form rides along in More
@@ -13126,18 +13351,23 @@ $('image-edit-file').addEventListener('change', async () => {
     img.style.maxWidth = '100%'; img.style.borderRadius = '12px';
     img.alt = 'The image to edit';
     $('image-edit-preview').appendChild(img);
+    restoredFileArrived('source_image', editSourceDataUrl);
   } catch (e) { msg('job-msg', 'That image could not be read.', 'err'); }
 });
-async function makeImage() {
+function buildImage() {
   const lane = imageLane();
-  if (!lane) { msg('job-msg', 'Pick an image model first.', 'err'); return; }
-  if (lane.edit && !editSourceDataUrl) { msg('job-msg', 'Add the image you want edited first.', 'err'); return; }
+  if (!lane) { msg('job-msg', 'Pick an image model first.', 'err'); return null; }
+  if (lane.edit && !editSourceDataUrl) { msg('job-msg', 'Add the image you want edited first.', 'err'); return null; }
+  const body = lane.id === 'house'
+    ? { prompt: $('prompt').value, aspect_ratio: $('image-size').value }
+    : { prompt: $('prompt').value, image_model: lane.id, image_size: $('image-size').value };
+  if (lane.edit) body.source_image = editSourceDataUrl;
+  return { kind: 'image', msgId: 'job-msg', body };
+}
+async function fireImage(d) {
   msg('job-msg', 'Working on the bot check...');
   const bot = await botFields('botcheck2');
-  const body = lane.id === 'house'
-    ? { prompt: $('prompt').value, aspect_ratio: $('image-size').value, ...bot }
-    : { prompt: $('prompt').value, image_model: lane.id, image_size: $('image-size').value, ...bot };
-  if (lane.edit) body.source_image = editSourceDataUrl;
+  const body = { ...d.body, ...bot };
   const r = await api('/api/images', { method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify(body) });
   shelfImageJobId = r.job_id;
@@ -13173,6 +13403,11 @@ buildSegmentsSeg();
 loadPresets();
 loadEffects();
 if (new URLSearchParams(location.search).get('verified')) {
+  // The verified return lands on the studio like every visit;
+  // the sign-in form opens in place, and anything saved at
+  // sign-up fires after sign in (afterSignIn claims it).
+  openAuthPanel();
+  $('auth-intro').textContent = 'Email verified. Sign in and anything you built starts right away.';
   msg('auth-msg', 'Email verified. You can sign in now.', 'ok');
 }
 refreshMe();

@@ -250,7 +250,7 @@ check("function applyMotionUI()" in SRC
       "picking a motion template swaps the composer fields and stays open to free accounts")
 check("payload.title = $('mf-story-title').value" in SRC
       and "payload.headline = $('mf-sting-headline').value" in SRC
-      and SRC.count("api('/api/templates'") >= 2,
+      and SRC.count("endpoint: '/api/templates'") >= 2,
       "the Create button sends motion picks to the template lane")
 check('id="tpl-fields-story"' not in SRC and 'value="story"' not in SRC,
       "the Titles pane no longer carries the motion templates")

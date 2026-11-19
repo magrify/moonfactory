@@ -93,7 +93,7 @@ for el in ("$('dropzone')", "$('start-source')", "$('prompt')",
     check(el in swap, f"the swap hides the video only field {el}")
 check("'botcheck4'" in SRC.split("function renderBotChecks()", 1)[1].split("}", 1)[0],
       "the title form's bot check widget is rendered")
-check("botFields('botcheck4')" in SRC,
+check("botId: 'botcheck4'" in SRC,
       "the template submit reads the title form's own widget")
 check("$('house-price'), $('botcheck2')]) if (el) el.style.display = '';" in SRC,
       "the video restore path brings the card bot check back")
@@ -101,13 +101,13 @@ check("$('create').textContent = 'Make it for free'" in swap,
       "the shared button becomes the free lane's button")
 check("for (const name of ['title', 'captions', 'stat', 'promo'])"
       in SRC, "the style switcher still swaps the four field blocks")
-check("if ($('model').value === TITLE_CARDS_ID) { await makeTitleCard(); return; }"
-      in SRC, "the Create button routes title cards to the template submit")
+check("if (model === TITLE_CARDS_ID) return buildTitleCard();"
+      in SRC, "the Create button routes title cards to the template build")
 
 # --- submission still dispatches the template lane -------------------------
-check("async function makeTitleCard()" in SRC,
-      "the template submit survives as a named function")
-check("await api('/api/templates', { method: 'POST'" in SRC,
+check("function buildTitleCard()" in SRC,
+      "the template build survives as a named function")
+check("endpoint: '/api/templates'" in SRC,
       "submission still posts to /api/templates")
 check("const payload = { template: t, color: $('tpl-color').value };" in SRC,
       "the payload still carries the picked style and color")
