@@ -127,6 +127,7 @@ clip_image = (
     .add_local_file(str(Path(__file__).parent / "fun_camera.py"), "/platform/fun_camera.py")
     .add_local_file(str(Path(__file__).parent / "llm_providers.py"), "/platform/llm_providers.py")
     .add_local_file(str(Path(__file__).parent / "shorts.py"), "/platform/shorts.py")
+    .add_local_file(str(Path(__file__).parent / "drama.py"), "/platform/drama.py")
     .add_local_dir(str(Path(__file__).parent / "clip_fonts"), "/platform/clip_fonts")
 )
 
