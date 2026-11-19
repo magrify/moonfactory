@@ -528,39 +528,45 @@ def setup_comfy() -> dict:
             ["git", "clone", "--depth", "1",
              "https://github.com/comfyanonymous/ComfyUI.git",
              str(COMFY_DIR)], check=True, timeout=900)
-        req = (COMFY_DIR / "requirements.txt").read_text().splitlines()
-        try:
-            import torch
+    # The clone persists in the working volume between
+    # sessions but pip installs land in the session's own
+    # environment, which does not: the requirements install
+    # runs every session (pip skips what is already
+    # satisfied). The second live session died on exactly
+    # this, ComfyUI up against a missing torchsde.
+    req = (COMFY_DIR / "requirements.txt").read_text().splitlines()
+    try:
+        import torch
 
-            info["torch"] = torch.__version__
-            if not torch.cuda.is_available():
-                raise RuntimeError("torch is present but CUDA is not")
-            # The session image's torch drives ComfyUI fine and
-            # reinstalling it would eat the session; drop the
-            # torch lines from the requirements instead.
-            req = [ln for ln in req
-                   if not ln.strip().lower().startswith(
-                       ("torch", "torchvision", "torchaudio"))]
-            log(f"using the session image's torch {info['torch']}")
-        except ImportError:
-            log("no torch in the session image, installing from "
-                "ComfyUI's requirements")
-        req_path = WORKING / "comfy-requirements.txt"
-        req_path.write_text("\n".join(req))
+        info["torch"] = torch.__version__
+        if not torch.cuda.is_available():
+            raise RuntimeError("torch is present but CUDA is not")
+        # The session image's torch drives ComfyUI fine and
+        # reinstalling it would eat the session; drop the
+        # torch lines from the requirements instead.
+        req = [ln for ln in req
+               if not ln.strip().lower().startswith(
+                   ("torch", "torchvision", "torchaudio"))]
+        log(f"using the session image's torch {info['torch']}")
+    except ImportError:
+        log("no torch in the session image, installing from "
+            "ComfyUI's requirements")
+    req_path = WORKING / "comfy-requirements.txt"
+    req_path.write_text("\n".join(req))
+    subprocess.run(
+        [sys.executable, "-m", "pip", "install", "-q",
+         "-r", str(req_path)], check=True, timeout=1800)
+    vhs = COMFY_DIR / "custom_nodes" / "ComfyUI-VideoHelperSuite"
+    if not vhs.exists():
+        subprocess.run(
+            ["git", "clone", "--depth", "1",
+             "https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git",
+             str(vhs)], check=True, timeout=600)
+    vhs_req = vhs / "requirements.txt"
+    if vhs_req.exists():
         subprocess.run(
             [sys.executable, "-m", "pip", "install", "-q",
-             "-r", str(req_path)], check=True, timeout=1800)
-        vhs = COMFY_DIR / "custom_nodes" / "ComfyUI-VideoHelperSuite"
-        if not vhs.exists():
-            subprocess.run(
-                ["git", "clone", "--depth", "1",
-                 "https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git",
-                 str(vhs)], check=True, timeout=600)
-            vhs_req = vhs / "requirements.txt"
-            if vhs_req.exists():
-                subprocess.run(
-                    [sys.executable, "-m", "pip", "install", "-q",
-                     "-r", str(vhs_req)], check=True, timeout=900)
+             "-r", str(vhs_req)], check=True, timeout=900)
     if not shutil.which("ffmpeg"):
         # The combine nodes shell out to ffmpeg; where the
         # session image lacks it, drop in the static binary
