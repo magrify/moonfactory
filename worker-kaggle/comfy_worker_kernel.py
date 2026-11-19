@@ -882,10 +882,17 @@ def setup_comfy() -> dict:
             raise RuntimeError("torch is present but CUDA is not")
         # The session image's torch drives ComfyUI fine and
         # reinstalling it would eat the session; drop the
-        # torch lines from the requirements instead.
+        # torch lines from the requirements instead. Matched
+        # by exact package name: a prefix match also drops
+        # torchsde, which ComfyUI imports at startup (the
+        # third live session died on exactly that).
+        def _pkg_name(line):
+            return line.strip().lower().split("=")[0].split(
+                "<")[0].split(">")[0].split("[")[0].strip()
+
         req = [ln for ln in req
-               if not ln.strip().lower().startswith(
-                   ("torch", "torchvision", "torchaudio"))]
+               if _pkg_name(ln) not in (
+                   "torch", "torchvision", "torchaudio")]
         log(f"using the session image's torch {info['torch']}")
     except ImportError:
         log("no torch in the session image, installing from "
