@@ -49,6 +49,15 @@ for stage in app.SHORTS_STAGES:
           f"stage copy follows the plain copy rule: {stage}")
 check(shorts.WIDTH == 1080 and shorts.HEIGHT == 1920,
       "shorts are vertical 1080 x 1920")
+check(set(app.SHORTS_MUSIC_STYLES) == {
+    "house", "calm", "upbeat", "cinematic", "none"},
+    "the music choices are the house bed, three styles, and none")
+for music_id, entry in app.SHORTS_MUSIC_STYLES.items():
+    check(all(mark not in entry["label"] for mark in (":", ";", "-")),
+          f"music label follows the plain copy rule: {entry['label']}")
+    if music_id not in ("house", "none"):
+        check(bool(entry["caption"]),
+              f"music style {music_id} carries its bed caption")
 check(shorts.SHORTS_MAX_LINES == 20, "script line cap is 20")
 check(shorts.SHORTS_MAX_SCRIPT_CHARS == 2200,
       "script cap fits a full two minutes")
@@ -420,6 +429,10 @@ check("split_mode" in lane and '"short_split"' in lane,
       "creation takes and records the split choice")
 check('"split_modes"' in lane,
       "the config offers the split choices")
+check('"short_music"' in lane and "SHORTS_MUSIC_STYLES" in lane,
+      "creation takes, validates, and records the music choice")
+check('"music_styles"' in lane,
+      "the config offers the music choices")
 check("short_parent" in SRC,
       "AI picture jobs carry the short parent mark")
 check('not job.get("short_parent")' in SRC,
@@ -441,6 +454,10 @@ check("visuals_fallback" in processor,
       "a failed picture run falls back to stock on the record")
 check("_wake_comfy_kernel" in SRC,
       "the kernel wake lives at module level for the processors")
+check("_short_bed_for_job" in processor,
+      "the runner resolves the picked music bed")
+check("generate_bed" in SRC and "shorts_{style}" in SRC,
+      "named beds ride the platform bed stage, cached by style")
 check("build_captions_ass" in processor, "the runner times captions")
 check("assemble_short" in processor, "the runner assembles the short")
 check("_short_word_check" in processor,
@@ -535,6 +552,17 @@ check(split_values == set(shorts.SPLIT_MODES),
       "the split picker offers exactly the split choices")
 check("payload.split" in SRC,
       "the submit sends the split choice")
+check('id="short-music"' in pane, "the form carries the music picker")
+music_select = pane.split('id="short-music"', 1)[1].split(
+    '</select>', 1)[0]
+music_values = {
+    part.split('"')[0]
+    for part in music_select.split('<option value="')[1:]
+}
+check(music_values == set(app.SHORTS_MUSIC_STYLES),
+      "the music picker offers exactly the music choices")
+check("$('short-music')" in SRC,
+      "the submit sends the music choice")
 voice_select = pane.split('id="short-voice"', 1)[1].split(
     '</select>', 1)[0]
 pane_voices = {

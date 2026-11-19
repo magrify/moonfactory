@@ -515,6 +515,40 @@ def _short_ai_scenes(job: dict, lines: list):
     return paths
 
 
+def _short_bed_for_job(job: dict):
+    """The music bed one short runs under, by the job's picked
+    style. House is the platform bed file. A named style rides
+    the platform's ACE-Step bed stage with its fixed caption,
+    the _bed_for_job pattern, but cached by style on the data
+    Volume so each style is generated once and then shared.
+    No music returns None. Any audio stage failure falls back
+    to the house bed and flags the job record, so delivery
+    never breaks on the music stage."""
+    style = job.get("short_music") or "house"
+    if style == "none":
+        return None
+    caption = (SHORTS_MUSIC_STYLES.get(style) or {}).get(
+        "caption") or ""
+    if not caption:
+        return BED_PATH if BED_PATH.exists() else None
+    bed_file = FILES_DIR / "beds" / f"shorts_{style}.wav"
+    if bed_file.exists():
+        return bed_file
+    try:
+        generate_bed = modal.Function.from_name(
+            "sinclip-audio", "generate_bed")
+        data = generate_bed.remote(
+            f"{caption}, instrumental, no vocals", 7)
+        bed_file.parent.mkdir(parents=True, exist_ok=True)
+        bed_file.write_bytes(data)
+        data_volume.commit()
+        return bed_file
+    except Exception:
+        job["music_fallback"] = True
+        jobs[job["id"]] = job
+        return BED_PATH if BED_PATH.exists() else None
+
+
 @app.function(
     image=clip_image,
     secrets=[
@@ -652,7 +686,7 @@ def process_short_job(job_id: str):
         info = shorts.assemble_short(
             scene_paths,
             scene_durations, narration, ass_path, out_path, work,
-            bed_path=BED_PATH if BED_PATH.exists() else None,
+            bed_path=_short_bed_for_job(job),
             watermark=bool(job.get("free_tier")),
             font_path=FONT_PATH)
         job["duration_seconds"] = round(float(info["duration"]), 2)
@@ -1423,6 +1457,25 @@ SHORTS_STAGES = (
     "Timing the captions",
     "Putting it together",
 )
+# The music choices for one short. House is the platform's
+# ACE-Step bed file, the lane's original fixed bed. The named
+# styles are fixed captions on the same ACE-Step stage
+# _bed_for_job rides: each style's bed is generated once,
+# cached on the data Volume in the same beds folder, and
+# shared by every short that picks it after, so a style costs
+# one bed generation once, not one per short. None is no music
+# under the narration at all.
+SHORTS_MUSIC_STYLES = {
+    "house": {"label": "House bed", "caption": ""},
+    "calm": {"label": "Calm piano",
+             "caption": "calm soft piano, gentle and warm"},
+    "upbeat": {"label": "Upbeat pop",
+               "caption": "upbeat cheerful pop, light and bright"},
+    "cinematic": {"label": "Cinematic strings",
+                  "caption": "cinematic orchestral strings, "
+                             "emotional and swelling"},
+    "none": {"label": "No music", "caption": ""},
+}
 TEMPLATE_MAX_SOURCE_SECONDS = 60
 TEMPLATE_MAX_UPLOAD_BYTES = 200 * 1024 * 1024
 # A trigger push is attempted at most once per this many seconds,
@@ -9714,6 +9767,10 @@ x_api_key: str = Header(default="")):
                 {"id": mode, "label": shorts.SPLIT_MODE_LABELS[mode]}
                 for mode in shorts.SPLIT_MODES
             ],
+            "music_styles": [
+                {"id": key, "label": entry["label"]}
+                for key, entry in SHORTS_MUSIC_STYLES.items()
+            ],
         }
 
     @web.post("/api/shorts")
@@ -9806,6 +9863,11 @@ x_api_key: str = Header(default="")):
                     detail="pick one of the picture styles on the list")
         else:
             style = ""
+        music = (body.get("music") or "house").strip()
+        if music not in SHORTS_MUSIC_STYLES:
+            raise HTTPException(
+                status_code=422,
+                detail="pick one of the music choices on the list")
         is_free_job = False
         if not is_paid(user):
             if free_jobs_total(user) >= FREE_CLIPS_TOTAL:
@@ -9847,6 +9909,7 @@ x_api_key: str = Header(default="")):
             "short_style": style or None,
             "short_split": split_mode if script_source == "pasted"
             else "auto",
+            "short_music": music,
             "script_source": script_source,
             "speech_script": " ".join(lines),
             "speech_voice": voice,
@@ -12121,6 +12184,14 @@ APP_HTML = (
       <option value="bm_lewis">Lewis, British man</option>
     </select>
     <p class="muted" id="short-voice-note"></p>
+    <label>Music</label>
+    <select id="short-music">
+      <option value="house" selected>House bed</option>
+      <option value="calm">Calm piano</option>
+      <option value="upbeat">Upbeat pop</option>
+      <option value="cinematic">Cinematic strings</option>
+      <option value="none">No music</option>
+    </select>
     <p class="muted" id="short-note">Free shorts count toward the five free clips on a free account. Paid accounts can make 20 a day.</p>
     <div id="botcheck5"></div>
     <p id="short-msg"></p>
@@ -14503,7 +14574,8 @@ function shortScriptEstimate() {
 $('short-script').addEventListener('input', shortScriptEstimate);
 function buildShort() {
   const payload = { voice: $('short-voice').value,
-    visuals: $('short-visuals').value };
+    visuals: $('short-visuals').value,
+    music: $('short-music').value };
   if (payload.visuals === 'ai') payload.style = $('short-style').value;
   if (shortMode === 'topic') {
     payload.topic = $('short-topic').value;
