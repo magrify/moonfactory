@@ -65,6 +65,14 @@ check(job_is_nsfw({"lane": "image", "model": "flux2"}) is False,
       "image job is classified NSFW")
 check(job_is_nsfw({}) is False, "empty job is classified NSFW")
 check(job_is_nsfw(None) is False, "missing job is classified NSFW")
+check(job_is_nsfw({"lane": "draft"}) is True,
+      "legacy house job with no model field is not classified "
+      "NSFW (it ran the default house model, Wan 2.2)")
+check(job_is_nsfw({"lane": "production"}) is True,
+      "legacy production job with no model field is not "
+      "classified NSFW")
+check(job_is_nsfw({"lane": "clip"}) is False,
+      "clip job with no model field is classified NSFW")
 check("wan22_uncut" in app.UNCENSORED_VIDEO_MODELS,
       "wan22_uncut missing from the uncensored set")
 check("UNCENSORED_VIDEO_MODELS" in func_src("job_is_nsfw"),

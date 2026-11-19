@@ -804,8 +804,19 @@ def job_is_nsfw(job: dict) -> bool:
     provider moderation layer, so its outputs carry the flag."""
     if not job:
         return False
-    return (job.get("lane") == "nsfw"
-            or job.get("model") in UNCENSORED_VIDEO_MODELS)
+    if job.get("lane") == "nsfw":
+        return True
+    model = job.get("model")
+    if not model and job.get("lane") in pricing.MEASURED_COST_CENTS:
+        # Legacy house records predate the model field. A job on
+        # a house lane with no model recorded ran the default
+        # house model, the same fallback public_job renders, so
+        # classify it by that model instead of letting the
+        # missing field slip it past the gallery rule (found by
+        # the 2026-11-18 verification bundle: two Nov 16 balloon
+        # clips with no model field were still listed).
+        model = DEFAULT_MODEL
+    return model in UNCENSORED_VIDEO_MODELS
 # Price tier signs for the studio dropdown (Jack, 2026-11-16):
 # Google-Maps-style $ signs banded on FIXED edges over the model's
 # lowest customer sell rate in cents per second (see
