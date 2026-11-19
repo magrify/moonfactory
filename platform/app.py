@@ -9619,7 +9619,7 @@ def api():
         the Modal mirror's math exactly: the delivered
         fraction of the segments stands at its pro rated
         price and cost, the rest comes back."""
-        user = users.get(job["user_id"])
+        user = users.get(f"id:{job['user_id']}")
         if not user:
             return
         total = max(1, int(job.get("segments_total") or 1))
@@ -9658,7 +9658,7 @@ def api():
         if job.get("kind") == "image":
             _restore_house_image(job)
         else:
-            user = users.get(job["user_id"])
+            user = users.get(f"id:{job['user_id']}")
             if user:
                 if job.get("charged_cents") and not job.get("refunded"):
                     user["balance_cents"] = (

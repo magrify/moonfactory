@@ -315,6 +315,32 @@ def collect(job_id: str) -> dict:
     }
 
 
+@app.function(image=image, timeout=300)
+def repair(job_id: str) -> dict:
+    """Apply the restore legs the fixed _fail_comfy_job runs,
+    to a kaggle-comfy job that failed before the fix: the
+    settled cost comes back off the account and the job
+    record gains its cost_released flag. Guarded to errored
+    kaggle-comfy jobs whose release is still missing."""
+    job = pjobs.get(job_id)
+    assert job, "job not found"
+    assert job.get("provider") == "kaggle-comfy", "not a comfy job"
+    assert job.get("status") == "error", "job is not errored"
+    assert job.get("cost_cents") and not job.get("cost_released"), \
+        "nothing to repair"
+    user = users.get(f"id:{job['user_id']}")
+    assert user, "user not found"
+    user["cost_settled_cents"] = max(
+        0.0, float(user.get("cost_settled_cents") or 0.0)
+        - float(job["cost_cents"]))
+    users[f"id:{user['id']}"] = user
+    users[f"email:{user['email']}"] = user
+    job["cost_released"] = True
+    pjobs[job_id] = job
+    return {"job_id": job_id, "released_cents": job["cost_cents"],
+            "owner_settled_cents": user["cost_settled_cents"]}
+
+
 @app.local_entrypoint()
 def main(action: str = "inspect", which: str = "",
          job_id: str = ""):
@@ -324,6 +350,8 @@ def main(action: str = "inspect", which: str = "",
         print(json.dumps(submit.remote(which), indent=1, default=str))
     elif action == "status":
         print(json.dumps(status.remote(), indent=1, default=str))
+    elif action == "repair":
+        print(json.dumps(repair.remote(job_id), indent=1, default=str))
     elif action == "collect":
         print(json.dumps(collect.remote(job_id), indent=1, default=str))
     else:

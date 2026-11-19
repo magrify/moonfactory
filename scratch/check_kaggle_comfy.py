@@ -96,6 +96,9 @@ check('f"{job_id}.raw.mp4"' in PLATFORM,
       "video uploads land where the finishing chain looks")
 check('f"{job_id}.png"' in PLATFORM,
       "image uploads land where the image delivery looks")
+check('users.get(job["user_id"])' not in PLATFORM,
+      "no restore path looks a user up by bare id (the Dict keys "
+      "are id: and email:; a bare lookup silently skips restores)")
 check("_restore_house_image(job)" in PLATFORM
       and "def _fail_comfy_job" in PLATFORM,
       "comfy failures restore through the house restore paths")
