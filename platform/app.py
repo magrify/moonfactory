@@ -5082,6 +5082,22 @@ def api():
         model = body.get("model") or DEFAULT_MODEL
         if model not in MODEL_LABELS:
             raise HTTPException(status_code=422, detail="unknown model")
+        if body.get("start_image_job_id") and not body.get("start_image_png_b64"):
+            # A generated start frame attaches by job id; the
+            # create path resolves it into the image itself, and
+            # the quote resolves it the same way, so the quote
+            # validates the composition the job will really run
+            # (2026-11-19).
+            image_job = jobs.get(body["start_image_job_id"])
+            if not image_job or image_job.get("user_id") != user["id"] \
+                    or image_job.get("kind") != "image":
+                raise HTTPException(status_code=404, detail="unknown start image")
+            image_job = mirror_status(image_job)
+            if image_job["status"] != "done":
+                raise HTTPException(
+                    status_code=409, detail="that first frame is not finished yet")
+            body["start_image_png_b64"] = base64.b64encode(
+                ensure_image_file(image_job).read_bytes()).decode()
         if model in PER_SECOND_MODELS:
             if not is_paid(user):
                 raise HTTPException(status_code=403, detail="model switching is a paid feature")
@@ -12309,13 +12325,14 @@ function spinMsg(id, text) {
 // Start image: one reader path for the file input, the drop zone's
 // click, and drag-and-drop, so all three set the same state.
 function readStartFile(f) {
-  if (!f) { startImageB64 = null; renderDrop(); return; }
+  if (!f) { startImageB64 = null; renderDrop(); fetchQuote(); return; }
   generatedImageJobId = null;
   renderDropLoading();
   const reader = new FileReader();
   reader.onload = () => {
     startImageB64 = String(reader.result).split(',')[1];
     renderDrop(f);
+    fetchQuote();
     restoredFileArrived('start_image_png_b64', startImageB64);
   };
   reader.onerror = () => { renderDrop(); };
@@ -12344,6 +12361,7 @@ function renderDrop(f) {
       startImageB64 = null; $('startimg').value = '';
       if ($('start-source').value === 'upload') { $('start-source').value = 'none'; syncStartSource(); }
       renderDrop();
+      fetchQuote();
     });
   } else {
     dz.classList.remove('filled');
@@ -12377,7 +12395,7 @@ function syncStartSource() {
   if (src !== 'upload') { startImageB64 = null; renderDrop(); }
   if (src !== 'generate') generatedImageJobId = null;
 }
-$('start-source').addEventListener('change', syncStartSource);
+$('start-source').addEventListener('change', () => { syncStartSource(); fetchQuote(); });
 function buildFirstFrame() {
   const prompt = $('image-prompt').value.trim();
   if (!prompt) { msg('image-note', 'Describe the first frame first.', 'err'); return null; }
@@ -12411,6 +12429,7 @@ async function fireFirstFrame(d) {
       if (!j) { btnDone(btn); return; }
       if (j.status === 'done') {
         generatedImageJobId = imageJobId;
+        fetchQuote();
         $('image-preview').innerHTML =
           '<img src="/api/jobs/' + imageJobId + '/file" style="width:180px;border-radius:14px" alt="Your first frame">' +
           '<p style="margin:10px 0 0">' + saveControlHtml(imageJobId, 'image') + '</p>' +
@@ -12984,6 +13003,15 @@ function genLabel(priceCents) {
   if (priceCents === null || priceCents === undefined) { b.textContent = 'Generate'; return; }
   b.textContent = 'Generate · $' + (priceCents / 100).toFixed(2);
 }
+// When a pick cannot be quoted at all, the button says so
+// plainly instead of sitting on a bare Generate: the quote
+// line above it carries the reason (2026-11-19).
+function genBlocked(text) {
+  const b = $('create');
+  if (b.dataset.holds) return;
+  if (!isPaidSurface()) { b.textContent = 'Make a free clip'; return; }
+  b.textContent = text;
+}
 function showStudio(u) {
   currentUser = u;
   loadPricing();
@@ -13066,11 +13094,22 @@ async function fetchQuote() {
   if (isMotionTemplate($('model').value)) { q.textContent = ''; return; }
   if ($('model').value === TITLE_CARDS_ID) { q.textContent = ''; return; }
   if ($('model').value === SHORTS_ID) { q.textContent = ''; return; }
+  // House picks are priced by updateHousePrice alone: this
+  // path never touches their button, so a stray change event
+  // cannot stomp the house price off it.
+  if (isHouseModel($('model').value)) return;
   if (!currentUser || !currentUser.paid_customer) { q.textContent = ''; return; }
   const seq = ++quoteSeq;
   const want = { model: $('model').value,
     duration_seconds: Number($('duration').value), resolution: $('resolution').value,
     speech_script: ($('speech') && !$('speech').disabled) ? $('speech').value : '' };
+  // The quote validates the same composition the create will
+  // send, start image included. The image only models refuse
+  // a text mode quote outright, so leaving the image out made
+  // their price unreachable and the failure silent (2026-11-19).
+  if (startImageB64) want.start_image_png_b64 = startImageB64;
+  else if ($('start-source').value === 'generate' && generatedImageJobId)
+    want.start_image_job_id = generatedImageJobId;
   if (want.model === 'wan_motion') {
     want.reference_video_urls = [$('motion-url').value.trim()];
     want.reference_video_seconds = Number($('motion-seconds').value) || want.duration_seconds;
@@ -13088,7 +13127,7 @@ async function fetchQuote() {
     if ($('model').value !== want.model
         || Number($('duration').value) !== want.duration_seconds
         || $('resolution').value !== want.resolution) return;
-    if (r.lane_paused) { q.textContent = 'This model is temporarily unavailable.'; genLabel(null); return; }
+    if (r.lane_paused) { q.textContent = 'This model is temporarily unavailable.'; genBlocked('Model unavailable'); return; }
     if (!r.ceiling_ok) { q.textContent = 'The exact price is $' + (r.balance_debit_cents / 100).toFixed(2) + '. This job would exceed the total generation your payments cover.'; genLabel(r.balance_debit_cents); return; }
     const p = r.payment || {};
     if (p.method === 'included') {
@@ -13106,9 +13145,12 @@ async function fetchQuote() {
   } catch (e) {
     if (seq !== quoteSeq) return;
     // A failed quote must not leave the previous model's price
-    // on the button: clear both, the next change re-quotes.
-    q.textContent = '';
-    genLabel(null);
+    // on the button, and it must not fail silently either: the
+    // line carries the server's own reason and the button says
+    // plainly that this pick has no price (2026-11-19). The
+    // next change re-quotes.
+    q.textContent = e.message;
+    genBlocked('No price for this pick');
   }
 }
 // The length menu (Jack, 2026-11-17, no-trim rule): every

@@ -459,6 +459,39 @@ check("function loadPricing()" in SRC and "loadPricing();" in SRC
       and "currentUser = u;\n  loadPricing();" in SRC,
       "the pricing payload reloads when a studio session starts")
 
+# The quote prices the composition the create will send
+# (2026-11-19): fetchQuote carries the start image, an upload
+# as itself and a generated frame by its job id, which the
+# quote endpoint resolves exactly like the create path. The
+# image only models refuse a text mode quote, and that
+# refusal used to die in fetchQuote's catch, which cleared
+# the line and left a bare Generate: no price, no reason.
+# Now the line carries the server's reason and the button
+# says plainly that the pick has no price. House picks are
+# priced by updateHousePrice alone, so fetchQuote never
+# touches their button.
+_quote = SRC.split("async function fetchQuote()", 1)[1].split(
+    "const LENGTHS", 1)[0]
+check("if (startImageB64) want.start_image_png_b64 = startImageB64;" in _quote
+      and "want.start_image_job_id = generatedImageJobId;" in _quote,
+      "the quote request carries the start image the create will send")
+check("if (isHouseModel($('model').value)) return;" in _quote,
+      "fetchQuote leaves house picks to the house price path")
+check("q.textContent = e.message;" in _quote
+      and "genBlocked('No price for this pick');" in _quote,
+      "a refused quote shows its reason and marks the button")
+check("genBlocked('Model unavailable')" in _quote
+      and "function genBlocked(text)" in SRC,
+      "a paused lane says so on the button too")
+check("addEventListener('change', () => { syncStartSource(); fetchQuote(); });"
+      in SRC and "renderDrop(f);\n    fetchQuote();" in SRC,
+      "attaching or removing a start image re-quotes")
+_quote_ep = SRC.split("async def quote_job(", 1)[1].split(
+    "def _submit_failed", 1)[0]
+check('body.get("start_image_job_id")' in _quote_ep
+      and 'body["start_image_png_b64"] = base64.b64encode(' in _quote_ep,
+      "the quote endpoint resolves a generated start frame like create")
+
 # Image aspect shapes (provider research, 2026-11-19): the
 # tier priced lanes whose providers publish an aspect ratio
 # priced by the tier alone offer every published shape at its
