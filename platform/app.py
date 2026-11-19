@@ -9692,10 +9692,31 @@ def api():
             meta["comfy:note"] = str(body["note"])[:200]
             meta["comfy:note_age_s"] = body.get("note_age_s")
             meta["comfy:session_age_s"] = body.get("session_age_s")
+        session = (body.get("session") if isinstance(body, dict)
+                   else None)
+        if session:
+            # A job is worked by the session that claimed it,
+            # and Kaggle replaces a session wholesale when a
+            # new version is pushed: a heartbeat from any
+            # other session proves the claiming session is
+            # gone, so its running jobs go back to queued for
+            # the live session to claim. Without this, an
+            # orphaned job reads as alive on the new session's
+            # heartbeats until the six hour cap.
+            for key in list(jobs.keys()):
+                other = jobs.get(key)
+                if other and other.get("provider") == "kaggle-comfy" \
+                        and other.get("status") == "running" \
+                        and other.get("worker_session") != session:
+                    other["status"] = "queued"
+                    other["worker_job_id"] = None
+                    other["requeued_at"] = _now()
+                    jobs[other["id"]] = other
         return {"ok": True}
 
     @web.get("/api/worker/comfy/jobs/next")
-    def comfy_job_next(x_api_key: str = Header(default="")):
+    def comfy_job_next(x_api_key: str = Header(default=""),
+                       x_comfy_session: str = Header(default="")):
         if not _comfy_worker_ok(x_api_key):
             raise HTTPException(status_code=401, detail="bad worker key")
         meta["comfy:heartbeat"] = _now()
@@ -9711,6 +9732,7 @@ def api():
         job = queued[0]
         job["status"] = "running"
         job["worker_job_id"] = job["id"]
+        job["worker_session"] = x_comfy_session or None
         jobs[job["id"]] = job
         return {"job": {
             "id": job["id"],

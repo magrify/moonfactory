@@ -99,6 +99,12 @@ check('f"{job_id}.png"' in PLATFORM,
 check("_restore_house_image(job)" in PLATFORM
       and "def _fail_comfy_job" in PLATFORM,
       "comfy failures restore through the house restore paths")
+check("worker_session" in PLATFORM
+      and "requeued_at" in PLATFORM
+      and 'other.get("worker_session") != session' in PLATFORM,
+      "a heartbeat from a different session requeues orphaned jobs")
+check("X-Comfy-Session" in KERNEL and "SESSION_ID" in KERNEL,
+      "the kernel identifies its session on heartbeat and claim")
 check("COMFY_DEAD_HEARTBEAT_SECONDS" in PLATFORM
       and "COMFY_QUEUED_LIMIT_SECONDS" in PLATFORM
       and "COMFY_RUNNING_LIMIT_SECONDS" in PLATFORM,

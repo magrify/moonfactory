@@ -148,6 +148,7 @@ HEADERS = {}
 
 
 NOTE = {"text": "starting", "since": time.time()}
+SESSION_ID = None
 
 
 def set_note(text: str):
@@ -162,6 +163,7 @@ def heartbeat():
             f"{PLATFORM}/api/worker/comfy/heartbeat",
             headers=HEADERS, timeout=20,
             json={"note": NOTE["text"],
+                  "session": SESSION_ID,
                   "note_age_s": round(time.time() - NOTE["since"], 1),
                   "session_age_s": round(time.time() - STARTED, 1)})
     except Exception:
@@ -1024,10 +1026,13 @@ def fail_job(job_id: str, message: str):
 
 
 def main():
-    global KEY, HEADERS
+    global KEY, HEADERS, SESSION_ID
+    import uuid
+
+    SESSION_ID = uuid.uuid4().hex
     set_note("setup: ComfyUI and requirements")
     KEY = read_key()
-    HEADERS = {"X-API-Key": KEY}
+    HEADERS = {"X-API-Key": KEY, "X-Comfy-Session": SESSION_ID}
     threading.Thread(target=heartbeat_loop, daemon=True).start()
     heartbeat()
     info = setup_comfy()
