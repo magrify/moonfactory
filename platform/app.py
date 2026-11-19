@@ -558,6 +558,7 @@ def _short_bed_for_job(job: dict):
     secrets=[
         modal.Secret.from_name("moonfactory-providers"),
         modal.Secret.from_name("moonfactory-secrets"),
+        modal.Secret.from_name("moonfactory-kaggle"),
     ],
     volumes={"/data": data_volume, "/worker-models": worker_models},
     cpu=4.0,
