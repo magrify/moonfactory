@@ -308,8 +308,46 @@ for lane_id in ("nano_banana_21", "nano_banana_pro", "nano_banana_2",
     check(app.image_picker_class(lane_id) == "paid",
           f"image lane {lane_id} groups as paid")
 for lane_id, lane in pricing.IMAGE_LANES.items():
-    check("·" not in lane["label"],
-          f"image lane {lane_id} label carries no bullet decoration")
+    check("· Free" not in lane["label"]
+          and "· Uncensored" not in lane["label"],
+          f"image lane {lane_id} label carries no bullet class word")
+
+# Image tier marks (Jack, 2026-11-19): every label that carries
+# $ marks sets them behind a bullet separator, "Name · $$", in
+# both pickers. The paid image lanes take their marks from the
+# platform's fixed tier bands (PRICE_TIER_BANDS_CENTS_PER_SECOND)
+# read on the customer price at the smallest size; the
+# uncensored lanes keep the marks the shelf already carried.
+def _image_tier_marks(debit):
+    if debit < 5.0:
+        return "$"
+    if debit < 12.0:
+        return "$$"
+    if debit < 25.0:
+        return "$$$"
+    return "$$$$"
+
+for lane_id, base in (("nano_banana_21", "Nano Banana 2.1"),
+                      ("nano_banana_2", "Nano Banana 2"),
+                      ("nano_banana_pro", "Nano Banana Pro"),
+                      ("gpt_image_26", "GPT Image 2.6")):
+    want = (base + " · "
+            + _image_tier_marks(app.image_picker_price_cents(lane_id)))
+    check(pricing.IMAGE_LANES[lane_id]["label"] == want,
+          f"paid image lane {lane_id} label carries its banded tier mark")
+check('"label": "Moonfactory Image · $$$$"' in SRC,
+      "the house image label carries its banded tier mark "
+      "behind the bullet")
+for lane_id, want in (("seedream55_unc", "Seedream 5.5 · $$"),
+                      ("seedream5pro_unc", "Seedream 5.0 Pro · $$"),
+                      ("zimage_unc", "Z-Image · $"),
+                      ("zimage_pro_unc", "Z-Image Pro · $"),
+                      ("qwen_edit_unc", "Qwen Image Edit · $")):
+    check(pricing.IMAGE_LANES[lane_id]["label"] == want,
+          f"uncensored image lane {lane_id} label keeps its tier mark "
+          "behind the bullet")
+check("' · ' + '$'.repeat(m.price_tier)" in SRC,
+      "the video picker sets its tier marks behind the bullet")
 check(app.image_smallest_size(pricing.IMAGE_LANES["seedream55_unc"]) == "1K",
       "a tiered lane's smallest size is its lowest tier")
 check(app.image_smallest_size(pricing.IMAGE_LANES["zimage_pro_unc"])

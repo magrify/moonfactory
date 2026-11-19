@@ -3101,7 +3101,7 @@ def api():
             # image lane plus a few provider image models, priced
             # per image. The studio's image mode reads this.
             "image_models": [
-                {"id": "house", "label": "Moonfactory Image",
+                {"id": "house", "label": "Moonfactory Image · $$$$",
                  "sizes": list(HOUSE_ASPECTS),
                  "size_labels": {
                      a: pricing.image_size_label("house", a)
@@ -3110,7 +3110,9 @@ def api():
                  # The house image lane (Z-Image Turbo on the
                  # house worker) carries a per image price, so
                  # it groups with the paid image lanes (Jack,
-                 # 2026-11-19).
+                 # 2026-11-19). Its label's $$$$ is the same
+                 # fixed tier banding as the video picker, read
+                 # on its 47c per image price (Jack, 2026-11-19).
                  "picker_class": image_picker_class("house"),
                  "price_cents": image_picker_price_cents("house"),
                  "uncensored": False},
@@ -12775,7 +12777,7 @@ function buildCatalog() {
       const o = document.createElement('option');
       o.value = m.id;
       o.textContent = m.label
-        + (m.price_tier ? ' ' + '$'.repeat(m.price_tier) : '')
+        + (m.price_tier ? ' · ' + '$'.repeat(m.price_tier) : '')
         + (m.available ? '' : ' (unavailable)');
       group.appendChild(o);
     }

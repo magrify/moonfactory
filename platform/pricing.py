@@ -1212,21 +1212,30 @@ def image_price_cents(owner: bool = False) -> int:
 # on 2026-11-17, so the SpicyAPI lanes can run; he tests them
 # himself. The other providers' balances are still $0, so
 # their lanes can only fail clean until funded.
+# Label $ tier marks (Jack, 2026-11-19): the same fixed bands
+# the video picker uses (PRICE_TIER_BANDS_CENTS_PER_SECOND in
+# app.py: $ under 5c, $$ under 12c, $$$ under 25c, $$$$ above),
+# read on the lane's customer price per image at its smallest
+# size, and set behind a bullet separator ("Name · $$"), the
+# one format the whole shelf reads. The two Seedream
+# uncensored lanes carry $$ from the 2026-11-17 shelf pass
+# although their smallest size prices (3.5c and 4.5c) band at
+# $; Jack left those marks as they are.
 IMAGE_LANES = {
     "nano_banana_21": {
-        "label": "Nano Banana 2.1", "provider": "beatapi",
+        "label": "Nano Banana 2.1 · $", "provider": "beatapi",
         "endpoint": "google/nano-banana-2.1",
         "raw_cents": {"1K": 1.6, "2K": 1.8, "4K": 3.5},
     },
     "nano_banana_pro": {
-        "label": "Nano Banana Pro", "provider": "beatapi",
+        "label": "Nano Banana Pro · $$", "provider": "beatapi",
         "endpoint": "google/nano-banana-pro",
         # BeatAPI's own model page (read 2026-11-17): 1K $0.05,
         # 2K $0.05, 4K $0.10. The 4K tier was not wired before.
         "raw_cents": {"1K": 5.0, "2K": 5.0, "4K": 10.0},
     },
     "nano_banana_2": {
-        "label": "Nano Banana 2", "provider": "beatapi",
+        "label": "Nano Banana 2 · $", "provider": "beatapi",
         "endpoint": "google/nano-banana-2",
         "raw_cents": {"1K": 2.0, "2K": 3.5, "4K": 4.0},
     },
@@ -1235,12 +1244,12 @@ IMAGE_LANES = {
         # fal's own published measured cost for a high-quality
         # 1024x1024 Flare image (about $0.053), the only size
         # sold until the funded pass measures the real charge.
-        "label": "GPT Image 2.6", "provider": "fal",
+        "label": "GPT Image 2.6 · $$", "provider": "fal",
         "endpoint": "openai/gpt-image-2.6/flare/text-to-image",
         "raw_cents": {"1024x1024": 5.3},
     },
     "seedream55_unc": {
-        "label": "Seedream 5.5 $$", "provider": "wiro",
+        "label": "Seedream 5.5 · $$", "provider": "wiro",
         "uncensored": True,
         "endpoint": "bytedance/seedream-5-5-uncensored",
         # Wiro's own model page (read 2026-11-17) sells three
@@ -1249,7 +1258,7 @@ IMAGE_LANES = {
         "raw_cents": {"1K": 2.8, "1.5K": 2.8, "2K": 4.3},
     },
     "seedream5pro_unc": {
-        "label": "Seedream 5.0 Pro $$",
+        "label": "Seedream 5.0 Pro · $$",
         "provider": "spicyapi",
         "uncensored": True,
         "endpoint": "bytedance/seedream-5-0-pro/text-to-image",
@@ -1258,7 +1267,7 @@ IMAGE_LANES = {
         "raw_cents": {"1K": 3.6, "1.5K": 4.0, "2K": 7.2},
     },
     "zimage_unc": {
-        "label": "Z-Image $", "provider": "spicyapi",
+        "label": "Z-Image · $", "provider": "spicyapi",
         "uncensored": True,
         "endpoint": "alibaba/z-image-spicy/text-to-image",
         # SpicyAPI's own model page (read 2026-11-17): no
@@ -1273,7 +1282,7 @@ IMAGE_LANES = {
                       "1536x1024": 1.235, "1536x1536": 1.235},
     },
     "zimage_pro_unc": {
-        "label": "Z-Image Pro $", "provider": "spicyapi",
+        "label": "Z-Image Pro · $", "provider": "spicyapi",
         "uncensored": True,
         "endpoint": "alibaba/z-image-spicy-pro/text-to-image",
         # SpicyAPI's own model page (read 2026-11-17): the Pro
@@ -1288,7 +1297,7 @@ IMAGE_LANES = {
                       "2560x1440": 1.9, "1440x2560": 1.9},
     },
     "qwen_edit_unc": {
-        "label": "Qwen Image Edit $",
+        "label": "Qwen Image Edit · $",
         "provider": "spicyapi",
         "uncensored": True,
         "endpoint": "alibaba/qwen-image-spicy-edit/edit",
