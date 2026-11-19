@@ -13164,20 +13164,27 @@ async function loadShortsConfig() {
 }
 // In script mode the pasted words are the length, so the form
 // reads the spoken length back as he types, at the same pace
-// the server plans on (150 words a minute).
+// the server plans on (150 words a minute). The word pattern
+// stays a regex literal on purpose, with its backslash
+// doubled for the Python string this page rides inside: a
+// RegExp constructor string loses one level too many on the
+// way through and ends up matching the letter S instead of
+// non-whitespace runs (the 2026-11-19 estimate bug).
 function shortScriptEstimate() {
-  const words = ($('short-script').value.match(new RegExp('\\S+', 'g')) || []).length;
+  const words = ($('short-script').value.match(/\\S+/g) || []).length;
   const el = $('short-script-estimate');
   if (!words) { el.textContent = ''; return; }
   const secs = Math.round(words / 2.5);
   let text;
   if (secs < 60) {
-    text = 'About ' + secs + ' seconds of speaking.';
+    text = 'About ' + secs + (secs === 1 ? ' second' : ' seconds')
+      + ' of speaking.';
   } else {
     const m = Math.floor(secs / 60);
     const s = secs % 60;
     text = 'About ' + m + (m === 1 ? ' minute' : ' minutes')
-      + (s ? ' ' + s + ' seconds' : '') + ' of speaking.';
+      + (s ? ' ' + s + (s === 1 ? ' second' : ' seconds') : '')
+      + ' of speaking.';
   }
   el.textContent = text;
 }

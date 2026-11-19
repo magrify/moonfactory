@@ -69,6 +69,9 @@ check(shorts.length_plan(120) == (300, 14),
 check(abs(shorts.estimate_spoken_seconds(
     " ".join(["word"] * 150)) - 60.0) < 1e-9,
     "150 words estimate to one minute at the planning pace")
+check(abs(shorts.estimate_spoken_seconds(
+    " ".join(["word"] * 270)) - 108.0) < 1e-9,
+    "270 words estimate to 108 seconds at the planning pace")
 check(shorts.estimate_spoken_seconds("") == 0,
       "an empty script estimates to zero")
 plan_prompt = shorts.script_prompt("the deep ocean", 120)
@@ -420,6 +423,55 @@ check("function shortScriptEstimate()" in SRC,
       "the estimate math lives in the studio")
 check("addEventListener('input', shortScriptEstimate)" in SRC,
       "typing in the script box refreshes the estimate")
+# The estimate, run for real: the function is lifted out of the
+# page the app actually serves (APP_HTML, after the Python string
+# layer has had its say) and executed in node against hand worked
+# inputs at the planning pace of 150 words a minute (2.5 words a
+# second, rounded). This pins the formula itself, not the source
+# text: the 2026-11-19 bug, where the served pattern degraded to
+# runs of the letter S and a 270 word script read "About 1
+# seconds", passed every source text pin above and only shows up
+# when the served code runs.
+_fn_start = app.APP_HTML.find("function shortScriptEstimate")
+_fn_end = app.APP_HTML.find("\n}", _fn_start)
+_estimate_fn = app.APP_HTML[_fn_start:_fn_end + 3]
+_estimate_harness = (
+    "const store = { 'short-script': { value: '' },"
+    " 'short-script-estimate': { textContent: '' } };\n"
+    "const $ = (id) => store[id];\n"
+    + _estimate_fn + "\n"
+    "function run(text) {\n"
+    "  store['short-script'].value = text;\n"
+    "  store['short-script-estimate'].textContent = '<unset>';\n"
+    "  shortScriptEstimate();\n"
+    "  return store['short-script-estimate'].textContent;\n"
+    "}\n"
+    "const w = (n) => Array(n).fill('word').join(' ');\n"
+    "const cases = ['', w(75), w(150), w(270), w(3), w(153)];\n"
+    "console.log(JSON.stringify(cases.map(run)));\n"
+)
+with tempfile.NamedTemporaryFile(
+        "w", suffix=".js", delete=False) as _fh:
+    _fh.write(_estimate_harness)
+    _harness_path = _fh.name
+try:
+    _estimate_out = subprocess.run(
+        ["node", _harness_path], capture_output=True, text=True,
+        timeout=60)
+    _estimate_results = json.loads(_estimate_out.stdout)
+except Exception as exc:  # noqa: BLE001 - a failed run is a failure
+    _estimate_results = None
+    check(False, f"the served estimate runs in node: {exc}")
+if _estimate_results is not None:
+    check(_estimate_results == [
+        "",
+        "About 30 seconds of speaking.",
+        "About 1 minute of speaking.",
+        "About 1 minute 48 seconds of speaking.",
+        "About 1 second of speaking.",
+        "About 1 minute 1 second of speaking.",
+    ], "the served estimate reads empty, 75, 150, 270, 3 and 153 "
+       "words at the planning pace, singular seconds included")
 check(";" not in pane.split("<p class=\"muted\">")[1].split("</p>")[0],
       "form copy follows the plain copy rule")
 
