@@ -55,6 +55,7 @@ import clipping  # noqa: E402
 import fun_camera  # noqa: E402
 import llm_providers  # noqa: E402
 import shorts  # noqa: E402
+import drama  # noqa: E402
 
 app = modal.App("moonfactory")
 
@@ -63,6 +64,7 @@ data_volume = modal.Volume.from_name("moonfactory-data", create_if_missing=True)
 
 users = modal.Dict.from_name("moonfactory-users", create_if_missing=True)
 jobs = modal.Dict.from_name("moonfactory-jobs", create_if_missing=True)
+dramas = modal.Dict.from_name("moonfactory-dramas", create_if_missing=True)
 meta = modal.Dict.from_name("moonfactory-meta", create_if_missing=True)
 outbox = modal.Dict.from_name("moonfactory-outbox", create_if_missing=True)
 
@@ -83,6 +85,7 @@ image = (
     .add_local_file(str(Path(__file__).parent / "fun_camera.py"), "/platform/fun_camera.py")
     .add_local_file(str(Path(__file__).parent / "llm_providers.py"), "/platform/llm_providers.py")
     .add_local_file(str(Path(__file__).parent / "shorts.py"), "/platform/shorts.py")
+    .add_local_file(str(Path(__file__).parent / "drama.py"), "/platform/drama.py")
     .add_local_file(
         str(
             Path(__file__).parent.parent
@@ -1454,6 +1457,14 @@ TEMPLATE_DAILY_CAP_PAID = 20
 # inside process_short_job on CPU; stock comes from Pexels when
 # its key is configured and from Wikimedia Commons otherwise.
 SHORTS_DAILY_CAP_PAID = 20
+# Short drama (2026-11-19, Phase 1): a paid picker entry in
+# Create (platform/drama.py holds the drafting routes, the
+# storyboard guards, and the prompt pack builder). One episode
+# is one parent job in the library; its four shot jobs stay
+# hidden and settle their true cost onto the parent, which
+# holds and settles the episode price once. The poll bound
+# gives four sequential provider jobs plus assembly room.
+DRAMA_POLL_LIMIT_SECONDS = 7200
 SHORTS_STAGES = (
     "Finding footage",
     "Recording the narration",
@@ -3667,7 +3678,8 @@ def api():
     # check fields never enter either; the fire runs a fresh
     # check, like every submit.
     PENDING_CREATE_KINDS = (
-        "video", "motion", "title", "short", "image", "first-frame")
+        "video", "motion", "title", "short", "image", "first-frame",
+        "drama")
     PENDING_FILE_FIELDS = {
         "start_image_png_b64": "start_image",
         "end_image_png_b64": "end_image",
@@ -4190,6 +4202,13 @@ def api():
         job["billed_seconds"] = billed
         job["raw_cost_cents"] = round(settled_raw, 2)
         job["over_cap"] = raw > cap
+        if job.get("hold_kind") == "drama":
+            # A drama shot job: the parent episode holds the
+            # money and settles once, so the child only records
+            # its true cost here and moves no balance or budget.
+            job["settled"] = True
+            jobs[job["id"]] = job
+            return
         hold = float(job.get("hold_amount") or 0)
         owner = users.get(f"id:{job['user_id']}")
         if owner:
@@ -4812,6 +4831,13 @@ def api():
                 job["stage"] = None
                 jobs[job["id"]] = job
             return job
+        if job.get("provider") == "drama":
+            # Drama parents are driven here, one shot at a time:
+            # the driver mirrors the current shot job, starts the
+            # next shot when one finishes, and assembles the
+            # episode when all four land. Its own bound lives in
+            # the driver (DRAMA_POLL_LIMIT_SECONDS).
+            return mirror_drama_status(job)
         if job.get("provider") == "kaggle-comfy":
             # Kaggle ComfyUI jobs (the house lanes, 2026-11-19)
             # are worked by the Kaggle kernel, which drives
@@ -4970,6 +4996,7 @@ def api():
                 else (job.get("template_name") or "Title card")
                 if job.get("kind") == "template"
                 else "Faceless short" if job.get("kind") == "short"
+                else "Short drama" if job.get("kind") == "drama"
                 else "Effects" if job.get("effect")
                 else MODEL_LABELS.get(job.get("model") or DEFAULT_MODEL, "Wan 2.2")
             ),
@@ -5016,6 +5043,8 @@ def api():
             "segments_done": int(job.get("segments_done") or 0),
             "partial": bool(job.get("partial")),
             "has_end_frame": bool(job.get("has_end_frame")),
+            "episode_title": job.get("episode_title"),
+            "drama_state": job.get("drama_state"),
             "queue_position": queue_position,
         }
 
@@ -7748,6 +7777,7 @@ def api():
             if (other and other.get("user_id") == user["id"]
                     and other.get("status") in ("queued", "running")
                     and other.get("provider") != "clip"
+                    and not other.get("drama_parent")
                     and other.get("kind") not in ("clip_job", "clip_output")):
                 in_flight += 1
         if in_flight >= limit:
@@ -7973,7 +8003,8 @@ def api():
         for key in list(jobs.keys()):
             job = jobs.get(key)
             if job and job.get("user_id") == user["id"] \
-                    and not job.get("short_parent"):
+                    and not job.get("short_parent") \
+                    and not job.get("drama_parent"):
                 mine.append(mirror_status(job))
         mine.sort(key=lambda j: j["created_at"], reverse=True)
         active = sorted(
@@ -8005,6 +8036,7 @@ def api():
             active = sorted(
                 (j for j in (jobs.get(k) for k in list(jobs.keys()))
                  if j and j.get("user_id") == user["id"]
+                 and not j.get("drama_parent")
                  and j["status"] in ("queued", "running")),
                 key=lambda j: j["created_at"])
             position = [j["id"] for j in active].index(job["id"]) + 1
@@ -8184,6 +8216,7 @@ def api():
             if (other and other.get("user_id") == user["id"]
                     and other.get("status") in ("queued", "running")
                     and other.get("provider") != "clip"
+                    and not other.get("drama_parent")
                     and other.get("kind") not in ("clip_job", "clip_output")):
                 in_flight += 1
         if in_flight >= limit:
@@ -8738,6 +8771,18 @@ def api():
             if out_path.exists():
                 return out_path
             raise HTTPException(status_code=404, detail="this job has no file yet")
+        if job.get("provider") == "drama":
+            # The drama driver assembles the episode file from
+            # its shot jobs; like the shorts lane there is no raw
+            # stage and no finishing chain here.
+            if not out_path.exists():
+                try:
+                    data_volume.reload()
+                except Exception:
+                    pass
+            if out_path.exists():
+                return out_path
+            raise HTTPException(status_code=404, detail="this job has no file yet")
         if not out_path.exists():
             raw_path = FILES_DIR / f"{job_id}.raw.mp4"
             if len(job.get("chain_results") or []) > 1:
@@ -8919,6 +8964,41 @@ def api():
         job = jobs.get(job_id)
         if not job or job.get("user_id") != user["id"]:
             raise HTTPException(status_code=404, detail="unknown job")
+        if job.get("kind") == "drama":
+            # Deleting an episode takes its shot jobs and its
+            # drama record with it. An unsettled parent settles
+            # its finished shots first, so the hold never strands:
+            # finished shots charge, the rest refunds.
+            rec = dramas.get(job.get("drama_id") or "")
+            child_ids = []
+            if rec:
+                for shot in rec.get("shots") or []:
+                    if shot.get("child_job_id"):
+                        child_ids.append(shot["child_job_id"])
+                if rec.get("retake_child_id"):
+                    child_ids.append(rec["retake_child_id"])
+            if not job.get("settled"):
+                fresh = users.get(f"id:{user['id']}") or user
+                _drama_settle_finished(job, rec, fresh)
+                job = jobs.get(job_id) or job
+            for cid in child_ids:
+                if jobs.get(cid):
+                    del jobs[cid]
+                for path in (FILES_DIR / f"{cid}.mp4",
+                             FILES_DIR / f"{cid}.raw.mp4",
+                             FILES_DIR / f"{cid}.jpg",
+                             FILES_DIR / f"{cid}.png"):
+                    try:
+                        path.unlink(missing_ok=True)
+                    except Exception:
+                        pass
+            carry = FILES_DIR / f"{job_id}.carry.png"
+            try:
+                carry.unlink(missing_ok=True)
+            except Exception:
+                pass
+            if rec:
+                del dramas[rec["id"]]
         del jobs[job_id]
         for path in (FILES_DIR / f"{job_id}.mp4",
                      FILES_DIR / f"{job_id}.raw.mp4",
@@ -9983,6 +10063,779 @@ x_api_key: str = Header(default="")):
         process_short_job.spawn(job["id"])
         return JSONResponse(public_job(job), status_code=202)
 
+    # -- short drama (Phase 1, 2026-11-19) ------------------------------
+    # One paid picker entry in Create. The flow: the user gives
+    # an idea or a script; the platform drafts up to two people,
+    # one place, and four five second shots (platform/drama.py);
+    # the user confirms each person and the place; the shots then
+    # generate one at a time on the Grok lane in reference mode
+    # from frozen prompt packs, and assemble into one episode.
+    # The parent job is the only library item: it holds the
+    # episode price once, its shot jobs stay hidden and record
+    # their true cost onto it (the drama branch in
+    # settle_fal_job), and it settles once when the episode
+    # lands. Drama is paid only and never touches the free
+    # lifetime clips.
+
+    def _drama_estimate(user: dict, seconds: float) -> dict:
+        return pricing.per_second_estimate(
+            drama.DRAMA_MODEL_ID, drama.DRAMA_RESOLUTION, seconds, 0.0,
+            rate_table()["rates"], owner=is_owner(user))
+
+    def _drama_price_for(user: dict, est: dict) -> dict:
+        """What this account would pay for a drama charge priced
+        by one estimate, mirroring the quote rails: a Creator
+        with room pays from the included budget at raw cost,
+        everyone else pays the balance debit."""
+        if user["plan"] == "creator" and \
+                included_budget_remaining(user) >= est["cap_raw_cents"]:
+            return {"method": "included",
+                    "charge_cents": round(est["raw_cost_cents"], 2)}
+        return {"method": "balance",
+                "charge_cents": est["balance_debit_cents"]}
+
+    def _drama_hold_rails(user: dict, est: dict):
+        """The create_api_job hold rails, shared by the episode
+        parent and by nothing else (a shot retake rides
+        create_api_job itself): ceiling check with an auto
+        reload attempt, then the included budget for a Creator
+        with room, then balance, then the owner rail. Returns
+        (hold_kind, hold_amount) with the user record saved."""
+        reload_state = {}
+        if not ceiling_allows(user, est["cap_raw_cents"]):
+            attempt_auto_reload(user, reload_state)
+        if not ceiling_allows(user, est["cap_raw_cents"]):
+            raise HTTPException(
+                status_code=402,
+                detail=reload_fail_detail(
+                    reload_state,
+                    "this episode would exceed the total generation your payments cover"))
+        u = usage(user)
+        if user["plan"] == "creator" and \
+                included_budget_remaining(user) >= est["cap_raw_cents"]:
+            hold_kind = "included"
+            hold_amount = est["cap_raw_cents"]
+            u["included_cost_cents"] = \
+                included_cost_used(user) + hold_amount
+            user["usage"] = u
+        elif int(user.get("balance_cents", 0)) >= est["cap_balance_cents"]:
+            hold_kind = "balance"
+            hold_amount = est["cap_balance_cents"]
+            user["balance_cents"] = \
+                int(user.get("balance_cents", 0)) - int(hold_amount)
+        elif is_owner(user):
+            hold_kind = "balance"
+            hold_amount = est["cap_balance_cents"]
+            user["balance_cents"] = \
+                int(user.get("balance_cents", 0)) - int(hold_amount)
+        elif attempt_auto_reload(user, reload_state) and \
+                int(user.get("balance_cents", 0)) >= est["cap_balance_cents"]:
+            hold_kind = "balance"
+            hold_amount = est["cap_balance_cents"]
+            user["balance_cents"] = \
+                int(user.get("balance_cents", 0)) - int(hold_amount)
+        else:
+            raise HTTPException(
+                status_code=402,
+                detail=reload_fail_detail(
+                    reload_state,
+                    f"included budget used up; this episode costs {est['balance_debit_cents']} cents of prepaid balance"))
+        save_user(user)
+        return hold_kind, hold_amount
+
+    def _drama_entity_refs(user: dict, entity: dict) -> list:
+        """Resolve one confirmed entity's picture to reference
+        URLs on the server: an upload rides as its data URL, a
+        saved person resolves to that character's hosted pictures
+        (or its first stored picture), and a place with no
+        picture is a written lock with no references."""
+        pic = entity.get("picture") or {}
+        if pic.get("type") == "upload":
+            return [pic["data_url"]]
+        if pic.get("type") == "character":
+            char = (user.get("characters") or {}).get(
+                pic.get("character_id") or "")
+            if not char:
+                raise HTTPException(
+                    status_code=422,
+                    detail="One of the saved people is gone. Pick the picture again.")
+            images = char.get("images") or []
+            urls = [im.get("fal_url") for im in images
+                    if im.get("fal_url")]
+            if urls:
+                return urls[:2]
+            if images and images[0].get("b64"):
+                return ["data:image/png;base64," + images[0]["b64"]]
+            raise HTTPException(
+                status_code=422,
+                detail="That saved person has no picture. Pick another one.")
+        return []
+
+    def _drama_shot_refs(rec: dict, shot: dict,
+                         parent_id: str) -> list:
+        """One shot's reference pictures in the scope's order:
+        the people in the shot, the place, and the last frame of
+        the shot before as the carried frame, capped at the
+        lane's reference limit."""
+        by_name = {p["name"]: p for p in rec["entities"]["people"]}
+        refs = []
+        for name in shot["people"]:
+            refs.extend(by_name[name].get("reference_urls") or [])
+        refs.extend(rec["entities"]["place"].get("reference_urls")
+                    or [])
+        carry = FILES_DIR / f"{parent_id}.carry.png"
+        if carry.exists():
+            refs.append(base64.b64encode(
+                carry.read_bytes()).decode())
+        return refs[:7]
+
+    def _drama_create_shot_job(user: dict, parent: dict,
+                               rec: dict, shot: dict) -> dict:
+        """Create and submit one hidden shot job from the shot's
+        frozen prompt pack. The child holds nothing: the parent
+        episode holds the price, and the child's settle only
+        records its true cost (hold_kind drama)."""
+        pack, line = drama.build_prompt_pack(shot, rec["entities"])
+        body = {
+            "duration_seconds": drama.DRAMA_SHOT_SECONDS,
+            "resolution": drama.DRAMA_RESOLUTION,
+            "aspect_ratio": drama.DRAMA_ASPECT,
+            "reference_image_urls": _drama_shot_refs(
+                rec, shot, parent["id"]),
+            "speech_script": line,
+        }
+        params = _api_job_params(body, drama.DRAMA_MODEL_ID)
+        est = _drama_estimate(user, drama.DRAMA_SHOT_SECONDS)
+        job = {
+            "id": pysecrets.token_hex(8),
+            "user_id": user["id"],
+            "worker_job_id": None,
+            "provider": provider_for(
+                drama.DRAMA_MODEL_ID, drama.DRAMA_RESOLUTION),
+            "provider_request_id": None,
+            "provider_task_id": None,
+            "provider_cost_cents": None,
+            "provider_status_url": None,
+            "provider_response_url": None,
+            "lane": drama.DRAMA_MODEL_ID,
+            "model": drama.DRAMA_MODEL_ID,
+            "prompt": pack,
+            "user_prompt": pack,
+            "camera_presets": [],
+            "camera_preset_names": [],
+            "camera_look": {},
+            "status": "queued",
+            "error": None,
+            "bytes": None,
+            "created_at": _now(),
+            "charged_cents": 0,
+            "included_seconds": 0.0,
+            "budget_cost_cents": 0.0,
+            "raw_cost_cents": 0.0,
+            "music_prompt": None,
+            "speech_script": line or None,
+            "speech_voice": None,
+            "voiceover_status": None,
+            "word_check_status": None,
+            "word_check_listen_at": [],
+            "captions": False,
+            "captions_status": None,
+            "character_id": None,
+            "lip_sync": False,
+            "lipsync_status": "native" if line else None,
+            "lipsync_cost_cents": 0.0,
+            "plan_at_job": user["plan"],
+            "retry_of": None,
+            "last_poll": 0,
+            "duration_seconds": params["requested_duration"],
+            "resolution": params["resolution"],
+            "aspect_ratio": params["aspect_ratio"],
+            "generated_seconds": params["generated_seconds"],
+            "chain_plan": list(params["plan_segments"]),
+            "chain_index": 0,
+            "chain_results": [],
+            "chain_cost_cents": 0.0,
+            "chain_cost_seen": False,
+            "segments_total": len(params["plan_segments"]),
+            "segments_done": 0,
+            "trim_to_seconds": None,
+            "bill_generated_seconds": None,
+            "base_url": parent.get("base_url"),
+            "chain_seed": None,
+            "reference_video_seconds": params["reference_video_seconds"],
+            "reference_image_urls": params["reference_image_urls"],
+            "reference_video_urls": params["reference_video_urls"],
+            "reference_audio_urls": params["reference_audio_urls"],
+            "hold_kind": "drama",
+            "hold_amount": 0,
+            "cap_raw_cents": est["cap_raw_cents"],
+            "kind": "drama_shot",
+            "drama_parent": parent["id"],
+            "drama_id": rec["id"],
+            "drama_shot_id": shot["id"],
+            "gallery_public": False,
+        }
+        jobs[job["id"]] = job
+        shot["child_job_id"] = job["id"]
+        shot["status"] = "making"
+        dramas[rec["id"]] = rec
+        try:
+            submit_api_job(job, body, params, pack,
+                           parent.get("base_url") or "")
+        except HTTPException:
+            # A refused submit already failed the child cleanly
+            # through the shared submit failure path; the driver
+            # sees the errored child on its next pass and owns
+            # the retry, so the raise stops here.
+            pass
+        return job
+
+    def _drama_settle_finished(job: dict, rec, user: dict):
+        """Settle a drama parent for the shots that finished:
+        their billed seconds and their reported provider costs,
+        nothing more. Runs when an episode completes, times out,
+        or is deleted mid flight; the parent's single hold covers
+        it and the rest refunds."""
+        if job.get("settled"):
+            return
+        shots = (rec or {}).get("shots") or []
+        done = [s for s in shots if s.get("status") == "done"]
+        job["bill_generated_seconds"] = float(sum(
+            float(s.get("billed_seconds") or drama.DRAMA_SHOT_SECONDS)
+            for s in done))
+        costs = [s.get("provider_cost_cents") for s in done]
+        job["provider_cost_cents"] = (
+            float(sum(costs))
+            if done and all(c is not None for c in costs) else None)
+        settle_fal_job(job, user)
+
+    def _drama_concat(parent_id: str, paths: list) -> Path:
+        """Join the finished shot files into the one episode
+        file, re-encoded to the episode's tall 720p shape, the
+        chain driver's join with an explicit file list."""
+        FILES_DIR.mkdir(parents=True, exist_ok=True)
+        list_path = FILES_DIR / f"{parent_id}.shots.txt"
+        list_path.write_text(
+            "".join(f"file '{p}'\n" for p in paths))
+        joined = FILES_DIR / f"{parent_id}.mp4"
+        proc = subprocess.run(
+            ["ffmpeg", "-y", "-f", "concat", "-safe", "0",
+             "-i", str(list_path),
+             "-vf", "scale=720:1280:force_original_aspect_ratio="
+                    "decrease,pad=720:1280:(ow-iw)/2:(oh-ih)/2,"
+                    "setsar=1,fps=30",
+             "-af", "aresample=48000",
+             "-c:v", "libx264", "-pix_fmt", "yuv420p",
+             "-c:a", "aac", "-b:a", "160k", str(joined)],
+            capture_output=True, text=True, timeout=1800)
+        try:
+            list_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+        if proc.returncode != 0 or not joined.exists():
+            raise ValueError(
+                "episode assembly failed: "
+                + (proc.stderr or "")[-300:])
+        return joined
+
+    def _drama_finish_episode(job: dict, rec: dict, user: dict,
+                              settle: bool = True) -> dict:
+        """Assemble the episode from its finished shots, run the
+        finishing stages on the joined file, settle the parent
+        once (a retake reassembly skips the settle: the episode
+        already settled and the retake job carried its own
+        price), and land the parent as the one library item."""
+        paths = []
+        for shot in rec["shots"]:
+            child = jobs.get(shot["child_job_id"])
+            paths.append(ensure_processed(child))
+        out = _drama_concat(job["id"], paths)
+        try:
+            probe = subprocess.run(
+                ["ffprobe", "-v", "error", "-show_entries",
+                 "format=duration", "-of", "csv=p=0", str(out)],
+                capture_output=True, text=True, timeout=60)
+            job["duration_seconds"] = max(
+                1, int(round(float(probe.stdout.strip()))))
+        except Exception:
+            job["duration_seconds"] = \
+                drama.DRAMA_SHOT_COUNT * drama.DRAMA_SHOT_SECONDS
+        job["bytes"] = out.stat().st_size
+        _word_check_for_job(job, out)
+        if job.get("captions"):
+            _captions_for_job(job, out)
+        if settle:
+            _drama_settle_finished(job, rec, user)
+            job = jobs.get(job["id"]) or job
+        job["status"] = "done"
+        job["stage"] = None
+        job["drama_state"] = "done"
+        jobs[job["id"]] = job
+        rec["status"] = "done"
+        dramas[rec["id"]] = rec
+        data_volume.commit()
+        return job
+
+    def _drama_drive_retake(job: dict, rec: dict,
+                            user: dict) -> dict:
+        """Advance a shot retake: the retake job is a normal
+        priced job of its own; when it lands, its shot swaps in
+        and the episode reassembles without settling again."""
+        child = jobs.get(rec.get("retake_child_id") or "")
+        if child:
+            child = mirror_status(child)
+        if not child or child.get("status") == "error":
+            job["status"] = "done"
+            job["drama_state"] = "done"
+            job["stage"] = None
+            jobs[job["id"]] = job
+            rec["retake_child_id"] = None
+            rec["status"] = "done"
+            dramas[rec["id"]] = rec
+            return job
+        if child.get("status") == "done":
+            shot = next(
+                (s for s in rec["shots"]
+                 if s["id"] == rec.get("retake_shot_id")), None)
+            if shot is not None:
+                shot["child_job_id"] = child["id"]
+                shot["billed_seconds"] = child.get("billed_seconds")
+                shot["provider_cost_cents"] = \
+                    child.get("provider_cost_cents")
+                shot["version"] = int(shot.get("version") or 1) + 1
+                shot["status"] = "done"
+            rec["retake_child_id"] = None
+            rec["status"] = "done"
+            dramas[rec["id"]] = rec
+            job["word_check_status"] = None
+            job["captions_status"] = None
+            try:
+                (FILES_DIR / f"{job['id']}.jpg").unlink(
+                    missing_ok=True)
+            except Exception:
+                pass
+            job["stage"] = "Putting your episode together"
+            jobs[job["id"]] = job
+            return _drama_finish_episode(job, rec, user,
+                                          settle=False)
+        job["stage"] = "Making one shot again"
+        jobs[job["id"]] = job
+        return job
+
+    def mirror_drama_status(job: dict) -> dict:
+        """The drama driver, ridden on the platform's lazy
+        polling like every other lane: mirror the current shot,
+        start the next one when it lands, retry a failed shot
+        once, pause the episode with its hold intact when a shot
+        fails twice, and assemble when all four shots are in."""
+        if job["status"] not in ("queued", "running"):
+            return job
+        rec = dramas.get(job.get("drama_id") or "")
+        user = users.get(f"id:{job['user_id']}")
+        if not rec or not user:
+            job["status"] = "error"
+            job["error"] = "This episode could not be finished."
+            job["stage"] = None
+            jobs[job["id"]] = job
+            return job
+        state = job.get("drama_state") or "making"
+        if state != "retaking" and \
+                _now() - float(job.get("created_at") or _now()) \
+                > DRAMA_POLL_LIMIT_SECONDS:
+            _drama_settle_finished(job, rec, user)
+            job = jobs.get(job["id"]) or job
+            job["status"] = "error"
+            job["error"] = ("The episode took too long and stopped. "
+                           "You were charged only for the finished "
+                           "shots.")
+            job["internal_error"] = \
+                "drama episode passed its poll time limit"
+            job["stage"] = None
+            job["drama_state"] = "failed"
+            jobs[job["id"]] = job
+            rec["status"] = "failed"
+            dramas[rec["id"]] = rec
+            return job
+        if state == "retaking":
+            return _drama_drive_retake(job, rec, user)
+        for shot in rec["shots"]:
+            if shot["status"] == "done":
+                continue
+            child_id = shot.get("child_job_id")
+            if not child_id:
+                _drama_create_shot_job(user, job, rec, shot)
+                job["stage"] = \
+                    f"Making shot {shot['index'] + 1} of 4"
+                jobs[job["id"]] = job
+                return job
+            child = jobs.get(child_id)
+            if child:
+                child = mirror_status(child)
+            if not child or child.get("status") == "error":
+                shot["attempts"] = int(shot.get("attempts") or 0) + 1
+                if shot["attempts"] >= 2:
+                    shot["status"] = "failed"
+                    job["status"] = "error"
+                    job["error"] = (
+                        "One shot could not be made. Your finished "
+                        "shots are saved. Open the episode and try "
+                        "that shot again.")
+                    job["stage"] = None
+                    job["drama_state"] = "paused"
+                    jobs[job["id"]] = job
+                    rec["status"] = "paused"
+                    dramas[rec["id"]] = rec
+                    return job
+                shot["child_job_id"] = None
+                shot["status"] = "ready"
+                dramas[rec["id"]] = rec
+                job["stage"] = \
+                    f"Making shot {shot['index'] + 1} of 4"
+                jobs[job["id"]] = job
+                return job
+            if child.get("status") == "done":
+                shot["status"] = "done"
+                shot["billed_seconds"] = child.get("billed_seconds")
+                shot["provider_cost_cents"] = \
+                    child.get("provider_cost_cents")
+                dramas[rec["id"]] = rec
+                try:
+                    seg = ensure_processed(child)
+                    frame = _chain_last_frame(child, 0, seg)
+                    (FILES_DIR / f"{job['id']}.carry.png") \
+                        .write_bytes(base64.b64decode(frame))
+                    data_volume.commit()
+                except Exception:
+                    pass
+                # Fall through to the next shot in the same
+                # pass: it starts now instead of waiting for the
+                # next poll, and the last shot falls through to
+                # the assembly below.
+                continue
+            job["stage"] = f"Making shot {shot['index'] + 1} of 4"
+            jobs[job["id"]] = job
+            return job
+        job["stage"] = "Putting your episode together"
+        jobs[job["id"]] = job
+        return _drama_finish_episode(job, rec, user)
+
+    @web.post("/api/drama/draft")
+    async def create_drama_draft(request: Request, mf_session: str = Cookie(default="")):
+        user = require_user(request, mf_session)
+        if _rate_limited("dramadraft", user["id"], 6, window=600):
+            raise HTTPException(status_code=429, detail="too many drafts, slow down")
+        if not user["verified"]:
+            raise HTTPException(status_code=403, detail="verify your email before creating")
+        body = await request.json()
+        source_mode = "script" \
+            if body.get("source_mode") == "script" else "idea"
+        source_text = (body.get("source_text") or "").strip()
+        cap = drama.DRAMA_SCRIPT_MAX if source_mode == "script" \
+            else drama.DRAMA_IDEA_MAX
+        if not source_text or len(source_text) > cap:
+            raise HTTPException(
+                status_code=422,
+                detail=f"write a {'script' if source_mode == 'script' else 'story idea'} of up to {cap} characters first")
+        try:
+            draft = drama.draft_episode(source_mode, source_text)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        except Exception:
+            raise HTTPException(
+                status_code=503,
+                detail="The writing route is busy. Try again in a moment.")
+        rec = {
+            "id": pysecrets.token_hex(8),
+            "user_id": user["id"],
+            "status": "draft",
+            "source_mode": source_mode,
+            "source_text": source_text,
+            "title": draft["title"],
+            "summary": draft["summary"],
+            "entities": draft["entities"],
+            "shots": draft["shots"],
+            "parent_job_id": None,
+            "retake_child_id": None,
+            "retake_shot_id": None,
+            "created_at": _now(),
+            "updated_at": _now(),
+        }
+        dramas[rec["id"]] = rec
+        return {
+            "drama_id": rec["id"],
+            "title": rec["title"],
+            "summary": rec["summary"],
+            "entities": rec["entities"],
+            "shots": rec["shots"],
+        }
+
+    @web.post("/api/drama/quote")
+    async def drama_quote(request: Request, mf_session: str = Cookie(default="")):
+        user = require_user(request, mf_session)
+        if api_lane_state(drama.DRAMA_MODEL_ID)["paused"]:
+            return {"available": False}
+        total = drama.DRAMA_SHOT_COUNT * drama.DRAMA_SHOT_SECONDS
+        est = _drama_estimate(user, total)
+        one = _drama_estimate(user, drama.DRAMA_SHOT_SECONDS)
+        price = _drama_price_for(user, est)
+        retake = _drama_price_for(user, one)
+        return {
+            "available": True,
+            "price_cents": price["charge_cents"],
+            "method": price["method"],
+            "retake_price_cents": retake["charge_cents"],
+            "raw_cost_cents": round(est["raw_cost_cents"], 2),
+            "seconds": total,
+        }
+
+    @web.post("/api/drama")
+    async def create_drama(request: Request, mf_session: str = Cookie(default="")):
+        user = require_user(request, mf_session)
+        if _rate_limited("dramacreate", user["id"], 10):
+            raise HTTPException(status_code=429, detail="too many jobs, slow down")
+        if not user["verified"]:
+            raise HTTPException(status_code=403, detail="verify your email before creating")
+        if user.get("past_due"):
+            raise HTTPException(status_code=403, detail="your subscription payment is past due")
+        body = await request.json()
+        if not _verify_bot_check(body, client_ip(request)):
+            raise HTTPException(status_code=403, detail="bot check failed")
+        if not is_paid(user):
+            raise HTTPException(
+                status_code=403, detail="Short drama is a paid feature.")
+        rec = dramas.get(body.get("drama_id") or "")
+        if not rec or rec.get("user_id") != user["id"]:
+            raise HTTPException(
+                status_code=404,
+                detail="that draft is gone. Draft your episode again.")
+        if rec.get("parent_job_id"):
+            raise HTTPException(
+                status_code=409,
+                detail="This episode is already being made.")
+        if api_lane_state(drama.DRAMA_MODEL_ID)["paused"]:
+            raise HTTPException(status_code=503, detail=MODEL_UNAVAILABLE)
+        try:
+            entities, shots = drama.validate_storyboard(
+                body.get("entities"), body.get("shots"))
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        for person in entities["people"]:
+            person["reference_urls"] = _drama_entity_refs(user, person)
+        entities["place"]["reference_urls"] = \
+            _drama_entity_refs(user, entities["place"])
+        limit = CONCURRENCY_PAID if is_paid(user) else CONCURRENCY_FREE
+        in_flight = 0
+        for key in list(jobs.keys()):
+            other = jobs.get(key)
+            if (other and other.get("user_id") == user["id"]
+                    and other.get("status") in ("queued", "running")
+                    and other.get("provider") != "clip"
+                    and not other.get("drama_parent")
+                    and other.get("kind") not in ("clip_job", "clip_output")):
+                in_flight += 1
+        if in_flight >= limit:
+            raise HTTPException(
+                status_code=429,
+                detail=f"you already have {in_flight} videos in flight. Your plan allows {limit} at a time, and one needs to finish before the next starts")
+        total_seconds = \
+            drama.DRAMA_SHOT_COUNT * drama.DRAMA_SHOT_SECONDS
+        est = _drama_estimate(user, total_seconds)
+        hold_kind, hold_amount = _drama_hold_rails(user, est)
+        parent = {
+            "id": pysecrets.token_hex(8),
+            "user_id": user["id"],
+            "worker_job_id": None,
+            "provider": "drama",
+            "provider_request_id": None,
+            "provider_task_id": None,
+            "provider_cost_cents": None,
+            "provider_status_url": None,
+            "provider_response_url": None,
+            "lane": drama.DRAMA_MODEL_ID,
+            "model": drama.DRAMA_MODEL_ID,
+            "prompt": rec["summary"],
+            "user_prompt": rec["summary"],
+            "camera_presets": [],
+            "camera_preset_names": [],
+            "camera_look": {},
+            "status": "running",
+            "error": None,
+            "bytes": None,
+            "created_at": _now(),
+            "charged_cents": 0,
+            "included_seconds": 0.0,
+            "budget_cost_cents": 0.0,
+            "raw_cost_cents": 0.0,
+            "music_prompt": None,
+            "speech_script": drama.episode_speech_script(shots)
+                or None,
+            "speech_voice": None,
+            "voiceover_status": None,
+            "word_check_status": None,
+            "word_check_listen_at": [],
+            "captions": bool(body.get("captions")),
+            "captions_status": None,
+            "character_id": None,
+            "lip_sync": False,
+            "lipsync_status": (
+                "native" if any(s["spoken_line"] for s in shots)
+                else None),
+            "lipsync_cost_cents": 0.0,
+            "plan_at_job": user["plan"],
+            "retry_of": None,
+            "last_poll": 0,
+            "duration_seconds": total_seconds,
+            "resolution": drama.DRAMA_RESOLUTION,
+            "aspect_ratio": drama.DRAMA_ASPECT,
+            "generated_seconds": float(total_seconds),
+            "chain_plan": [],
+            "chain_index": 0,
+            "chain_results": [],
+            "chain_cost_cents": 0.0,
+            "chain_cost_seen": False,
+            "segments_total": 1,
+            "segments_done": 0,
+            "trim_to_seconds": None,
+            "bill_generated_seconds": None,
+            "base_url": base_url(request),
+            "chain_seed": None,
+            "reference_video_seconds": 0.0,
+            "reference_image_urls": [],
+            "reference_video_urls": [],
+            "reference_audio_urls": [],
+            "hold_kind": hold_kind,
+            "hold_amount": hold_amount,
+            "cap_raw_cents": est["cap_raw_cents"],
+            "kind": "drama",
+            "drama_id": rec["id"],
+            "drama_state": "making",
+            "episode_title": rec["title"],
+            "stage": "Making shot 1 of 4",
+        }
+        jobs[parent["id"]] = parent
+        rec["entities"] = entities
+        rec["shots"] = shots
+        rec["status"] = "making"
+        rec["parent_job_id"] = parent["id"]
+        rec["updated_at"] = _now()
+        dramas[rec["id"]] = rec
+        fresh = users.get(f"id:{user['id']}") or user
+        _drama_create_shot_job(fresh, parent, rec, rec["shots"][0])
+        return JSONResponse(public_job(parent), status_code=202)
+
+    @web.get("/api/drama/{job_id}")
+    def get_drama(job_id: str, request: Request, mf_session: str = Cookie(default="")):
+        user = require_user(request, mf_session)
+        job = jobs.get(job_id)
+        if not job or job.get("user_id") != user["id"] \
+                or job.get("kind") != "drama":
+            raise HTTPException(status_code=404, detail="episode not found")
+        job = mirror_status(job)
+        rec = dramas.get(job.get("drama_id") or "") or {}
+        retake = _drama_price_for(
+            user, _drama_estimate(user, drama.DRAMA_SHOT_SECONDS))
+        return {
+            "job": public_job(job),
+            "title": rec.get("title"),
+            "drama_state": job.get("drama_state"),
+            "retake_price_cents": retake["charge_cents"],
+            "shots": [{
+                "index": s["index"],
+                "action": s["action"],
+                "spoken_line": s["spoken_line"],
+                "speaker": s["speaker"],
+                "status": s["status"],
+                "version": s.get("version") or 1,
+            } for s in rec.get("shots") or []],
+        }
+
+    @web.post("/api/drama/{job_id}/resume")
+    async def resume_drama(job_id: str, request: Request, mf_session: str = Cookie(default="")):
+        user = require_user(request, mf_session)
+        job = jobs.get(job_id)
+        if not job or job.get("user_id") != user["id"] \
+                or job.get("kind") != "drama":
+            raise HTTPException(status_code=404, detail="episode not found")
+        if job.get("drama_state") != "paused":
+            raise HTTPException(
+                status_code=409,
+                detail="This episode is not waiting on a shot.")
+        rec = dramas.get(job.get("drama_id") or "")
+        if not rec:
+            raise HTTPException(status_code=404, detail="episode not found")
+        for shot in rec["shots"]:
+            if shot["status"] == "failed":
+                shot["status"] = "ready"
+                shot["attempts"] = 0
+                shot["child_job_id"] = None
+        rec["status"] = "making"
+        dramas[rec["id"]] = rec
+        job["status"] = "running"
+        job["error"] = None
+        job["drama_state"] = "making"
+        job["stage"] = "Starting again"
+        jobs[job["id"]] = job
+        return public_job(job)
+
+    @web.post("/api/drama/{job_id}/shots/{shot_index}/retake")
+    async def retake_drama_shot(job_id: str, shot_index: int, request: Request, mf_session: str = Cookie(default="")):
+        user = require_user(request, mf_session)
+        if _rate_limited("dramacreate", user["id"], 10):
+            raise HTTPException(status_code=429, detail="too many jobs, slow down")
+        if not user["verified"]:
+            raise HTTPException(status_code=403, detail="verify your email before creating")
+        if user.get("past_due"):
+            raise HTTPException(status_code=403, detail="your subscription payment is past due")
+        body = await request.json()
+        if not _verify_bot_check(body, client_ip(request)):
+            raise HTTPException(status_code=403, detail="bot check failed")
+        job = jobs.get(job_id)
+        if not job or job.get("user_id") != user["id"] \
+                or job.get("kind") != "drama":
+            raise HTTPException(status_code=404, detail="episode not found")
+        if job.get("status") != "done" \
+                or job.get("drama_state") != "done":
+            raise HTTPException(
+                status_code=409,
+                detail="The episode needs to finish before a shot can be remade.")
+        rec = dramas.get(job.get("drama_id") or "")
+        if not rec or not 0 <= shot_index < len(rec.get("shots") or []):
+            raise HTTPException(status_code=404, detail="that shot is gone")
+        shot = rec["shots"][shot_index]
+        pack, line = drama.build_prompt_pack(shot, rec["entities"])
+        by_name = {p["name"]: p for p in rec["entities"]["people"]}
+        refs = []
+        for name in shot["people"]:
+            refs.extend(by_name[name].get("reference_urls") or [])
+        refs.extend(rec["entities"]["place"].get("reference_urls")
+                    or [])
+        child_body = {
+            "duration_seconds": drama.DRAMA_SHOT_SECONDS,
+            "resolution": drama.DRAMA_RESOLUTION,
+            "aspect_ratio": drama.DRAMA_ASPECT,
+            "reference_image_urls": refs[:7],
+            "speech_script": line,
+        }
+        resp = create_api_job(
+            user, child_body, drama.DRAMA_MODEL_ID,
+            base_url(request), pack, "", None, line, "", False)
+        child_id = json.loads(resp.body)["id"]
+        child = jobs.get(child_id)
+        child["drama_parent"] = job["id"]
+        child["drama_id"] = rec["id"]
+        child["drama_shot_id"] = shot["id"]
+        child["kind"] = "drama_retake"
+        child["gallery_public"] = False
+        jobs[child_id] = child
+        rec["retake_child_id"] = child_id
+        rec["retake_shot_id"] = shot["id"]
+        dramas[rec["id"]] = rec
+        job["status"] = "running"
+        job["drama_state"] = "retaking"
+        job["stage"] = "Making one shot again"
+        jobs[job["id"]] = job
+        return JSONResponse(public_job(job), status_code=202)
+
     @web.get("/api/jobs/{job_id}/thumb")
     def job_thumb(job_id: str, request: Request, mf_session: str = Cookie(default="")):
         user = require_user(request, mf_session)
@@ -10021,6 +10874,10 @@ x_api_key: str = Header(default="")):
         # work of their own: they never list here or in the
         # owner's library.
         if job.get("short_parent"):
+            return False
+        # A drama's shot jobs are scenes inside the episode, the
+        # same rule: only the parent episode can ever list.
+        if job.get("drama_parent"):
             return False
         # NSFW jobs never list publicly (Jack, 2026-11-18),
         # whatever the owner's opt-out setting: the classification
@@ -10078,6 +10935,7 @@ x_api_key: str = Header(default="")):
                 else (job.get("template_name") or "Title card")
                 if job.get("kind") == "template"
                 else "Faceless short" if job.get("kind") == "short"
+                else "Short drama" if job.get("kind") == "drama"
                 else "Effects" if job.get("effect")
                 else MODEL_LABELS.get(job.get("model") or DEFAULT_MODEL, "Wan 2.2")
             )
@@ -12252,6 +13110,38 @@ APP_HTML = (
     <p id="short-msg"></p>
     </div>
 
+    <div id="drama-fields" style="display:none">
+    <p class="muted">Tell a short acted story. Write an idea or bring a script and we draft the people, the place, and four short shots. You check each one and mark what looks right before anything is made.</p>
+    <div class="mode-toggle">
+      <button class="btn" id="drama-mode-idea" type="button">Write my story</button>
+      <button class="btn secondary" id="drama-mode-script" type="button">Use my script</button>
+    </div>
+    <div id="drama-idea-wrap">
+      <label>Your idea</label>
+      <textarea id="drama-idea" rows="3" maxlength="500" placeholder="two sisters open their late grandma's diner one last time"></textarea>
+    </div>
+    <div id="drama-script-wrap" style="display:none">
+      <label>Your script</label>
+      <textarea id="drama-script" rows="8" maxlength="4000" placeholder="Write the story with the lines people say. We shape it into four short shots."></textarea>
+    </div>
+    <p><button class="btn" id="drama-draft-btn" type="button">Draft my episode</button></p>
+    <div id="drama-board" style="display:none">
+      <h3 id="drama-title"></h3>
+      <p class="muted" id="drama-summary"></p>
+      <h3>People</h3>
+      <div id="drama-people"></div>
+      <h3>Place</h3>
+      <div id="drama-place"></div>
+      <h3>Shots</h3>
+      <div id="drama-shots"></div>
+      <label><input type="checkbox" id="drama-captions"> Add captions</label>
+      <p id="drama-quote-line"></p>
+    </div>
+    <p class="muted">Short drama is paid. It never uses your free clips.</p>
+    <div id="botcheck6"></div>
+    <p id="drama-msg"></p>
+    </div>
+
     <details class="more" id="more-opts">
       <summary>More options</summary>
 
@@ -12589,7 +13479,7 @@ async function botFields(containerId) {
 }
 function renderBotChecks() {
   if (cfg.turnstile_site_key && window.turnstile) {
-    for (const id of ['botcheck', 'botcheck2', 'botcheck3', 'botcheck4', 'botcheck5']) {
+    for (const id of ['botcheck', 'botcheck2', 'botcheck3', 'botcheck4', 'botcheck5', 'botcheck6']) {
       if (!document.getElementById(id)) continue;
       botWidgets[id] = turnstile.render('#' + id, {
         sitekey: cfg.turnstile_site_key,
@@ -13059,6 +13949,7 @@ const PENDING_ROUTES = {
   motion: { endpoint: '/api/templates', botId: 'botcheck2', msgId: 'job-msg' },
   title: { endpoint: '/api/templates', botId: 'botcheck4', msgId: 'tpl-msg' },
   short: { endpoint: '/api/shorts', botId: 'botcheck5', msgId: 'short-msg' },
+  drama: { endpoint: '/api/drama', botId: 'botcheck6', msgId: 'drama-msg' },
   image: { msgId: 'job-msg' },
   'first-frame': { msgId: 'image-note' },
 };
@@ -13070,6 +13961,8 @@ function pendingOkText(d) {
     return 'Started. Free renders take a few minutes to start, and yours shows up in your videos below as soon as it is done.';
   if (d.kind === 'short')
     return 'Started. Your short shows up in your videos below as soon as it is done.';
+  if (d.kind === 'drama')
+    return 'Your episode is being made. It shows up in your videos below as one video when it is done.';
   return '';
 }
 async function fireCreate(d) {
@@ -13081,6 +13974,16 @@ async function fireCreate(d) {
   // restored when the request settles, error included.
   if (d.kind === 'image') { await fireImage(d); return; }
   if (d.kind === 'first-frame') { await fireFirstFrame(d); return; }
+  if (d.kind === 'drama' && !(d.body && d.body.drama_id)) {
+    // A parked drama is a story, not a creation: an episode
+    // only generates from a confirmed storyboard, so the
+    // story goes back in the form and the draft runs. The
+    // user confirms the people, the place, and the shots,
+    // and only then does Generate fire for real.
+    restoreCreateForm(d);
+    await dramaDraft();
+    return;
+  }
   const btn = $('create');
   btnBusy(btn, 'Starting...');
   try {
@@ -13135,6 +14038,15 @@ async function claimAndRestore() {
   Object.assign(d, PENDING_ROUTES[d.kind]);
   d.fileMissing = d.file_missing || [];
   restoredPending = d;
+  if (d.kind === 'drama') {
+    // A restored drama is a story coming back, not a creation
+    // firing: the form fills, the draft runs, and the user
+    // confirms the storyboard before anything generates.
+    restoreCreateForm(d);
+    msg('job-msg', 'Welcome back. Your story is in the form and your episode draft is on its way.', 'ok');
+    fireRestoredIfReady();
+    return;
+  }
   restoreCreateForm(d);
   if (d.fileMissing.length) {
     const names = { start_image: 'your start image', end_image: 'your end image',
@@ -13241,6 +14153,13 @@ function restoreCreateForm(d) {
     shortShowMode();
     if (b.voice) $('short-voice').value = b.voice;
     shortScriptEstimate();
+    return;
+  }
+  if (d.kind === 'drama') {
+    $('model').value = DRAMA_ID; updateModelUI();
+    dramaShowMode(b.source_mode === 'script' ? 'script' : 'idea');
+    if (b.source_mode === 'script') $('drama-script').value = b.source_text || '';
+    else $('drama-idea').value = b.source_text || '';
     return;
   }
   // video
@@ -13709,6 +14628,16 @@ function buildCatalog() {
     sep.textContent = '$'.repeat(t);
     return sep;
   };
+  // Short drama (the folded drama lane) rides the Paid group
+  // right after the Grok lane it generates on: picking the
+  // entry swaps the composer to the storyboard form; jobs go
+  // out through /api/drama.
+  const dramaOption = () => {
+    const o = document.createElement('option');
+    o.value = DRAMA_ID;
+    o.textContent = 'Short drama';
+    return o;
+  };
   for (const [cls, name] of [['paid', 'Paid Models'],
                              ['uncensored', 'Uncensored Models']]) {
     const members = catalogCfg.models
@@ -13721,9 +14650,17 @@ function buildCatalog() {
     for (let t = 1; t <= 4; t++) {
       if (!tiers[t].length) continue;
       group.appendChild(tierSeparator(t));
-      for (const m of tiers[t]) group.appendChild(modelOption(m));
+      for (const m of tiers[t]) {
+        group.appendChild(modelOption(m));
+        if (cls === 'paid' && m.id === 'grok15')
+          group.appendChild(dramaOption());
+      }
     }
-    for (const m of tiers[0]) group.appendChild(modelOption(m));
+    for (const m of tiers[0]) {
+      group.appendChild(modelOption(m));
+      if (cls === 'paid' && m.id === 'grok15')
+        group.appendChild(dramaOption());
+    }
     sel.appendChild(group);
   }
   if ([...sel.options].some(o => o.value === keep)) sel.value = keep;
@@ -13814,9 +14751,13 @@ const TITLE_CARDS_ID = 'title_cards';
 // Faceless shorts are the folded Shorts lane, same shape: one
 // picker entry, not a catalog model.
 const SHORTS_ID = 'faceless_shorts';
+// Short drama is the folded drama lane, same shape again: one
+// picker entry in Paid Models, not a catalog model.
+const DRAMA_ID = 'short_drama';
 function showTitleCardForm() {
   $('titlecard-fields').style.display = '';
   $('shorts-fields').style.display = 'none';
+  $('drama-fields').style.display = 'none';
   $('motion-fields').style.display = 'none';
   const hide = [$('dropzone'), document.querySelector('label[for="start-source"]'),
     $('start-source'), document.querySelector('label[for="prompt"]'), $('prompt'),
@@ -13836,6 +14777,7 @@ function showTitleCardForm() {
 function showShortsForm() {
   $('shorts-fields').style.display = '';
   $('titlecard-fields').style.display = 'none';
+  $('drama-fields').style.display = 'none';
   $('motion-fields').style.display = 'none';
   const hide = [$('dropzone'), document.querySelector('label[for="start-source"]'),
     $('start-source'), document.querySelector('label[for="prompt"]'), $('prompt'),
@@ -13849,12 +14791,37 @@ function showShortsForm() {
   $('create').textContent = 'Make it for free';
   applyModelGates();
 }
+// Short drama swaps the composer the same way: the storyboard
+// form shows, the video fields step aside, and the shared
+// Create button becomes the episode button. The price lands on
+// the button once the storyboard is confirmed and quoted.
+function showDramaForm() {
+  $('drama-fields').style.display = '';
+  $('titlecard-fields').style.display = 'none';
+  $('shorts-fields').style.display = 'none';
+  $('motion-fields').style.display = 'none';
+  const hide = [$('dropzone'), document.querySelector('label[for="start-source"]'),
+    $('start-source'), document.querySelector('label[for="prompt"]'), $('prompt'),
+    $('length-house'), $('length-api'), $('resolution-wrap'), $('aspect-wrap'),
+    document.querySelector('details.more'),
+    $('api-opts'), $('house-price'), $('botcheck2')];
+  for (const el of hide) if (el) el.style.display = 'none';
+  $('segments-note').textContent = '';
+  $('model-note').textContent = 'Short drama is a paid episode of four shots with people who talk. It never uses your free clips.';
+  $('quote').textContent = '';
+  $('create').textContent = 'Make my episode';
+  loadCharacters();
+  dramaQuoteRefresh();
+  applyModelGates();
+}
 function updateModelUI() {
   const m = $('model').value;
   if (m === TITLE_CARDS_ID) { showTitleCardForm(); return; }
   if (m === SHORTS_ID) { showShortsForm(); return; }
+  if (m === DRAMA_ID) { showDramaForm(); return; }
   $('titlecard-fields').style.display = 'none';
   $('shorts-fields').style.display = 'none';
+  $('drama-fields').style.display = 'none';
   if (!imageMode) {
     // Restore the video fields the title card form hid. The
     // length and price blocks are managed by the body below.
@@ -14033,6 +15000,7 @@ function buildCreate() {
   const model = $('model').value;
   if (model === TITLE_CARDS_ID) return buildTitleCard();
   if (model === SHORTS_ID) return buildShort();
+  if (model === DRAMA_ID) return buildDrama();
   if (isMotionTemplate(model)) {
     // A motion pick is a template job, not a generation: same
     // free template lane, same queue and library as everything
@@ -14339,7 +15307,8 @@ async function loadJobs() {
       const isClipOut = j.kind === 'clip_output';
       const isClipJob = j.kind === 'clip_job';
       const activeJob = j.status === 'queued' || j.status === 'running';
-      const title = isClipOut ? (j.hook || 'Clip') : ((j.model || 'Wan 2.2') + (j.model_id === 'wan2.2' ? ' · ' + j.lane : ''));
+      let title = isClipOut ? (j.hook || 'Clip') : ((j.model || 'Wan 2.2') + (j.model_id === 'wan2.2' ? ' · ' + j.lane : ''));
+      if (j.kind === 'drama') title = 'Short drama' + (j.episode_title ? ' · ' + j.episode_title : '');
       const spec = j.duration_seconds ? ' · ' + j.duration_seconds + 's' + (j.resolution ? ' · ' + j.resolution : '') : '';
       let html = '<strong>' + title + '</strong>' + spec + ' · ' +
         (activeJob ? '<span class="pulse-dot" aria-hidden="true"></span>' : '') + j.status +
@@ -14365,7 +15334,12 @@ async function loadJobs() {
         '<br>' + saveControlHtml(j.id, 'image');
       if (j.status === 'done' && j.kind !== 'image') html += '<br><video controls src="/api/jobs/' + j.id + '/file"></video>' +
         '<br>' + saveControlHtml(j.id, 'video');
+      if (j.status === 'done' && j.kind === 'drama') html +=
+        '<br><button class="btn secondary" data-drama-fix="' + j.id + '">Fix a shot</button>' +
+        '<div id="drama-fix-' + j.id + '"></div>';
       if (j.status === 'error') html += '<br><span class="err">' + (j.error || 'failed') + '</span>';
+      if (j.status === 'error' && j.kind === 'drama' && j.drama_state === 'paused') html +=
+        '<br><button class="btn secondary" data-drama-resume="' + j.id + '">Try that shot again</button>';
       if (j.status === 'done' || j.status === 'error') html +=
         '<br><button class="btn secondary" data-del="' + j.id + '">Delete</button>';
       if (activeJob) active = true;
@@ -14403,6 +15377,42 @@ function renderClipResults(jobs) {
   }
 }
 $('jobs').addEventListener('click', async e => {
+  const fix = e.target.closest('[data-drama-fix]');
+  if (fix) {
+    const box = $('drama-fix-' + fix.dataset.dramaFix);
+    if (!box) return;
+    if (box.innerHTML) { box.innerHTML = ''; return; }
+    try {
+      const r = await api('/api/drama/' + fix.dataset.dramaFix);
+      let h = '';
+      for (const s of r.shots) {
+        h += '<br><span class="muted">Shot ' + (s.index + 1) + '. ' + s.action + '</span>' +
+          '<br><button class="btn secondary" data-drama-retake="' + fix.dataset.dramaFix + ':' + s.index + '">Remake this shot · ' + moneyC(r.retake_price_cents) + '</button>';
+      }
+      box.innerHTML = h || '<br><span class="muted">No shots found.</span>';
+    } catch (err) { alert(err.message); }
+    return;
+  }
+  const retake = e.target.closest('[data-drama-retake]');
+  if (retake) {
+    const [jobId, idx] = retake.dataset.dramaRetake.split(':');
+    if (!confirm('Remake this shot? The new take swaps into the episode when it is done.')) return;
+    try {
+      const bot = await botFields('botcheck6');
+      await api('/api/drama/' + jobId + '/shots/' + idx + '/retake', { method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ ...bot }) });
+      loadJobs();
+    } catch (err) { alert(err.message); }
+    return;
+  }
+  const resume = e.target.closest('[data-drama-resume]');
+  if (resume) {
+    try {
+      await api('/api/drama/' + resume.dataset.dramaResume + '/resume', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}' });
+      loadJobs();
+    } catch (err) { alert(err.message); }
+    return;
+  }
   const b = e.target.closest('[data-del]');
   if (!b) return;
   if (!confirm('Delete this video? It is removed from your studio and from the gallery.')) return;
@@ -14494,6 +15504,258 @@ $('make-clips').onclick = async () => {
   } catch (e) { msg('clip-msg', e.message, 'err'); }
   finally { btnDone(btn); }
 };
+
+// ---- Short drama (the folded drama lane, folded into Create) ----
+// The form lives in the Create card and shows when the Short
+// drama entry is picked in the model picker. The flow mirrors
+// the server: write an idea or a script, draft the storyboard,
+// confirm each person and the place, and only then does the
+// shared Create button fire the confirmed storyboard through
+// /api/drama.
+let dramaMode = 'idea';
+let dramaState = null;
+let dramaQuote = null;
+function dramaShowMode(mode) {
+  dramaMode = mode;
+  $('drama-idea-wrap').style.display = mode === 'idea' ? '' : 'none';
+  $('drama-script-wrap').style.display = mode === 'script' ? '' : 'none';
+  $('drama-mode-idea').className = mode === 'idea' ? 'btn' : 'btn secondary';
+  $('drama-mode-script').className = mode === 'script' ? 'btn' : 'btn secondary';
+}
+$('drama-mode-idea').onclick = () => dramaShowMode('idea');
+$('drama-mode-script').onclick = () => dramaShowMode('script');
+function dramaSourceText() {
+  return (dramaMode === 'script' ? $('drama-script').value : $('drama-idea').value).trim();
+}
+async function dramaDraft() {
+  const text = dramaSourceText();
+  if (!text) {
+    msg('drama-msg', dramaMode === 'script' ? 'Write your script first.' : 'Write your idea first.', 'err');
+    return;
+  }
+  if (!currentUser) {
+    // A guest's story parks like every other creation; after
+    // sign in it comes back into the form and the draft runs.
+    pendingCreate = { kind: 'drama', body: { source_mode: dramaMode, source_text: text } };
+    openAuthPanel();
+    return;
+  }
+  const btn = $('drama-draft-btn');
+  btnBusy(btn, 'Drafting...');
+  try {
+    const r = await api('/api/drama/draft', { method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ source_mode: dramaMode, source_text: text }) });
+    dramaState = { dramaId: r.drama_id, title: r.title, summary: r.summary,
+      people: r.entities.people, place: r.entities.place, shots: r.shots };
+    dramaRenderBoard();
+    msg('drama-msg', 'Your episode is drafted. Check each person and the place, fix anything, and mark what looks right.', 'ok');
+  } catch (e) { msg('drama-msg', e.message, 'err'); }
+  finally { btnDone(btn); }
+}
+$('drama-draft-btn').onclick = dramaDraft;
+function dramaEl(tag, cls, text) {
+  const el = document.createElement(tag);
+  if (cls) el.className = cls;
+  if (text !== undefined) el.textContent = text;
+  return el;
+}
+function dramaReadFile(f) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(r.result);
+    r.onerror = rej;
+    r.readAsDataURL(f);
+  });
+}
+function dramaRenderBoard() {
+  const s = dramaState;
+  if (!s) { $('drama-board').style.display = 'none'; return; }
+  $('drama-board').style.display = '';
+  $('drama-title').textContent = s.title;
+  $('drama-summary').textContent = s.summary;
+  const ppl = $('drama-people'); ppl.innerHTML = '';
+  for (const p of s.people) ppl.appendChild(dramaPersonCard(p));
+  const plc = $('drama-place'); plc.innerHTML = '';
+  plc.appendChild(dramaPlaceCard(s.place));
+  dramaRenderShots();
+  dramaQuoteRefresh();
+}
+function dramaRenderShots() {
+  const sh = $('drama-shots'); sh.innerHTML = '';
+  dramaState.shots.forEach((shot, i) => sh.appendChild(dramaShotRow(shot, i)));
+}
+function dramaPersonCard(p) {
+  const card = dramaEl('div', 'card');
+  card.appendChild(dramaEl('label', null, 'Name'));
+  const name = dramaEl('input'); name.type = 'text'; name.value = p.name; name.maxLength = 40;
+  name.onchange = () => {
+    const old = p.name;
+    p.name = name.value.trim() || old;
+    for (const shot of dramaState.shots) {
+      shot.people = shot.people.map(n => n === old ? p.name : n);
+      if (shot.speaker === old) shot.speaker = p.name;
+    }
+    dramaRenderShots();
+  };
+  card.appendChild(name);
+  if (p.role) card.appendChild(dramaEl('p', 'muted', p.role));
+  card.appendChild(dramaEl('label', null, 'Look'));
+  const desc = dramaEl('textarea'); desc.rows = 2; desc.value = p.description; desc.maxLength = 240;
+  desc.onchange = () => { p.description = desc.value; };
+  card.appendChild(desc);
+  card.appendChild(dramaEl('label', null, 'Clothes'));
+  const ward = dramaEl('input'); ward.type = 'text'; ward.value = p.wardrobe || ''; ward.maxLength = 160;
+  ward.placeholder = 'Worn in every shot';
+  ward.onchange = () => { p.wardrobe = ward.value; };
+  card.appendChild(ward);
+  card.appendChild(dramaEl('label', null, 'Picture'));
+  const sel = dramaEl('select');
+  const none = dramaEl('option', null, 'Pick a saved person'); none.value = '';
+  sel.appendChild(none);
+  for (const c of characterData) {
+    const o = dramaEl('option', null, c.name); o.value = c.id;
+    if (p.picture && p.picture.type === 'character' && p.picture.character_id === c.id) o.selected = true;
+    sel.appendChild(o);
+  }
+  sel.onchange = () => {
+    if (sel.value) p.picture = { type: 'character', character_id: sel.value };
+    else if (p.picture && p.picture.type === 'character') p.picture = { type: 'none' };
+    dramaQuoteRefresh();
+  };
+  card.appendChild(sel);
+  const file = dramaEl('input'); file.type = 'file'; file.accept = 'image/*';
+  file.onchange = async () => {
+    const f = file.files[0];
+    if (!f) return;
+    try {
+      p.picture = { type: 'upload', data_url: await dramaReadFile(f) };
+      sel.value = '';
+      msg('drama-msg', 'Picture added for ' + p.name + '.', 'ok');
+      dramaQuoteRefresh();
+    } catch (e) { msg('drama-msg', 'That picture could not be read.', 'err'); }
+  };
+  card.appendChild(file);
+  const ok = dramaEl('input'); ok.type = 'checkbox'; ok.checked = !!p.approved;
+  ok.onchange = () => { p.approved = ok.checked; dramaQuoteRefresh(); };
+  const okLabel = dramaEl('label');
+  okLabel.appendChild(ok);
+  okLabel.appendChild(document.createTextNode(' Looks right'));
+  card.appendChild(okLabel);
+  return card;
+}
+function dramaPlaceCard(place) {
+  const card = dramaEl('div', 'card');
+  card.appendChild(dramaEl('label', null, 'Name'));
+  const name = dramaEl('input'); name.type = 'text'; name.value = place.name; name.maxLength = 60;
+  name.onchange = () => { place.name = name.value; };
+  card.appendChild(name);
+  card.appendChild(dramaEl('label', null, 'Look'));
+  const desc = dramaEl('textarea'); desc.rows = 2; desc.value = place.description; desc.maxLength = 240;
+  desc.onchange = () => { place.description = desc.value; };
+  card.appendChild(desc);
+  card.appendChild(dramaEl('label', null, 'Picture'));
+  const file = dramaEl('input'); file.type = 'file'; file.accept = 'image/*';
+  file.onchange = async () => {
+    const f = file.files[0];
+    if (!f) return;
+    try {
+      place.picture = { type: 'upload', data_url: await dramaReadFile(f) };
+      msg('drama-msg', 'Place picture added.', 'ok');
+      dramaQuoteRefresh();
+    } catch (e) { msg('drama-msg', 'That picture could not be read.', 'err'); }
+  };
+  card.appendChild(file);
+  card.appendChild(dramaEl('p', 'muted', 'No picture is fine. The written look is used on its own.'));
+  const ok = dramaEl('input'); ok.type = 'checkbox'; ok.checked = !!place.approved;
+  ok.onchange = () => { place.approved = ok.checked; dramaQuoteRefresh(); };
+  const okLabel = dramaEl('label');
+  okLabel.appendChild(ok);
+  okLabel.appendChild(document.createTextNode(' Looks right'));
+  card.appendChild(okLabel);
+  return card;
+}
+function dramaShotRow(shot, i) {
+  const row = dramaEl('div', 'card');
+  row.appendChild(dramaEl('strong', null, 'Shot ' + (i + 1)));
+  row.appendChild(dramaEl('label', null, 'What happens'));
+  const action = dramaEl('input'); action.type = 'text'; action.value = shot.action; action.maxLength = 200;
+  action.onchange = () => { shot.action = action.value; };
+  row.appendChild(action);
+  row.appendChild(dramaEl('label', null, 'Spoken line'));
+  const line = dramaEl('input'); line.type = 'text'; line.value = shot.spoken_line || ''; line.maxLength = 90;
+  line.placeholder = 'Words one person says, or leave it empty';
+  line.onchange = () => { shot.spoken_line = line.value.trim(); };
+  row.appendChild(line);
+  row.appendChild(dramaEl('label', null, 'Who says it'));
+  const speaker = dramaEl('select');
+  for (const p of dramaState.people) {
+    const o = dramaEl('option', null, p.name); o.value = p.name;
+    if (shot.speaker === p.name) o.selected = true;
+    speaker.appendChild(o);
+  }
+  speaker.onchange = () => { shot.speaker = speaker.value; };
+  row.appendChild(speaker);
+  row.appendChild(dramaEl('label', null, 'Camera'));
+  const cam = dramaEl('input'); cam.type = 'text'; cam.value = shot.camera || ''; cam.maxLength = 80;
+  cam.placeholder = 'How the camera moves';
+  cam.onchange = () => { shot.camera = cam.value; };
+  row.appendChild(cam);
+  row.appendChild(dramaEl('p', 'muted',
+    shot.people.length ? 'With ' + shot.people.join(' and ') : 'The place on its own'));
+  return row;
+}
+function dramaReady() {
+  const s = dramaState;
+  if (!s) return false;
+  return s.people.every(p => p.approved && p.picture && p.picture.type !== 'none')
+    && s.place.approved;
+}
+async function dramaQuoteRefresh() {
+  const line = $('drama-quote-line');
+  if (!line) return;
+  if (!dramaState) { line.textContent = ''; return; }
+  if (!dramaReady()) {
+    line.textContent = 'Give each person a picture and mark everyone and the place as looking right. Then the price shows here.';
+    dramaQuote = null;
+    if ($('model').value === DRAMA_ID && !$('create').dataset.holds)
+      $('create').textContent = 'Make my episode';
+    return;
+  }
+  if (!currentUser) { line.textContent = ''; return; }
+  try {
+    const q = await api('/api/drama/quote', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}' });
+    if (!q.available) {
+      line.textContent = 'Short drama is not available right now.';
+      dramaQuote = null;
+      return;
+    }
+    dramaQuote = q;
+    line.textContent = 'This episode costs ' + moneyC(q.price_cents)
+      + (q.method === 'included' ? ' from your included budget.' : ' from your balance.')
+      + ' Fixing one shot later costs ' + moneyC(q.retake_price_cents) + '.';
+    if ($('model').value === DRAMA_ID && !$('create').dataset.holds)
+      $('create').textContent = 'Make my episode · ' + moneyC(q.price_cents);
+  } catch (e) { line.textContent = ''; }
+}
+function buildDrama() {
+  if (!dramaState) { msg('drama-msg', 'Draft your episode first.', 'err'); return null; }
+  if (!dramaReady()) {
+    msg('drama-msg', 'Each person needs a picture, and everyone and the place need to be marked as looking right.', 'err');
+    return null;
+  }
+  const s = dramaState;
+  const entities = {
+    people: s.people.map(p => ({ name: p.name, role: p.role, description: p.description,
+      wardrobe: p.wardrobe, picture: p.picture, approved: p.approved })),
+    place: { name: s.place.name, description: s.place.description,
+      picture: s.place.picture, approved: s.place.approved },
+  };
+  const shots = s.shots.map(shot => ({ action: shot.action, people: shot.people,
+    spoken_line: shot.spoken_line, speaker: shot.speaker,
+    camera: shot.camera, mood: shot.mood }));
+  return { kind: 'drama', endpoint: '/api/drama', botId: 'botcheck6', msgId: 'drama-msg',
+    body: { drama_id: s.dramaId, entities, shots, captions: $('drama-captions').checked } };
+}
 
 // ---- Title cards (the free template lane, folded into Create) ----
 // The form lives in the Create card and shows when the Title

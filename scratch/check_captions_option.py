@@ -88,7 +88,7 @@ check(SRC.count("captions: $('captions').checked") == 2,
 
 check('captions = bool(body.get("captions"))' in SRC,
       "create_job does not read the captions flag from the body")
-check(SRC.count('"captions_status": None,') == 2,
+check(SRC.count('"captions_status": None,') == 4,
       "job creation paths do not all initialize captions_status")
 check('"captions": bool(captions),' in SRC,
       "the per second job record does not store the flag")
