@@ -453,7 +453,13 @@ IDLE_LIMIT_SECONDS = 600
 SESSION_CAP_SECONDS = 5 * 3600
 POLL_SECONDS = 20
 HEARTBEAT_SECONDS = 60
-RENDER_POLL_TIMEOUT = 5400
+# One prompt's allowance on this host class: the free T4
+# renders the A14B distilled graph in roughly 75 to 90
+# minutes (measured on the first proof jobs), so the poll
+# timeout sits well past that, bounded by the session cap
+# on one side and the platform's six hour running bound on
+# the other.
+RENDER_POLL_TIMEOUT = 10800
 
 STARTED = time.time()
 
