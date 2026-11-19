@@ -51,14 +51,29 @@ WIDTH = 1080
 HEIGHT = 1920
 FPS = 30
 
-# Script shape: a short is a handful of spoken lines. The total
-# cap keeps a short under roughly two minutes of narration; the
-# per line cap keeps one scene's stock clip and caption chunks
-# honest (a line is one breath, one scene).
-SHORTS_MAX_LINES = 12
-SHORTS_MAX_SCRIPT_CHARS = 1600
+# Script shape: a short is a handful of spoken lines. The caps
+# fit a full two minutes of narration (about 300 spoken words);
+# the per line cap keeps one scene's stock clip and caption
+# chunks honest (a line is one breath, one scene).
+SHORTS_MAX_LINES = 20
+SHORTS_MAX_SCRIPT_CHARS = 2200
 SHORTS_MAX_LINE_CHARS = 300
 SHORTS_MIN_LINES = 2
+# Spoken pace the length math plans on, about 150 words a
+# minute. Topic mode writes to a chosen target length; script
+# mode's estimate reads the same pace back to the customer.
+SPOKEN_WORDS_PER_SECOND = 2.5
+# The lengths a topic short can aim at, in seconds, and the
+# plan each one writes to: (spoken words, lines). Lines run
+# about 8 to 10 seconds each at the planning pace.
+SHORTS_LENGTH_TARGETS = (30, 60, 90, 120)
+SHORTS_DEFAULT_LENGTH_SECONDS = 60
+SHORTS_LENGTH_PLANS = {
+    30: (75, 4),
+    60: (150, 7),
+    90: (225, 10),
+    120: (300, 14),
+}
 # The pause the narration track leaves between lines, and the
 # tail after the last one. Scene lengths include the pause, so
 # picture and voice change together.
@@ -154,6 +169,27 @@ def split_script(text: str) -> list:
     return lines
 
 
+def length_plan(target_seconds: int) -> tuple:
+    """The writing plan for one chosen topic length: how many
+    spoken words and how many lines the script writer aims at.
+    Raises ValueError for a length the lane does not offer."""
+    try:
+        return SHORTS_LENGTH_PLANS[int(target_seconds)]
+    except (KeyError, TypeError, ValueError):
+        raise ValueError(
+            "pick one of the lengths on the list: "
+            + ", ".join(str(t) for t in SHORTS_LENGTH_TARGETS))
+
+
+def estimate_spoken_seconds(text: str) -> float:
+    """How long a script takes to say out loud at the planning
+    pace. The studio shows the same estimate live while a
+    customer pastes, so what they read is what the job record
+    keeps."""
+    words = len((text or "").split())
+    return words / SPOKEN_WORDS_PER_SECOND
+
+
 def search_terms_for_line(line: str, topic: str = "") -> str:
     """Stock search terms for one line: its strongest content
     words, in order, with the topic's words as the fallback and
@@ -180,14 +216,21 @@ def search_terms_for_line(line: str, topic: str = "") -> str:
 # Topic to script: the platform's already wired text routes
 # ---------------------------------------------------------------------------
 
-_SCRIPT_PROMPT = (
-    "Write a narration script for a vertical short video about: "
-    "{topic}\n"
-    "Write 5 to 8 lines. Each line is one short spoken sentence "
-    "of at most 25 words. Put one line on each line of the reply. "
-    "No title, no numbering, no stage directions, no quotation "
-    "marks. Plain spoken English only."
-)
+def script_prompt(topic: str, target_seconds: int) -> str:
+    """The topic writing prompt for one chosen length. The word
+    and line counts come from the length plan, so a 30 second
+    short and a 2 minute short are written to different shapes
+    instead of trimmed or padded after the fact."""
+    words, lines = length_plan(target_seconds)
+    return (
+        "Write a narration script for a vertical short video "
+        f"about: {topic}\n"
+        f"Write {lines} lines, about {words} words in total. "
+        "Each line is one short spoken sentence of at most 25 "
+        "words. Put one line on each line of the reply. "
+        "No title, no numbering, no stage directions, no "
+        "quotation marks. Plain spoken English only."
+    )
 
 
 def _gemini_text(prompt: str, api_key: str) -> str:
@@ -282,17 +325,20 @@ def script_routes_configured() -> bool:
         return False
 
 
-def script_from_topic(topic: str) -> str:
+def script_from_topic(topic: str,
+                      target_seconds: int =
+                      SHORTS_DEFAULT_LENGTH_SECONDS) -> str:
     """Write a script for a topic through the wired routes, in
     the Clip lane's order: Gemini first (the primary brain), the
-    free OpenRouter chain after. Returns script text the caller
+    free OpenRouter chain after. The script is written to the
+    chosen length's plan. Returns script text the caller
     validates with split_script. Raises RuntimeError when no
     route is configured or every route fails; the create route
     turns that into a clean ask for a pasted script."""
     topic = (topic or "").strip()
     if not topic:
         raise ValueError("give the short a topic first")
-    prompt = _SCRIPT_PROMPT.format(topic=topic)
+    prompt = script_prompt(topic, target_seconds)
     errors = []
     if os.environ.get("GEMINI_API_KEY"):
         try:

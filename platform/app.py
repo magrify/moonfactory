@@ -8857,6 +8857,9 @@ def api():
             "free_used": free_jobs_total(user),
             "max_lines": shorts.SHORTS_MAX_LINES,
             "max_script_chars": shorts.SHORTS_MAX_SCRIPT_CHARS,
+            "length_targets": list(shorts.SHORTS_LENGTH_TARGETS),
+            "default_length_seconds":
+                shorts.SHORTS_DEFAULT_LENGTH_SECONDS,
         }
 
     @web.post("/api/shorts")
@@ -8877,21 +8880,39 @@ def api():
                 status_code=422,
                 detail="a topic must be 200 characters or fewer")
         script_text = (body.get("script") or "").strip()
+        # The length choice: topic mode writes to the picked
+        # target, script mode's pasted words are the length, so
+        # the record keeps the chosen target for one and the
+        # spoken estimate of the script itself for the other.
+        length_seconds = shorts.SHORTS_DEFAULT_LENGTH_SECONDS
         if script_text:
             script_source = "pasted"
+            target_seconds = int(round(
+                shorts.estimate_spoken_seconds(script_text)))
         elif topic:
+            raw_length = body.get("length_seconds")
+            if raw_length is not None:
+                try:
+                    length_seconds = int(raw_length)
+                    shorts.length_plan(length_seconds)
+                except (TypeError, ValueError):
+                    raise HTTPException(
+                        status_code=422,
+                        detail="pick one of the lengths on the list")
             # Topic writing rides the text routes already wired
             # for the Clip lane's picking brain, behind their
             # dark-safe gates. When no route answers, the clean
             # failure asks for the script instead of inventing
             # one.
             try:
-                script_text = shorts.script_from_topic(topic)
+                script_text = shorts.script_from_topic(
+                    topic, length_seconds)
             except Exception:
                 raise HTTPException(
                     status_code=422,
                     detail="we could not write that topic into a script, paste your script instead")
             script_source = "topic"
+            target_seconds = length_seconds
         else:
             raise HTTPException(
                 status_code=422,
@@ -8941,6 +8962,7 @@ def api():
             "created_at": _now(),
             "charged_cents": 0,
             "short_topic": topic or None,
+            "short_target_seconds": target_seconds,
             "short_lines": lines,
             "short_scenes": [],
             "script_source": script_source,
@@ -11239,11 +11261,19 @@ APP_HTML = (
     <div id="short-topic-wrap">
       <label>Topic</label>
       <input id="short-topic" type="text" maxlength="200" placeholder="why the ocean is so deep">
+      <label>Length</label>
+      <select id="short-length">
+        <option value="30">30 seconds</option>
+        <option value="60" selected>1 minute</option>
+        <option value="90">1 minute 30 seconds</option>
+        <option value="120">2 minutes</option>
+      </select>
       <p class="muted" id="short-topic-note"></p>
     </div>
     <div id="short-script-wrap" style="display:none">
       <label>Your script</label>
-      <textarea id="short-script" rows="6" maxlength="1600" placeholder="One line for each scene. The voice reads it exactly as written."></textarea>
+      <textarea id="short-script" rows="8" maxlength="2200" placeholder="One line for each scene. The voice reads it exactly as written."></textarea>
+      <p class="muted" id="short-script-estimate"></p>
     </div>
     <label>Voice</label>
     <select id="short-voice">
@@ -12885,14 +12915,36 @@ async function loadShortsConfig() {
     } else {
       $('short-voice-note').textContent = 'The voice reads your script over the footage.';
     }
+    if (r.max_script_chars) $('short-script').maxLength = r.max_script_chars;
     shortShowMode();
   } catch (e) { /* signed out: the form keeps its default shape */ }
 }
+// In script mode the pasted words are the length, so the form
+// reads the spoken length back as he types, at the same pace
+// the server plans on (150 words a minute).
+function shortScriptEstimate() {
+  const words = ($('short-script').value.match(new RegExp('\\S+', 'g')) || []).length;
+  const el = $('short-script-estimate');
+  if (!words) { el.textContent = ''; return; }
+  const secs = Math.round(words / 2.5);
+  let text;
+  if (secs < 60) {
+    text = 'About ' + secs + ' seconds of speaking.';
+  } else {
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    text = 'About ' + m + (m === 1 ? ' minute' : ' minutes')
+      + (s ? ' ' + s + ' seconds' : '') + ' of speaking.';
+  }
+  el.textContent = text;
+}
+$('short-script').addEventListener('input', shortScriptEstimate);
 async function makeShort() {
   try {
     const payload = { voice: $('short-voice').value };
     if (shortMode === 'topic') {
       payload.topic = $('short-topic').value;
+      payload.length_seconds = parseInt($('short-length').value, 10);
       if (!payload.topic.trim()) { msg('short-msg', 'Give the short a topic first.', 'err'); return; }
     } else {
       payload.script = $('short-script').value;

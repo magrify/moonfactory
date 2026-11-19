@@ -49,7 +49,35 @@ for stage in app.SHORTS_STAGES:
           f"stage copy follows the plain copy rule: {stage}")
 check(shorts.WIDTH == 1080 and shorts.HEIGHT == 1920,
       "shorts are vertical 1080 x 1920")
-check(shorts.SHORTS_MAX_LINES == 12, "script line cap is 12")
+check(shorts.SHORTS_MAX_LINES == 20, "script line cap is 20")
+check(shorts.SHORTS_MAX_SCRIPT_CHARS == 2200,
+      "script cap fits a full two minutes")
+
+# --- length choice -------------------------------------------------------
+check(shorts.SHORTS_LENGTH_TARGETS == (30, 60, 90, 120),
+      "topic lengths run from 30 seconds to 2 minutes")
+check(shorts.SHORTS_DEFAULT_LENGTH_SECONDS == 60,
+      "the default topic length is 60 seconds")
+check(shorts.length_plan(30) == (75, 4),
+      "30 seconds plans 75 words in 4 lines")
+check(shorts.length_plan(60) == (150, 7),
+      "60 seconds plans 150 words in 7 lines")
+check(shorts.length_plan(90) == (225, 10),
+      "90 seconds plans 225 words in 10 lines")
+check(shorts.length_plan(120) == (300, 14),
+      "120 seconds plans 300 words in 14 lines")
+check(abs(shorts.estimate_spoken_seconds(
+    " ".join(["word"] * 150)) - 60.0) < 1e-9,
+    "150 words estimate to one minute at the planning pace")
+check(shorts.estimate_spoken_seconds("") == 0,
+      "an empty script estimates to zero")
+plan_prompt = shorts.script_prompt("the deep ocean", 120)
+check("300 words" in plan_prompt and "14 lines" in plan_prompt
+      and "the deep ocean" in plan_prompt,
+      "the topic prompt carries the chosen length plan")
+plan_prompt = shorts.script_prompt("the deep ocean", 30)
+check("75 words" in plan_prompt and "4 lines" in plan_prompt,
+      "the shortest plan reaches the prompt too")
 
 # --- script splitting ----------------------------------------------------
 lines = shorts.split_script(
@@ -81,11 +109,16 @@ check(raises_value(lambda: shorts.split_script("")),
       "empty script rejected")
 check(raises_value(lambda: shorts.split_script("Just one line.")),
       "one line is not a short")
-check(raises_value(lambda: shorts.split_script("x " * 900)),
+check(raises_value(lambda: shorts.split_script("x " * 1200)),
       "overlong script rejected")
 check(raises_value(lambda: shorts.split_script(
-    "\n".join(f"Line number {i}." for i in range(14)))),
+    "\n".join(f"Line number {i}." for i in range(22)))),
     "too many lines rejected")
+check(raises_value(lambda: shorts.length_plan(45)),
+      "a length the lane does not offer is rejected")
+twenty = shorts.split_script(
+    "\n".join(f"Line number {i} speaks." for i in range(20)))
+check(len(twenty) == 20, "twenty lines are accepted")
 
 # --- search terms ---------------------------------------------------------
 terms = shorts.search_terms_for_line(
@@ -269,6 +302,16 @@ check("SPEECH_VOICES" in lane, "the picker set is the platform set")
 check("script_from_topic" in lane,
       "topic mode rides the wired text routes")
 check("split_script" in lane, "scripts are validated at creation")
+check("topic, length_seconds" in lane,
+      "topic writing gets the picked length")
+check("length_seconds" in lane and "length_plan" in lane,
+      "creation validates the picked length")
+check("short_target_seconds" in lane,
+      "job records carry the chosen length target")
+check("estimate_spoken_seconds" in lane,
+      "script mode records the spoken estimate of the script")
+check('"length_targets"' in lane,
+      "the config offers the length targets")
 
 processor = SRC.split("def process_short_job", 1)[1].split(
     "# ---------------------------------------------------------------------------\n# Config", 1)[0]
@@ -339,12 +382,36 @@ check("$('botcheck2')" in shorts_swap,
 check("loadShortsConfig" in SRC, "the form loads its config")
 check("/api/shorts" in SRC, "the form posts to the shorts route")
 pane = SRC.split('id="shorts-fields"', 1)[1].split('id="short-msg"', 1)[0]
+voice_select = pane.split('id="short-voice"', 1)[1].split(
+    '</select>', 1)[0]
 pane_voices = {
     part.split('"')[0]
-    for part in pane.split('<option value="')[1:]
+    for part in voice_select.split('<option value="')[1:]
 }
 check(pane_voices == set(app.SPEECH_VOICES),
       "the form picker offers exactly the platform voice set")
+check('id="short-length"' in pane,
+      "topic mode carries the length picker")
+length_select = pane.split('id="short-length"', 1)[1].split(
+    '</select>', 1)[0]
+length_values = {
+    part.split('"')[0]
+    for part in length_select.split('<option value="')[1:]
+}
+check(length_values == {"30", "60", "90", "120"},
+      "the length picker offers 30, 60, 90 and 120 seconds")
+check('<option value="60" selected>' in length_select,
+      "the length picker starts on 1 minute")
+check('id="short-script-estimate"' in pane,
+      "script mode carries the spoken length estimate line")
+check('maxlength="2200"' in pane,
+      "the script box fits a full two minutes")
+check("payload.length_seconds" in SRC,
+      "the submit sends the picked length")
+check("function shortScriptEstimate()" in SRC,
+      "the estimate math lives in the studio")
+check("addEventListener('input', shortScriptEstimate)" in SRC,
+      "typing in the script box refreshes the estimate")
 check(";" not in pane.split("<p class=\"muted\">")[1].split("</p>")[0],
       "form copy follows the plain copy rule")
 
