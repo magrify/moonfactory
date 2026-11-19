@@ -178,6 +178,51 @@ finally:
         if value is not None:
             os.environ[key] = value
 
+# --- AI pictures: styles, prompts, planning fallback -------------------------
+check(set(shorts.VISUAL_STYLES) == {
+    "photo", "illustration", "anime", "painting", "sketch"},
+    "the AI picture styles are a short fixed list")
+for style_id, entry in shorts.VISUAL_STYLES.items():
+    check(entry["label"] and entry["prefix"],
+          f"picture style {style_id} carries a label and a prefix")
+    check(all(mark not in entry["label"] for mark in (":", ";")),
+          f"picture style label follows the plain copy rule: "
+          f"{entry['label']}")
+check(shorts.VISUAL_STYLE_DEFAULT in shorts.VISUAL_STYLES,
+      "the default picture style is on the list")
+photo_prompt = shorts.image_prompt_for_line(
+    "Sunlight reaches the top layer.", "photo")
+check(photo_prompt.startswith(
+    shorts.VISUAL_STYLES["photo"]["prefix"]),
+    "a line prompt opens with the style prefix")
+check("Sunlight reaches the top layer" in photo_prompt,
+      "a line prompt carries the line as its subject")
+check(shorts.image_prompt_for_line("Anything.", "bogus")
+      == shorts.image_prompt_for_line(
+          "Anything.", shorts.VISUAL_STYLE_DEFAULT),
+      "an unknown style falls back to the default style")
+# Planning is best effort: with the text routes forced down, the
+# prompts are the deterministic line prompts and nothing raises.
+real_gemini_text = shorts._gemini_text
+real_openrouter_text = shorts._openrouter_text
+shorts._gemini_text = lambda *a, **k: (_ for _ in ()).throw(
+    RuntimeError("down"))
+shorts._openrouter_text = lambda *a, **k: (_ for _ in ()).throw(
+    RuntimeError("down"))
+_saved_gemini_key = os.environ.pop("GEMINI_API_KEY", None)
+try:
+    planned = shorts.image_prompts_for_lines(
+        ["First line here.", "Second line follows."], "anime")
+finally:
+    shorts._gemini_text = real_gemini_text
+    shorts._openrouter_text = real_openrouter_text
+    if _saved_gemini_key is not None:
+        os.environ["GEMINI_API_KEY"] = _saved_gemini_key
+check(planned == [
+    shorts.image_prompt_for_line("First line here.", "anime"),
+    shorts.image_prompt_for_line("Second line follows.", "anime")],
+    "with no planning route the prompts are the lines themselves")
+
 # --- stock response parsing (canned payloads, no network) ------------------
 canned_pexels = {
     "videos": [{
@@ -285,6 +330,23 @@ if subprocess.run(["which", "ffmpeg"], capture_output=True).returncode == 0:
         check(info["has_audio"], "assembled short carries audio")
         check(abs(info["duration"] - sum(scene_durations)) < 0.35,
               "assembled length matches the scenes")
+        # One AI still, animated: the scene clip must land at
+        # the frame shape and the scene's length, ready to ride
+        # the same assembly the stock clips ride.
+        still = work / "still.png"
+        subprocess.run(
+            ["ffmpeg", "-y", "-f", "lavfi", "-i",
+             "color=c=purple:s=720x1280:d=0.1:r=1",
+             "-frames:v", "1", str(still)],
+            capture_output=True, check=True)
+        for idx in (0, 1, 2):
+            scene_mp4 = work / f"ai_scene_{idx}.mp4"
+            shorts.animate_image_scene(still, 0.9, scene_mp4, idx)
+            sinfo = shorts.probe(scene_mp4)
+            check(sinfo["width"] == 1080 and sinfo["height"] == 1920,
+                  f"animated scene {idx} is 1080 x 1920")
+            check(abs(sinfo["duration"] - 0.9) < 0.2,
+                  f"animated scene {idx} runs its scene length")
 
 # --- lane wiring in the source ----------------------------------------------
 lane = SRC.split("# -- faceless shorts lane", 1)[1].split(
@@ -315,6 +377,18 @@ check("estimate_spoken_seconds" in lane,
       "script mode records the spoken estimate of the script")
 check('"length_targets"' in lane,
       "the config offers the length targets")
+check('"visuals"' in lane and '"short_visuals"' in lane,
+      "creation takes and records the pictures choice")
+check("VISUAL_STYLES" in lane,
+      "creation validates the picture style against the list")
+check('"visual_styles"' in lane,
+      "the config offers the picture styles")
+check("short_parent" in SRC,
+      "AI picture jobs carry the short parent mark")
+check('not job.get("short_parent")' in SRC,
+      "the library skips a short's picture jobs")
+check("gallery_visible" in SRC and 'job.get("short_parent")' in SRC,
+      "the gallery skips a short's picture jobs")
 
 processor = SRC.split("def process_short_job", 1)[1].split(
     "# ---------------------------------------------------------------------------\n# Config", 1)[0]
@@ -322,6 +396,14 @@ check('from_name(\n            "sinclip-audio", "generate_voiceover")'
       in processor or '"sinclip-audio", "generate_voiceover"' in processor,
       "narration calls the platform Kokoro stage")
 check("find_stock_clip" in processor, "the runner finds stock per line")
+check("_short_ai_scenes" in processor,
+      "the runner can make AI pictures per line")
+check("animate_image_scene" in processor,
+      "the runner animates the AI pictures into scenes")
+check("visuals_fallback" in processor,
+      "a failed picture run falls back to stock on the record")
+check("_wake_comfy_kernel" in SRC,
+      "the kernel wake lives at module level for the processors")
 check("build_captions_ass" in processor, "the runner times captions")
 check("assemble_short" in processor, "the runner assembles the short")
 check("_short_word_check" in processor,
@@ -384,6 +466,8 @@ check("function buildShort()" in SRC,
 check('id="short-topic"' in SRC and 'id="short-script"' in SRC,
       "the form takes a topic or a script")
 check('id="short-voice"' in SRC, "the form carries the voice picker")
+check("payload.visuals" in SRC and "payload.style" in SRC,
+      "the submit sends the pictures choice and the style")
 check('id="botcheck5"' in SRC and "'botcheck5'" in SRC,
       "the form has its bot check widget")
 shorts_swap = SRC.split("function showShortsForm()", 1)[1].split(
@@ -393,6 +477,16 @@ check("$('botcheck2')" in shorts_swap,
 check("loadShortsConfig" in SRC, "the form loads its config")
 check("/api/shorts" in SRC, "the form posts to the shorts route")
 pane = SRC.split('id="shorts-fields"', 1)[1].split('id="short-msg"', 1)[0]
+check('id="short-visuals"' in pane and 'id="short-style"' in pane,
+      "the form carries the pictures choice and the style picker")
+style_select = pane.split('id="short-style"', 1)[1].split(
+    '</select>', 1)[0]
+style_values = {
+    part.split('"')[0]
+    for part in style_select.split('<option value="')[1:]
+}
+check(style_values == set(shorts.VISUAL_STYLES),
+      "the style picker offers exactly the picture style list")
 voice_select = pane.split('id="short-voice"', 1)[1].split(
     '</select>', 1)[0]
 pane_voices = {

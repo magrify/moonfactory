@@ -362,6 +362,122 @@ def script_from_topic(topic: str,
 
 
 # ---------------------------------------------------------------------------
+# AI pictures: one generated still per line, in one picked style
+# ---------------------------------------------------------------------------
+
+# The picture styles the AI visuals mode offers. One style rides
+# every line of a short, so the pictures feel like one set: the
+# prefix is the style, the line (or a planned description of it)
+# is the subject. The set is short on purpose, the way Pixelle's
+# prompt prefix examples are short: a style is a look, not a
+# settings page.
+VISUAL_STYLES = {
+    "photo": {
+        "label": "Photo",
+        "prefix": "photorealistic photograph, natural light, "
+                  "sharp detail",
+    },
+    "illustration": {
+        "label": "Illustration",
+        "prefix": "warm flat illustration, soft colors, clean "
+                  "simple shapes",
+    },
+    "anime": {
+        "label": "Anime",
+        "prefix": "anime style illustration, clean line art, "
+                  "bright colors",
+    },
+    "painting": {
+        "label": "Painting",
+        "prefix": "oil painting, rich texture, visible brush "
+                  "strokes",
+    },
+    "sketch": {
+        "label": "Simple sketch",
+        "prefix": "minimalist black and white line sketch, clean "
+                  "lines, lots of white space",
+    },
+}
+VISUAL_STYLE_DEFAULT = "illustration"
+
+
+def image_prompt_for_line(line: str, style_id: str) -> str:
+    """One line's picture prompt in the picked style: the style
+    prefix, then the line itself as the subject. Deterministic,
+    so a scene's picture is reproducible from the job record."""
+    style = VISUAL_STYLES.get(style_id) or \
+        VISUAL_STYLES[VISUAL_STYLE_DEFAULT]
+    subject = (line or "").strip().rstrip(".")
+    return f"{style['prefix']}: {subject}"
+
+
+def _planned_image_prompts(lines: list, style_id: str):
+    """Ask the wired text routes for one picture description per
+    line, Pixelle's image planning step: narration lines are
+    often abstract ('nobody really knows why'), and a planner
+    turns each into something a picture model can draw. Best
+    effort by design: returns a list of styled prompts, or None
+    when no route answers or the answer does not line up with
+    the script, and the caller falls back to the lines
+    themselves. Never raises."""
+    style = VISUAL_STYLES.get(style_id) or \
+        VISUAL_STYLES[VISUAL_STYLE_DEFAULT]
+    numbered = "\n".join(
+        f"{i + 1}. {line}" for i, line in enumerate(lines))
+    prompt = (
+        "For each numbered narration line below, write one "
+        "image generation prompt describing a single picture "
+        "that shows what the line is talking about. Concrete "
+        "visual subjects only, no text in the picture. Reply "
+        "with ONLY a JSON array of strings, one prompt per "
+        f"line, in order. There are {len(lines)} lines.\n"
+        + numbered
+    )
+    text = None
+    errors = []
+    if os.environ.get("GEMINI_API_KEY"):
+        try:
+            text = _gemini_text(prompt, os.environ["GEMINI_API_KEY"])
+        except Exception as exc:  # noqa: BLE001 - free chain next
+            errors.append(str(exc))
+    if text is None:
+        try:
+            import llm_providers
+
+            if llm_providers.any_configured():
+                text = _openrouter_text(prompt)
+        except Exception as exc:  # noqa: BLE001 - planning is optional
+            errors.append(str(exc))
+    if not text:
+        return None
+    try:
+        start = text.index("[")
+        end = text.rindex("]")
+        planned = json.loads(text[start:end + 1])
+    except Exception:  # noqa: BLE001 - not the shape we asked for
+        return None
+    if not isinstance(planned, list) or len(planned) != len(lines):
+        return None
+    out = []
+    for item in planned:
+        item = str(item or "").strip()
+        if not item or len(item) > 400:
+            return None
+        out.append(f"{style['prefix']}: {item}")
+    return out
+
+
+def image_prompts_for_lines(lines: list, style_id: str) -> list:
+    """The picture prompt for every line, in order: planned
+    descriptions when a text route answers, the lines themselves
+    otherwise. Always returns one prompt per line."""
+    planned = _planned_image_prompts(lines, style_id)
+    if planned is not None:
+        return planned
+    return [image_prompt_for_line(line, style_id) for line in lines]
+
+
+# ---------------------------------------------------------------------------
 # Stock footage
 # ---------------------------------------------------------------------------
 
@@ -745,6 +861,44 @@ def build_narration_track(line_wavs: list, line_durations: list,
           "-i", str(list_path), "-c:a", "pcm_s16le", str(out)],
          timeout=300, cwd=work_dir)
     return out
+
+
+def animate_image_scene(image_path, duration: float,
+                        out_path: Path, index: int = 0) -> Path:
+    """Turn one AI still into one scene clip at the frame size
+    and rate the assembly expects, exactly the scene's length:
+    a slow zoom in, a slow zoom out, or a slow pan across a
+    slightly zoomed frame, cycling by scene index so a run of
+    stills does not all drift the same way (the Ken Burns
+    shape). The still is upscaled first so the zoom crops from
+    a larger canvas and stays smooth."""
+    frames = max(1, int(round(duration * FPS)))
+    motion = index % 3
+    if motion == 0:
+        zoom = f"z='1+0.12*on/{frames}'"
+        x = "x='iw/2-(iw/zoom/2)'"
+        y = "y='ih/2-(ih/zoom/2)'"
+    elif motion == 1:
+        zoom = f"z='1.13-0.12*on/{frames}'"
+        x = "x='iw/2-(iw/zoom/2)'"
+        y = "y='ih/2-(ih/zoom/2)'"
+    else:
+        zoom = "z='1.15'"
+        x = f"x='(iw-iw/zoom)*on/{frames}'"
+        y = "y='ih/2-(ih/zoom/2)'"
+    vf = (
+        f"scale={WIDTH * 2}:{HEIGHT * 2}:"
+        "force_original_aspect_ratio=increase,"
+        f"crop={WIDTH * 2}:{HEIGHT * 2},"
+        f"zoompan={zoom}:{x}:{y}:d={frames}:"
+        f"s={WIDTH}x{HEIGHT}:fps={FPS},format=yuv420p")
+    _run([
+        "ffmpeg", "-y", "-loop", "1", "-i", str(image_path),
+        "-vf", vf, "-t", f"{duration:.3f}",
+        "-an", "-c:v", "libx264", "-preset", "veryfast",
+        "-crf", "20", str(out_path),
+    ], timeout=600)
+    return out_path
 
 
 def assemble_short(scene_paths: list, scene_durations: list,

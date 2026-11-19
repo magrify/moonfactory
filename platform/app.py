@@ -116,6 +116,10 @@ clip_image = (
     .apt_install("ffmpeg", "fonts-dejavu-core")
     .pip_install("sherpa-onnx", "yt-dlp", "numpy", "requests")
     .add_local_file(str(Path(__file__).parent / "pricing.py"), "/platform/pricing.py")
+    .add_local_file(
+        str(Path(__file__).parent.parent
+            / "worker-kaggle" / "comfy_worker_kernel.py"),
+        "/platform/comfy_worker_kernel.py")
     .add_local_file(str(Path(__file__).parent / "clipping.py"), "/platform/clipping.py")
     .add_local_file(str(Path(__file__).parent / "fun_camera.py"), "/platform/fun_camera.py")
     .add_local_file(str(Path(__file__).parent / "llm_providers.py"), "/platform/llm_providers.py")
@@ -416,9 +420,107 @@ def _short_word_check(job: dict, out_path: Path):
                 pass
 
 
+# The AI pictures wait inside one short: the house image lane
+# renders on the Kaggle ComfyUI worker, whose cold start (a
+# session boot, the ComfyUI setup, the model staging) takes
+# minutes on a cold day and seconds on a warm one. The wait is
+# bounded well inside the runner's own hour, and a short whose
+# pictures do not land inside it falls back to stock footage
+# rather than dying on a worker it does not control.
+SHORTS_AI_WAIT_SECONDS = 1500
+
+
+def _short_ai_scenes(job: dict, lines: list):
+    """Queue one house image job per script line on the Kaggle
+    ComfyUI worker and wait for the stills: the AI visuals mode
+    of the shorts lane. The children are ordinary house image
+    job records (kind image, the kaggle-comfy route) carrying
+    no charge and no quota of their own: the short itself
+    already took the lane's quota at creation, the pictures are
+    its scenes, and the compute is the free Kaggle quota the
+    house image lane already runs on. A short_parent mark keeps
+    them out of the library and the gallery. Returns the still
+    paths in line order, or None when any picture fails or the
+    wait runs out; children still unfinished at that point are
+    closed on the spot so a kernel never renders a picture
+    nobody is waiting for."""
+    prompts = shorts.image_prompts_for_lines(
+        lines, job.get("short_style") or shorts.VISUAL_STYLE_DEFAULT)
+    base_seed = int(hashlib.sha256(
+        job["id"].encode()).hexdigest()[:8], 16) % 90000 + 10000
+    children = []
+    for i, prompt in enumerate(prompts):
+        child = {
+            "id": pysecrets.token_hex(8),
+            "user_id": job["user_id"],
+            "worker_job_id": None,
+            "provider": "kaggle-comfy",
+            "route": "kaggle",
+            "kind": "image",
+            "lane": "image",
+            "model": None,
+            "prompt": prompt,
+            "seed": base_seed + i,
+            "user_prompt": prompt,
+            "camera_presets": [],
+            "camera_preset_names": [],
+            "camera_look": {},
+            "status": "queued",
+            "error": None,
+            "bytes": None,
+            "created_at": _now(),
+            "charged_cents": 0,
+            "free_tier": False,
+            "included_cost_cents": 0,
+            "cost_cents": 0.0,
+            "music_prompt": None,
+            "plan_at_job": job.get("plan_at_job"),
+            "retry_of": None,
+            "last_poll": 0,
+            "aspect_ratio": "9:16",
+            "short_parent": job["id"],
+        }
+        jobs[child["id"]] = child
+        children.append(child["id"])
+    _wake_comfy_kernel()
+    deadline = time.time() + SHORTS_AI_WAIT_SECONDS
+    paths = None
+    while time.time() < deadline:
+        states = [(jobs.get(cid) or {}) for cid in children]
+        if all(s.get("status") == "done" for s in states):
+            try:
+                data_volume.reload()
+            except Exception:
+                pass
+            found = [FILES_DIR / f"{cid}.png" for cid in children]
+            if all(p.exists() for p in found):
+                paths = found
+            break
+        if any(s.get("status") == "error" for s in states):
+            break
+        time.sleep(10)
+    if paths is None:
+        for cid in children:
+            rec = jobs.get(cid) or {}
+            if rec.get("status") in ("queued", "running"):
+                rec["status"] = "error"
+                rec["error"] = (
+                    "the short moved on without this picture")
+                rec["internal_error"] = (
+                    "the shorts AI pictures wait ended first")
+                jobs[cid] = rec
+        return None
+    job["short_picture_jobs"] = children
+    job["short_picture_prompts"] = prompts
+    return paths
+
+
 @app.function(
     image=clip_image,
-    secrets=[modal.Secret.from_name("moonfactory-providers")],
+    secrets=[
+        modal.Secret.from_name("moonfactory-providers"),
+        modal.Secret.from_name("moonfactory-secrets"),
+    ],
     volumes={"/data": data_volume, "/worker-models": worker_models},
     cpu=4.0,
     memory=8192,
@@ -426,11 +528,13 @@ def _short_word_check(job: dict, out_path: Path):
     scaledown_window=60,
 )
 def process_short_job(job_id: str):
-    """Run one faceless short end to end on CPU: one stock clip
-    per script line, Kokoro narration per line through the
-    platform's own audio stage, captions timed from the measured
-    narration lengths, the house music bed underneath, and one
-    ffmpeg assembly. Shorts land in the library as first-class
+    """Run one faceless short end to end on CPU: one scene per
+    script line (a stock clip, or an AI picture in one picked
+    style, animated with a slow zoom or pan), Kokoro narration
+    per line through the platform's own audio stage, captions
+    timed from the measured narration lengths, the picked music
+    bed underneath, and one ffmpeg assembly. Shorts land in the
+    library as first-class
     jobs (lane "shorts") with the finished file already in
     place, the way clip jobs do, so the file, gallery, poster
     and delete routes serve them unchanged. The lane is free:
@@ -461,20 +565,43 @@ def process_short_job(job_id: str):
         voice = job.get("speech_voice") or DEFAULT_SPEECH_VOICE
         stock_key = shorts._env_value("PEXELS_API_KEY")
 
-        set_stage(SHORTS_STAGES[0])
+        image_paths = None
+        if (job.get("short_visuals") or "stock") == "ai":
+            set_stage("Making the pictures")
+            image_paths = _short_ai_scenes(job, lines)
+            if image_paths is None:
+                # The pictures could not be made inside the
+                # wait: the short falls back to stock footage
+                # and the record says so, the same flagged
+                # fallback shape the audio stages use, rather
+                # than dying on a worker it does not control.
+                job["short_visuals_used"] = "stock"
+                job["visuals_fallback"] = True
+                jobs[job_id] = job
+            else:
+                job["short_visuals_used"] = "ai"
+                job["short_scenes"] = [
+                    {"provider": "house-image",
+                     "terms": prompt,
+                     "page_url": "", "credit": "", "license": ""}
+                    for prompt in job.get("short_picture_prompts")
+                    or []]
+                jobs[job_id] = job
         scenes = []
-        for i, line in enumerate(lines):
-            terms = shorts.search_terms_for_line(
-                line, job.get("short_topic") or "")
-            scenes.append(shorts.find_stock_clip(
-                terms, work / "stock", i, stock_key))
-        job["short_scenes"] = [
-            {key: scene.get(key) for key in (
-                "provider", "terms", "page_url", "credit",
-                "license")}
-            for scene in scenes
-        ]
-        jobs[job_id] = job
+        if image_paths is None:
+            set_stage(SHORTS_STAGES[0])
+            for i, line in enumerate(lines):
+                terms = shorts.search_terms_for_line(
+                    line, job.get("short_topic") or "")
+                scenes.append(shorts.find_stock_clip(
+                    terms, work / "stock", i, stock_key))
+            job["short_scenes"] = [
+                {key: scene.get(key) for key in (
+                    "provider", "terms", "page_url", "credit",
+                    "license")}
+                for scene in scenes
+            ]
+            jobs[job_id] = job
 
         set_stage(SHORTS_STAGES[1])
         generate_voiceover = modal.Function.from_name(
@@ -511,9 +638,19 @@ def process_short_job(job_id: str):
             encoding="utf-8")
 
         set_stage(SHORTS_STAGES[3])
+        if image_paths is not None:
+            scene_paths = []
+            for i, (still, duration) in enumerate(
+                    zip(image_paths, scene_durations)):
+                scene_file = work / f"ai_scene_{i}.mp4"
+                shorts.animate_image_scene(
+                    still, duration, scene_file, i)
+                scene_paths.append(scene_file)
+        else:
+            scene_paths = [Path(scene["path"]) for scene in scenes]
         out_path = files_dir / f"{job_id}.mp4"
         info = shorts.assemble_short(
-            [Path(scene["path"]) for scene in scenes],
+            scene_paths,
             scene_durations, narration, ass_path, out_path, work,
             bed_path=BED_PATH if BED_PATH.exists() else None,
             watermark=bool(job.get("free_tier")),
@@ -1342,6 +1479,38 @@ COMFY_DEAD_JOB_MIN_AGE_SECONDS = 1800
 # six bounds every real render with room to spare).
 COMFY_QUEUED_LIMIT_SECONDS = 7200
 COMFY_RUNNING_LIMIT_SECONDS = 21600
+
+
+def _wake_comfy_kernel() -> None:
+    """Wake the ComfyUI kernel when a job waits and no kernel
+    heartbeat is fresh: a version push of the worker script
+    makes Kaggle run it. Throttled by the heartbeat's freshness
+    and a minimum gap between attempts, and it never raises: a
+    failed wake leaves the job queued for the next nudge. This
+    is the module level twin of the web layer's
+    _comfy_maybe_trigger (same meta keys, same discipline), so
+    the CPU processors, which run outside the web layer, can
+    nudge the same kernel awake for jobs they queue."""
+    try:
+        if _now() - float(meta.get("comfy:heartbeat") or 0) \
+                < COMFY_HEARTBEAT_STALE_SECONDS:
+            return
+        if _now() - float(meta.get("comfy:last_trigger") or 0) \
+                < COMFY_TRIGGER_MIN_INTERVAL_SECONDS:
+            return
+        token = os.environ.get("KAGGLE_API_TOKEN") or ""
+        if not token:
+            return
+        script_text = COMFY_WORKER_SCRIPT_PATH.read_text()
+        meta["comfy:last_trigger"] = _now()
+        ok, detail = kaggle_push(
+            token, script_text, slug=COMFY_KERNEL_SLUG,
+            title="Moonfactory Comfy Worker",
+            datasets=[HF_KEY_DATASET], gpu=True)
+        if not ok:
+            meta["comfy:last_trigger_error"] = detail
+    except Exception:
+        pass
 # The house lanes that execute on the Kaggle ComfyUI worker.
 # Every house video lane moved (2026-11-19): the two models
 # (house Wan 2.2 in its Draft, Production and Effects shapes,
@@ -7712,7 +7881,8 @@ def api():
         mine = []
         for key in list(jobs.keys()):
             job = jobs.get(key)
-            if job and job.get("user_id") == user["id"]:
+            if job and job.get("user_id") == user["id"] \
+                    and not job.get("short_parent"):
                 mine.append(mirror_status(job))
         mine.sort(key=lambda j: j["created_at"], reverse=True)
         active = sorted(
@@ -9268,27 +9438,10 @@ def api():
         kernel heartbeat is fresh: the same discipline as
         _hf_maybe_trigger, with its own meta keys and kernel.
         Never raises: a failed wake leaves the job queued and
-        the mirror retries on its next pass."""
-        try:
-            if _now() - float(meta.get("comfy:heartbeat") or 0) \
-                    < COMFY_HEARTBEAT_STALE_SECONDS:
-                return
-            if _now() - float(meta.get("comfy:last_trigger") or 0) \
-                    < COMFY_TRIGGER_MIN_INTERVAL_SECONDS:
-                return
-            token = os.environ.get("KAGGLE_API_TOKEN") or ""
-            if not token:
-                return
-            script_text = COMFY_WORKER_SCRIPT_PATH.read_text()
-            meta["comfy:last_trigger"] = _now()
-            ok, detail = kaggle_push(
-                token, script_text, slug=COMFY_KERNEL_SLUG,
-                title="Moonfactory Comfy Worker",
-                datasets=[HF_KEY_DATASET], gpu=True)
-            if not ok:
-                meta["comfy:last_trigger_error"] = detail
-        except Exception:
-            pass
+        the mirror retries on its next pass. The work itself
+        lives in the module level _wake_comfy_kernel, which the
+        CPU processors call for the jobs they queue."""
+        _wake_comfy_kernel()
 
     def _settle_comfy_partial(job: dict) -> None:
         """The partial delivery settlement, carried over from
@@ -9553,6 +9706,10 @@ x_api_key: str = Header(default="")):
             "length_targets": list(shorts.SHORTS_LENGTH_TARGETS),
             "default_length_seconds":
                 shorts.SHORTS_DEFAULT_LENGTH_SECONDS,
+            "visual_styles": [
+                {"id": key, "label": entry["label"]}
+                for key, entry in shorts.VISUAL_STYLES.items()
+            ],
         }
 
     @web.post("/api/shorts")
@@ -9621,6 +9778,19 @@ x_api_key: str = Header(default="")):
         if voice != DEFAULT_SPEECH_VOICE and not is_paid(user):
             raise HTTPException(
                 status_code=403, detail="picking a voice is a paid feature")
+        visuals = (body.get("visuals") or "stock").strip()
+        if visuals not in ("stock", "ai"):
+            raise HTTPException(
+                status_code=422,
+                detail="pick stock footage or AI pictures")
+        style = (body.get("style") or "").strip()
+        if visuals == "ai":
+            if style not in shorts.VISUAL_STYLES:
+                raise HTTPException(
+                    status_code=422,
+                    detail="pick one of the picture styles on the list")
+        else:
+            style = ""
         is_free_job = False
         if not is_paid(user):
             if free_jobs_total(user) >= FREE_CLIPS_TOTAL:
@@ -9658,6 +9828,8 @@ x_api_key: str = Header(default="")):
             "short_target_seconds": target_seconds,
             "short_lines": lines,
             "short_scenes": [],
+            "short_visuals": visuals,
+            "short_style": style or None,
             "script_source": script_source,
             "speech_script": " ".join(lines),
             "speech_voice": voice,
@@ -9715,6 +9887,11 @@ x_api_key: str = Header(default="")):
         # 2026-11-17): an image a customer made is finished work
         # the same way a clip is, under the same rules.
         if job.get("status") != "done" or job.get("removed"):
+            return False
+        # A short's AI pictures are scenes inside the short, not
+        # work of their own: they never list here or in the
+        # owner's library.
+        if job.get("short_parent"):
             return False
         # NSFW jobs never list publicly (Jack, 2026-11-18),
         # whatever the owner's opt-out setting: the classification
@@ -11849,7 +12026,7 @@ APP_HTML = (
     </div>
 
     <div id="shorts-fields" style="display:none">
-    <p class="muted">Make a short with a voice telling the story over stock footage, with captions and music built in. These are free. They run on our own computers, so one can take a few minutes.</p>
+    <p class="muted">Make a short with a voice telling the story over stock footage or AI pictures, with captions and music built in. These are free. They run on our own computers, so one can take a few minutes.</p>
     <div class="mode-toggle">
       <button class="btn" id="short-mode-topic" type="button">Topic</button>
       <button class="btn secondary" id="short-mode-script" type="button">Your script</button>
@@ -11871,6 +12048,22 @@ APP_HTML = (
       <textarea id="short-script" rows="8" maxlength="2200" placeholder="One line for each scene. The voice reads it exactly as written."></textarea>
       <p class="muted" id="short-script-length-note">Your video length is estimated from your script length.</p>
       <p class="muted" id="short-script-estimate"></p>
+    </div>
+    <label>Pictures</label>
+    <select id="short-visuals">
+      <option value="stock" selected>Stock footage</option>
+      <option value="ai">AI pictures</option>
+    </select>
+    <div id="short-style-wrap" style="display:none">
+      <label>Picture style</label>
+      <select id="short-style">
+        <option value="photo">Photo</option>
+        <option value="illustration" selected>Illustration</option>
+        <option value="anime">Anime</option>
+        <option value="painting">Painting</option>
+        <option value="sketch">Simple sketch</option>
+      </select>
+      <p class="muted" id="short-style-note">One picture is made for each line, all in the style you pick, and each one moves with a slow zoom or pan. AI pictures take longer than stock footage.</p>
     </div>
     <label>Voice</label>
     <select id="short-voice">
@@ -14232,6 +14425,11 @@ function shortShowMode() {
 }
 $('short-mode-topic').onclick = () => { shortMode = 'topic'; shortShowMode(); };
 $('short-mode-script').onclick = () => { shortMode = 'script'; shortShowMode(); };
+function shortShowVisuals() {
+  $('short-style-wrap').style.display =
+    $('short-visuals').value === 'ai' ? '' : 'none';
+}
+$('short-visuals').addEventListener('change', shortShowVisuals);
 async function loadShortsConfig() {
   try {
     const r = await api('/api/shorts/config');
@@ -14280,7 +14478,9 @@ function shortScriptEstimate() {
 }
 $('short-script').addEventListener('input', shortScriptEstimate);
 function buildShort() {
-  const payload = { voice: $('short-voice').value };
+  const payload = { voice: $('short-voice').value,
+    visuals: $('short-visuals').value };
+  if (payload.visuals === 'ai') payload.style = $('short-style').value;
   if (shortMode === 'topic') {
     payload.topic = $('short-topic').value;
     payload.length_seconds = parseInt($('short-length').value, 10);
