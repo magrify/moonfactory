@@ -48,8 +48,18 @@ check("tc.value = TITLE_CARDS_ID" in catalog,
       "buildCatalog appends the title cards entry")
 check("tc.textContent = 'Title cards · Free'" in catalog,
       "the entry is labeled plainly and marked free")
-check("sel.appendChild(tc)" in catalog,
-      "the entry lands in the model picker")
+check("freeGroup.appendChild(tc)" in catalog,
+      "the entry lands in the picker Free group")
+check("freeGroup.label = 'Free'" in catalog,
+      "the picker carries a Free group")
+check("sel.appendChild(freeGroup)" in catalog,
+      "the Free group lands in the model picker")
+check(catalog.index("sel.appendChild(freeGroup)")
+      < catalog.index("for (const m of catalogCfg.models)"),
+      "the Free group leads the picker, ahead of the paid models")
+check(catalog.index("freeGroup.appendChild(tc)")
+      < catalog.index("freeGroup.appendChild(sh)"),
+      "title cards lead the Free group")
 check("o.value !== TITLE_CARDS_ID" in SRC,
       "the paid gate never disables the free entry")
 check("sel.value !== TITLE_CARDS_ID" in SRC,

@@ -357,8 +357,16 @@ check("sh.value = SHORTS_ID" in catalog,
       "buildCatalog appends the faceless shorts entry")
 check("sh.textContent = 'Faceless shorts · Free'" in catalog,
       "the entry is labeled plainly and marked free")
-check("sel.appendChild(sh)" in catalog,
-      "the entry lands in the model picker")
+check("freeGroup.appendChild(sh)" in catalog,
+      "the entry lands in the picker Free group")
+check("const keep = sel.value || SHORTS_ID;" in catalog,
+      "a first catalog build lands on the faceless shorts entry")
+check('<option value="faceless_shorts">Faceless shorts · Free</option>'
+      in SRC,
+      "the served picker opens on the faceless shorts entry")
+check(catalog.index("freeGroup.appendChild(sh)")
+      < catalog.index("freeGroup.appendChild(o)"),
+      "faceless shorts sit in the Free group ahead of the motion templates")
 check("o.value !== SHORTS_ID" in SRC,
       "the paid gate never disables the free entry")
 check("sel.value !== SHORTS_ID" in SRC,

@@ -11157,7 +11157,7 @@ APP_HTML = (
       <div class="grow">
         <label class="flabel" for="model">Model</label>
         <select id="model">
-          <option value="wan2.2">Wan 2.2</option>
+          <option value="faceless_shorts">Faceless shorts · Free</option>
         </select>
       </div>
       <div id="length-house">
@@ -12278,6 +12278,9 @@ function isHouseModel(id) { return HOUSE_MODEL_IDS.includes(id); }
 // template lane, which renders on the same spare computers as
 // the title cards. The names match the template names the
 // server reports, and the template lane checks pin that.
+// Since 2026-11-19 they sit in the Free group at the top of
+// the picker, alongside the title cards and faceless shorts
+// entries, ahead of the paid models.
 const MOTION_TEMPLATES = [
   { id: 'story', name: 'Animated story short' },
   { id: 'sting', name: 'Logo sting' }
@@ -12287,8 +12290,40 @@ function moneyC(c) { return '$' + (c / 100).toFixed(2); }
 function buildCatalog() {
   const sel = $('model');
   if (!sel || !catalogCfg) return;
-  const keep = sel.value || 'wan2.2';
+  // The picker opens on Faceless shorts (Jack, 2026-11-19): a
+  // rebuild keeps the current pick, and a first build lands on
+  // the shorts entry, whose form updateModelUI then shows.
+  const keep = sel.value || SHORTS_ID;
   sel.innerHTML = '';
+  // The free lanes lead the picker (Jack, 2026-11-19): cost
+  // order, free first. Title cards, faceless shorts, and the
+  // motion templates all ride lanes that never charge (zero
+  // credits; on a free account they count toward the five free
+  // clips); the paid models follow in config order.
+  const freeGroup = document.createElement('optgroup');
+  freeGroup.label = 'Free';
+  // Title cards (the folded Titles lane), marked free because
+  // the lane never charges. Picking the entry swaps the
+  // composer to the template form; the jobs still go out
+  // through /api/templates exactly as before.
+  const tc = document.createElement('option');
+  tc.value = TITLE_CARDS_ID;
+  tc.textContent = 'Title cards · Free';
+  freeGroup.appendChild(tc);
+  // Faceless shorts (the folded Shorts lane) ride the group the
+  // same way: picking the entry swaps the composer to the
+  // shorts form; jobs go out through /api/shorts.
+  const sh = document.createElement('option');
+  sh.value = SHORTS_ID;
+  sh.textContent = 'Faceless shorts · Free';
+  freeGroup.appendChild(sh);
+  for (const t of MOTION_TEMPLATES) {
+    const o = document.createElement('option');
+    o.value = t.id;
+    o.textContent = t.name;
+    freeGroup.appendChild(o);
+  }
+  sel.appendChild(freeGroup);
   for (const m of catalogCfg.models) {
     const o = document.createElement('option');
     o.value = m.id;
@@ -12298,30 +12333,6 @@ function buildCatalog() {
       + (m.available ? '' : ' (unavailable)');
     sel.appendChild(o);
   }
-  const motionGroup = document.createElement('optgroup');
-  motionGroup.label = 'Motion';
-  for (const t of MOTION_TEMPLATES) {
-    const o = document.createElement('option');
-    o.value = t.id;
-    o.textContent = t.name;
-    motionGroup.appendChild(o);
-  }
-  sel.appendChild(motionGroup);
-  // Title cards (the folded Titles lane) ride the same picker as
-  // one more entry, marked free because the lane never charges.
-  // Picking it swaps the composer to the template form; the jobs
-  // still go out through /api/templates exactly as before.
-  const tc = document.createElement('option');
-  tc.value = TITLE_CARDS_ID;
-  tc.textContent = 'Title cards · Free';
-  sel.appendChild(tc);
-  // Faceless shorts (the folded Shorts lane) ride the picker the
-  // same way: one more free entry whose pick swaps the composer
-  // to the shorts form; jobs go out through /api/shorts.
-  const sh = document.createElement('option');
-  sh.value = SHORTS_ID;
-  sh.textContent = 'Faceless shorts · Free';
-  sel.appendChild(sh);
   if ([...sel.options].some(o => o.value === keep)) sel.value = keep;
   applyModelGates();
   updateModelUI();
