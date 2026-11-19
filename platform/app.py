@@ -1286,7 +1286,7 @@ def _hf_story_page(fields: dict) -> str:
   </head>
   <body>
     <div id="root" data-composition-id="main" data-start="0"
-      data-duration="{duration:g}" data-width="1080" data-height="1920" data-fps="30">
+      data-duration="{duration:g}" data-width="1080" data-height="1920" data-fps="24">
 {clips_js}
     </div>
     <script>window.__motion = {props_js};</script>

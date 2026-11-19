@@ -12,12 +12,21 @@ import { SceneSpan, sceneAt } from "./story";
 type MotionProps = { title: string; lines: string[]; color: string; duration: number; scenes: SceneSpan[] };
 
 const W = 1080, H = 1920;
+// The free worker draws with software GL, and a full resolution frame through the
+// whole chain costs more than the render timeout buys for a long story (a 672 frame
+// proof hit the 2400 second cap at about 10 seconds a frame on the worker, against
+// a 0.2 second floor for a page with no scene). The scene renders at half scale and
+// the page upscales it to the full frame: the painted look is soft by design, and
+// the ink outlines and grade carry it. At half scale a frame costs about 3 seconds
+// on the worker, which brings a full story home inside the bound.
+const SCALE = 0.5;
+const RW = Math.round(W * SCALE), RH = Math.round(H * SCALE);
 const props = (window as unknown as { __motion: MotionProps }).__motion;
 const canvas = document.getElementById("gl") as HTMLCanvasElement;
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, stencil: false, powerPreference: "high-performance", preserveDrawingBuffer: true });
 renderer.setPixelRatio(1);
-renderer.setSize(W, H, false);
+renderer.setSize(RW, RH, false);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFShadowMap;
 renderer.toneMapping = THREE.NoToneMapping;
@@ -27,7 +36,7 @@ const camera = new THREE.PerspectiveCamera(40, W / H, 0.2, 1500);
 const world = new TownWorld(props.scenes);
 scene.add(world.root);
 
-const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(W, H, { samples: 4, type: THREE.HalfFloatType }));
+const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(RW, RH, { samples: 2, type: THREE.HalfFloatType }));
 const lens = new LensBlur({ maxCoC: 24, nearScale: 1.2 });
 const grade = new GradeEffect({ ky: [0, 0.1, 0.28, 0.6, 0.835, 0.945, 1], sat: [1, 1.05, 1], tintS: [0.01, 0.002], tintM: [0, 0], tintH: [0.006, 0], vig: [0.12, 0.45] });
 // the scene colour render comes first: InkPass inks over the input buffer, it does not fill it

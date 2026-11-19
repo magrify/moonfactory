@@ -166,6 +166,8 @@ story_html = app.build_hf_composition("story", story_fields)
 story_plan = app.hf_story_plan(story_fields["title"],
                                story_fields["lines"].split("\n"))
 check('id="gl"' in story_html, "story composition carries the scene canvas")
+check('data-fps="24"' in story_html,
+      "story composition renders at 24 frames a second, the rate the free worker can carry")
 check("motion-scene.js" in story_html,
       "story composition loads the scene script")
 check('src="mix.wav"' in story_html,
