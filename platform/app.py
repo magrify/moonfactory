@@ -836,6 +836,7 @@ def job_is_nsfw(job: dict) -> bool:
 # picker serves it from the config below, the gallery falls
 # back to it). The $$$$ is the image tier banding codified
 # in pricing.py (above 10c per image), read on its 47c price.
+HOUSE_IMAGE_NAME = "Z-Image Turbo"
 HOUSE_IMAGE_LABEL = "Z-Image Turbo · $$$$"
 
 
@@ -855,10 +856,12 @@ def _image_size_rank(size: str) -> float:
     """Rank one image size so a lane's smallest size sorts
     first: K tiers by their number, pixel sizes by area in
     megapixels, anything else (the edit lane's "match") at 0.
-    A lane only ever mixes sizes from one family."""
-    if size.endswith("K"):
+    A shaped size ("1K-16:9") ranks at its tier, so a lane's
+    smallest size stays its lowest tier's square."""
+    head = size.split("-", 1)[0]
+    if head.endswith("K"):
         try:
-            return float(size[:-1])
+            return float(head[:-1])
         except ValueError:
             return 0.0
     if "x" in size:
@@ -884,6 +887,39 @@ def image_picker_price_cents(lane_id: str) -> float:
     _raw, debit = pricing.image_lane_price(
         lane_id, image_smallest_size(lane))
     return debit
+
+
+# Image tier bands (Jack, 2026-11-19): the image shelf bands
+# its $ marks on the per image customer price, $ up to 3c,
+# $$ above 3c up to 4.5c, $$$ above 4.5c up to 10c, $$$$
+# above 10c. (The video per second bands below are a
+# separate scale.) The pickers read the tier as data from
+# the config, never out of a label string.
+IMAGE_TIER_BANDS_CENTS = (3.0, 4.5, 10.0)
+
+
+def image_tier_for_price(price_cents):
+    if price_cents is None:
+        return None
+    if price_cents <= IMAGE_TIER_BANDS_CENTS[0]:
+        return 1
+    if price_cents <= IMAGE_TIER_BANDS_CENTS[1]:
+        return 2
+    if price_cents <= IMAGE_TIER_BANDS_CENTS[2]:
+        return 3
+    return 4
+
+
+def image_lane_tier(lane_id: str):
+    """The lane's $ tier as data, from its picker price."""
+    return image_tier_for_price(image_picker_price_cents(lane_id))
+
+
+def image_lane_name(lane_id: str) -> str:
+    """The lane's plain model name for the picker: the pricing
+    label without its tier marks, which the config serves as
+    their own field now."""
+    return pricing.IMAGE_LANES[lane_id]["label"].split(" · ")[0]
 
 
 # Price tier signs for the studio dropdown (Jack, 2026-11-16):
@@ -2025,6 +2061,49 @@ def offered_lengths(model: str) -> list:
     return list(dict.fromkeys(out))
 
 
+RESOLUTION_ORDER = ("480p", "720p", "1080p", "2K", "4K")
+
+# Sizes the submit path cannot carry yet (submit audit,
+# 2026-11-19). These models' provider submits transmit no
+# resolution the lower tiers could ride: Kie's shared input
+# builder sends none for kling4, omni12, seedance2_fast or
+# seedance2_mini, Eachlabs' Veo Lite submit sends none, and
+# OpenRouter's HappyHorse submit sends none; kling3 sends
+# only its 4K mode, and which of Kie's std or pro modes its
+# lower tiers mean is not documented. Until the funded pass
+# wires each provider's field, the picker sells only the
+# tier named here: the one tier the submit does carry where
+# it carries one (kling3), the cheapest tier where it
+# carries none, so nobody pays for a size distinction the
+# job never transmits.
+SIZE_PICKER_SINGLE = {
+    "kling3": ("4K",),
+    "kling4": ("720p",),
+    "omni12": ("720p",),
+    "veo3_lite": ("720p",),
+    "happyhorse": ("720p",),
+    "seedance2_fast": ("480p",),
+    "seedance2_mini": ("480p",),
+}
+
+
+def offered_resolutions(model: str, rates: dict) -> list:
+    """The sizes the video form offers on this model (Jack,
+    2026-11-19): exactly the resolutions the rate table prices
+    for it, intersected with the resolutions job validation
+    accepts for it and the resolutions its submit path can
+    actually carry, in canonical order. A resolution with no
+    published rate is never offered, and neither is one the
+    submit would refuse or silently drop."""
+    priced = (rates or {}).get(model) or {}
+    allowed = pricing.MODEL_RESOLUTIONS.get(
+        model, pricing.RESOLUTIONS)
+    single = SIZE_PICKER_SINGLE.get(model)
+    return [res for res in RESOLUTION_ORDER
+            if res in priced and res in allowed
+            and (single is None or res in single)]
+
+
 def model_display_name(model: dict) -> str:
     """The customer-facing name of one shelf entry: the plain
     model name plus the Uncensored suffix where it applies (the
@@ -3075,6 +3154,12 @@ def api():
                 "lengths": (
                     offered_lengths(m["id"])
                     if m["id"] in PER_SECOND_MODELS else []),
+                # The sizes this model can actually make at its
+                # published rates (Jack, 2026-11-19): the Size
+                # picker in the video form reads exactly these.
+                "resolutions": (
+                    offered_resolutions(m["id"], tier_table["rates"])
+                    if m["id"] in PER_SECOND_MODELS else []),
                 "available": (
                     True if m["id"] in HOUSE_MODEL_PRICING_LANE
                     else not api_lane_state(m["id"])["paused"]
@@ -3110,7 +3195,8 @@ def api():
             # image lane plus a few provider image models, priced
             # per image. The studio's image mode reads this.
             "image_models": [
-                {"id": "house", "label": HOUSE_IMAGE_LABEL,
+                {"id": "house", "label": HOUSE_IMAGE_NAME,
+                 "tier": image_lane_tier("house"),
                  "sizes": list(HOUSE_ASPECTS),
                  "size_labels": {
                      a: pricing.image_size_label("house", a)
@@ -3123,7 +3209,8 @@ def api():
                  "price_cents": image_picker_price_cents("house"),
                  "uncensored": False},
             ] + [
-                {"id": mid, "label": lane["label"],
+                {"id": mid, "label": image_lane_name(mid),
+                 "tier": image_lane_tier(mid),
                  "sizes": list(lane["raw_cents"].keys()),
                  "size_labels": {
                      s: pricing.image_size_label(mid, s)
@@ -4038,11 +4125,23 @@ def api():
         elif provider == "beatapi":
             headers = dict(_beatapi_headers())
             headers["Idempotency-Key"] = job["id"]
+            # A size key can carry a shape ("1K-16:9"): the
+            # tier goes out as the resolution and the shape as
+            # the aspect ratio BeatAPI's image docs publish.
+            # The price rides the tier alone, so a shaped size
+            # charges exactly its tier's price (BeatAPI's own
+            # pricing rule, read 2026-11-19). A plain tier key
+            # sends no ratio and takes the provider's square
+            # default, as before.
+            tier, _, aspect = size.partition("-")
+            beat_body = {"model": endpoint, "prompt": prompt,
+                         "resolution": tier}
+            if aspect:
+                beat_body["aspect_ratio"] = aspect
             resp = requests.post(
                 f"{BEATAPI_BASE}/v1/images/tasks",
                 headers=headers,
-                json={"model": endpoint, "prompt": prompt,
-                      "resolution": size},
+                json=beat_body,
                 timeout=30)
             if resp.status_code not in (200, 201, 202):
                 raise RuntimeError(
@@ -4076,9 +4175,17 @@ def api():
                                "width": int(w), "height": int(h)}
             else:
                 # SpicyAPI's Seedream examples use lowercase
-                # resolution values ("2k").
+                # resolution values ("2k"). A shaped size key
+                # ("1K-16:9") also sends its ratio as the
+                # aspect_ratio SpicyAPI publishes for this
+                # endpoint; the price rides the tier alone
+                # there too (SpicyAPI's price table, read
+                # 2026-11-19).
+                tier, _, aspect = size.partition("-")
                 image_input = {"prompt": prompt,
-                               "resolution": size.lower()}
+                               "resolution": tier.lower()}
+                if aspect:
+                    image_input["aspect_ratio"] = aspect
             data = _submit_post(
                 job, f"{SPICYAPI_BASE}/api/v1/jobs/createTask",
                 headers, {"model": endpoint,
@@ -5534,26 +5641,34 @@ def api():
             inp["sound"] = True
         elif model == "seedance2_fast":
             inp["generate_audio"] = True
-        if params.get("resolution") == "4K":
-            # 4K tiers (2026-11-17, 4K expansion): Kie's own
-            # pages price a 4K tier for both Kling 3.0 lanes.
-            # kling-3.0/video takes it as mode="4K" (its page
-            # lists modes std / pro / 4K); kling-3.0-omni takes
-            # a resolution field whose documented enum is
-            # 720p / 1080p / 4k. Other tiers send nothing,
-            # exactly as before; payload-unverified like the
-            # rest of this submit until the funded pass.
-            if model == "kling3":
-                inp["mode"] = "4K"
-            elif model == "kling3_omni":
-                inp["resolution"] = "4k"
-        if model == "grok" and params.get("resolution") == "1080p":
-            # Grok 1080p tier (2026-11-17): Kie's own Grok page
-            # documents a resolution parameter (480p default /
-            # 720p / 1080p, chosen per job). The lower tiers send
-            # nothing, exactly as before; payload-unverified like
-            # the rest of this submit until the funded pass.
-            inp["resolution"] = "1080p"
+        if model == "kling3_omni":
+            # Omni's resolution field (2026-11-17, extended
+            # 2026-11-19): Kie's page documents the enum as
+            # 720p / 1080p / 4k, so every tier the Size picker
+            # sells is sent, not only 4K. Payload-unverified
+            # like the rest of this submit until the funded pass.
+            inp["resolution"] = (
+                "4k" if params.get("resolution") == "4K"
+                else params["resolution"])
+        elif params.get("resolution") == "4K" and model == "kling3":
+            # 4K tier (2026-11-17, 4K expansion): Kie's own page
+            # prices a 4K tier for kling-3.0/video, taken as
+            # mode="4K" (its page lists modes std / pro / 4K).
+            # The lower tiers send no mode: which of std or pro
+            # each one means is not documented, so the picker
+            # sells this lane at 4K only (SIZE_PICKER_SINGLE in
+            # the config builder) rather than charge for a tier
+            # the job never transmits.
+            inp["mode"] = "4K"
+        if model == "grok" and params.get("resolution") in ("720p", "1080p"):
+            # Grok tiers (2026-11-17, extended 2026-11-19):
+            # Kie's own Grok page documents a resolution
+            # parameter (480p default / 720p / 1080p, chosen per
+            # job). The 480p tier is the documented default and
+            # sends nothing; the other tiers send their
+            # documented value. Payload-unverified like the rest
+            # of this submit until the funded pass.
+            inp["resolution"] = params["resolution"]
         if model == "grok15":
             # Grok Imagine Video 1.5 (2026-11-17): Kie's own 1.5
             # page documents the resolution as a per-job parameter
@@ -5738,8 +5853,14 @@ def api():
         in pricing.py. Talking content on this lane is served by
         the voiceover stage, never by silently switching the price
         basis."""
+        # The picked resolution rides the input (2026-11-19):
+        # PiAPI's Veo enum includes the 720p and 1080p tiers
+        # this lane sells (recorded with the route in
+        # pricing.py); before this the tier was charged but
+        # never sent, so every job rendered at the default.
         inp = {"prompt": prompt, "duration": params["duration"],
-               "aspect_ratio": params["aspect_ratio"], "generate_audio": False}
+               "aspect_ratio": params["aspect_ratio"], "generate_audio": False,
+               "resolution": params["resolution"]}
         try:
             if params["mode"] == "image":
                 inp["image_url"] = _beatapi_media_url(
@@ -6951,7 +7072,14 @@ def api():
             if pricing.lane_paused(lane):
                 raise HTTPException(status_code=503, detail="this lane is paused while its costs are reviewed")
         prompt = (body.get("prompt") or "").strip()
-        if not prompt or len(prompt) > 2000:
+        # Wan Motion is the one pick whose provider call treats
+        # the prompt as optional steering (its real inputs are
+        # the subject image and the driving video; fal's
+        # wan-motion input shape, read 2026-11-17). Every other
+        # pick's provider or worker call consumes the prompt as
+        # a primary input, so it stays required there (audit,
+        # 2026-11-19).
+        if len(prompt) > 2000 or (not prompt and model != "wan_motion"):
             raise HTTPException(status_code=422, detail="a prompt of up to 2000 characters is required")
         # Custom audio is a paid feature (Jack, 2026-11-16;
         # Amendment 3: any paying customer, subscription or
@@ -9402,7 +9530,7 @@ def api():
         cfg = user.get("auto_reload") or {}
         amount = int(cfg.get("amount_cents") or 0)
         if (not cfg.get("enabled")
-                or amount not in pricing.TOPUP_PACKS_CENTS
+                or amount not in pricing.RELOAD_AMOUNTS_CENTS
                 or not user.get("stripe_customer_id")
                 or not user.get("stripe_payment_method_id")):
             return False
@@ -9530,9 +9658,17 @@ def api():
         if err:
             raise HTTPException(status_code=503, detail=err)
         body = await request.json()
-        pack = int(body.get("pack_cents") or 0)
-        if pack not in pricing.TOPUP_PACKS_CENTS:
-            raise HTTPException(status_code=422, detail="unknown top up pack")
+        try:
+            pack = int(body.get("pack_cents") or 0)
+        except (TypeError, ValueError):
+            pack = 0
+        # Presets and custom amounts ride the same path (Jack,
+        # 2026-11-19): anything at or above the $1 minimum is a
+        # real top up, charged as typed and credited in full to
+        # the balance by the webhook, as top ups always have.
+        if not pricing.valid_topup_cents(pack):
+            raise HTTPException(
+                status_code=422, detail="the smallest top up is $1")
         base = base_url(request)
         price_id = os.environ.get(f"STRIPE_PRICE_TOPUP_{pack}", "")
         if price_id:
@@ -9585,7 +9721,7 @@ def api():
         enabled = bool(body.get("enabled"))
         amount = int(body.get("amount_cents") or 0)
         if enabled:
-            if amount not in pricing.TOPUP_PACKS_CENTS:
+            if amount not in pricing.RELOAD_AMOUNTS_CENTS:
                 raise HTTPException(
                     status_code=422,
                     detail="pick a reload amount of $1, $5, $10, or $20")
@@ -10605,8 +10741,9 @@ Uncensored.</li>
 account. Free clips are watermarked. A platform-wide free budget
 also applies.</li>
 <li>Paid access comes two ways: the Creator plan at $20 per month
-with an included generation budget, or one-time top-ups of $1, $5,
-$10, or $20 that you spend per video. Payments are processed by Stripe.
+with an included generation budget, or one-time top-ups of $5, $10,
+$20, $50, or $100, or your own amount of $1 or more, that you spend
+per video. Payments are processed by Stripe.
 We never see or store your full card number.</li>
 <li>The exact price of a generation is shown before it runs. Starting
 a generation authorizes the charge or balance debit shown.</li>
@@ -10829,8 +10966,9 @@ and you can delete your own clips at any time.</p>
 <li>The free tier is 5 clips per account, total.</li>
 <li>The Creator plan is $20 a month and opens everything, with an
 included monthly budget for Moonfactory's own lane.</li>
-<li>A top up is a single payment of $1, $5, $10, or $20 added to your
-balance. Balance never expires.</li>
+<li>A top up is a single payment of $5, $10, $20, $50, or $100, or
+your own amount of $1 or more, added to your balance. Balance never
+expires.</li>
 <li>Frontier models are priced per second of video. The exact
 price for your exact settings shows on the Create button before
 anything runs.</li>
@@ -11185,6 +11323,8 @@ APP_HTML = (
         <label class="flabel" for="image-edit-file">Image to edit (PNG or JPEG)</label>
         <input id="image-edit-file" type="file" accept="image/png,image/jpeg">
         <p class="muted">This model edits one image you upload, following the instruction in the prompt. The result comes back at the same size as your image.</p>
+        <label class="flabel" for="image-edit-prompt">What should change in your image</label>
+        <textarea id="image-edit-prompt" rows="3" placeholder="change the jacket to black leather, keep the face, the pose and the room exactly the same"></textarea>
         <div id="image-edit-preview"></div>
       </div>
       <p class="muted" id="image-shelf-note"></p>
@@ -11226,6 +11366,22 @@ APP_HTML = (
           <option value="30">30 seconds</option>
         </select>
         <p class="muted">Every model offers every length, starting at its own shortest clip. Longer than one single clip, your video is made in segments and joined into one finished video. Longer videos are priced per second across the segments, exactly like separate clips.</p>
+      </div>
+      <div id="resolution-wrap" style="display:none">
+        <label class="flabel" for="resolution">Size</label>
+        <select id="resolution">
+          <option value="480p">480 x 854</option>
+          <option value="720p" selected>720 x 1280</option>
+          <option value="1080p">1080 x 1920</option>
+        </select>
+      </div>
+      <div id="aspect-wrap">
+        <label class="flabel" for="aspect">Aspect ratio</label>
+        <select id="aspect">
+          <option value="9:16" selected>9:16 vertical</option>
+          <option value="16:9">16:9 wide</option>
+          <option value="1:1">1:1 square</option>
+        </select>
       </div>
     </div>
     <div id="motion-fields" style="display:none">
@@ -11366,24 +11522,6 @@ APP_HTML = (
         <p class="muted" id="lane-note"></p>
       </div>
 
-      <div id="resolution-wrap" style="display:none">
-        <label>Resolution</label>
-        <select id="resolution">
-          <option value="480p">480 x 854</option>
-          <option value="720p" selected>720 x 1280</option>
-          <option value="1080p">1080 x 1920</option>
-        </select>
-      </div>
-
-      <div id="aspect-wrap">
-        <label>Aspect ratio</label>
-        <select id="aspect">
-          <option value="9:16" selected>9:16 vertical</option>
-          <option value="16:9">16:9 wide</option>
-          <option value="1:1">1:1 square</option>
-        </select>
-      </div>
-
       <div id="house-more">
         <label>End image (PNG, optional, Production lane, the video steers to this final frame)</label>
         <input id="endimg" type="file" accept="image/png">
@@ -11502,12 +11640,12 @@ APP_HTML = (
       <h2>Create</h2>
     </div>
     <div class="paywall">
-      <p>Try It is the free plan. Wan 2.2 Draft clips, 5 per account total,
+      <p class="muted">Try It is the free plan. Wan 2.2 Draft clips, 5 per account total,
       watermarked. Every model beyond Wan 2.2, the Production lane,
       custom music and voiceover, effects, longer videos in segments,
       clipping, and hiding your clips from the gallery live here,
       locked until an account has paid.</p>
-      <p>Any payment opens Create, in one of two ways. Creator, a monthly
+      <p class="muted">Any payment opens Create, in one of two ways. Creator, a monthly
       plan with an included generation budget. Or a single top up and
       pay per video, no subscription. Once you have paid, Try It disappears and
       you open straight into Create.</p>
@@ -11602,17 +11740,23 @@ APP_HTML = (
       <div class="panel-head"><h2>Billing</h2><button type="button" class="panel-close" data-close-panel aria-label="Close">×</button></div>
       <p class="muted">Paying saves your card and turns on auto reload, so your work never stops over balance. Change the amount or turn it off below at any time.</p>
       <p class="group-label">Monthly plan</p>
-      <p>The plan is optional. You can skip it and just top up credits and pay per video instead.</p>
+      <p class="muted">The plan is optional. You can skip it and just top up credits and pay per video instead.</p>
       <p>
         <button class="btn" id="buy-creator">Get Creator, $20/month</button>
       </p>
       <p class="muted">Creator opens every model and includes a monthly budget for making videos.</p>
       <p class="group-label">Credits</p>
       <div class="topup-grid">
-        <button class="btn secondary" data-topup="100">Top up $1</button>
         <button class="btn secondary" data-topup="500">Top up $5</button>
         <button class="btn secondary" data-topup="1000">Top up $10</button>
         <button class="btn secondary" data-topup="2000">Top up $20</button>
+        <button class="btn secondary" data-topup="5000">Top up $50</button>
+        <button class="btn secondary" data-topup="10000">Top up $100</button>
+      </div>
+      <label for="topup-custom">Your own amount, $1 or more, in dollars</label>
+      <div class="topup-grid">
+        <input id="topup-custom" type="number" min="1" step="1" inputmode="numeric" placeholder="25">
+        <button class="btn secondary" id="topup-custom-btn" type="button">Top up</button>
       </div>
       <p class="muted">Top up once and pay per video from your balance. Your balance never expires.</p>
       <p class="group-label">Auto reload</p>
@@ -12297,7 +12441,15 @@ function restoreCreateForm(d) {
     }
     if (b.image_size) $('image-size').value = b.image_size;
     if (b.aspect_ratio) $('image-size').value = b.aspect_ratio;
-    $('prompt').value = b.prompt || '';
+    // A restored edit creation's instruction goes back into
+    // the edit form's own box; every other image creation
+    // restores into the shared prompt, as it always has.
+    const restoredLane = imageLane();
+    if (restoredLane && restoredLane.edit) {
+      $('image-edit-prompt').value = b.prompt || '';
+    } else {
+      $('prompt').value = b.prompt || '';
+    }
     return;
   }
   setImageMode(false);
@@ -12736,9 +12888,14 @@ function buildCatalog() {
   // they count toward the five free clips). The model classes
   // and rates ride the config payload (picker_class and
   // rate_cents_per_second, from the same flags the gallery
-  // filter reads), never the label text; the group headings
-  // carry the class, so option labels are the plain model
-  // names with their $ tier signs and nothing else.
+  // filter reads), never the label text. Option labels are the
+  // plain model names only; inside the Paid and Uncensored
+  // groups a disabled separator line carrying one tier's $
+  // marks alone heads that tier's models, cheapest tier
+  // first, models still cost ordered inside their tier
+  // (Jack, 2026-11-19). Models with no rate (the price paused
+  // lanes) carry no tier and sit last under no separator. The
+  // Free group is all zero cost and takes no separators.
   const freeGroup = document.createElement('optgroup');
   freeGroup.label = 'Free';
   // Title cards (the folded Titles lane). Picking the entry
@@ -12773,6 +12930,19 @@ function buildCatalog() {
     return (ra - rb) || a.label.localeCompare(b.label)
       || (a.id < b.id ? -1 : 1);
   };
+  const modelOption = m => {
+    const o = document.createElement('option');
+    o.value = m.id;
+    o.textContent = m.label + (m.available ? '' : ' (unavailable)');
+    return o;
+  };
+  const tierSeparator = t => {
+    const sep = document.createElement('option');
+    sep.disabled = true;
+    sep.dataset.tierSep = '1';
+    sep.textContent = '$'.repeat(t);
+    return sep;
+  };
   for (const [cls, name] of [['paid', 'Paid Models'],
                              ['uncensored', 'Uncensored Models']]) {
     const members = catalogCfg.models
@@ -12780,14 +12950,14 @@ function buildCatalog() {
     if (!members.length) continue;
     const group = document.createElement('optgroup');
     group.label = name;
-    for (const m of members) {
-      const o = document.createElement('option');
-      o.value = m.id;
-      o.textContent = m.label
-        + (m.price_tier ? ' · ' + '$'.repeat(m.price_tier) : '')
-        + (m.available ? '' : ' (unavailable)');
-      group.appendChild(o);
+    const tiers = [[], [], [], [], []];
+    for (const m of members) tiers[m.price_tier || 0].push(m);
+    for (let t = 1; t <= 4; t++) {
+      if (!tiers[t].length) continue;
+      group.appendChild(tierSeparator(t));
+      for (const m of tiers[t]) group.appendChild(modelOption(m));
     }
+    for (const m of tiers[0]) group.appendChild(modelOption(m));
     sel.appendChild(group);
   }
   if ([...sel.options].some(o => o.value === keep)) sel.value = keep;
@@ -12806,7 +12976,7 @@ function applyModelGates() {
   // to everyone: they are free, and on a free account they count
   // toward the five free clips, exactly as the title cards always
   // have.
-  [...sel.options].forEach(o => { if (o.value !== 'wan2.2' && o.value !== TITLE_CARDS_ID && o.value !== SHORTS_ID && !isMotionTemplate(o.value)) o.disabled = !paid; });
+  [...sel.options].forEach(o => { if (!o.dataset.tierSep && o.value !== 'wan2.2' && o.value !== TITLE_CARDS_ID && o.value !== SHORTS_ID && !isMotionTemplate(o.value)) o.disabled = !paid; });
   if (!paid && sel.value !== 'wan2.2' && sel.value !== TITLE_CARDS_ID && sel.value !== SHORTS_ID && !isMotionTemplate(sel.value) && [...sel.options].some(o => o.value === 'wan2.2')) sel.value = 'wan2.2';
 }
 // The price of the house-lane job being composed, from the served
@@ -12873,7 +13043,8 @@ function showTitleCardForm() {
   $('motion-fields').style.display = 'none';
   const hide = [$('dropzone'), document.querySelector('label[for="start-source"]'),
     $('start-source'), document.querySelector('label[for="prompt"]'), $('prompt'),
-    $('length-house'), $('length-api'), document.querySelector('details.more'),
+    $('length-house'), $('length-api'), $('resolution-wrap'), $('aspect-wrap'),
+    document.querySelector('details.more'),
     $('api-opts'), $('house-price'), $('botcheck2')];
   for (const el of hide) if (el) el.style.display = 'none';
   $('segments-note').textContent = '';
@@ -12891,7 +13062,8 @@ function showShortsForm() {
   $('motion-fields').style.display = 'none';
   const hide = [$('dropzone'), document.querySelector('label[for="start-source"]'),
     $('start-source'), document.querySelector('label[for="prompt"]'), $('prompt'),
-    $('length-house'), $('length-api'), document.querySelector('details.more'),
+    $('length-house'), $('length-api'), $('resolution-wrap'), $('aspect-wrap'),
+    document.querySelector('details.more'),
     $('api-opts'), $('house-price'), $('botcheck2')];
   for (const el of hide) if (el) el.style.display = 'none';
   $('segments-note').textContent = '';
@@ -12916,7 +13088,7 @@ function updateModelUI() {
   }
   const motion = applyMotionUI();
   if (motion) {
-    for (const id of ['length-api', 'length-house', 'lane-wrap', 'house-more', 'resolution-wrap', 'api-opts', 'motion-opts']) {
+    for (const id of ['length-api', 'length-house', 'lane-wrap', 'house-more', 'resolution-wrap', 'aspect-wrap', 'api-opts', 'motion-opts']) {
       $(id).style.display = 'none';
     }
     $('model-note').textContent = motion === 'story'
@@ -12936,13 +13108,17 @@ function updateModelUI() {
   if (m !== 'wan2.2') $('lane-wrap').style.display = 'none';
   $('house-more').style.display = api ? 'none' : '';
   $('resolution-wrap').style.display = api ? '' : 'none';
+  // The aspect picker is the house models' size choice and
+  // every other video model's shape, so it rides the main
+  // form beside Size for all of them (Jack, 2026-11-19).
+  $('aspect-wrap').style.display = '';
   $('api-opts').style.display = api ? '' : 'none';
   $('motion-opts').style.display = m === 'wan_motion' ? '' : 'none';
   $('length-api').style.display = (api && m !== 'wan_motion') ? '' : 'none';
   if (api) {
     const entry = ((catalogCfg && catalogCfg.models) || []).find(x => x.id === m);
     if (m === 'wan_motion') {
-      $('model-note').textContent = 'Motion transfer. Add a subject image above, then paste a motion video link in More options. The result follows the motion video\u2019s length.';
+      $('model-note').textContent = 'Motion transfer. Add a subject image above, then paste a motion video link in More options. The result follows the motion video\u2019s length. A prompt is optional here. It only steers the result.';
     } else if (entry && entry.ref_caps) {
       const c = entry.ref_caps;
       $('model-note').textContent = 'You can add up to ' + c.images + ' images, ' + c.videos + ' videos, and ' + c.audios + ' audio files as references.';
@@ -12956,7 +13132,13 @@ function updateModelUI() {
       fillSelect($('duration'), durs, v => LEN_WORDS[v] || (v + ' seconds'));
       buildSegButtons($('duration-seg'), $('duration'), durs, v => LEN_LABEL[v] || (v + 's'), fetchQuote);
       const lane = pricingData ? (pricingData.api_lanes || {})[m] : null;
-      const res = lane ? Object.keys(lane.balance_debit_cents_per_second) : opts.resolutions;
+      // The config's resolutions are the sizes the server
+      // will actually accept at published rates; the pricing
+      // payload and the built in table only fill in when the
+      // config carries none.
+      const res = (entry && entry.resolutions && entry.resolutions.length)
+        ? entry.resolutions
+        : lane ? Object.keys(lane.balance_debit_cents_per_second) : opts.resolutions;
       fillSelect($('resolution'), res.length ? res : opts.resolutions, v => resLabel(v));
     }
     fetchQuote();
@@ -13041,13 +13223,29 @@ $('autoreload-off').onclick = async () => {
     msg('pay-msg', 'Auto reload is off.', 'ok');
   } catch (e) { msg('pay-msg', e.message, 'err'); }
 };
+async function startTopup(cents) {
+  const r = await api('/api/checkout/topup', { method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ pack_cents: cents }) });
+  location.href = r.url;
+}
 document.querySelectorAll('[data-topup]').forEach(b => b.onclick = async () => {
-  try {
-    const r = await api('/api/checkout/topup', { method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ pack_cents: Number(b.dataset.topup) }) });
-    location.href = r.url;
-  } catch (e) { msg('pay-msg', e.message, 'err'); }
+  try { await startTopup(Number(b.dataset.topup)); }
+  catch (e) { msg('pay-msg', e.message, 'err'); }
 });
+// A custom top up (Jack, 2026-11-19): any amount of $1 or
+// more, checked here before anything is sent and again on
+// the server. The full typed amount lands in the balance,
+// the same as a preset.
+$('topup-custom-btn').onclick = async () => {
+  const dollars = Number($('topup-custom').value);
+  const cents = Math.round(dollars * 100);
+  if (!dollars || !(cents >= 100)) {
+    msg('pay-msg', 'The smallest top up is $1. Type an amount of $1 or more.', 'err');
+    return;
+  }
+  try { await startTopup(cents); }
+  catch (e) { msg('pay-msg', e.message, 'err'); }
+};
 // The Create button builds its payload first (buildCreate and
 // the per lane builders below), then fires it (fireCreate). A
 // signed out visitor's build becomes the pending creation and
@@ -13741,8 +13939,13 @@ function buildImageModels() {
   // The image picker carries the same class groups as the
   // video picker (Jack, 2026-11-19): Free, Paid Models,
   // Uncensored Models, each sorted by the per image customer
-  // price at the lane's smallest size. Class and price ride
-  // the config payload; a group with no lanes is left out.
+  // price at the lane's smallest size. Class, price and tier
+  // ride the config payload; a group with no lanes is left
+  // out. Option labels are the plain model names only; inside
+  // the Paid and Uncensored groups a disabled separator line
+  // carrying one tier's $ marks alone heads that tier's
+  // lanes, cheapest tier first. The Free group takes no
+  // separators.
   const byPrice = (a, b) => {
     const pa = a.price_cents, pb = b.price_cents;
     if (pa == null && pb == null)
@@ -13759,9 +13962,26 @@ function buildImageModels() {
     if (!members.length) continue;
     const group = document.createElement('optgroup');
     group.label = name;
-    for (const m of members) {
+    const laneOption = m => {
       const o = document.createElement('option');
-      o.value = m.id; o.textContent = m.label; group.appendChild(o);
+      o.value = m.id; o.textContent = m.label;
+      return o;
+    };
+    if (cls === 'free') {
+      for (const m of members) group.appendChild(laneOption(m));
+    } else {
+      const tiers = [[], [], [], [], []];
+      for (const m of members) tiers[m.tier || 0].push(m);
+      for (let t = 1; t <= 4; t++) {
+        if (!tiers[t].length) continue;
+        const sep = document.createElement('option');
+        sep.disabled = true;
+        sep.dataset.tierSep = '1';
+        sep.textContent = '$'.repeat(t);
+        group.appendChild(sep);
+        for (const m of tiers[t]) group.appendChild(laneOption(m));
+      }
+      for (const m of tiers[0]) group.appendChild(laneOption(m));
     }
     sel.appendChild(group);
   }
@@ -13782,9 +14002,6 @@ function buildImageSizes() {
   }
   const isEdit = !!(lane && lane.edit);
   $('image-edit-wrap').style.display = isEdit ? '' : 'none';
-  if (imageMode) $('prompt').placeholder = isEdit
-    ? 'Describe the edit… e.g. change the jacket to black leather, keep the face, the pose and the room exactly the same'
-    : 'Describe the image… e.g. a lighthouse at dusk, waves crashing, dramatic sky';
   refreshImageQuote();
 }
 async function refreshImageQuote() {
@@ -13792,9 +14009,14 @@ async function refreshImageQuote() {
   const lane = imageLane();
   if (!lane) return;
   const btn = $('create');
+  // An edit lane's instruction lives in its own box inside
+  // the edit form; the text to image lanes read the shared
+  // prompt, exactly as they always have.
+  const promptText = lane.edit
+    ? $('image-edit-prompt').value : $('prompt').value;
   const body = lane.id === 'house'
-    ? { prompt: $('prompt').value || 'image', aspect_ratio: $('image-size').value }
-    : { prompt: $('prompt').value || 'image', image_model: lane.id, image_size: $('image-size').value };
+    ? { prompt: promptText || 'image', aspect_ratio: $('image-size').value }
+    : { prompt: promptText || 'image', image_model: lane.id, image_size: $('image-size').value };
   try {
     const q = await api('/api/images/quote', { method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(body) });
@@ -13849,9 +14071,11 @@ function buildImage() {
   const lane = imageLane();
   if (!lane) { msg('job-msg', 'Pick an image model first.', 'err'); return null; }
   if (lane.edit && !editSourceDataUrl) { msg('job-msg', 'Add the image you want edited first.', 'err'); return null; }
+  const promptText = lane.edit
+    ? $('image-edit-prompt').value : $('prompt').value;
   const body = lane.id === 'house'
-    ? { prompt: $('prompt').value, aspect_ratio: $('image-size').value }
-    : { prompt: $('prompt').value, image_model: lane.id, image_size: $('image-size').value };
+    ? { prompt: promptText, aspect_ratio: $('image-size').value }
+    : { prompt: promptText, image_model: lane.id, image_size: $('image-size').value };
   if (lane.edit) body.source_image = editSourceDataUrl;
   return { kind: 'image', msgId: 'job-msg', body };
 }

@@ -1,4 +1,4 @@
-"""Local checks for the 2026-11-17 owner rule and the $1 pack.
+"""Local checks for the 2026-11-17 owner rule and the top up amounts.
 
 Jack's rule: the owner account answers to the provider only. His
 use is never blocked by his balance or by the net paid cost
@@ -42,16 +42,31 @@ def func_src(name):
     return ""
 
 
-# -- the $1 pack ----------------------------------------------------------
+# -- top up amounts (Jack, 2026-11-19) -----------------------------------
+# Presets are $5, $10, $20, $50, $100; a custom field takes
+# any amount at or above the $1 minimum, refused in plain
+# words under it, in the form and on the server both.
 
-check(100 in pricing.TOPUP_PACKS_CENTS,
-      f"$1 pack missing from TOPUP_PACKS_CENTS: {pricing.TOPUP_PACKS_CENTS}")
-check(pricing.TOPUP_PACKS_CENTS == [100, 500, 1000, 2000],
+check(pricing.TOPUP_PACKS_CENTS == [500, 1000, 2000, 5000, 10000],
       f"pack list drifted: {pricing.TOPUP_PACKS_CENTS}")
 pub = pricing.public_pricing()
-check(pub["topup_packs_cents"] == [100, 500, 1000, 2000],
-      "public pricing does not expose the $1 pack")
-check('data-topup="100"' in SRC, "Billing panel has no Top up $1 button")
+check(pub["topup_packs_cents"] == [500, 1000, 2000, 5000, 10000],
+      "public pricing does not expose the preset packs")
+check('data-topup="100"' not in SRC, "the $1 preset button survives")
+check('data-topup="5000"' in SRC and 'data-topup="10000"' in SRC,
+      "Billing panel is missing a new preset button")
+check('id="topup-custom"' in SRC and 'id="topup-custom-btn"' in SRC,
+      "Billing panel has no custom top up field")
+check(pricing.TOPUP_MIN_CENTS == 100, "the top up minimum is not $1")
+check(pricing.valid_topup_cents(100)
+      and pricing.valid_topup_cents(12345)
+      and not pricing.valid_topup_cents(99)
+      and not pricing.valid_topup_cents(0),
+      "custom top up amounts do not validate at the $1 minimum")
+check("the smallest top up is $1" in SRC,
+      "the server does not refuse a top up under $1 in plain words")
+check("The smallest top up is $1. Type an amount of $1 or more." in SRC,
+      "the form does not refuse a custom top up under $1 in plain words")
 # The Billing panel must say plainly that the Creator plan is
 # optional (Jack, 2026-11-19): the line sits inside the Monthly
 # plan block, before the Credits block, in its own paragraph.
@@ -64,6 +79,14 @@ if OPTIONAL_LINE in SRC:
           < SRC.index(OPTIONAL_LINE)
           < SRC.index('<p class="group-label">Credits</p>'),
           "plan is optional line is not inside the Monthly plan block")
+# Info text is one muted gray everywhere (Jack, 2026-11-19):
+# the optional line and the paywall paragraphs take the same
+# muted styling as the panel's other info lines.
+check('<p class="muted">The plan is optional.' in SRC,
+      "the plan is optional line lost the muted note styling")
+check('<p class="muted">Try It is the free plan.' in SRC
+      and '<p class="muted">Any payment opens Create' in SRC,
+      "the paywall info paragraphs lost the muted note styling")
 check('<option value="100">$1</option>' in SRC,
       "auto reload amount picker has no $1 option")
 
@@ -144,11 +167,11 @@ check("or is_owner(user)" in body, "clip quote has no owner rail")
 body = func_src("_quote_for")
 check("or is_owner(user)" in body, "per second quote has no owner rail")
 
-# Auto reload itself still refuses amounts outside the pack list,
-# which now includes $1.
+# Auto reload itself still refuses amounts outside its own
+# amount list, which keeps its $1 option.
 body = func_src("attempt_auto_reload")
-check("amount not in pricing.TOPUP_PACKS_CENTS" in body,
-      "auto reload lost its pack validation")
+check("amount not in pricing.RELOAD_AMOUNTS_CENTS" in body,
+      "auto reload lost its amount validation")
 
 # Pricing rule pins (Jack's restatement, 2026-11-19): the owner
 # pays raw cost on every per-second lane with no markup floor;

@@ -48,10 +48,28 @@ MEASURED_COST_CENTS = {
 
 CREATOR_PRICE_CENTS = 2000  # $20/mo
 
-# Top-up packs. The $1 pack (Jack, 2026-11-17) is the smallest way
-# to run a real payment through the exact path every customer
-# takes; the bigger packs stay the sensible way to load balance.
-TOPUP_PACKS_CENTS = [100, 500, 1000, 2000]
+# Top-up packs (Jack, 2026-11-19): the Billing panel presets
+# are $5, $10, $20, $50, and $100, with a custom amount field
+# beside them. The smallest top up is $1, preset or custom,
+# and the full picked or typed amount is what lands in the
+# balance, exactly as top ups have always credited. Auto
+# reload keeps its own smaller amount list: a reload is a
+# standing instruction picked once, not a panel preset, and
+# its $1 option stays valid under the same minimum.
+TOPUP_PACKS_CENTS = [500, 1000, 2000, 5000, 10000]
+TOPUP_MIN_CENTS = 100
+RELOAD_AMOUNTS_CENTS = [100, 500, 1000, 2000]
+
+
+def valid_topup_cents(amount) -> bool:
+    """A top up amount the checkout accepts: any whole cent
+    amount at or above the $1 minimum (the presets are simply
+    the panel's one tap versions of valid amounts)."""
+    try:
+        cents = int(amount)
+    except (TypeError, ValueError):
+        return False
+    return cents >= TOPUP_MIN_CENTS
 
 
 def gross_up(net_cents: float) -> int:
@@ -1301,8 +1319,12 @@ IMAGE_LANES = {
         # Variant verdict (2026-11-17): this endpoint IS the
         # base "Z-Image Spicy" from Jack's screenshots, not the
         # Pro; the wired price matches its published $0.01235.
+        # Shape pass (2026-11-19): true 16:9 and 9:16 sizes
+        # join the list, inside the same 256-1536 px range at
+        # the same flat price (width and height move nothing).
         "raw_cents": {"1024x1024": 1.235, "1024x1536": 1.235,
-                      "1536x1024": 1.235, "1536x1536": 1.235},
+                      "1536x1024": 1.235, "1536x1536": 1.235,
+                      "1536x864": 1.235, "864x1536": 1.235},
     },
     "zimage_pro_unc": {
         "label": "Z-Image Pro · $", "provider": "spicyapi",
@@ -1367,11 +1389,64 @@ IMAGE_SIZE_LABELS = {
 }
 
 
+# Aspect shapes on the tier priced lanes (provider research,
+# 2026-11-19): BeatAPI's Nano Banana image docs and SpicyAPI's
+# Seedream 5.0 Pro page publish an aspect ratio input beside
+# the resolution tier, and both price by the tier alone (the
+# ratio never changes the price), so every published shape at
+# a tier sells at that tier's raw price. The size key names
+# both halves: "1K-16:9" is the 1K tier at 16:9, and the
+# submits split the key back into resolution + aspect_ratio.
+# BeatAPI publishes the same fifteen ratios for Nano Banana
+# 2.1 and 2; the Pro drops the four banner ratios (1:4, 4:1,
+# 1:8, 8:1). SpicyAPI publishes fifteen ratios for Seedream
+# 5.0 Pro. "auto" is not a size and is never offered. Exact
+# pixels per shape are the model's own choice on these
+# routes (BeatAPI says so in words), so shaped sizes are
+# labeled by ratio and tier below, never invented dimensions.
+# The lanes NOT here stay as they are, on their providers'
+# own published facts: Wiro's Seedream 5.5 page names an
+# aspect input but publishes neither its values nor a per
+# tier price table; fal's GPT Image publishes token pricing
+# and measured examples only, no per size price; the Z-Image
+# lanes already sell real pixel shapes at one flat price; the
+# Qwen edit endpoint publishes no size inputs at all.
+IMAGE_ASPECTS = {
+    "nano_banana_21": ("16:9", "9:16", "4:3", "3:4", "3:2", "2:3",
+                       "4:5", "5:4", "21:9", "4:1", "1:4", "8:1",
+                       "1:8"),
+    "nano_banana_2": ("16:9", "9:16", "4:3", "3:4", "3:2", "2:3",
+                      "4:5", "5:4", "21:9", "4:1", "1:4", "8:1",
+                      "1:8"),
+    "nano_banana_pro": ("16:9", "9:16", "4:3", "3:4", "3:2", "2:3",
+                        "4:5", "5:4", "21:9"),
+    "seedream5pro_unc": ("16:9", "9:16", "4:3", "3:4", "3:2", "2:3",
+                         "4:5", "5:4", "21:9", "9:21", "2:1", "1:2",
+                         "3:1", "1:3"),
+}
+
+for _lane_id, _aspects in IMAGE_ASPECTS.items():
+    _lane = IMAGE_LANES[_lane_id]
+    _expanded = {}
+    for _tier, _raw in list(_lane["raw_cents"].items()):
+        _expanded[_tier] = _raw
+        for _aspect in _aspects:
+            _expanded[f"{_tier}-{_aspect}"] = _raw
+    _lane["raw_cents"] = _expanded
+del _lane_id, _aspects, _lane, _expanded, _tier, _raw, _aspect
+
+
 def image_size_label(lane_id: str, size: str) -> str:
-    """The picker label for one size: real pixel dimensions."""
+    """The picker label for one size: real pixel dimensions
+    where the provider publishes them; a shaped tier size is
+    labeled by its ratio and tier, the terms its provider
+    actually publishes for it."""
     labels = IMAGE_SIZE_LABELS.get(lane_id) or {}
     if size in labels:
         return labels[size]
+    if "-" in size and ":" in size:  # a tier-aspect key
+        tier, aspect = size.split("-", 1)
+        return f"{aspect} · {tier}"
     if "x" in size:  # pixel-keyed sizes (GPT Image, Z-Image)
         return size.replace("x", " x ")
     return size

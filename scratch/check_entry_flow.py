@@ -349,15 +349,115 @@ check('HOUSE_IMAGE_LABEL = "Z-Image Turbo · '
 check(app.HOUSE_IMAGE_LABEL == "Z-Image Turbo · "
       + _image_tier_marks(float(pricing.IMAGE_PRICE_CENTS)),
       "the served house image label recomputes from its price")
-check('"label": HOUSE_IMAGE_LABEL' in SRC,
-      "the config serves the house image label from the one constant")
+check('"label": HOUSE_IMAGE_NAME' in SRC,
+      "the config serves the house image plain name to the picker")
 check("or HOUSE_IMAGE_LABEL" in SRC,
       "the gallery reads the house image name from the same constant")
 check("Moonfactory Image" not in SRC
       and "own image maker" not in SRC,
       "no second hard coded copy of the house image name survives")
-check("' · ' + '$'.repeat(m.price_tier)" in SRC,
-      "the video picker sets its tier marks behind the bullet")
+
+# Tier sub separators (Jack, 2026-11-19): both pickers dropped
+# the "Name · $$" option format. Options carry plain names
+# only; inside each Paid and Uncensored group a disabled
+# separator option carrying one tier's $ marks alone heads
+# that tier's models, and the tier rides the config as data.
+check("' · ' + '$'.repeat(m.price_tier)" not in SRC,
+      "the video picker no longer appends tier marks to option names")
+check("o.textContent = m.label + (m.available ? '' : ' (unavailable)');"
+      in SRC,
+      "video picker options carry the plain model name only")
+check("sep.dataset.tierSep = '1'" in SRC
+      and "sep.textContent = '$'.repeat(t)" in SRC,
+      "both pickers build disabled tier separator options")
+check("!o.dataset.tierSep" in SRC,
+      "the model gates never enable a tier separator")
+check('"tier": image_lane_tier(mid)' in SRC
+      and '"tier": image_lane_tier("house")' in SRC,
+      "the config serves every image lane's tier as data")
+check(app.image_lane_name("nano_banana_21") == "Nano Banana 2.1",
+      "the config's image label is the plain model name")
+for lane_id, tier in (("house", 4), ("zimage_unc", 1),
+                      ("zimage_pro_unc", 1), ("seedream55_unc", 2),
+                      ("seedream5pro_unc", 2), ("qwen_edit_unc", 3),
+                      ("nano_banana_pro", 3), ("gpt_image_26", 3),
+                      ("nano_banana_21", 1), ("nano_banana_2", 1)):
+    check(app.image_lane_tier(lane_id) == tier,
+          f"image lane {lane_id} serves tier {tier} as data")
+
+# The Qwen edit instruction box (Jack, 2026-11-19): the edit
+# lane reads its own textarea inside the edit form; the text
+# to image lanes keep reading the shared prompt untouched.
+check('id="image-edit-prompt"' in SRC,
+      "the edit form carries its own instruction box")
+check("const promptText = lane.edit" in SRC
+      and "$('image-edit-prompt').value : $('prompt').value;" in SRC,
+      "the image submit and quote read the edit box for edit lanes")
+check("$('image-edit-prompt').value = b.prompt || '';" in SRC,
+      "a restored edit creation refills the edit box")
+
+# Image aspect shapes (provider research, 2026-11-19): the
+# tier priced lanes whose providers publish an aspect ratio
+# priced by the tier alone offer every published shape at its
+# tier's raw price; the lanes whose providers publish no such
+# price keep their size lists exactly as they were.
+check(pricing.IMAGE_LANES["nano_banana_21"]["raw_cents"]["1K-16:9"]
+      == pricing.IMAGE_LANES["nano_banana_21"]["raw_cents"]["1K"],
+      "a shaped size charges its tier's raw price")
+check("1K-4:1" in pricing.IMAGE_LANES["nano_banana_21"]["raw_cents"]
+      and "1K-4:1" not in pricing.IMAGE_LANES["nano_banana_pro"]["raw_cents"],
+      "the Pro drops the banner ratios its provider refuses")
+check(pricing.IMAGE_LANES["seedream5pro_unc"]["raw_cents"]["2K-9:21"] == 7.2,
+      "Seedream 5.0 Pro shapes ride its published tiers")
+check(list(pricing.IMAGE_LANES["seedream55_unc"]["raw_cents"])
+      == ["1K", "1.5K", "2K"],
+      "the Wiro lane keeps its sizes (no published shape prices)")
+check(list(pricing.IMAGE_LANES["gpt_image_26"]["raw_cents"])
+      == ["1024x1024"],
+      "the fal lane stays square (token pricing, no per size price)")
+check("1536x864" in pricing.IMAGE_LANES["zimage_unc"]["raw_cents"],
+      "the flat priced Z-Image lane offers a true 16:9 size")
+check('beat_body["aspect_ratio"] = aspect' in SRC
+      and 'image_input["aspect_ratio"] = aspect' in SRC,
+      "the BeatAPI and SpicyAPI submits send the picked shape")
+check(app.image_smallest_size(pricing.IMAGE_LANES["nano_banana_21"]) == "1K",
+      "a shaped lane's smallest size is still its lowest tier square")
+
+# The video Size picker (Jack, 2026-11-19): the config serves
+# each model's offered resolutions (priced and accepted), the
+# form's Size select sits in the model row labeled Size, and
+# the aspect picker rides beside it for every video model.
+check('"resolutions": (' in SRC and "offered_resolutions" in SRC,
+      "the config serves offered resolutions per model")
+check(app.offered_resolutions(
+    "seedance2", {"seedance2": {"480p": 1, "720p": 1, "1080p": 1, "4K": 1}})
+    == ["480p", "720p", "1080p", "4K"],
+    "a fully carried model offers every priced and accepted size")
+check(app.offered_resolutions(
+    "kling3", {"kling3": {"480p": 1, "720p": 1, "1080p": 1, "4K": 1}})
+    == ["4K"],
+    "kling3 sells only the tier its submit transmits")
+check(app.offered_resolutions(
+    "kling4", {"kling4": {"720p": 1, "1080p": 1}}) == ["720p"],
+    "a lane whose submit sends no size sells its cheapest tier only")
+check(app.offered_resolutions("hailuo23", {"hailuo23": {"720p": 1}})
+      == ["720p"],
+    "a single size model offers its one size")
+check('<label class="flabel" for="resolution">Size</label>' in SRC,
+      "the resolution select is labeled Size in the main form")
+check('"4k" if params.get("resolution") == "4K"' in SRC
+      and 'inp["resolution"] = params["resolution"]' in SRC,
+      "the Kie omni and Grok submits send every tier they sell")
+check('"resolution": params["resolution"]}' in SRC,
+      "the PiAPI Veo submit sends the picked resolution")
+check("$('aspect-wrap').style.display = '';" in SRC,
+      "the aspect picker shows for every video model")
+
+# Prompt audit (2026-11-19): Wan Motion is the one pick whose
+# provider call treats the prompt as optional, so it is the
+# one pick the create path does not demand a prompt for.
+check('(not prompt and model != "wan_motion")' in SRC,
+      "only Wan Motion may create with an empty prompt")
 check(app.image_smallest_size(pricing.IMAGE_LANES["seedream55_unc"]) == "1K",
       "a tiered lane's smallest size is its lowest tier")
 check(app.image_smallest_size(pricing.IMAGE_LANES["zimage_pro_unc"])
