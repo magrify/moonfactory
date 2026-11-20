@@ -1017,8 +1017,10 @@ def job_is_nsfw(job: dict) -> bool:
     return model in UNCENSORED_VIDEO_MODELS
 
 
-# Picker classes (Jack, 2026-11-19): both model pickers group
-# their entries Free, Paid Models, Uncensored Models. The class
+# Picker classes (Jack, 2026-11-19; group labels restyled
+# 2026-11-20 to match the draft picker's separators): both
+# model pickers group their entries Free Models, Regular
+# Models, Uncensored Models. The class
 # is data, never label text: a video model is uncensored when
 # the same UNCENSORED_VIDEO_MODELS flag the gallery filter
 # reads says so (the house Wan 2.2 carries that flag: open
@@ -9962,10 +9964,11 @@ x_api_key: str = Header(default="")):
     # the image prompt, the image edit instruction, the first
     # frame description) carries the draft model picker and an
     # Improve my prompt button. The pick drives this call server
-    # side through shorts.improve_prompt: a Silk model writes
-    # first when picked, the house chain is the fallback, and a
-    # missing Silk key or balance fails clean into that fallback
-    # like every unfunded lane. Free, and no job is created.
+    # side through shorts.improve_prompt, which calls exactly the
+    # picked model and fails by name when it cannot answer (no
+    # silent fallback, per the model choice rule). No job is
+    # created. Drafting calls cost API tokens, so drafting is
+    # not presented as a free feature (Jack, 2026-11-20).
 
     @web.post("/api/prompt-help")
     async def prompt_help(request: Request, mf_session: str = Cookie(default="")):
@@ -13087,7 +13090,7 @@ APP_HTML = (
       <textarea id="image-prompt" rows="2" maxlength="1000" placeholder="a red hot air balloon over rolling green hills at sunrise, bright daylight"></textarea>
       <label>Draft model</label>
       <select id="start-draft-model">
-        <optgroup label="Regular">
+        <optgroup label="Regular Models">
           <option value="gemini:gemini-3.8-flash" selected>Gemini 3.8 Flash</option>
           <option value="gemini:gemini-3.5-flash-lite">Gemini 3.5 Flash Lite</option>
           <option value="openrouter:anthropic/claude-sonnet-5">Claude Sonnet 5</option>
@@ -13097,7 +13100,7 @@ APP_HTML = (
           <option value="venice:llama-3.3-70b">Llama 3.3 70B</option>
           <option value="venice:z-ai-glm-5-3">GLM 5.3</option>
         </optgroup>
-        <optgroup label="Uncensored">
+        <optgroup label="Uncensored Models">
           <option value="venice:qwen-3-8-27b">Qwen 3.8 27B</option>
           <option value="venice:deepseek-v4-1-flash-uncensored">DeepSeek V4.1 Flash Uncensored</option>
           <option value="venice:gemma-4-uncensored">Gemma 4 Uncensored</option>
@@ -13136,7 +13139,7 @@ APP_HTML = (
     <div id="prompt-help-wrap">
       <label class="flabel" for="prompt-draft-model">Draft model</label>
       <select id="prompt-draft-model">
-        <optgroup label="Regular">
+        <optgroup label="Regular Models">
           <option value="gemini:gemini-3.8-flash" selected>Gemini 3.8 Flash</option>
           <option value="gemini:gemini-3.5-flash-lite">Gemini 3.5 Flash Lite</option>
           <option value="openrouter:anthropic/claude-sonnet-5">Claude Sonnet 5</option>
@@ -13146,7 +13149,7 @@ APP_HTML = (
           <option value="venice:llama-3.3-70b">Llama 3.3 70B</option>
           <option value="venice:z-ai-glm-5-3">GLM 5.3</option>
         </optgroup>
-        <optgroup label="Uncensored">
+        <optgroup label="Uncensored Models">
           <option value="venice:qwen-3-8-27b">Qwen 3.8 27B</option>
           <option value="venice:deepseek-v4-1-flash-uncensored">DeepSeek V4.1 Flash Uncensored</option>
           <option value="venice:gemma-4-uncensored">Gemma 4 Uncensored</option>
@@ -13193,7 +13196,7 @@ APP_HTML = (
         <textarea id="image-gen-prompt" rows="3" placeholder="Describe the image… e.g. a lighthouse at dusk, waves crashing, dramatic sky"></textarea>
         <label class="flabel" for="image-draft-model">Draft model</label>
         <select id="image-draft-model">
-          <optgroup label="Regular">
+          <optgroup label="Regular Models">
             <option value="gemini:gemini-3.8-flash" selected>Gemini 3.8 Flash</option>
             <option value="gemini:gemini-3.5-flash-lite">Gemini 3.5 Flash Lite</option>
             <option value="openrouter:anthropic/claude-sonnet-5">Claude Sonnet 5</option>
@@ -13203,7 +13206,7 @@ APP_HTML = (
             <option value="venice:llama-3.3-70b">Llama 3.3 70B</option>
             <option value="venice:z-ai-glm-5-3">GLM 5.3</option>
           </optgroup>
-          <optgroup label="Uncensored">
+          <optgroup label="Uncensored Models">
             <option value="venice:qwen-3-8-27b">Qwen 3.8 27B</option>
             <option value="venice:deepseek-v4-1-flash-uncensored">DeepSeek V4.1 Flash Uncensored</option>
             <option value="venice:gemma-4-uncensored">Gemma 4 Uncensored</option>
@@ -13241,7 +13244,7 @@ APP_HTML = (
         <textarea id="image-edit-prompt" rows="3" placeholder="change the jacket to black leather, keep the face, the pose and the room exactly the same"></textarea>
         <label class="flabel" for="image-edit-draft-model">Draft model</label>
         <select id="image-edit-draft-model">
-          <optgroup label="Regular">
+          <optgroup label="Regular Models">
             <option value="gemini:gemini-3.8-flash" selected>Gemini 3.8 Flash</option>
             <option value="gemini:gemini-3.5-flash-lite">Gemini 3.5 Flash Lite</option>
             <option value="openrouter:anthropic/claude-sonnet-5">Claude Sonnet 5</option>
@@ -13251,7 +13254,7 @@ APP_HTML = (
             <option value="venice:llama-3.3-70b">Llama 3.3 70B</option>
             <option value="venice:z-ai-glm-5-3">GLM 5.3</option>
           </optgroup>
-          <optgroup label="Uncensored">
+          <optgroup label="Uncensored Models">
             <option value="venice:qwen-3-8-27b">Qwen 3.8 27B</option>
             <option value="venice:deepseek-v4-1-flash-uncensored">DeepSeek V4.1 Flash Uncensored</option>
             <option value="venice:gemma-4-uncensored">Gemma 4 Uncensored</option>
@@ -13423,7 +13426,7 @@ APP_HTML = (
       <p class="muted" id="short-topic-note"></p>
       <label>Draft model</label>
       <select id="short-draft-model">
-        <optgroup label="Regular">
+        <optgroup label="Regular Models">
           <option value="gemini:gemini-3.8-flash" selected>Gemini 3.8 Flash</option>
           <option value="gemini:gemini-3.5-flash-lite">Gemini 3.5 Flash Lite</option>
           <option value="openrouter:anthropic/claude-sonnet-5">Claude Sonnet 5</option>
@@ -13433,7 +13436,7 @@ APP_HTML = (
           <option value="venice:llama-3.3-70b">Llama 3.3 70B</option>
           <option value="venice:z-ai-glm-5-3">GLM 5.3</option>
         </optgroup>
-        <optgroup label="Uncensored">
+        <optgroup label="Uncensored Models">
           <option value="venice:qwen-3-8-27b">Qwen 3.8 27B</option>
           <option value="venice:deepseek-v4-1-flash-uncensored">DeepSeek V4.1 Flash Uncensored</option>
           <option value="venice:gemma-4-uncensored">Gemma 4 Uncensored</option>
@@ -13557,7 +13560,7 @@ APP_HTML = (
     </div>
     <label>Draft model</label>
     <select id="drama-draft-model">
-      <optgroup label="Regular">
+      <optgroup label="Regular Models">
         <option value="gemini:gemini-3.8-flash" selected>Gemini 3.8 Flash</option>
         <option value="gemini:gemini-3.5-flash-lite">Gemini 3.5 Flash Lite</option>
         <option value="openrouter:anthropic/claude-sonnet-5">Claude Sonnet 5</option>
@@ -13567,7 +13570,7 @@ APP_HTML = (
         <option value="venice:llama-3.3-70b">Llama 3.3 70B</option>
         <option value="venice:z-ai-glm-5-3">GLM 5.3</option>
       </optgroup>
-      <optgroup label="Uncensored">
+      <optgroup label="Uncensored Models">
         <option value="venice:qwen-3-8-27b">Qwen 3.8 27B</option>
         <option value="venice:deepseek-v4-1-flash-uncensored">DeepSeek V4.1 Flash Uncensored</option>
         <option value="venice:gemma-4-uncensored">Gemma 4 Uncensored</option>
@@ -13607,7 +13610,7 @@ APP_HTML = (
       <label><input type="checkbox" id="drama-captions"> Add captions</label>
       <p id="drama-quote-line"></p>
     </div>
-    <p class="muted">Short drama is paid. It never uses your free clips.</p>
+    <p class="muted">Short drama is paid. Each episode counts toward your 5 free generations.</p>
     <div id="botcheck6"></div>
     <p id="drama-msg"></p>
     </div>
@@ -15038,23 +15041,25 @@ function buildCatalog() {
   // the shorts entry, whose form updateModelUI then shows.
   const keep = sel.value || SHORTS_ID;
   sel.innerHTML = '';
-  // The picker is grouped by class (Jack, 2026-11-19): Free,
-  // Paid Models, Uncensored Models, in that order, each group
+  // The picker is grouped by class (Jack, 2026-11-19; labels
+  // restyled 2026-11-20 to the draft picker's separators):
+  // Free Models, Regular Models, Uncensored Models, in that
+  // order, each group
   // sorted by customer cost inside itself. The free lanes lead
   // because they never charge (zero credits; on a free account
   // they count toward the five free clips). The model classes
   // and rates ride the config payload (picker_class and
   // rate_cents_per_second, from the same flags the gallery
   // filter reads), never the label text. Option labels are the
-  // plain model names only; inside the Paid and Uncensored
+  // plain model names only; inside the Regular and Uncensored
   // groups a disabled separator line carrying one tier's $
   // marks alone heads that tier's models, cheapest tier
   // first, models still cost ordered inside their tier
   // (Jack, 2026-11-19). Models with no rate (the price paused
   // lanes) carry no tier and sit last under no separator. The
-  // Free group is all zero cost and takes no separators.
+  // Free Models group is all zero cost and takes no separators.
   const freeGroup = document.createElement('optgroup');
-  freeGroup.label = 'Free';
+  freeGroup.label = 'Free Models';
   // Title cards (the folded Titles lane). Picking the entry
   // swaps the composer to the template form; the jobs still
   // go out through /api/templates exactly as before.
@@ -15100,7 +15105,7 @@ function buildCatalog() {
     sep.textContent = '$'.repeat(t);
     return sep;
   };
-  // Short drama (the folded drama lane) rides the Paid group
+  // Short drama (the folded drama lane) rides the Regular group
   // right after the Grok lane it generates on: picking the
   // entry swaps the composer to the storyboard form; jobs go
   // out through /api/drama.
@@ -15110,7 +15115,7 @@ function buildCatalog() {
     o.textContent = 'Short drama';
     return o;
   };
-  for (const [cls, name] of [['paid', 'Paid Models'],
+  for (const [cls, name] of [['paid', 'Regular Models'],
                              ['uncensored', 'Uncensored Models']]) {
     const members = catalogCfg.models
       .filter(m => classOf(m) === cls).sort(byCost);
@@ -15225,7 +15230,7 @@ const TITLE_CARDS_ID = 'title_cards';
 // picker entry, not a catalog model.
 const SHORTS_ID = 'faceless_shorts';
 // Short drama is the folded drama lane, same shape again: one
-// picker entry in Paid Models, not a catalog model.
+// picker entry in Regular Models, not a catalog model.
 const DRAMA_ID = 'short_drama';
 function showTitleCardForm() {
   $('titlecard-fields').style.display = '';
@@ -15280,7 +15285,7 @@ function showDramaForm() {
     $('api-opts'), $('house-price'), $('botcheck2')];
   for (const el of hide) if (el) el.style.display = 'none';
   $('segments-note').textContent = '';
-  $('model-note').textContent = 'Short drama is a paid episode of four shots with people who talk. It never uses your free clips.';
+  $('model-note').textContent = 'Short drama is a paid episode of four shots with people who talk. Each episode counts toward your 5 free generations.';
   $('quote').textContent = '';
   $('create').textContent = 'Make my episode';
   loadCharacters();
@@ -16482,14 +16487,15 @@ function buildImageModels() {
   const keep = sel.value;
   sel.innerHTML = '';
   // The image picker carries the same class groups as the
-  // video picker (Jack, 2026-11-19): Free, Paid Models,
+  // video picker (Jack, 2026-11-19; labels restyled
+  // 2026-11-20): Free Models, Regular Models,
   // Uncensored Models, each sorted by the per image customer
   // price at the lane's smallest size. Class, price and tier
   // ride the config payload; a group with no lanes is left
   // out. Option labels are the plain model names only; inside
-  // the Paid and Uncensored groups a disabled separator line
+  // the Regular and Uncensored groups a disabled separator line
   // carrying one tier's $ marks alone heads that tier's
-  // lanes, cheapest tier first. The Free group takes no
+  // lanes, cheapest tier first. The Free Models group takes no
   // separators.
   const byPrice = (a, b) => {
     const pa = a.price_cents, pb = b.price_cents;
@@ -16500,7 +16506,7 @@ function buildImageModels() {
     return (pa - pb) || a.label.localeCompare(b.label)
       || (a.id < b.id ? -1 : 1);
   };
-  for (const [cls, name] of [['free', 'Free'], ['paid', 'Paid Models'],
+  for (const [cls, name] of [['free', 'Free Models'], ['paid', 'Regular Models'],
                              ['uncensored', 'Uncensored Models']]) {
     const members = (cfg.image_models || [])
       .filter(m => (m.picker_class || 'paid') === cls).sort(byPrice);

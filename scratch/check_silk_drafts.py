@@ -234,9 +234,9 @@ for label in SILK_LABELS:
 for mid in SILK_IDS:
     check(SRC.count(f'value="{mid}"') == 6,
           f"all six forms carry the {mid} pick")
-check(SRC.count('<optgroup label="Regular">') == 6,
+check(SRC.count('<optgroup label="Regular Models">') == 6,
       "all six forms group the regular models")
-check(SRC.count('<optgroup label="Uncensored">') == 6,
+check(SRC.count('<optgroup label="Uncensored Models">') == 6,
       "all six forms group the uncensored models")
 check("payload.draft_model = $('short-draft-model').value" in SRC,
       "the shorts builder sends the pick")

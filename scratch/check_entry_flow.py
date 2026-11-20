@@ -304,7 +304,7 @@ check("function renderDropLoading()" in SRC
       and "Reading your image..." in SRC,
       "the start image drop shows a reading state while the file loads")
 
-# --- picker groups: Free, Paid Models, Uncensored Models -----------------
+# --- picker groups: Free Models, Regular Models, Uncensored Models -------
 # Both pickers group by a class that comes from data (the same
 # flags the gallery filter reads), never from label text, and
 # each group sorts by customer cost inside itself (2026-11-19).
@@ -595,9 +595,11 @@ check(abs(app.image_picker_price_cents("nano_banana_21") - 1.6 * 1.25) < 1e-9,
 
 catalog = SRC.split("function buildCatalog()", 1)[1].split(
     "function applyModelGates()", 1)[0]
-check("[['paid', 'Paid Models']," in catalog
+check("[['paid', 'Regular Models']," in catalog
       and "['uncensored', 'Uncensored Models']]" in catalog,
-      "the video picker builds the Paid and Uncensored groups in order")
+      "the video picker builds the Regular and Uncensored groups in order")
+check("freeGroup.label = 'Free Models';" in catalog,
+      "the video picker's free group is labeled Free Models")
 check("rate_cents_per_second" in catalog and "picker_class" in catalog,
       "the video picker groups and sorts from the config class and rate")
 check("· Uncensored" not in catalog and "· Free" not in catalog,
@@ -606,7 +608,7 @@ check("· Free" not in HTML and "· Uncensored" not in HTML,
       "no bullet class tags survive anywhere in the served studio page")
 image_builder = SRC.split("function buildImageModels()", 1)[1].split(
     "function buildImageSizes()", 1)[0]
-check("[['free', 'Free'], ['paid', 'Paid Models']," in image_builder
+check("[['free', 'Free Models'], ['paid', 'Regular Models']," in image_builder
       and "['uncensored', 'Uncensored Models']]" in image_builder,
       "the image picker builds the same three groups in the same order")
 check("picker_class" in image_builder and "price_cents" in image_builder,

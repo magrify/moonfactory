@@ -50,8 +50,8 @@ check("tc.textContent = 'Title cards'" in catalog,
       "the entry is labeled with its plain name, the group marks it free")
 check("freeGroup.appendChild(tc)" in catalog,
       "the entry lands in the picker Free group")
-check("freeGroup.label = 'Free'" in catalog,
-      "the picker carries a Free group")
+check("freeGroup.label = 'Free Models'" in catalog,
+      "the picker carries a Free Models group")
 check("sel.appendChild(freeGroup)" in catalog,
       "the Free group lands in the model picker")
 check(catalog.index("sel.appendChild(freeGroup)")

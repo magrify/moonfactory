@@ -236,10 +236,10 @@ check("const MOTION_TEMPLATES = [" in SRC
       and "{ id: 'story', name: 'Animated story short' }" in SRC
       and "{ id: 'sting', name: 'Logo sting' }" in SRC,
       "the Create picker carries the motion templates under their studio names")
-check("freeGroup.label = 'Free'" in SRC
+check("freeGroup.label = 'Free Models'" in SRC
       and "sel.appendChild(freeGroup)" in SRC
       and "freeGroup.appendChild(o)" in SRC,
-      "the picker carries the motion templates in the Free group at the top")
+      "the picker carries the motion templates in the Free Models group at the top")
 check('id="motion-fields-story"' in SRC and 'id="motion-fields-sting"' in SRC,
       "the Create form has field blocks for both motion templates")
 check('id="mf-story-lines"' in SRC and 'id="mf-story-title"' in SRC
