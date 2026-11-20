@@ -217,6 +217,25 @@ try:
     out = shorts.improve_prompt("a cat", None, "video")
     check(out == "gemini helped this",
           "the default pick helps through Gemini 3.8 Flash and cleans")
+    # Script help (the shorts form's Improve my script pick,
+    # 2026-11-20): the instruction keeps the line breaks and
+    # the helped script comes back with its lines intact, at
+    # the script cap rather than the prompt cap.
+    check("keep the line breaks"
+          in shorts.prompt_help_instruction("one\ntwo", "script"),
+          "script help asks for the line breaks kept")
+    llm_providers._gemini_chat = lambda prompt, api_key, model: \
+        '"First line, clearer now.\nSecond line follows it."'
+    out = shorts.improve_prompt(
+        "First line here.\nSecond line follows.", None, "script")
+    check(out == "First line, clearer now.\nSecond line follows it.",
+          "script help returns the script with its lines intact")
+    long_script = "\n".join(
+        f"Line number {i} speaks at some length here."
+        for i in range(30))
+    out = shorts.improve_prompt(long_script, None, "script")
+    check(isinstance(out, str) and out,
+          "a full length script can be helped, over the prompt cap")
     try:
         shorts.improve_prompt("   ", None, "video")
         check(False, "an empty prompt must refuse help")
@@ -256,8 +275,10 @@ check(SRC.count(
     '<option disabled data-tier-sep="1">$$$$</option>') == 10,
     "the $$$$ separator heads the priciest tier in both "
     "the Regular and Uncensored groups of every select")
-check("payload.draft_model = $('short-draft-model').value" in SRC,
-      "the shorts builder sends the pick")
+check("promptHelp('short-script', 'short-draft-model', 'script', "
+      "'short-help-msg'" in SRC,
+      "the shorts form sends the pick with the script to "
+      "prompt help (the Improve my script wiring, 2026-11-20)")
 check("draft_model: $('drama-draft-model').value" in SRC,
       "the drama draft call sends the pick")
 check('"draft_models": llm_providers.draft_model_options()' in SRC,
@@ -282,8 +303,9 @@ check('"/api/prompt-help"' in SRC, "the prompt help endpoint exists")
 check("shorts.improve_prompt(text, draft_model, kind)" in SRC,
       "the endpoint passes the pick to the help writer")
 check("async function promptHelp(" in SRC, "the help action exists")
-check(SRC.count("promptHelp('") == 3,
-      "all three prompt fields wire the help action")
+check(SRC.count("promptHelp('") == 4,
+      "all three prompt fields and the shorts script wire "
+      "the help action")
 check(SRC.count("$('prompt-help-wrap')") == 5,
       "the video help block rides the prompt show and hide lists")
 check('id="prompt-help-btn"' in SRC, "the video help button exists")
@@ -292,6 +314,10 @@ check('id="start-help-btn"' not in SRC,
       "the first frame help button went with its form")
 check('id="image-edit-help-btn"' in SRC,
       "the image edit help button exists")
+check('id="short-help-btn"' in SRC,
+      "the shorts script help button exists")
+check(">Improve my script</button>" in SRC,
+      "the shorts help button carries its own name")
 
 if failures:
     print("FAIL")

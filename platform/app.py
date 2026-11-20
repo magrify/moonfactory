@@ -671,13 +671,20 @@ def process_short_job(job_id: str):
             cursor += duration + pad
 
         set_stage(SHORTS_STAGES[2])
-        ass_path = work / "captions.ass"
-        ass_path.write_text(
-            shorts.build_captions_ass(
-                lines, timings,
-                style=job.get("short_caption_style")
-                or shorts.CAPTION_STYLE_DEFAULT),
-            encoding="utf-8")
+        # The No captions pick (Jack, 2026-11-20): no captions
+        # file is written and the assembly runs with no
+        # subtitles filter, so the finished short carries no
+        # captions at all.
+        ass_path = None
+        if (job.get("short_caption_style")
+                or shorts.CAPTION_STYLE_DEFAULT) != "none":
+            ass_path = work / "captions.ass"
+            ass_path.write_text(
+                shorts.build_captions_ass(
+                    lines, timings,
+                    style=job.get("short_caption_style")
+                    or shorts.CAPTION_STYLE_DEFAULT),
+                encoding="utf-8")
 
         set_stage(SHORTS_STAGES[3])
         if image_paths is not None:
@@ -10461,9 +10468,11 @@ x_api_key: str = Header(default="")):
 
     # -- prompt help (draft picker expansion, 2026-11-20) ------------------
     # Every generative prompt field in Create (the video prompt,
-    # the image prompt, the image edit instruction, the first
-    # frame description) carries the draft model picker and an
-    # Improve my prompt button. The pick drives this call server
+    # the image prompt, the image edit instruction) carries the
+    # draft model picker and an Improve my prompt button, and
+    # the Faceless shorts script box carries the same picker
+    # with an Improve my script button (Jack, 2026-11-20). The
+    # pick drives this call server
     # side through shorts.improve_prompt, which calls exactly the
     # picked model and fails by name when it cannot answer (no
     # silent fallback, per the model choice rule). No job is
@@ -10478,12 +10487,21 @@ x_api_key: str = Header(default="")):
         if not user["verified"]:
             raise HTTPException(status_code=403, detail="verify your email before creating")
         body = await request.json()
+        kind = body.get("kind")
+        kind = kind if kind in ("image", "script") else "video"
         text = (body.get("text") or "").strip()
-        if not text or len(text) > 1000:
+        # The script kind (the shorts form's Improve my script
+        # pick) improves a whole pasted script, so its cap is
+        # the script box's own cap, not the prompt cap.
+        text_cap = shorts.SHORTS_MAX_SCRIPT_CHARS \
+            if kind == "script" else 1000
+        if not text or len(text) > text_cap:
             raise HTTPException(
                 status_code=422,
-                detail="write a prompt of up to 1000 characters first")
-        kind = "image" if body.get("kind") == "image" else "video"
+                detail=(f"write a script of up to {text_cap} "
+                        "characters first" if kind == "script"
+                        else "write a prompt of up to 1000 "
+                        "characters first"))
         raw_draft_model = (body.get("draft_model") or "").strip()
         if raw_draft_model and \
                 not llm_providers.is_draft_model(raw_draft_model):
@@ -13888,22 +13906,12 @@ APP_HTML = (
 
     <div id="shorts-fields" style="display:none">
     <p class="muted">Make a short with a voice telling the story over stock footage or AI pictures, with captions and music built in. These are free. They run on our own computers, so one can take a few minutes.</p>
-    <div class="mode-toggle">
-      <button class="btn" id="short-mode-topic" type="button">Topic</button>
-      <button class="btn secondary" id="short-mode-script" type="button">Your script</button>
-    </div>
-    <div id="short-topic-wrap">
-      <label>Topic</label>
-      <input id="short-topic" type="text" maxlength="200" placeholder="why the ocean is so deep">
-      <label>Length</label>
-      <select id="short-length">
-        <option value="30">30 seconds</option>
-        <option value="60" selected>1 minute</option>
-        <option value="90">1 minute 30 seconds</option>
-        <option value="120">2 minutes</option>
-      </select>
-      <p class="muted" id="short-topic-note"></p>
-      <label>Improve my prompt</label>
+    <div id="short-script-wrap">
+      <label>Your script</label>
+      <textarea id="short-script" rows="8" maxlength="2200" placeholder="One line for each scene. The voice reads it exactly as written."></textarea>
+      <p class="muted" id="short-script-length-note">Your video length is estimated from your script length.</p>
+      <p class="muted" id="short-script-estimate"></p>
+      <label>Improve my script</label>
       <select id="short-draft-model">
         <optgroup label="Free Models">
           <option value="openrouter:nvidia/nemotron-3-ultra-550b-a55b:free">Nemotron 3 Ultra 550B</option>
@@ -13954,12 +13962,8 @@ APP_HTML = (
           <option value="kimi-k3.1-pro-uncensored">Kimi K3.1 Pro</option>
         </optgroup>
       </select>
-    </div>
-    <div id="short-script-wrap" style="display:none">
-      <label>Your script</label>
-      <textarea id="short-script" rows="8" maxlength="2200" placeholder="One line for each scene. The voice reads it exactly as written."></textarea>
-      <p class="muted" id="short-script-length-note">Your video length is estimated from your script length.</p>
-      <p class="muted" id="short-script-estimate"></p>
+      <p><button class="btn secondary" id="short-help-btn" type="button">Improve my script</button></p>
+      <p id="short-help-msg"></p>
       <label>Split my script</label>
       <select id="short-split">
         <option value="auto" selected>Auto</option>
@@ -14029,6 +14033,7 @@ APP_HTML = (
       <option value="classic" selected>Classic</option>
       <option value="big">Big</option>
       <option value="quiet">Quiet</option>
+      <option value="none">No captions</option>
     </select>
     <p class="muted" id="short-note">Free shorts count toward the five free clips on a free account. Paid accounts can make 20 a day.</p>
     <div id="botcheck5"></div>
@@ -15028,16 +15033,8 @@ function restoreCreateForm(d) {
   }
   if (d.kind === 'short') {
     $('model').value = SHORTS_ID; updateModelUI();
-    if (b.script) {
-      shortMode = 'script';
-      $('short-script').value = b.script;
-    } else {
-      shortMode = 'topic';
-      $('short-topic').value = b.topic || '';
-      if (b.length_seconds) $('short-length').value = String(b.length_seconds);
-      if (b.draft_model) $('short-draft-model').value = b.draft_model;
-    }
-    shortShowMode();
+    if (b.script) $('short-script').value = b.script;
+    if (b.draft_model) $('short-draft-model').value = b.draft_model;
     if (b.voice) $('short-voice').value = b.voice;
     shortScriptEstimate();
     return;
@@ -16387,27 +16384,35 @@ $('make-clips').onclick = async () => {
 
 // ---- Prompt help (the draft picker on every generative prompt) ----
 // Each text to video and text to image prompt field carries
-// the draft model picker and an Improve button. The pick goes
-// to /api/prompt-help and the picked model does the rewriting
-// server side; the answer replaces the field text so the user
-// reads it over before anything is made.
-async function promptHelp(textId, modelId, kind, msgId, btn) {
+// the draft model picker and an Improve button, and the
+// Faceless shorts script box carries the same picker with an
+// Improve my script button. The pick goes to /api/prompt-help
+// and the picked model does the rewriting server side; the
+// answer replaces the field text so the user reads it over
+// before anything is made. Improving rides with the
+// generation it supports and never counts on its own.
+async function promptHelp(textId, modelId, kind, msgId, btn, noun) {
+  const what = noun || 'prompt';
   const ta = $(textId);
   const text = ta.value.trim();
-  if (!text) { msg(msgId, 'Write a prompt first, then ask for help with it.', 'err'); return; }
+  if (!text) { msg(msgId, 'Write a ' + what + ' first, then ask for help with it.', 'err'); return; }
   if (!currentUser) { msg(msgId, 'Sign in to use prompt help.', 'err'); return; }
   btnBusy(btn, 'Writing...');
   try {
     const r = await api('/api/prompt-help', { method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ text, kind, draft_model: $(modelId).value }) });
     ta.value = r.text;
-    msg(msgId, 'Your prompt is updated. Read it over and change anything you like.', 'ok');
+    msg(msgId, 'Your ' + what + ' is updated. Read it over and change anything you like.', 'ok');
   } catch (e) { msg(msgId, e.message, 'err'); }
   finally { btnDone(btn); }
 }
 $('prompt-help-btn').onclick = (e) => promptHelp('prompt', 'prompt-draft-model', 'video', 'prompt-help-msg', e.target);
 $('image-help-btn').onclick = (e) => promptHelp('image-gen-prompt', 'image-draft-model', 'image', 'image-help-msg', e.target);
 $('image-edit-help-btn').onclick = (e) => promptHelp('image-edit-prompt', 'image-edit-draft-model', 'image', 'image-edit-help-msg', e.target);
+$('short-help-btn').onclick = async (e) => {
+  await promptHelp('short-script', 'short-draft-model', 'script', 'short-help-msg', e.target, 'script');
+  shortScriptEstimate();
+};
 
 // ---- Short drama (the folded drama lane, folded into Create) ----
 // The form lives in the Create card and shows when the Short
@@ -16731,16 +16736,11 @@ function buildTitleCard() {
   return d;
 }
 // ---- Shorts (free faceless shorts lane, a Create picker entry) ----
-let shortMode = 'topic';
+// Script only (Jack, 2026-11-20): the form takes a pasted
+// script and nothing else; the topic mode and its length
+// choice are gone from the form. The server still accepts a
+// topic submission exactly as before.
 let shortCfg = null;
-function shortShowMode() {
-  $('short-topic-wrap').style.display = shortMode === 'topic' ? '' : 'none';
-  $('short-script-wrap').style.display = shortMode === 'script' ? '' : 'none';
-  $('short-mode-topic').className = shortMode === 'topic' ? 'btn' : 'btn secondary';
-  $('short-mode-script').className = shortMode === 'script' ? 'btn secondary' : 'btn';
-}
-$('short-mode-topic').onclick = () => { shortMode = 'topic'; shortShowMode(); };
-$('short-mode-script').onclick = () => { shortMode = 'script'; shortShowMode(); };
 function shortShowVisuals() {
   $('short-style-wrap').style.display =
     $('short-visuals').value === 'ai' ? '' : 'none';
@@ -16750,12 +16750,6 @@ async function loadShortsConfig() {
   try {
     const r = await api('/api/shorts/config');
     shortCfg = r;
-    if (!r.topic_available) {
-      // Topic writing is dark until a text route is configured:
-      // the form opens on the script box, which always works.
-      shortMode = 'script';
-      $('short-mode-topic').style.display = 'none';
-    }
     if (!r.paid) {
       $('short-voice').disabled = true;
       $('short-voice-note').textContent = 'The free short uses the standard voice. Picking a voice is a paid feature.';
@@ -16763,7 +16757,6 @@ async function loadShortsConfig() {
       $('short-voice-note').textContent = 'The voice reads your script over the footage.';
     }
     if (r.max_script_chars) $('short-script').maxLength = r.max_script_chars;
-    shortShowMode();
   } catch (e) { /* signed out: the form keeps its default shape */ }
 }
 // In script mode the pasted words are the length, so the form
@@ -16799,16 +16792,9 @@ function buildShort() {
     music: $('short-music').value,
     caption_style: $('short-captions').value };
   if (payload.visuals === 'ai') payload.style = $('short-style').value;
-  if (shortMode === 'topic') {
-    payload.topic = $('short-topic').value;
-    payload.draft_model = $('short-draft-model').value;
-    payload.length_seconds = parseInt($('short-length').value, 10);
-    if (!payload.topic.trim()) { msg('short-msg', 'Give the short a topic first.', 'err'); return null; }
-  } else {
-    payload.script = $('short-script').value;
-    payload.split = $('short-split').value;
-    if (!payload.script.trim()) { msg('short-msg', 'Paste your script first.', 'err'); return null; }
-  }
+  payload.script = $('short-script').value;
+  payload.split = $('short-split').value;
+  if (!payload.script.trim()) { msg('short-msg', 'Paste your script first.', 'err'); return null; }
   return { kind: 'short', endpoint: '/api/shorts', botId: 'botcheck5',
     msgId: 'short-msg', body: payload };
 }

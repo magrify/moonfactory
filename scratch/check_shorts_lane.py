@@ -202,8 +202,14 @@ check("Dialogue:" in ass and "The ocean covers most" in ass,
 evil = shorts.build_captions_ass(["A {brace} test.", "Second {x} line."],
                                  [(0.0, 1.0), (1.35, 1.0)])
 check("{brace}" not in evil, "caption braces are escaped")
-check(set(shorts.CAPTION_STYLES) == {"classic", "big", "quiet"},
-      "the caption looks are classic, big, and quiet")
+check(set(shorts.CAPTION_STYLES) == {"classic", "big", "quiet", "none"},
+      "the caption looks are classic, big, quiet, and no captions")
+check(shorts.CAPTION_STYLES["none"]["label"] == "No captions",
+      "the no captions look carries its plain name")
+none_ass = shorts.build_captions_ass(lines, timings, style="none")
+check("Dialogue:" not in none_ass,
+      "the no captions look holds no caption events, so "
+      "nothing burns in")
 check("DejaVu Sans,72," in ass and ",300,1" in ass,
       "the classic look keeps the shipped caption style")
 big_ass = shorts.build_captions_ass(lines, timings, style="big")
@@ -386,6 +392,16 @@ if subprocess.run(["which", "ffmpeg"], capture_output=True).returncode == 0:
         check(info["has_audio"], "assembled short carries audio")
         check(abs(info["duration"] - sum(scene_durations)) < 0.35,
               "assembled length matches the scenes")
+        # No captions: the assembly takes no captions file at
+        # all and still lands a whole short.
+        out_none = work / "out_none.mp4"
+        info_none = shorts.assemble_short(
+            clips, scene_durations, narration, None, out_none,
+            work, bed_path=bed, watermark=True)
+        check(info_none["width"] == 1080
+              and info_none["height"] == 1920
+              and info_none["has_audio"],
+              "a short assembled with no captions file lands whole")
         # One AI still, animated: the scene clip must land at
         # the frame shape and the scene's length, ready to ride
         # the same assembly the stock clips ride.
@@ -477,6 +493,9 @@ check("_short_bed_for_job" in processor,
 check("generate_bed" in SRC and "shorts_{style}" in SRC,
       "named beds ride the platform bed stage, cached by style")
 check("build_captions_ass" in processor, "the runner times captions")
+check('!= "none"' in processor and "ass_path = None" in processor,
+      "the runner writes no captions file for the no captions "
+      "pick, so the assembly burns no captions in")
 check("assemble_short" in processor, "the runner assembles the short")
 check("_short_word_check" in processor,
       "the runner word checks the finished short")
@@ -535,8 +554,22 @@ check("if (model === SHORTS_ID) return buildShort();"
       in SRC, "the Create button routes shorts to the shorts build")
 check("function buildShort()" in SRC,
       "the shorts build survives as a named function")
-check('id="short-topic"' in SRC and 'id="short-script"' in SRC,
-      "the form takes a topic or a script")
+check('id="short-script"' in SRC and 'id="short-topic"' not in SRC,
+      "the form takes a script only, the topic box is gone "
+      "(script only form, 2026-11-20)")
+check('id="short-mode-topic"' not in SRC
+      and 'id="short-mode-script"' not in SRC,
+      "the topic and script toggle buttons are gone")
+check('id="short-topic-wrap"' not in SRC
+      and 'id="short-script-wrap"' in SRC,
+      "the script wrap is the one wrap the form carries")
+check('id="short-draft-model"' in SRC
+      and 'id="short-help-btn"' in SRC
+      and ">Improve my script</button>" in SRC,
+      "the form carries the draft picker and its Improve my "
+      "script button under the script box")
+check("<label>Improve my script</label>" in SRC,
+      "the shorts picker is labeled Improve my script")
 check('id="short-voice"' in SRC, "the form carries the voice picker")
 check("payload.visuals" in SRC and "payload.style" in SRC,
       "the submit sends the pictures choice and the style")
@@ -601,18 +634,8 @@ pane_voices = {
 }
 check(pane_voices == set(app.SPEECH_VOICES),
       "the form picker offers exactly the platform voice set")
-check('id="short-length"' in pane,
-      "topic mode carries the length picker")
-length_select = pane.split('id="short-length"', 1)[1].split(
-    '</select>', 1)[0]
-length_values = {
-    part.split('"')[0]
-    for part in length_select.split('<option value="')[1:]
-}
-check(length_values == {"30", "60", "90", "120"},
-      "the length picker offers 30, 60, 90 and 120 seconds")
-check('<option value="60" selected>' in length_select,
-      "the length picker starts on 1 minute")
+check('id="short-length"' not in pane,
+      "the topic length picker left the form with topic mode")
 check('id="short-script-estimate"' in pane,
       "script mode carries the spoken length estimate line")
 length_note = "Your video length is estimated from your script length."
@@ -622,8 +645,8 @@ check(all(mark not in length_note for mark in (":", ";", "-", "–", "—")),
       "the length note follows the plain copy rule")
 check('maxlength="2200"' in pane,
       "the script box fits a full two minutes")
-check("payload.length_seconds" in SRC,
-      "the submit sends the picked length")
+check("payload.length_seconds" not in SRC,
+      "the submit sends no length, the script is the length")
 check("function shortScriptEstimate()" in SRC,
       "the estimate math lives in the studio")
 check("addEventListener('input', shortScriptEstimate)" in SRC,

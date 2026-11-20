@@ -413,7 +413,20 @@ def script_from_topic(topic: str,
 def prompt_help_instruction(text: str, kind: str) -> str:
     """The instruction for one prompt help call: rewrite the
     user's draft into one clear and detailed generation prompt,
-    same subject, same intent, nothing but the prompt back."""
+    same subject, same intent, nothing but the prompt back.
+    The script kind (the Faceless shorts form's Improve my
+    script pick, Jack, 2026-11-20) rewrites a narration script
+    instead: same facts, same order, one line for each scene,
+    and the line breaks kept, because one line is one scene."""
+    if kind == "script":
+        return (
+            "Rewrite the narration script below so it reads "
+            "better out loud. Keep the same facts in the same "
+            "order, keep one line for each scene, and keep the "
+            "line breaks. Make each line clear and easy to say. "
+            "Return only the rewritten script, with no words "
+            "before or after it and no quotation marks. "
+            "Script follows. " + text)
     if kind == "image":
         shape = "an image generation prompt"
         craft = ("Add concrete detail about the subject, the "
@@ -441,6 +454,18 @@ def _clean_helped_prompt(text: str) -> str:
     return cleaned[:2000]
 
 
+def _clean_helped_script(text: str) -> str:
+    """One helped script as the field should hold it: the line
+    breaks kept (one line is one scene), quotes the model
+    wrapped the whole script in gone, blank lines dropped."""
+    cleaned = (text or "").strip().strip('"').strip()
+    kept = [line.strip() for line in cleaned.splitlines()]
+    kept = [line for line in kept if line]
+    if not kept:
+        raise RuntimeError("prompt help came back empty")
+    return "\n".join(kept)[:SHORTS_MAX_SCRIPT_CHARS]
+
+
 def improve_prompt(text: str, draft_model: str = None,
                    kind: str = "video") -> str:
     """Improve one generative prompt with the picked draft
@@ -449,10 +474,20 @@ def improve_prompt(text: str, draft_model: str = None,
     Exactly the picked model helps, under the model choice
     rule; when it cannot answer this raises
     llm_providers.DraftModelUnavailable and the field keeps
-    the user's own words, with the failure named in the UI."""
+    the user's own words, with the failure named in the UI.
+    The script kind improves a whole pasted short script (up
+    to the script box's own cap) and keeps its line breaks."""
     text = (text or "").strip()
     if not text:
         raise ValueError("write a prompt first")
+    if kind == "script":
+        if len(text) > SHORTS_MAX_SCRIPT_CHARS:
+            raise ValueError(
+                "that script is too long to help with, keep it "
+                f"under {SHORTS_MAX_SCRIPT_CHARS} characters")
+        prompt = prompt_help_instruction(text, kind)
+        return _clean_helped_script(
+            _picked_draft_text(prompt, draft_model))
     if len(text) > 1000:
         raise ValueError(
             "that prompt is too long to help with, keep it "
@@ -998,9 +1033,12 @@ def caption_events(lines: list, timings: list) -> list:
 # The caption looks a short can wear. Classic is the house
 # style the lane shipped with (bold white words, heavy black
 # outline, low on the frame); Big runs larger and sits higher,
-# Quiet runs smaller and thinner. The set is deliberately
-# small: this is a caption choice, not a template system (the
-# full template gallery stays a named gap, see the run record).
+# Quiet runs smaller and thinner. No captions (Jack,
+# 2026-11-20) is a look with no words at all: it carries no
+# geometry because nothing is ever drawn for it. The set is
+# deliberately small: this is a caption choice, not a template
+# system (the full template gallery stays a named gap, see
+# the run record).
 CAPTION_STYLES = {
     "classic": {"label": "Classic", "fontsize": 72,
                 "outline": 5, "margin_v": 300},
@@ -1008,8 +1046,10 @@ CAPTION_STYLES = {
             "outline": 7, "margin_v": 430},
     "quiet": {"label": "Quiet", "fontsize": 58,
               "outline": 3, "margin_v": 220},
+    "none": {"label": "No captions"},
 }
 CAPTION_STYLE_DEFAULT = "classic"
+CAPTION_STYLE_NONE = "none"
 
 
 def build_captions_ass(lines: list, timings: list,
@@ -1017,9 +1057,15 @@ def build_captions_ass(lines: list, timings: list,
     """The ASS subtitle file for one short: bold white words
     with a black outline, low on the frame, in the picked
     caption look (classic is the house shorts style). Burned in
-    by the assembly's subtitles filter."""
-    look = CAPTION_STYLES.get(style) or \
-        CAPTION_STYLES[CAPTION_STYLE_DEFAULT]
+    by the assembly's subtitles filter. The no captions look
+    returns the document with no caption events in it, so a
+    short made with it carries no captions even if a captions
+    file is still written and burned."""
+    if style == CAPTION_STYLE_NONE:
+        look = CAPTION_STYLES[CAPTION_STYLE_DEFAULT]
+    else:
+        look = CAPTION_STYLES.get(style) or \
+            CAPTION_STYLES[CAPTION_STYLE_DEFAULT]
     header = (
         "[Script Info]\n"
         "ScriptType: v4.00+\n"
@@ -1042,6 +1088,8 @@ def build_captions_ass(lines: list, timings: list,
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, "
         "MarginV, Effect, Text\n"
     )
+    if style == CAPTION_STYLE_NONE:
+        return header
     body = "".join(
         f"Dialogue: 0,{_ass_time(start)},{_ass_time(end)},Shorts,,"
         f"0,0,0,,{_ass_escape(text)}\n"
@@ -1140,9 +1188,12 @@ def assemble_short(scene_paths: list, scene_durations: list,
     looped or trimmed to its scene's length, and stripped of
     its own sound. The scenes join, the narration and the
     (looped, ducked) music bed mix to the house loudness, the
-    captions burn in, and a free job's file carries the same
-    Moonfactory watermark the finishing stage burns into free
-    generation files. Returns the finished file's probe."""
+    captions burn in when a captions file is given (None means
+    the short was made with the No captions pick, so no
+    subtitles filter runs at all), and a free job's file
+    carries the same Moonfactory watermark the finishing stage
+    burns into free generation files. Returns the finished
+    file's probe."""
     work_dir.mkdir(parents=True, exist_ok=True)
     scenes = []
     for i, (clip, duration) in enumerate(
@@ -1182,18 +1233,22 @@ def assemble_short(scene_paths: list, scene_durations: list,
         + f"amix=inputs={len(mix)}:duration=first:"
           "dropout_transition=0,"
           "loudnorm=I=-14:TP=-1.5:LRA=11[aout]")
-    vf = f"subtitles={captions_ass.name}"
+    vf_parts = []
+    if captions_ass is not None:
+        vf_parts.append(f"subtitles={captions_ass.name}")
     if watermark:
         if not font_path:
             font_path = ("/usr/share/fonts/truetype/dejavu/"
                          "DejaVuSans-Bold.ttf")
-        vf += (
-            f",drawtext=fontfile={font_path}:text='Moonfactory':"
+        vf_parts.append(
+            f"drawtext=fontfile={font_path}:text='Moonfactory':"
             "fontcolor=white@0.55:fontsize=h/26:borderw=2:"
             "bordercolor=black@0.3:x=w-tw-24:y=h-th-24")
     cmd = ["ffmpeg", "-y", *inputs,
-           "-filter_complex", ";".join(filters),
-           "-vf", vf,
+           "-filter_complex", ";".join(filters)]
+    if vf_parts:
+        cmd += ["-vf", ",".join(vf_parts)]
+    cmd += [
            "-map", "0:v:0", "-map", "[aout]",
            "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
            "-c:a", "aac", "-b:a", "160k",
