@@ -17013,8 +17013,8 @@ async function refreshImageQuote() {
       ? 'Made by Moonfactory itself, at the size picked.'
       : lane.free
         ? (lane.id === 'flux1_schnell'
-          ? "Free while today's free images last. Everyone shares about 55 free images a day on this model. The count starts over at midnight UTC."
-          : "Free while today's free images last. Everyone shares about 95 free images a day on this model. The count starts over at midnight UTC.")
+          ? "This model is free. Moonfactory gets about 55 free images a day on it, shared across all users. They reset at midnight UTC."
+          : "This model is free. Moonfactory gets about 95 free images a day on it, shared across all users. They reset at midnight UTC.")
         : lane.edit
         ? 'One edit of the image you uploaded, at its own size, charged only when it is delivered. If it fails, the charge comes back in full.'
         : 'One image at the size picked, charged only when it is delivered. If it fails, the charge comes back in full.';
