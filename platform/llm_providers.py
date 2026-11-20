@@ -393,9 +393,15 @@ DRAFT_MODELS = [
 # Jack's picker system (restored 2026-11-20 after the
 # same-day price strings were pulled on his order):
 # picker options are the plain model names only, cost in
-# the generation pickers shows as simple $ tier signs,
-# and an exact estimated cost appears only at the
-# Generate button. The three OpenRouter :free models
+# the pickers shows as simple $ tier signs, and an exact
+# estimated cost appears only at the Generate button.
+# The $ tier signs are the one place this record reaches
+# the picker: the draft picker's Regular and Uncensored
+# groups carry the same disabled $ separator lines as
+# the video and image pickers, banded from these figures
+# by draft_model_price_tier below (Jack, 2026-11-20:
+# the LLM picker matches the other pickers in full).
+# The three OpenRouter :free models
 # cost $0 (their Free Models group heading states it) and
 # the two Gemini picks depend on which Google tier the
 # platform key sits on (free tier $0, paid tier priced),
@@ -443,6 +449,61 @@ DRAFT_MODEL_PRICES = {
 }
 
 
+# $ TIER BANDING for the draft picker (Jack, 2026-11-20).
+# The video picker bands its models by a fixed rate table
+# ($ under 5c/s, $$ under 12c/s, $$$ under 25c/s, $$$$
+# above) and the image picker does the same per image;
+# the draft picker bands by the audited route cost: the
+# input plus output price per 1M tokens from
+# DRAFT_MODEL_PRICES, on fixed bands in the same style.
+# Tier 0 means no separator: the Free Models group (all
+# $0, the heading states it), exactly as the generation
+# pickers give their Free group no separators.
+DRAFT_MODEL_TIER_BANDS = (1.50, 4.00, 10.00)
+
+# The two Gemini picks are banded by their paid-tier list
+# prices (the worst case), because which Google tier the
+# platform key sits on is unsettled: Gemini 3.8 Flash at
+# $0.75 in / $3.75 out and Gemini 3.5 Flash Lite at $0.30
+# in / $2.50 out per 1M, from the same 2026-11-20 audit.
+# Banding only; these figures render nowhere either.
+DRAFT_MODEL_BANDING_FIGURES = {
+    "gemini:gemini-3.8-flash": ("0.75", "3.75"),
+    "gemini:gemini-3.5-flash-lite": ("0.30", "2.50"),
+}
+
+
+def draft_model_cost(model_id: str):
+    """The audited route cost of a draft pick as one
+    number: input plus output USD per 1M tokens. The two
+    Gemini picks read at their paid-tier list prices (see
+    DRAFT_MODEL_BANDING_FIGURES). None for the $0 free
+    models and for any id with no audited figure."""
+    figures = DRAFT_MODEL_PRICES.get(
+        model_id, DRAFT_MODEL_BANDING_FIGURES.get(model_id))
+    if figures is None:
+        return None
+    return float(figures[0]) + float(figures[1])
+
+
+def draft_model_price_tier(model_id: str) -> int:
+    """The $ tier of a draft pick, 1 to 4, from its
+    audited route cost on DRAFT_MODEL_TIER_BANDS; 0 for
+    the Free Models group, whose members carry no tier
+    separator, same as the generation pickers."""
+    entry = draft_model_entry(model_id)
+    if entry is None or entry["group"] == "free":
+        return 0
+    cost = draft_model_cost(model_id)
+    if cost is None:
+        return 0
+    tier = 1
+    for band in DRAFT_MODEL_TIER_BANDS:
+        if cost >= band:
+            tier += 1
+    return tier
+
+
 def draft_model_entry(value) -> dict:
     """The registry entry for a picker value, or None."""
     return next(
@@ -477,14 +538,17 @@ def any_draft_configured() -> bool:
 def draft_model_options() -> list:
     """The picker view: each model's plain name (option
     labels are the plain names only; no price text ever
-    rides this payload), its id, its group, and whether
-    picking the entry could actually reach its model right
-    now. Never key material."""
+    rides this payload), its id, its group, its $ tier
+    (the band its separator heads in the picker, from
+    draft_model_price_tier), and whether picking the
+    entry could actually reach its model right now.
+    Never key material."""
     return [
         {
             "id": m["id"],
             "label": m["label"],
             "group": m["group"],
+            "price_tier": draft_model_price_tier(m["id"]),
             "configured": provider_configured(m["provider"]),
         }
         for m in DRAFT_MODELS

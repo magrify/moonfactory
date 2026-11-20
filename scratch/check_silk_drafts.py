@@ -249,6 +249,13 @@ check(SRC.count('<optgroup label="Regular Models">') == 6,
       "all six forms group the regular models")
 check(SRC.count('<optgroup label="Uncensored Models">') == 6,
       "all six forms group the uncensored models")
+check(SRC.count('<option disabled data-tier-sep="1">') == 42,
+      "all six forms carry the $ tier separators, seven "
+      "per select, like the generation pickers")
+check(SRC.count(
+    '<option disabled data-tier-sep="1">$$$$</option>') == 12,
+    "the $$$$ separator heads the priciest tier in both "
+    "the Regular and Uncensored groups of every select")
 check("payload.draft_model = $('short-draft-model').value" in SRC,
       "the shorts builder sends the pick")
 check("draft_model: $('drama-draft-model').value" in SRC,

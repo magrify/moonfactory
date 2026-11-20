@@ -197,6 +197,108 @@ for block in _re.findall(
           and ".com" not in block,
           "a picker block carries no hosting detail")
 
+# --- the $ tier separators (Jack, 2026-11-20) --------------------------------
+# The draft picker matches the video and image pickers in
+# full: inside Regular Models and Uncensored Models a
+# disabled separator line carrying only $ marks heads each
+# cost tier, cheapest tier first, options cost ordered
+# inside their tier; the Free Models group takes no
+# separators. Bands are fixed, on the audited route cost
+# (input plus output USD per 1M) in the same style as the
+# generation pickers' fixed bands. The two Gemini picks
+# band by their paid-tier list prices (worst case; the
+# key's tier is unsettled). Expected figures here are the
+# test's own copy, independent of the module's tables.
+GEMINI_BANDING = {
+    "gemini:gemini-3.8-flash": ("0.75", "3.75"),
+    "gemini:gemini-3.5-flash-lite": ("0.30", "2.50"),
+}
+TIER_BANDS = (1.50, 4.00, 10.00)
+
+
+def expected_cost(mid):
+    figures = EXPECTED_PRICES.get(mid, GEMINI_BANDING.get(mid))
+    if figures is None:
+        return None
+    return float(figures[0]) + float(figures[1])
+
+
+def expected_tier(m):
+    if m["group"] == "free":
+        return 0
+    cost = expected_cost(m["id"])
+    tier = 1
+    for band in TIER_BANDS:
+        if cost >= band:
+            tier += 1
+    return tier
+
+
+for m in MODELS:
+    check(llm_providers.draft_model_price_tier(m["id"])
+          == expected_tier(m),
+          f"{m['id']} bands in tier {expected_tier(m)}")
+opts = llm_providers.draft_model_options()
+check(all(o["price_tier"] == expected_tier(BY_ID[o["id"]])
+          for o in opts),
+      "the payload carries each model's $ tier")
+check(SRC.count('<option disabled data-tier-sep="1">') == 42,
+      "seven separators in each of the six selects "
+      "(three Regular, four Uncensored)")
+for marks, n in (("$", 6), ("$$", 12), ("$$$", 12),
+                 ("$$$$", 12)):
+    check(SRC.count(
+        f'<option disabled data-tier-sep="1">{marks}</option>')
+        == n, f"the {marks} separator appears {n} times")
+
+
+def expected_select_tokens():
+    """The exact token stream of one draft select: group
+    by group, a ('sep', tier) token heading each tier and
+    ('opt', id) tokens cost ordered inside it; the Free
+    group is registry order under no separator."""
+    tokens = []
+    for group in ("free", "regular", "uncensored"):
+        members = [m for m in MODELS if m["group"] == group]
+        tokens.append(("group", group))
+        if group == "free":
+            tokens += [("opt", m["id"]) for m in members]
+            continue
+        members.sort(key=lambda m: (expected_tier(m),
+                                    expected_cost(m["id"]),
+                                    m["label"], m["id"]))
+        cur = None
+        for m in members:
+            if expected_tier(m) != cur:
+                cur = expected_tier(m)
+                tokens.append(("sep", cur))
+            tokens.append(("opt", m["id"]))
+    return tokens
+
+
+import re as _re2
+GROUP_NAMES = {"Free Models": "free",
+               "Regular Models": "regular",
+               "Uncensored Models": "uncensored"}
+for block in _re2.findall(
+        r'<select id="(?:start|prompt|image|image-edit|short|drama)'
+        r'-draft-model">(.*?)</select>', SRC, _re2.S):
+    tokens = []
+    for gname, gbody in _re2.findall(
+            r'<optgroup label="([^"]+)">(.*?)</optgroup>',
+            block, _re2.S):
+        tokens.append(("group", GROUP_NAMES[gname]))
+        for tok in _re2.finditer(
+                r'<option disabled data-tier-sep="1">(\$+)'
+                r'</option>|<option value="([^"]+)"', gbody):
+            if tok.group(1) is not None:
+                tokens.append(("sep", len(tok.group(1))))
+            else:
+                tokens.append(("opt", tok.group(2)))
+    check(tokens == expected_select_tokens(),
+          "every select heads each tier with its $ separator "
+          "and cost orders its options inside the tier")
+
 # --- configured flags follow the keys -----------------------------------------
 os.environ["VENICE_API_KEY"] = "test-venice-key"
 try:
