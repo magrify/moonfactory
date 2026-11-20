@@ -13090,6 +13090,11 @@ APP_HTML = (
       <textarea id="image-prompt" rows="2" maxlength="1000" placeholder="a red hot air balloon over rolling green hills at sunrise, bright daylight"></textarea>
       <label>Improve my prompt</label>
       <select id="start-draft-model">
+        <optgroup label="Free Models">
+          <option value="openrouter:nvidia/nemotron-3-ultra-550b-a55b:free">Nemotron 3 Ultra 550B</option>
+          <option value="openrouter:google/gemma-4-31b-it:free">Gemma 4 31B</option>
+          <option value="openrouter:nvidia/nemotron-3.5-lightning:free">Nemotron 3.5 Lightning</option>
+        </optgroup>
         <optgroup label="Regular Models">
           <option value="gemini:gemini-3.8-flash" selected>Gemini 3.8 Flash</option>
           <option value="gemini:gemini-3.5-flash-lite">Gemini 3.5 Flash Lite</option>
@@ -13139,6 +13144,11 @@ APP_HTML = (
     <div id="prompt-help-wrap">
       <label class="flabel" for="prompt-draft-model">Improve my prompt</label>
       <select id="prompt-draft-model">
+        <optgroup label="Free Models">
+          <option value="openrouter:nvidia/nemotron-3-ultra-550b-a55b:free">Nemotron 3 Ultra 550B</option>
+          <option value="openrouter:google/gemma-4-31b-it:free">Gemma 4 31B</option>
+          <option value="openrouter:nvidia/nemotron-3.5-lightning:free">Nemotron 3.5 Lightning</option>
+        </optgroup>
         <optgroup label="Regular Models">
           <option value="gemini:gemini-3.8-flash" selected>Gemini 3.8 Flash</option>
           <option value="gemini:gemini-3.5-flash-lite">Gemini 3.5 Flash Lite</option>
@@ -13196,7 +13206,12 @@ APP_HTML = (
         <textarea id="image-gen-prompt" rows="3" placeholder="Describe the image… e.g. a lighthouse at dusk, waves crashing, dramatic sky"></textarea>
         <label class="flabel" for="image-draft-model">Improve my prompt</label>
         <select id="image-draft-model">
-          <optgroup label="Regular Models">
+          <optgroup label="Free Models">
+          <option value="openrouter:nvidia/nemotron-3-ultra-550b-a55b:free">Nemotron 3 Ultra 550B</option>
+          <option value="openrouter:google/gemma-4-31b-it:free">Gemma 4 31B</option>
+          <option value="openrouter:nvidia/nemotron-3.5-lightning:free">Nemotron 3.5 Lightning</option>
+        </optgroup>
+        <optgroup label="Regular Models">
             <option value="gemini:gemini-3.8-flash" selected>Gemini 3.8 Flash</option>
             <option value="gemini:gemini-3.5-flash-lite">Gemini 3.5 Flash Lite</option>
             <option value="openrouter:anthropic/claude-sonnet-5">Claude Sonnet 5 · $2.00 in / $10.00 out per 1M tokens</option>
@@ -13244,7 +13259,12 @@ APP_HTML = (
         <textarea id="image-edit-prompt" rows="3" placeholder="change the jacket to black leather, keep the face, the pose and the room exactly the same"></textarea>
         <label class="flabel" for="image-edit-draft-model">Improve my prompt</label>
         <select id="image-edit-draft-model">
-          <optgroup label="Regular Models">
+          <optgroup label="Free Models">
+          <option value="openrouter:nvidia/nemotron-3-ultra-550b-a55b:free">Nemotron 3 Ultra 550B</option>
+          <option value="openrouter:google/gemma-4-31b-it:free">Gemma 4 31B</option>
+          <option value="openrouter:nvidia/nemotron-3.5-lightning:free">Nemotron 3.5 Lightning</option>
+        </optgroup>
+        <optgroup label="Regular Models">
             <option value="gemini:gemini-3.8-flash" selected>Gemini 3.8 Flash</option>
             <option value="gemini:gemini-3.5-flash-lite">Gemini 3.5 Flash Lite</option>
             <option value="openrouter:anthropic/claude-sonnet-5">Claude Sonnet 5 · $2.00 in / $10.00 out per 1M tokens</option>
@@ -13426,6 +13446,11 @@ APP_HTML = (
       <p class="muted" id="short-topic-note"></p>
       <label>Improve my prompt</label>
       <select id="short-draft-model">
+        <optgroup label="Free Models">
+          <option value="openrouter:nvidia/nemotron-3-ultra-550b-a55b:free">Nemotron 3 Ultra 550B</option>
+          <option value="openrouter:google/gemma-4-31b-it:free">Gemma 4 31B</option>
+          <option value="openrouter:nvidia/nemotron-3.5-lightning:free">Nemotron 3.5 Lightning</option>
+        </optgroup>
         <optgroup label="Regular Models">
           <option value="gemini:gemini-3.8-flash" selected>Gemini 3.8 Flash</option>
           <option value="gemini:gemini-3.5-flash-lite">Gemini 3.5 Flash Lite</option>
@@ -13560,7 +13585,12 @@ APP_HTML = (
     </div>
     <label>Improve my prompt</label>
     <select id="drama-draft-model">
-      <optgroup label="Regular Models">
+      <optgroup label="Free Models">
+          <option value="openrouter:nvidia/nemotron-3-ultra-550b-a55b:free">Nemotron 3 Ultra 550B</option>
+          <option value="openrouter:google/gemma-4-31b-it:free">Gemma 4 31B</option>
+          <option value="openrouter:nvidia/nemotron-3.5-lightning:free">Nemotron 3.5 Lightning</option>
+        </optgroup>
+        <optgroup label="Regular Models">
         <option value="gemini:gemini-3.8-flash" selected>Gemini 3.8 Flash</option>
         <option value="gemini:gemini-3.5-flash-lite">Gemini 3.5 Flash Lite</option>
         <option value="openrouter:anthropic/claude-sonnet-5">Claude Sonnet 5 · $2.00 in / $10.00 out per 1M tokens</option>

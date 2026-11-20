@@ -41,18 +41,28 @@ MODELS = llm_providers.DRAFT_MODELS
 BY_ID = {m["id"]: m for m in MODELS}
 
 # --- the registry shape ----------------------------------------------------
-check(len(MODELS) == 32, f"expected 32 draft models, got {len(MODELS)}")
+check(len(MODELS) == 35, f"expected 35 draft models, got {len(MODELS)}")
 check(len(BY_ID) == len(MODELS), "draft model ids are unique")
 labels = [m["label"] for m in MODELS]
 check(len(set(labels)) == len(labels), "draft model labels are unique")
 groups = {}
 for m in MODELS:
     groups[m["group"]] = groups.get(m["group"], 0) + 1
-check(groups == {"regular": 8, "uncensored": 24},
+check(groups == {"free": 3, "regular": 8, "uncensored": 24},
       f"group sizes drifted: {groups}")
-check(MODELS[0]["id"] == "gemini:gemini-3.8-flash"
-      and MODELS[0]["label"] == "Gemini 3.8 Flash",
-      "the default pick is Gemini 3.8 Flash, first and its own model")
+check([m["id"] for m in MODELS[:3]] == [
+    "openrouter:nvidia/nemotron-3-ultra-550b-a55b:free",
+    "openrouter:google/gemma-4-31b-it:free",
+    "openrouter:nvidia/nemotron-3.5-lightning:free",
+], "the Free Models group leads the picker with the three "
+   "verified $0 OpenRouter models, in chain order")
+check(all(m["group"] == "free" for m in MODELS[:3]),
+      "the first three entries are the free group")
+check(BY_ID[llm_providers.DRAFT_MODEL_DEFAULT]["model"]
+      == "gemini-3.8-flash"
+      and BY_ID[llm_providers.DRAFT_MODEL_DEFAULT]["label"]
+      == "Gemini 3.8 Flash",
+      "the default pick is Gemini 3.8 Flash, its own model")
 check(BY_ID["gemini:gemini-3.5-flash-lite"]["model"]
       == "gemini-3.5-flash-lite",
       "Gemini 3.5 Flash Lite is a separate model, not a fold-in")
@@ -141,9 +151,11 @@ for m in MODELS:
                       f"${pout} out per 1M tokens",
               f"{m['id']} option text states its audited price")
     else:
-        check(m["provider"] == "gemini" and text == m["label"],
-              f"{m['id']} carries no price text (Gemini tier "
-              "exception)")
+        check(text == m["label"]
+              and (m["provider"] == "gemini"
+                   or m["group"] == "free"),
+              f"{m['id']} carries no price text (a $0 free "
+              "model or the Gemini tier exception)")
 
 # --- the picker payload ------------------------------------------------------
 opts = llm_providers.draft_model_options()
@@ -169,6 +181,8 @@ for m in MODELS:
         f"all six forms name {m['label']} with its price text")
 check(SRC.count('value="gemini:gemini-3.8-flash" selected') == 6,
       "Gemini 3.8 Flash is the selected default in all six forms")
+check(SRC.count('<optgroup label="Free Models">') == 6,
+      "all six forms open with the Free Models group")
 for host in ("api.venice.ai", "api.refuseless.com",
              "api.morphllm.com",
              "generativelanguage.googleapis.com"):
@@ -228,6 +242,12 @@ try:
          "dolphin-mistral-24b-venice-edition",
          "OPENROUTER_API_KEY", "openrouter",
          "cognitivecomputations/dolphin-mistral-24b-venice-edition"),
+        ("openrouter:nvidia/nemotron-3-ultra-550b-a55b:free",
+         "OPENROUTER_API_KEY", "openrouter",
+         "nvidia/nemotron-3-ultra-550b-a55b:free"),
+        ("openrouter:google/gemma-4-31b-it:free",
+         "OPENROUTER_API_KEY", "openrouter",
+         "google/gemma-4-31b-it:free"),
         ("venice:qwen-3-8-27b", "VENICE_API_KEY",
          "venice", "qwen-3-8-27b"),
         ("venice:llama-3.3-70b", "VENICE_API_KEY",

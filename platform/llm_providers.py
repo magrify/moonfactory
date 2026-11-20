@@ -227,11 +227,28 @@ LLM_PROVIDERS = [
 # name shown), provider (the route the call takes: "gemini"
 # is the platform Google key, the others are LLM_PROVIDERS
 # records), model (the provider-side model id; defaults to
-# the id), group ("regular" or "uncensored" in the select).
-# Prices live in DRAFT_MODEL_PRICES below, keyed by id.
+# the id), group ("free", "regular" or "uncensored" in
+# the select). Prices live in DRAFT_MODEL_PRICES below,
+# keyed by id.
 DRAFT_MODEL_HOUSE = "house"
 DRAFT_MODEL_DEFAULT = "gemini:gemini-3.8-flash"
 DRAFT_MODELS = [
+    # Free Models: the three OpenRouter :free models the
+    # internal chains already fall back to, verified $0 in
+    # and $0 out in the 2026-11-20 cost audit and offered
+    # as picks in their own right (Jack, 2026-11-20). Same
+    # ids the chains call; a pick calls exactly that model.
+    {"id": "openrouter:nvidia/nemotron-3-ultra-550b-a55b:free",
+     "label": "Nemotron 3 Ultra 550B", "provider": "openrouter",
+     "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+     "group": "free"},
+    {"id": "openrouter:google/gemma-4-31b-it:free",
+     "label": "Gemma 4 31B", "provider": "openrouter",
+     "model": "google/gemma-4-31b-it:free", "group": "free"},
+    {"id": "openrouter:nvidia/nemotron-3.5-lightning:free",
+     "label": "Nemotron 3.5 Lightning", "provider": "openrouter",
+     "model": "nvidia/nemotron-3.5-lightning:free",
+     "group": "free"},
     # Regular: the platform Gemini models first (the default
     # pick first), then the regular catalogs reachable
     # through the stored OpenRouter and Venice keys.
@@ -370,11 +387,14 @@ DRAFT_MODELS = [
 # price data in the 2026-11-20 LLM cost audit
 # (~/workspace/sinclip/llm-cost-audit-2026-11-20.md). Jack,
 # 2026-11-20: state their prices in $ in the pickers if
-# there is a cost. The two Gemini picks are deliberately
-# absent: their cost depends on which Google tier the
-# platform key sits on (free tier $0, paid tier priced),
-# which the audit could not determine, so their options
-# carry no price text until that is settled.
+# there is a cost. Two kinds of picks are deliberately
+# absent. The three OpenRouter :free models cost $0, and
+# their Free Models group heading states that, so their
+# options carry no price text. The two Gemini picks depend
+# on which Google tier the platform key sits on (free tier
+# $0, paid tier priced), which the audit could not
+# determine, so their options carry no price text until
+# that is settled.
 DRAFT_MODEL_PRICES = {
     "openrouter:anthropic/claude-sonnet-5": ("2.00", "10.00"),
     "openrouter:openai/gpt-5.5": ("5.00", "30.00"),
@@ -420,10 +440,12 @@ DRAFT_MODEL_PRICES = {
 def draft_model_option_label(entry) -> str:
     """The option text a picker shows for a registry entry:
     the plain name, plus the price per 1M tokens when the
-    entry's route costs money. Entries with no audited
-    price (the two Gemini picks, tier unsettled) show the
-    plain name alone. Error messages keep using the plain
-    label; this composed text is for the picker only."""
+    entry's route costs money. Entries with no price in
+    the table (the $0 free models, whose group heading
+    states it, and the two Gemini picks, tier unsettled)
+    show the plain name alone. Error messages keep using
+    the plain label; this composed text is for the picker
+    only."""
     price = DRAFT_MODEL_PRICES.get(entry["id"])
     if price is None:
         return entry["label"]

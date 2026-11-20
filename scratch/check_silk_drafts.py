@@ -64,8 +64,13 @@ check([m["label"] for m in llm_providers.DRAFT_MODELS[-3:]]
       == list(SILK_LABELS), "the silk pick labels")
 check(llm_providers.DRAFT_MODEL_DEFAULT == "gemini:gemini-3.8-flash",
       "the default pick is Gemini 3.8 Flash as its own model")
-check(draft_ids[0] == llm_providers.DRAFT_MODEL_DEFAULT,
-      "the default pick leads the registry")
+check(draft_ids[:3] == [
+    "openrouter:nvidia/nemotron-3-ultra-550b-a55b:free",
+    "openrouter:google/gemma-4-31b-it:free",
+    "openrouter:nvidia/nemotron-3.5-lightning:free",
+], "the free models lead the registry")
+check(draft_ids[3] == llm_providers.DRAFT_MODEL_DEFAULT,
+      "the default pick leads the regular group")
 check("house" not in draft_ids,
       "there is no composite house entry in the registry")
 check(not llm_providers.is_draft_model("house"),
@@ -84,9 +89,12 @@ check(llm_providers.normalize_draft_model("house")
 opts = llm_providers.draft_model_options()
 check(all(o["configured"] is False for o in opts),
       "no pick reports configured while every key is absent")
-check(opts[0]["group"] == "regular"
-      and opts[0]["label"] == "Gemini 3.8 Flash",
-      "the picker payload leads with Gemini 3.8 Flash")
+check(opts[0]["group"] == "free"
+      and opts[0]["label"] == "Nemotron 3 Ultra 550B",
+      "the picker payload leads with the Free Models group")
+check(opts[3]["group"] == "regular"
+      and opts[3]["label"] == "Gemini 3.8 Flash",
+      "the default pick leads the payload's regular group")
 
 # --- dark-safe: no key, no call, clean fallback signal ---------------------
 check(llm_providers.silk_configured() is False,
@@ -235,6 +243,8 @@ for entry in llm_providers.DRAFT_MODELS[-3:]:
 for mid in SILK_IDS:
     check(SRC.count(f'value="{mid}"') == 6,
           f"all six forms carry the {mid} pick")
+check(SRC.count('<optgroup label="Free Models">') == 6,
+      "all six forms group the free models")
 check(SRC.count('<optgroup label="Regular Models">') == 6,
       "all six forms group the regular models")
 check(SRC.count('<optgroup label="Uncensored Models">') == 6,
