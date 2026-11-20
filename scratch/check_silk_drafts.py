@@ -237,7 +237,7 @@ for pid in ("prompt-draft-model", "start-draft-model",
 check("House draft" not in SRC,
       "the composite house label is gone from the studio")
 for entry in llm_providers.DRAFT_MODELS[-3:]:
-    text = llm_providers.draft_model_option_label(entry)
+    text = entry["label"]
     check(SRC.count(f">{text}</option>") == 6,
           f"all six forms offer {text}")
 for mid in SILK_IDS:

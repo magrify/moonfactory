@@ -95,12 +95,15 @@ check(morph["access"] == "key_pending",
 check([x["id"] for x in morph["models"]]
       == ["morph-dsv41flash-abliterated"], "morph model id")
 
-# --- prices in the picker (Jack, 2026-11-20) ---------------------------------
-# Every route that costs money states its price in the
-# option text, in the exact figures of the 2026-11-20 LLM
-# cost audit (USD per 1M tokens, input / output). The two
-# Gemini picks carry no price: their cost depends on the
-# platform key's Google tier, still unsettled.
+# --- the internal cost record, never rendered (Jack, 2026-11-20) ------------
+# DRAFT_MODEL_PRICES stays in the codebase as an internal
+# record of what the routes cost, in the exact figures of
+# the 2026-11-20 LLM cost audit (USD per 1M tokens, input /
+# output). Picker labels are the plain model names only:
+# the per-token price strings that briefly rendered in the
+# options the same day were never authorized and came out
+# on Jack's order. These pins keep the record accurate and
+# keep every figure out of the studio.
 EXPECTED_PRICES = {
     "openrouter:anthropic/claude-sonnet-5": ("2.00", "10.00"),
     "openrouter:openai/gpt-5.5": ("5.00", "30.00"),
@@ -142,20 +145,16 @@ EXPECTED_PRICES = {
     "kimi-k3.1-pro-uncensored": ("3.50", "8.00"),
 }
 check(llm_providers.DRAFT_MODEL_PRICES == EXPECTED_PRICES,
-      "the price table matches the 2026-11-20 cost audit exactly")
+      "the internal price record matches the 2026-11-20 "
+      "cost audit exactly")
+check(not hasattr(llm_providers, "draft_model_option_label"),
+      "no label-composing function exists to render a price")
+check("per 1M tokens" not in SRC,
+      "no per-token price text anywhere in the studio source")
 for m in MODELS:
-    text = llm_providers.draft_model_option_label(m)
-    if m["id"] in EXPECTED_PRICES:
-        pin, pout = EXPECTED_PRICES[m["id"]]
-        check(text == f"{m['label']} · ${pin} in / "
-                      f"${pout} out per 1M tokens",
-              f"{m['id']} option text states its audited price")
-    else:
-        check(text == m["label"]
-              and (m["provider"] == "gemini"
-                   or m["group"] == "free"),
-              f"{m['id']} carries no price text (a $0 free "
-              "model or the Gemini tier exception)")
+    check(f">{m['label']} ·" not in SRC,
+          f"{m['id']} option text is the plain name, "
+          "nothing appended")
 
 # --- the picker payload ------------------------------------------------------
 opts = llm_providers.draft_model_options()
@@ -163,10 +162,9 @@ check([o["id"] for o in opts] == [m["id"] for m in MODELS],
       "the payload lists every registered model individually, in order")
 check(all(o["label"] == BY_ID[o["id"]]["label"] for o in opts),
       "the payload carries each model's own plain name")
-check(all(o["option_label"]
-          == llm_providers.draft_model_option_label(BY_ID[o["id"]])
-          for o in opts),
-      "the payload carries the priced option text")
+check(all("option_label" not in o for o in opts),
+      "the payload carries no priced option text, "
+      "plain names only")
 check(all(o["group"] == BY_ID[o["id"]]["group"] for o in opts),
       "the payload carries the groups")
 check(all(o["configured"] is False for o in opts),
@@ -177,8 +175,9 @@ for m in MODELS:
     check(SRC.count(f'value="{m["id"]}"') == 6,
           f"all six forms offer {m['id']} individually")
     check(SRC.count(
-        f'>{llm_providers.draft_model_option_label(m)}</option>') == 6,
-        f"all six forms name {m['label']} with its price text")
+        f'>{m["label"]}</option>') == 6,
+        f"all six forms name {m['label']} plainly, "
+        "no price text")
 check(SRC.count('value="gemini:gemini-3.8-flash" selected') == 6,
       "Gemini 3.8 Flash is the selected default in all six forms")
 check(SRC.count('<optgroup label="Free Models">') == 6,

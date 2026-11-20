@@ -228,8 +228,9 @@ LLM_PROVIDERS = [
 # is the platform Google key, the others are LLM_PROVIDERS
 # records), model (the provider-side model id; defaults to
 # the id), group ("free", "regular" or "uncensored" in
-# the select). Prices live in DRAFT_MODEL_PRICES below,
-# keyed by id.
+# the select). The route-cost record lives in
+# DRAFT_MODEL_PRICES below, keyed by id; it is internal
+# only and never renders in a label.
 DRAFT_MODEL_HOUSE = "house"
 DRAFT_MODEL_DEFAULT = "gemini:gemini-3.8-flash"
 DRAFT_MODELS = [
@@ -382,19 +383,24 @@ DRAFT_MODELS = [
 ]
 
 
-# Per-token prices for the picker, USD per 1M tokens,
-# input / output, exactly as read from each provider's own
-# price data in the 2026-11-20 LLM cost audit
-# (~/workspace/sinclip/llm-cost-audit-2026-11-20.md). Jack,
-# 2026-11-20: state their prices in $ in the pickers if
-# there is a cost. Two kinds of picks are deliberately
-# absent. The three OpenRouter :free models cost $0, and
-# their Free Models group heading states that, so their
-# options carry no price text. The two Gemini picks depend
-# on which Google tier the platform key sits on (free tier
-# $0, paid tier priced), which the audit could not
-# determine, so their options carry no price text until
-# that is settled.
+# INTERNAL COST RECORD ONLY. Per-token prices for the
+# picker routes, USD per 1M tokens, input / output,
+# exactly as read from each provider's own price data in
+# the 2026-11-20 LLM cost audit
+# (~/workspace/sinclip/llm-cost-audit-2026-11-20.md).
+# This table documents what the routes cost for pricing
+# work; it is NEVER rendered in any user-facing label.
+# Jack's picker system (restored 2026-11-20 after the
+# same-day price strings were pulled on his order):
+# picker options are the plain model names only, cost in
+# the generation pickers shows as simple $ tier signs,
+# and an exact estimated cost appears only at the
+# Generate button. The three OpenRouter :free models
+# cost $0 (their Free Models group heading states it) and
+# the two Gemini picks depend on which Google tier the
+# platform key sits on (free tier $0, paid tier priced),
+# still unsettled; neither case changes this rule,
+# because no entry in this table ever reaches a label.
 DRAFT_MODEL_PRICES = {
     "openrouter:anthropic/claude-sonnet-5": ("2.00", "10.00"),
     "openrouter:openai/gpt-5.5": ("5.00", "30.00"),
@@ -437,22 +443,6 @@ DRAFT_MODEL_PRICES = {
 }
 
 
-def draft_model_option_label(entry) -> str:
-    """The option text a picker shows for a registry entry:
-    the plain name, plus the price per 1M tokens when the
-    entry's route costs money. Entries with no price in
-    the table (the $0 free models, whose group heading
-    states it, and the two Gemini picks, tier unsettled)
-    show the plain name alone. Error messages keep using
-    the plain label; this composed text is for the picker
-    only."""
-    price = DRAFT_MODEL_PRICES.get(entry["id"])
-    if price is None:
-        return entry["label"]
-    return (f"{entry['label']} · ${price[0]} in / "
-            f"${price[1]} out per 1M tokens")
-
-
 def draft_model_entry(value) -> dict:
     """The registry entry for a picker value, or None."""
     return next(
@@ -485,16 +475,15 @@ def any_draft_configured() -> bool:
 
 
 def draft_model_options() -> list:
-    """The picker view: plain names, the option text the
-    picker shows (plain name plus the audited price when
-    the route costs money), ids, groups, and whether
+    """The picker view: each model's plain name (option
+    labels are the plain names only; no price text ever
+    rides this payload), its id, its group, and whether
     picking the entry could actually reach its model right
     now. Never key material."""
     return [
         {
             "id": m["id"],
             "label": m["label"],
-            "option_label": draft_model_option_label(m),
             "group": m["group"],
             "configured": provider_configured(m["provider"]),
         }
