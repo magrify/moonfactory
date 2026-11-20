@@ -1406,22 +1406,49 @@ IMAGE_LANES = {
     },
     # The stock photo lane (Jack, 2026-11-20): not a
     # generation model at all. The picker entry returns a
-    # real Pexels photo matching the description, delivered
+    # real stock photo matching the description, delivered
     # through the same image path as a generated image.
-    # Pexels costs the platform nothing inside its free
-    # quota (25,000 requests a month, the key the shorts
-    # lane already rides), so the lane sits in Free Models
-    # honestly at raw cost $0. It sells one size because a
-    # found photo arrives at the size Pexels serves, not a
-    # size the platform picks. The create flow searches
-    # before any job exists, so a description with no match
-    # fails clean there, no job, no count, no charge (see
-    # create_image in app.py).
+    # Three free stock sources stand behind the one entry,
+    # searched in order: Pexels (25,000 requests a month on
+    # the key the shorts lane already rides), then Unsplash
+    # and Pixabay once their keys are stored
+    # (UNSPLASH_ACCESS_KEY, PIXABAY_API_KEY); a source with
+    # no key yet is skipped silently. Stock costs the
+    # platform nothing inside the sources' free quotas, so
+    # the lane sits in Free Models honestly at raw cost $0.
+    # It sells one size because a found photo arrives at
+    # the size the source serves, not a size the platform
+    # picks. The create flow searches before any job
+    # exists, so a description with no match fails clean
+    # there, no job, no count, no charge (see create_image
+    # in app.py).
     "stock": {
         "label": "Stock image", "provider": "pexels",
         "endpoint": "search",
         "free": True, "picker_order": 3,
         "raw_cents": {"large": 0.0},
+    },
+    # The OVHcloud free image lane (2026-11-20): SDXL on
+    # OVHcloud AI Endpoints, priced at 0 EUR in OVHcloud's
+    # own catalog with no credit pool behind it, so the
+    # lane sits in Free Models honestly at raw cost $0.
+    # The route is rate limited, not metered: 2 requests a
+    # minute anonymously, 400 a minute with a project key
+    # (OVH_AI_API_KEY, sent as the Bearer token the moment
+    # one is stored). The platform enforces the pace itself
+    # and fails clean past it, never spilling to a paid
+    # route (see _ovh_rate_* in app.py). The endpoint
+    # answers a 1024x1024 PNG to a prompt and an optional
+    # negative prompt (probed live 2026-11-20, anonymous,
+    # HTTP 200), so 1024x1024 is the one size sold. The
+    # model's license is OpenRAIL++ (commercial use
+    # allowed). OVHcloud lists the model as retiring on
+    # Feb 10, 2027.
+    "sdxl_ovh": {
+        "label": "SDXL", "provider": "ovhcloud",
+        "endpoint": "https://stable-diffusion-xl.endpoints.kepler.ai.cloud.ovh.net/api/text2image",
+        "free": True, "picker_order": 4,
+        "raw_cents": {"1024x1024": 0.0},
     },
 }
 

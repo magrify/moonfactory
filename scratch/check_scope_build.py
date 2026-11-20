@@ -146,7 +146,15 @@ for mid in app.PER_SECOND_MODELS:
         check(res in rates, f"{mid} missing a rate for {res}")
 
 # --- image shelf (item 1) ------------------------------------------
-check(len(pricing.IMAGE_LANES) == 12, "image shelf has 12 lanes")
+check(len(pricing.IMAGE_LANES) == 13, "image shelf has 13 lanes")
+check(pricing.IMAGE_LANES["sdxl_ovh"]["provider"] == "ovhcloud"
+      and pricing.IMAGE_LANES["sdxl_ovh"]["label"] == "SDXL"
+      and pricing.IMAGE_LANES["sdxl_ovh"]["free"] is True,
+      "SDXL rides OVHcloud AI Endpoints as a free lane")
+sdxl_raw, sdxl_debit = pricing.image_lane_price(
+    "sdxl_ovh", "1024x1024")
+check(sdxl_raw == 0.0 and sdxl_debit == 0.0,
+      "the SDXL lane prices at $0 raw and $0 customer")
 check(pricing.IMAGE_LANES["stock"]["provider"] == "pexels"
       and pricing.IMAGE_LANES["stock"]["label"] == "Stock image",
       "the stock lane returns Pexels photos under Jack's name for it")

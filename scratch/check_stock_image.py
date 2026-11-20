@@ -133,6 +133,95 @@ finally:
     shorts._get_json = real_get_json
 check(none_found == [], "no match parses to an empty candidate list")
 
+# --- behavior: the two sources behind the lane (2026-11-20) ---------
+# Unsplash and Pixabay stand behind the same Stock image
+# entry, searched after Pexels. Their searches parse to the
+# same candidate shape; an Unsplash candidate also carries
+# the photographer profile link and the download location
+# its API terms ride on.
+useen = {}
+
+
+def fake_unsplash_get_json(url, headers=None, params=None):
+    useen["url"] = url
+    useen["headers"] = headers or {}
+    return {"results": [
+        {"urls": {"raw": "https://images.unsplash.com/raw.jpg",
+                  "full": "https://images.unsplash.com/full.jpg"},
+         "width": 6000, "height": 4000,
+         "links": {"html": "https://unsplash.com/photos/abc",
+                   "download_location":
+                       "https://api.unsplash.com/photos/abc/download"},
+         "user": {"name": "Una Splash",
+                  "links": {"html": "https://unsplash.com/@una"}},
+         "alt_description": "a lighthouse at sunset"},
+        {"urls": {}, "links": {}, "user": {},
+         "alt_description": "no rendition"},
+    ]}
+
+
+shorts._get_json = fake_unsplash_get_json
+try:
+    ufound = shorts.unsplash_search_photos(
+        "a lighthouse at sunset", "test-key")
+finally:
+    shorts._get_json = real_get_json
+check("api.unsplash.com/search/photos" in useen["url"]
+      and "query=a+lighthouse+at+sunset" in useen["url"],
+      "the Unsplash search asks its photos API for the description")
+check(useen["headers"].get("Authorization") == "Client-ID test-key",
+      "the Unsplash search carries the access key as a Client-ID")
+check(len(ufound) == 1,
+      "Unsplash photos with no usable rendition are skipped")
+check(ufound[0]["provider"] == "unsplash"
+      and ufound[0]["download_url"]
+      == "https://images.unsplash.com/raw.jpg",
+      "the top Unsplash photo downloads at its raw rendition")
+check(ufound[0]["credit"] == "Una Splash"
+      and ufound[0]["credit_url"] == "https://unsplash.com/@una",
+      "an Unsplash candidate carries the photographer name "
+      "and profile link its terms ask for")
+check(ufound[0]["track_url"]
+      == "https://api.unsplash.com/photos/abc/download",
+      "an Unsplash candidate carries its download location "
+      "for the tracking call at delivery")
+
+pseen = {}
+
+
+def fake_pixabay_get_json(url, headers=None, params=None):
+    pseen["url"] = url
+    return {"hits": [
+        {"largeImageURL": "https://cdn.pixabay.com/large.jpg",
+         "webformatURL": "https://cdn.pixabay.com/web.jpg",
+         "imageWidth": 6000, "imageHeight": 4000,
+         "pageURL": "https://pixabay.com/photos/1/",
+         "user": "Pixa Bay", "tags": "lighthouse, sunset"},
+        {"pageURL": "https://pixabay.com/photos/2/",
+         "user": "No Rendition", "tags": ""},
+    ]}
+
+
+shorts._get_json = fake_pixabay_get_json
+try:
+    pfound = shorts.pixabay_search_photos(
+        "a lighthouse at sunset", "test-key")
+finally:
+    shorts._get_json = real_get_json
+check("pixabay.com/api/" in pseen["url"]
+      and "key=test-key" in pseen["url"]
+      and "q=a+lighthouse+at+sunset" in pseen["url"],
+      "the Pixabay search asks its API for the description "
+      "with the stored key")
+check(len(pfound) == 1,
+      "Pixabay photos with no usable rendition are skipped")
+check(pfound[0]["provider"] == "pixabay"
+      and pfound[0]["download_url"]
+      == "https://cdn.pixabay.com/large.jpg"
+      and pfound[0]["credit"] == "Pixa Bay",
+      "the top Pixabay photo downloads at its large "
+      "rendition with its credit trail")
+
 # --- source pins: the create flow and the submit --------------------
 create_src = func_src("create_image")
 check("shorts.pexels_search_photos" in create_src,

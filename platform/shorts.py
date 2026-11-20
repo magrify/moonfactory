@@ -83,6 +83,8 @@ CAPTION_MAX_WORDS = 4
 CAPTION_MIN_SECONDS = 0.35
 
 PEXELS_API_BASE = "https://api.pexels.com/v1"
+UNSPLASH_API_BASE = "https://api.unsplash.com"
+PIXABAY_API_BASE = "https://pixabay.com/api"
 COMMONS_API = "https://commons.wikimedia.org/w/api.php"
 # Wikimedia's robot policy asks automated clients for a
 # descriptive agent string with a contact, and throttles
@@ -682,6 +684,80 @@ def pexels_search_photos(query: str, api_key: str, per_page: int = 6) -> list:
             "page_url": photo.get("url"),
             "credit": photo.get("photographer") or "",
             "alt": photo.get("alt") or "",
+        })
+    return out
+
+
+def unsplash_search_photos(query: str, api_key: str, per_page: int = 6) -> list:
+    """Search Unsplash photos for one description (the
+    image picker's Stock image lane, its second source).
+    Returns candidates in the same shape
+    pexels_search_photos returns, plus the two fields
+    Unsplash's API terms ride on: credit_url, the
+    photographer's profile page, so the credit stored on
+    the job record names the photographer and links their
+    profile the way the terms ask; and track_url, the
+    photo's download location, which the terms require the
+    platform to call when a photo is actually used (the
+    stock submit fires it at delivery). The download link
+    is the photo's raw rendition. An empty list means no
+    photo matched."""
+    url = UNSPLASH_API_BASE + "/search/photos?" + urllib.parse.urlencode({
+        "query": query, "per_page": per_page,
+    })
+    data = _get_json(url, headers={
+        "Authorization": f"Client-ID {api_key}",
+        "Accept-Version": "v1",
+    })
+    out = []
+    for photo in data.get("results") or []:
+        urls = photo.get("urls") or {}
+        link = urls.get("raw") or urls.get("full")
+        if not link:
+            continue
+        user = photo.get("user") or {}
+        links = photo.get("links") or {}
+        out.append({
+            "provider": "unsplash",
+            "download_url": link,
+            "width": photo.get("width"),
+            "height": photo.get("height"),
+            "page_url": links.get("html"),
+            "credit": user.get("name") or "",
+            "credit_url": (user.get("links") or {}).get("html"),
+            "track_url": links.get("download_location"),
+            "alt": photo.get("alt_description") or "",
+        })
+    return out
+
+
+def pixabay_search_photos(query: str, api_key: str, per_page: int = 6) -> list:
+    """Search Pixabay photos for one description (the
+    image picker's Stock image lane, its third source).
+    Returns candidates in the same shape
+    pexels_search_photos returns. Pixabay's terms ask for
+    no attribution, but the photographer's name rides the
+    credit field anyway, the same trail the other sources
+    keep. The download link is the large rendition. An
+    empty list means no photo matched."""
+    url = PIXABAY_API_BASE + "/?" + urllib.parse.urlencode({
+        "key": api_key, "q": query, "image_type": "photo",
+        "per_page": per_page, "safesearch": "true",
+    })
+    data = _get_json(url)
+    out = []
+    for hit in data.get("hits") or []:
+        link = hit.get("largeImageURL") or hit.get("webformatURL")
+        if not link:
+            continue
+        out.append({
+            "provider": "pixabay",
+            "download_url": link,
+            "width": hit.get("imageWidth"),
+            "height": hit.get("imageHeight"),
+            "page_url": hit.get("pageURL"),
+            "credit": hit.get("user") or "",
+            "alt": hit.get("tags") or "",
         })
     return out
 

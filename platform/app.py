@@ -1249,6 +1249,7 @@ PROVIDER_KEY_ENV = {
     "hotapi": "HOTAPI_API_KEY",
     "wiro": "WIRO_API_KEY",
     "cloudflare": "CLOUDFLARE_API_TOKEN",
+    "ovhcloud": "OVH_AI_API_KEY",
 }
 # Per-resolution route overrides: Seedance 2.5's cheapest route
 # is a different supplier at 480p/720p (CometAPI) than at 1080p
@@ -4627,17 +4628,34 @@ def api():
         jobs[job["id"]] = job
 
     def _submit_stock_image(job: dict, prompt: str):
-        """Deliver one stock photo job: download the Pexels
-        photo the create flow picked onto the Volume and
-        settle the job, synchronously, like the Cloudflare
-        lanes. The search itself ran before the job existed
-        (a description with no match fails there, with no
-        job and no count), so the submit only fetches the
-        winning photo. Any failure raises, and the caller
-        fails the job clean with its (zero) charge refunded."""
+        """Deliver one stock photo job: download the photo
+        the create flow picked onto the Volume and settle
+        the job, synchronously, like the Cloudflare lanes.
+        The search itself ran before the job existed (a
+        description with no match fails there, with no job
+        and no count), so the submit only fetches the
+        winning photo. An Unsplash win first fires its
+        download tracking call: Unsplash's terms require
+        the platform to call the photo's download location
+        when the photo is actually used, and the delivery
+        is the use. The call is best effort and never
+        blocks the delivery. Any failure raises, and the
+        caller fails the job clean with its (zero) charge
+        refunded."""
         url = job.get("stock_download_url")
         if not url:
             raise RuntimeError("stock job carries no photo to fetch")
+        track_url = job.get("stock_track_url")
+        if track_url:
+            try:
+                requests.get(
+                    track_url,
+                    headers={"Authorization": "Client-ID "
+                             + shorts._env_value(
+                                 "UNSPLASH_ACCESS_KEY")},
+                    timeout=15)
+            except Exception:
+                pass
         _settle_provider_image(job, url)
 
     def _queue_klein_on_kaggle(job: dict, served_free: bool):
@@ -4671,6 +4689,88 @@ def api():
         job["last_poll"] = 0
         jobs[job["id"]] = job
         _comfy_maybe_trigger()
+
+    # ------------------------------------------------------
+    # OVHcloud AI Endpoints free image route (2026-11-20).
+    # SDXL is priced at 0 EUR in OVHcloud's own catalog and
+    # there is no credit pool to spend down: the only
+    # ceiling is the pace, 2 requests a minute anonymously
+    # and 400 a minute with a project key. The platform
+    # keeps its own call ledger in meta and enforces the
+    # pace itself, so the lane fails clean past it instead
+    # of ever spilling to a paid route. A stored
+    # OVH_AI_API_KEY rides as the call's Bearer token and
+    # lifts the pace the moment it exists; without one the
+    # call goes out anonymously, which OVHcloud documents
+    # and a live probe on 2026-11-20 confirmed (HTTP 200, a
+    # real 1024x1024 PNG, no key).
+    # ------------------------------------------------------
+    OVH_ANON_PER_MINUTE = 2
+    OVH_KEY_PER_MINUTE = 400
+
+    def _ovh_per_minute() -> int:
+        return OVH_KEY_PER_MINUTE if os.environ.get(
+            "OVH_AI_API_KEY") else OVH_ANON_PER_MINUTE
+
+    def _ovh_recent_calls() -> list:
+        now = time.time()
+        return [float(t) for t in (meta.get("ovh_calls") or [])
+                if now - float(t) < 60.0]
+
+    def _ovh_rate_allows() -> bool:
+        return len(_ovh_recent_calls()) < _ovh_per_minute()
+
+    def _ovh_rate_reserve() -> bool:
+        """Take one slot in the trailing minute. Returns
+        False at the pace limit, leaving the ledger as it
+        found it (the pruned list is only written back on a
+        successful reservation)."""
+        calls = _ovh_recent_calls()
+        if len(calls) >= _ovh_per_minute():
+            return False
+        calls.append(time.time())
+        meta["ovh_calls"] = calls
+        return True
+
+    def _submit_ovhcloud_image(job: dict, prompt: str):
+        """Run one free image job on OVHcloud AI Endpoints.
+        The endpoint is synchronous: one POST with the
+        prompt returns the finished 1024x1024 PNG, so the
+        job settles here instead of polling, like the
+        Cloudflare lanes. Any failure raises, and the
+        caller fails the job clean with its (zero) charge
+        refunded."""
+        lane = pricing.IMAGE_LANES[job["image_model"]]
+        if not _ovh_rate_reserve():
+            raise RuntimeError(
+                "the free SDXL lane is at its pace right now")
+        headers = {"Content-Type": "application/json",
+                   "Accept": "application/octet-stream"}
+        key = os.environ.get("OVH_AI_API_KEY", "")
+        if key:
+            headers["Authorization"] = f"Bearer {key}"
+        try:
+            resp = requests.post(
+                lane["endpoint"], headers=headers,
+                json={"prompt": prompt, "negative_prompt": ""},
+                timeout=180)
+        except Exception:
+            raise RuntimeError("ovhcloud image submit failed")
+        if resp.status_code != 200:
+            raise RuntimeError(
+                f"image submit http {resp.status_code}")
+        raw = resp.content or b""
+        if not (raw.startswith(b"\x89PNG")
+                or raw.startswith(b"\xff\xd8")):
+            raise RuntimeError("image submit returned no image")
+        FILES_DIR.mkdir(parents=True, exist_ok=True)
+        out_path = FILES_DIR / f"{job['id']}.png"
+        out_path.write_bytes(raw)
+        data_volume.commit()
+        job["bytes"] = len(raw)
+        job["status"] = "done"
+        job["error"] = None
+        jobs[job["id"]] = job
 
     def _submit_provider_image(job: dict, prompt: str,
                                source_image: str = None):
@@ -4802,6 +4902,11 @@ def api():
             # settles the job inside its own submit.
             _submit_cloudflare_image(job, prompt,
                                      source_image=source_image)
+        elif provider == "ovhcloud":
+            # The OVHcloud free image lane: a synchronous
+            # route that settles the job inside its own
+            # submit, like the Cloudflare lanes.
+            _submit_ovhcloud_image(job, prompt)
         elif provider == "pexels":
             # The stock photo lane: a synchronous route that
             # settles the job inside its own submit, like the
@@ -8510,6 +8615,16 @@ def api():
                         raise HTTPException(
                             status_code=503,
                             detail="the free image allowance is used up for today. It resets at midnight UTC")
+                if lane["provider"] == "ovhcloud" \
+                        and not _ovh_rate_allows():
+                    # Fail clean before anything is created:
+                    # the free SDXL lane is at its documented
+                    # pace (2 images a minute without a
+                    # project key, 400 with one), and the
+                    # route never spills to a paid one.
+                    raise HTTPException(
+                        status_code=503,
+                        detail="the free SDXL lane is busy right now. Wait a few seconds and try again")
             stock_pick = None
             if lane_id == "stock":
                 # The stock lane searches before any job
@@ -8518,17 +8633,46 @@ def api():
                 # charge, and no fallback to a paid lane. The
                 # winning photo's fields ride the job record
                 # to the submit, which only downloads it.
-                stock_key = shorts._env_value("PEXELS_API_KEY")
-                if not stock_key:
+                # Three stock sources stand behind the one
+                # entry (2026-11-20), searched in order:
+                # Pexels first (the key the shorts lane
+                # already rides), then Unsplash, then
+                # Pixabay. A source whose key is not stored
+                # yet is skipped silently, and a source that
+                # errors is skipped the same way; the first
+                # source with a match wins.
+                stock_sources = []
+                pexels_key = shorts._env_value("PEXELS_API_KEY")
+                if pexels_key:
+                    stock_sources.append(
+                        (shorts.pexels_search_photos, pexels_key))
+                unsplash_key = shorts._env_value("UNSPLASH_ACCESS_KEY")
+                if unsplash_key:
+                    stock_sources.append(
+                        (shorts.unsplash_search_photos,
+                         unsplash_key))
+                pixabay_key = shorts._env_value("PIXABAY_API_KEY")
+                if pixabay_key:
+                    stock_sources.append(
+                        (shorts.pixabay_search_photos,
+                         pixabay_key))
+                if not stock_sources:
                     raise HTTPException(
                         status_code=503,
                         detail="the stock library is unavailable right now")
-                try:
-                    stock_found = shorts.pexels_search_photos(
-                        prompt, stock_key)
-                except Exception:
-                    stock_found = None
-                if stock_found is None:
+                stock_found = None
+                stock_searched = False
+                for search_photos, source_key in stock_sources:
+                    try:
+                        found_here = search_photos(
+                            prompt, source_key)
+                    except Exception:
+                        continue
+                    stock_searched = True
+                    if found_here:
+                        stock_found = found_here
+                        break
+                if stock_found is None and not stock_searched:
                     raise HTTPException(
                         status_code=503,
                         detail="the stock library is unavailable right now")
@@ -8600,6 +8744,19 @@ def api():
                 job["stock_download_url"] = stock_pick["download_url"]
                 job["stock_page_url"] = stock_pick["page_url"]
                 job["stock_credit"] = stock_pick["credit"]
+                # Which of the three sources won, and the
+                # extra fields its terms ride on (2026-11-20):
+                # an Unsplash win stores the photographer's
+                # profile link beside their name, and the
+                # download location the submit must call when
+                # the photo is delivered.
+                job["stock_source"] = stock_pick["provider"]
+                if stock_pick.get("credit_url"):
+                    job["stock_credit_url"] = \
+                        stock_pick["credit_url"]
+                if stock_pick.get("track_url"):
+                    job["stock_track_url"] = \
+                        stock_pick["track_url"]
                 jobs[job_id] = job
             try:
                 if klein_on_kaggle:
@@ -17012,7 +17169,9 @@ async function refreshImageQuote() {
     $('image-shelf-note').textContent = lane.id === 'house'
       ? 'Made by Moonfactory itself, at the size picked.'
       : lane.free
-        ? (lane.id === 'flux1_schnell'
+        ? (lane.id === 'sdxl_ovh'
+          ? "This model is free. Moonfactory runs it on a shared free lane that makes two images a minute, so it can take a little while."
+          : lane.id === 'flux1_schnell'
           ? "This model is free. Moonfactory gets about 55 free images a day on it, shared across all users. They reset at midnight UTC."
           : "This model is free. Moonfactory gets about 95 free images a day on it, shared across all users. They reset at midnight UTC.")
         : lane.edit
