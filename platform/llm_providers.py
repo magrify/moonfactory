@@ -228,6 +228,7 @@ LLM_PROVIDERS = [
 # is the platform Google key, the others are LLM_PROVIDERS
 # records), model (the provider-side model id; defaults to
 # the id), group ("regular" or "uncensored" in the select).
+# Prices live in DRAFT_MODEL_PRICES below, keyed by id.
 DRAFT_MODEL_HOUSE = "house"
 DRAFT_MODEL_DEFAULT = "gemini:gemini-3.8-flash"
 DRAFT_MODELS = [
@@ -364,6 +365,72 @@ DRAFT_MODELS = [
 ]
 
 
+# Per-token prices for the picker, USD per 1M tokens,
+# input / output, exactly as read from each provider's own
+# price data in the 2026-11-20 LLM cost audit
+# (~/workspace/sinclip/llm-cost-audit-2026-11-20.md). Jack,
+# 2026-11-20: state their prices in $ in the pickers if
+# there is a cost. The two Gemini picks are deliberately
+# absent: their cost depends on which Google tier the
+# platform key sits on (free tier $0, paid tier priced),
+# which the audit could not determine, so their options
+# carry no price text until that is settled.
+DRAFT_MODEL_PRICES = {
+    "openrouter:anthropic/claude-sonnet-5": ("2.00", "10.00"),
+    "openrouter:openai/gpt-5.5": ("5.00", "30.00"),
+    "openrouter:google/gemini-3.1-pro-preview": ("2.00", "12.00"),
+    "openrouter:x-ai/grok-4.7": ("2.00", "6.00"),
+    "venice:llama-3.3-70b": ("0.70", "2.80"),
+    "venice:z-ai-glm-5-3": ("1.75", "5.50"),
+    "venice:qwen-3-8-27b": ("0.45", "3.20"),
+    "venice:deepseek-v4-1-flash-uncensored": ("0.33", "1.32"),
+    "venice:gemma-4-uncensored": ("0.1625", "0.50"),
+    "venice:qwen-3-6-plus": ("0.625", "3.75"),
+    "venice:venice-uncensored-1-2": ("0.20", "0.90"),
+    "venice:venice-uncensored-role-play": ("0.50", "2.00"),
+    "venice:deepseek-v4-1-flash-1017-uncensored":
+        ("0.33", "1.32"),
+    "venice:e2ee-deepseek-v4-1-flash-1017-abliterated":
+        ("0.375", "1.50"),
+    "venice:glm-5-3-flash-uncensored": ("0.165", "0.55"),
+    "venice:olafangensan-glm-4.7-flash-heretic":
+        ("0.07", "0.40"),
+    "venice:abliteration-abliterated-model-large-v2":
+        ("3.00", "5.00"),
+    "venice:abliteration-abliterated-model-large-flash":
+        ("1.25", "2.50"),
+    "venice:aion-labs-aion-3-5": ("3.75", "7.50"),
+    "venice:aion-labs-aion-3-5-mini": ("0.875", "1.75"),
+    "venice:aion-labs-aion-3-0-mini": ("0.875", "1.75"),
+    "refuseless:glm-5.3-abliterated": ("1.00", "2.00"),
+    "refuseless:glm-5.3-flash-abliterated": ("0.12", "0.50"),
+    "refuseless:deepseek-v4.1-flash-abliterated":
+        ("0.12", "0.45"),
+    "refuseless:deepseek-v4.1-flash-abliterated-fast":
+        ("0.12", "0.45"),
+    "openrouter:cognitivecomputations/"
+    "dolphin-mistral-24b-venice-edition": ("0.20", "0.90"),
+    "morph:morph-dsv41flash-abliterated": ("0.30", "1.20"),
+    "deepseek-v4.1-flash-1017-uncensored": ("0.24", "0.90"),
+    "glm-5.3-flash-uncensored": ("0.24", "1.00"),
+    "kimi-k3.1-pro-uncensored": ("3.50", "8.00"),
+}
+
+
+def draft_model_option_label(entry) -> str:
+    """The option text a picker shows for a registry entry:
+    the plain name, plus the price per 1M tokens when the
+    entry's route costs money. Entries with no audited
+    price (the two Gemini picks, tier unsettled) show the
+    plain name alone. Error messages keep using the plain
+    label; this composed text is for the picker only."""
+    price = DRAFT_MODEL_PRICES.get(entry["id"])
+    if price is None:
+        return entry["label"]
+    return (f"{entry['label']} · ${price[0]} in / "
+            f"${price[1]} out per 1M tokens")
+
+
 def draft_model_entry(value) -> dict:
     """The registry entry for a picker value, or None."""
     return next(
@@ -396,13 +463,16 @@ def any_draft_configured() -> bool:
 
 
 def draft_model_options() -> list:
-    """The picker view: plain names, ids, groups, and whether
+    """The picker view: plain names, the option text the
+    picker shows (plain name plus the audited price when
+    the route costs money), ids, groups, and whether
     picking the entry could actually reach its model right
     now. Never key material."""
     return [
         {
             "id": m["id"],
             "label": m["label"],
+            "option_label": draft_model_option_label(m),
             "group": m["group"],
             "configured": provider_configured(m["provider"]),
         }

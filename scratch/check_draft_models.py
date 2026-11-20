@@ -85,12 +85,76 @@ check(morph["access"] == "key_pending",
 check([x["id"] for x in morph["models"]]
       == ["morph-dsv41flash-abliterated"], "morph model id")
 
+# --- prices in the picker (Jack, 2026-11-20) ---------------------------------
+# Every route that costs money states its price in the
+# option text, in the exact figures of the 2026-11-20 LLM
+# cost audit (USD per 1M tokens, input / output). The two
+# Gemini picks carry no price: their cost depends on the
+# platform key's Google tier, still unsettled.
+EXPECTED_PRICES = {
+    "openrouter:anthropic/claude-sonnet-5": ("2.00", "10.00"),
+    "openrouter:openai/gpt-5.5": ("5.00", "30.00"),
+    "openrouter:google/gemini-3.1-pro-preview": ("2.00", "12.00"),
+    "openrouter:x-ai/grok-4.7": ("2.00", "6.00"),
+    "venice:llama-3.3-70b": ("0.70", "2.80"),
+    "venice:z-ai-glm-5-3": ("1.75", "5.50"),
+    "venice:qwen-3-8-27b": ("0.45", "3.20"),
+    "venice:deepseek-v4-1-flash-uncensored": ("0.33", "1.32"),
+    "venice:gemma-4-uncensored": ("0.1625", "0.50"),
+    "venice:qwen-3-6-plus": ("0.625", "3.75"),
+    "venice:venice-uncensored-1-2": ("0.20", "0.90"),
+    "venice:venice-uncensored-role-play": ("0.50", "2.00"),
+    "venice:deepseek-v4-1-flash-1017-uncensored":
+        ("0.33", "1.32"),
+    "venice:e2ee-deepseek-v4-1-flash-1017-abliterated":
+        ("0.375", "1.50"),
+    "venice:glm-5-3-flash-uncensored": ("0.165", "0.55"),
+    "venice:olafangensan-glm-4.7-flash-heretic":
+        ("0.07", "0.40"),
+    "venice:abliteration-abliterated-model-large-v2":
+        ("3.00", "5.00"),
+    "venice:abliteration-abliterated-model-large-flash":
+        ("1.25", "2.50"),
+    "venice:aion-labs-aion-3-5": ("3.75", "7.50"),
+    "venice:aion-labs-aion-3-5-mini": ("0.875", "1.75"),
+    "venice:aion-labs-aion-3-0-mini": ("0.875", "1.75"),
+    "refuseless:glm-5.3-abliterated": ("1.00", "2.00"),
+    "refuseless:glm-5.3-flash-abliterated": ("0.12", "0.50"),
+    "refuseless:deepseek-v4.1-flash-abliterated":
+        ("0.12", "0.45"),
+    "refuseless:deepseek-v4.1-flash-abliterated-fast":
+        ("0.12", "0.45"),
+    "openrouter:cognitivecomputations/"
+    "dolphin-mistral-24b-venice-edition": ("0.20", "0.90"),
+    "morph:morph-dsv41flash-abliterated": ("0.30", "1.20"),
+    "deepseek-v4.1-flash-1017-uncensored": ("0.24", "0.90"),
+    "glm-5.3-flash-uncensored": ("0.24", "1.00"),
+    "kimi-k3.1-pro-uncensored": ("3.50", "8.00"),
+}
+check(llm_providers.DRAFT_MODEL_PRICES == EXPECTED_PRICES,
+      "the price table matches the 2026-11-20 cost audit exactly")
+for m in MODELS:
+    text = llm_providers.draft_model_option_label(m)
+    if m["id"] in EXPECTED_PRICES:
+        pin, pout = EXPECTED_PRICES[m["id"]]
+        check(text == f"{m['label']} · ${pin} in / "
+                      f"${pout} out per 1M tokens",
+              f"{m['id']} option text states its audited price")
+    else:
+        check(m["provider"] == "gemini" and text == m["label"],
+              f"{m['id']} carries no price text (Gemini tier "
+              "exception)")
+
 # --- the picker payload ------------------------------------------------------
 opts = llm_providers.draft_model_options()
 check([o["id"] for o in opts] == [m["id"] for m in MODELS],
       "the payload lists every registered model individually, in order")
 check(all(o["label"] == BY_ID[o["id"]]["label"] for o in opts),
       "the payload carries each model's own plain name")
+check(all(o["option_label"]
+          == llm_providers.draft_model_option_label(BY_ID[o["id"]])
+          for o in opts),
+      "the payload carries the priced option text")
 check(all(o["group"] == BY_ID[o["id"]]["group"] for o in opts),
       "the payload carries the groups")
 check(all(o["configured"] is False for o in opts),
@@ -100,8 +164,9 @@ check(all(o["configured"] is False for o in opts),
 for m in MODELS:
     check(SRC.count(f'value="{m["id"]}"') == 6,
           f"all six forms offer {m['id']} individually")
-    check(SRC.count(f'>{m["label"]}</option>') == 6,
-          f"all six forms name {m['label']}")
+    check(SRC.count(
+        f'>{llm_providers.draft_model_option_label(m)}</option>') == 6,
+        f"all six forms name {m['label']} with its price text")
 check(SRC.count('value="gemini:gemini-3.8-flash" selected') == 6,
       "Gemini 3.8 Flash is the selected default in all six forms")
 for host in ("api.venice.ai", "api.refuseless.com",

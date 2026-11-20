@@ -228,9 +228,10 @@ for pid in ("prompt-draft-model", "start-draft-model",
     check(f'id="{pid}"' in SRC, f"the {pid} picker exists")
 check("House draft" not in SRC,
       "the composite house label is gone from the studio")
-for label in SILK_LABELS:
-    check(SRC.count(f">{label}</option>") == 6,
-          f"all six forms offer {label}")
+for entry in llm_providers.DRAFT_MODELS[-3:]:
+    text = llm_providers.draft_model_option_label(entry)
+    check(SRC.count(f">{text}</option>") == 6,
+          f"all six forms offer {text}")
 for mid in SILK_IDS:
     check(SRC.count(f'value="{mid}"') == 6,
           f"all six forms carry the {mid} pick")
