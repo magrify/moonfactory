@@ -231,29 +231,29 @@ finally:
 # --- source wiring -----------------------------------------------------------
 check('id="short-draft-model"' in SRC, "the shorts picker exists")
 check('id="drama-draft-model"' in SRC, "the drama picker exists")
-for pid in ("prompt-draft-model", "start-draft-model",
+for pid in ("prompt-draft-model",
             "image-draft-model", "image-edit-draft-model"):
     check(f'id="{pid}"' in SRC, f"the {pid} picker exists")
 check("House draft" not in SRC,
       "the composite house label is gone from the studio")
 for entry in llm_providers.DRAFT_MODELS[-3:]:
     text = entry["label"]
-    check(SRC.count(f">{text}</option>") == 6,
-          f"all six forms offer {text}")
+    check(SRC.count(f">{text}</option>") == 5,
+          f"all five forms offer {text}")
 for mid in SILK_IDS:
-    check(SRC.count(f'value="{mid}"') == 6,
-          f"all six forms carry the {mid} pick")
-check(SRC.count('<optgroup label="Free Models">') == 6,
-      "all six forms group the free models")
-check(SRC.count('<optgroup label="Regular Models">') == 6,
-      "all six forms group the regular models")
-check(SRC.count('<optgroup label="Uncensored Models">') == 6,
-      "all six forms group the uncensored models")
-check(SRC.count('<option disabled data-tier-sep="1">') == 42,
-      "all six forms carry the $ tier separators, seven "
+    check(SRC.count(f'value="{mid}"') == 5,
+          f"all five forms carry the {mid} pick")
+check(SRC.count('<optgroup label="Free Models">') == 5,
+      "all five forms group the free models")
+check(SRC.count('<optgroup label="Regular Models">') == 5,
+      "all five forms group the regular models")
+check(SRC.count('<optgroup label="Uncensored Models">') == 5,
+      "all five forms group the uncensored models")
+check(SRC.count('<option disabled data-tier-sep="1">') == 35,
+      "all five forms carry the $ tier separators, seven "
       "per select, like the generation pickers")
 check(SRC.count(
-    '<option disabled data-tier-sep="1">$$$$</option>') == 12,
+    '<option disabled data-tier-sep="1">$$$$</option>') == 10,
     "the $$$$ separator heads the priciest tier in both "
     "the Regular and Uncensored groups of every select")
 check("payload.draft_model = $('short-draft-model').value" in SRC,
@@ -282,13 +282,14 @@ check('"/api/prompt-help"' in SRC, "the prompt help endpoint exists")
 check("shorts.improve_prompt(text, draft_model, kind)" in SRC,
       "the endpoint passes the pick to the help writer")
 check("async function promptHelp(" in SRC, "the help action exists")
-check(SRC.count("promptHelp('") == 4,
-      "all four prompt fields wire the help action")
+check(SRC.count("promptHelp('") == 3,
+      "all three prompt fields wire the help action")
 check(SRC.count("$('prompt-help-wrap')") == 5,
       "the video help block rides the prompt show and hide lists")
 check('id="prompt-help-btn"' in SRC, "the video help button exists")
 check('id="image-help-btn"' in SRC, "the image help button exists")
-check('id="start-help-btn"' in SRC, "the first frame help button exists")
+check('id="start-help-btn"' not in SRC,
+      "the first frame help button went with its form")
 check('id="image-edit-help-btn"' in SRC,
       "the image edit help button exists")
 

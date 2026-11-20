@@ -87,7 +87,7 @@ swap = SRC.split("function showTitleCardForm()", 1)[1].split(
     "function updateModelUI()", 1)[0]
 check("$('titlecard-fields').style.display = ''" in swap,
       "the swap shows the title form")
-for el in ("$('dropzone')", "$('start-source')", "$('prompt')",
+for el in ("$('dropzone')", "$('prompt')",
            "$('length-house')", "$('length-api')", "details.more",
            "$('api-opts')", "$('house-price')", "$('botcheck2')"):
     check(el in swap, f"the swap hides the video only field {el}")

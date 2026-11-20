@@ -172,16 +172,16 @@ check(all(o["configured"] is False for o in opts),
 
 # --- every model is in every studio select, individually ---------------------
 for m in MODELS:
-    check(SRC.count(f'value="{m["id"]}"') == 6,
-          f"all six forms offer {m['id']} individually")
+    check(SRC.count(f'value="{m["id"]}"') == 5,
+          f"all five forms offer {m['id']} individually")
     check(SRC.count(
-        f'>{m["label"]}</option>') == 6,
-        f"all six forms name {m['label']} plainly, "
+        f'>{m["label"]}</option>') == 5,
+        f"all five forms name {m['label']} plainly, "
         "no price text")
-check(SRC.count('value="gemini:gemini-3.8-flash" selected') == 6,
-      "Gemini 3.8 Flash is the selected default in all six forms")
-check(SRC.count('<optgroup label="Free Models">') == 6,
-      "all six forms open with the Free Models group")
+check(SRC.count('value="gemini:gemini-3.8-flash" selected') == 5,
+      "Gemini 3.8 Flash is the selected default in all five forms")
+check(SRC.count('<optgroup label="Free Models">') == 5,
+      "all five forms open with the Free Models group")
 for host in ("api.venice.ai", "api.refuseless.com",
              "api.morphllm.com",
              "generativelanguage.googleapis.com"):
@@ -191,7 +191,7 @@ for host in ("api.venice.ai", "api.refuseless.com",
 # is that no host of any kind appears inside a picker block.
 import re as _re
 for block in _re.findall(
-        r'<select id="(?:start|prompt|image|image-edit|short|drama)'
+        r'<select id="(?:prompt|image|image-edit|short|drama)'
         r'-draft-model">(.*?)</select>', SRC, _re.S):
     check("http" not in block and ".ai" not in block
           and ".com" not in block,
@@ -242,11 +242,11 @@ opts = llm_providers.draft_model_options()
 check(all(o["price_tier"] == expected_tier(BY_ID[o["id"]])
           for o in opts),
       "the payload carries each model's $ tier")
-check(SRC.count('<option disabled data-tier-sep="1">') == 42,
-      "seven separators in each of the six selects "
+check(SRC.count('<option disabled data-tier-sep="1">') == 35,
+      "seven separators in each of the five selects "
       "(three Regular, four Uncensored)")
-for marks, n in (("$", 6), ("$$", 12), ("$$$", 12),
-                 ("$$$$", 12)):
+for marks, n in (("$", 5), ("$$", 10), ("$$$", 10),
+                 ("$$$$", 10)):
     check(SRC.count(
         f'<option disabled data-tier-sep="1">{marks}</option>')
         == n, f"the {marks} separator appears {n} times")
@@ -281,7 +281,7 @@ GROUP_NAMES = {"Free Models": "free",
                "Regular Models": "regular",
                "Uncensored Models": "uncensored"}
 for block in _re2.findall(
-        r'<select id="(?:start|prompt|image|image-edit|short|drama)'
+        r'<select id="(?:prompt|image|image-edit|short|drama)'
         r'-draft-model">(.*?)</select>', SRC, _re2.S):
     tokens = []
     for gname, gbody in _re2.findall(

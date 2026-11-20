@@ -13575,76 +13575,7 @@ APP_HTML = (
       <div class="big">Add a start image</div>
       <div class="small">Drop it here, or click to browse. Text only works too.</div>
     </div>
-    <label class="flabel" for="start-source" style="margin-top:14px">Start image</label>
-    <select id="start-source">
-      <option value="none" selected>No start image, text only</option>
-      <option value="upload">Upload an image</option>
-      <option value="generate">Describe it and we make it</option>
-    </select>
-    <div id="start-upload-wrap" style="display:none">
-      <label>Start image file (PNG or JPEG)</label>
-      <input id="startimg" type="file" accept="image/png,image/jpeg">
-    </div>
-    <div id="start-gen-wrap" style="display:none">
-      <label>Describe the first frame</label>
-      <textarea id="image-prompt" rows="2" maxlength="1000" placeholder="a red hot air balloon over rolling green hills at sunrise, bright daylight"></textarea>
-      <label>Improve my prompt</label>
-      <select id="start-draft-model">
-        <optgroup label="Free Models">
-          <option value="openrouter:nvidia/nemotron-3-ultra-550b-a55b:free">Nemotron 3 Ultra 550B</option>
-          <option value="openrouter:google/gemma-4-31b-it:free">Gemma 4 31B</option>
-          <option value="openrouter:nvidia/nemotron-3.5-lightning:free">Nemotron 3.5 Lightning</option>
-        </optgroup>
-        <optgroup label="Regular Models">
-          <option disabled data-tier-sep="1">$$</option>
-          <option value="gemini:gemini-3.5-flash-lite">Gemini 3.5 Flash Lite</option>
-          <option value="venice:llama-3.3-70b">Llama 3.3 70B</option>
-          <option disabled data-tier-sep="1">$$$</option>
-          <option value="gemini:gemini-3.8-flash" selected>Gemini 3.8 Flash</option>
-          <option value="venice:z-ai-glm-5-3">GLM 5.3</option>
-          <option value="openrouter:x-ai/grok-4.7">Grok 4.7</option>
-          <option disabled data-tier-sep="1">$$$$</option>
-          <option value="openrouter:anthropic/claude-sonnet-5">Claude Sonnet 5</option>
-          <option value="openrouter:google/gemini-3.1-pro-preview">Gemini 3.1 Pro</option>
-          <option value="openrouter:openai/gpt-5.5">GPT-5.5</option>
-        </optgroup>
-        <optgroup label="Uncensored Models">
-          <option disabled data-tier-sep="1">$</option>
-          <option value="venice:olafangensan-glm-4.7-flash-heretic">GLM 4.7 Flash Heretic</option>
-          <option value="refuseless:deepseek-v4.1-flash-abliterated">DeepSeek V4.1 Flash 1017 Abliterated</option>
-          <option value="refuseless:deepseek-v4.1-flash-abliterated-fast">DeepSeek V4.1 Flash 1017 Fast Abliterated</option>
-          <option value="refuseless:glm-5.3-flash-abliterated">GLM 5.3 Flash Abliterated</option>
-          <option value="venice:gemma-4-uncensored">Gemma 4 Uncensored</option>
-          <option value="venice:glm-5-3-flash-uncensored">GLM 5.3 Flash Uncensored</option>
-          <option value="openrouter:cognitivecomputations/dolphin-mistral-24b-venice-edition">Dolphin Mistral 24B</option>
-          <option value="venice:venice-uncensored-1-2">Venice Uncensored 1.2</option>
-          <option value="deepseek-v4.1-flash-1017-uncensored">DeepSeek V4.1 Flash</option>
-          <option value="glm-5.3-flash-uncensored">GLM-5.3 Flash</option>
-          <option disabled data-tier-sep="1">$$</option>
-          <option value="morph:morph-dsv41flash-abliterated">DeepSeek V4.1 Flash Abliterated</option>
-          <option value="venice:deepseek-v4-1-flash-1017-uncensored">DeepSeek V4.1 Flash 1017 Uncensored</option>
-          <option value="venice:deepseek-v4-1-flash-uncensored">DeepSeek V4.1 Flash Uncensored</option>
-          <option value="venice:e2ee-deepseek-v4-1-flash-1017-abliterated">DeepSeek V4.1 Flash 1017 Abliterated (E2EE)</option>
-          <option value="venice:venice-uncensored-role-play">Venice Role Play Uncensored</option>
-          <option value="venice:aion-labs-aion-3-0-mini">Aion 3.0 Mini</option>
-          <option value="venice:aion-labs-aion-3-5-mini">Aion 3.5 Mini</option>
-          <option value="refuseless:glm-5.3-abliterated">GLM 5.3 Abliterated</option>
-          <option value="venice:qwen-3-8-27b">Qwen 3.8 27B</option>
-          <option value="venice:abliteration-abliterated-model-large-flash">Abliterated Large Flash</option>
-          <option disabled data-tier-sep="1">$$$</option>
-          <option value="venice:qwen-3-6-plus">Qwen 3.6 Plus Uncensored</option>
-          <option value="venice:abliteration-abliterated-model-large-v2">Abliterated Large V2</option>
-          <option disabled data-tier-sep="1">$$$$</option>
-          <option value="venice:aion-labs-aion-3-5">Aion 3.5</option>
-          <option value="kimi-k3.1-pro-uncensored">Kimi K3.1 Pro</option>
-        </optgroup>
-      </select>
-      <p><button class="btn secondary" id="start-help-btn" type="button">Improve my description</button></p>
-      <p id="start-help-msg"></p>
-      <button class="btn secondary" id="gen-image" type="button">Make the first frame</button>
-      <p class="muted" id="image-note">We make the opening frame at the aspect ratio picked for the video. Check it here, and it attaches to your video with one click. Every frame we make is charged like a small render. The exact price shows before it runs. Not happy with it? Make another.</p>
-      <div id="image-preview"></div>
-    </div>
+    <input id="startimg" type="file" accept="image/png,image/jpeg" style="display:none">
 
     <label class="flabel" for="prompt" style="margin-top:6px">Prompt</label>
     <textarea id="prompt" rows="4" class="composer-prompt" placeholder="Describe what happens… e.g. a red hot air balloon rising over green hills, gentle forward camera movement, bright daylight"></textarea>
@@ -13836,7 +13767,7 @@ APP_HTML = (
       <p class="muted" id="image-shelf-note"></p>
       <div id="image-result-wrap" style="display:none">
         <img id="image-result" style="max-width:100%;border-radius:12px" alt="Your image">
-        <p><button class="btn secondary" id="image-use-start" type="button">Use as the start image for a video</button> <span id="image-result-save"></span></p>
+        <p><span id="image-result-save"></span></p>
       </div>
     </div>
 
@@ -14465,7 +14396,6 @@ const $ = id => document.getElementById(id);
 let cfg = { pow_required: true, pow_difficulty_bits: 18, turnstile_site_key: null };
 let startImageB64 = null;
 let endImageB64 = null;
-let generatedImageJobId = null;
 
 async function solvePow() {
   const r = await fetch('/api/challenge'); const c = await r.json();
@@ -14604,7 +14534,6 @@ function spinMsg(id, text) {
 // click, and drag-and-drop, so all three set the same state.
 function readStartFile(f) {
   if (!f) { startImageB64 = null; renderDrop(); fetchQuote(); return; }
-  generatedImageJobId = null;
   renderDropLoading();
   const reader = new FileReader();
   reader.onload = () => {
@@ -14637,7 +14566,6 @@ function renderDrop(f) {
     dz.querySelector('.remove').addEventListener('click', e => {
       e.stopPropagation();
       startImageB64 = null; $('startimg').value = '';
-      if ($('start-source').value === 'upload') { $('start-source').value = 'none'; syncStartSource(); }
       renderDrop();
       fetchQuote();
     });
@@ -14651,7 +14579,6 @@ function renderDrop(f) {
 $('startimg').addEventListener('change', e => { readStartFile(e.target.files[0]); });
 $('dropzone').addEventListener('click', () => {
   if (startImageB64) return;
-  if ($('start-source').value !== 'upload') { $('start-source').value = 'upload'; syncStartSource(); }
   $('startimg').click();
 });
 $('dropzone').addEventListener('dragover', e => { e.preventDefault(); $('dropzone').classList.add('over'); });
@@ -14660,84 +14587,8 @@ $('dropzone').addEventListener('drop', e => {
   e.preventDefault(); $('dropzone').classList.remove('over');
   const f = e.dataTransfer.files && e.dataTransfer.files[0];
   if (!f) return;
-  if ($('start-source').value !== 'upload') { $('start-source').value = 'upload'; syncStartSource(); }
   readStartFile(f);
 });
-// Start image source choice: upload your own, go text-only, or
-// describe the first frame and have it made. A made frame attaches
-// to the video job by its job id, resolved on the server.
-function syncStartSource() {
-  const src = $('start-source').value;
-  $('start-upload-wrap').style.display = src === 'upload' ? 'block' : 'none';
-  $('start-gen-wrap').style.display = src === 'generate' ? 'block' : 'none';
-  if (src !== 'upload') { startImageB64 = null; renderDrop(); }
-  if (src !== 'generate') generatedImageJobId = null;
-}
-$('start-source').addEventListener('change', () => { syncStartSource(); fetchQuote(); });
-function buildFirstFrame() {
-  const prompt = $('image-prompt').value.trim();
-  if (!prompt) { msg('image-note', 'Describe the first frame first.', 'err'); return null; }
-  return { kind: 'first-frame', msgId: 'image-note',
-    body: { prompt: prompt, aspect_ratio: $('aspect').value } };
-}
-async function fireFirstFrame(d) {
-  // The button stays in its working state from the price
-  // check until the frame lands or fails: its own poll is
-  // the wait, so the hold is released inside the poll.
-  const btn = $('gen-image');
-  btnBusy(btn, 'Checking the price...');
-  let polling = false;
-  try {
-    msg('image-note', 'Checking the price...');
-    const q = await api('/api/images/quote', { method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ prompt: d.body.prompt, aspect_ratio: d.body.aspect_ratio }) });
-    const p = q.payment || {};
-    const priceText = p.method === 'free' ? 'it counts as one of your free clips'
-      : p.method === 'included' ? 'it debits $' + ((p.included_debit_cents || 0) / 100).toFixed(2) + ' of your included budget'
-      : 'it costs $' + ((q.price_cents || 0) / 100).toFixed(2) + ' from your prepaid balance';
-    msg('image-note', 'Making your first frame, ' + priceText + '...');
-    btnLabel(btn, 'Making your first frame...');
-    const bot = await botFields('botcheck2');
-    const r = await api('/api/images', { method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ prompt: d.body.prompt, aspect_ratio: d.body.aspect_ratio, ...bot }) });
-    const imageJobId = r.id;
-    const poll = async () => {
-      const list = await api('/api/jobs');
-      const j = list.jobs.find(x => x.id === imageJobId);
-      if (!j) { btnDone(btn); return; }
-      if (j.status === 'done') {
-        generatedImageJobId = imageJobId;
-        fetchQuote();
-        $('image-preview').innerHTML =
-          '<img src="/api/jobs/' + imageJobId + '/file" style="width:180px;border-radius:14px" alt="Your first frame">' +
-          '<p style="margin:10px 0 0">' + saveControlHtml(imageJobId, 'image') + '</p>' +
-          '<p class="muted">This frame is attached as your start image. Create your video when you are ready, or make another frame first.</p>';
-        msg('image-note', 'Your first frame is ready and attached.', 'ok');
-        btnDone(btn);
-        loadJobs();
-      } else if (j.status === 'error') {
-        msg('image-note', j.error || 'The first frame could not be made, nothing was charged.', 'err');
-        btnDone(btn);
-        loadJobs();
-      } else {
-        setTimeout(tick, 5000);
-      }
-    };
-    const tick = () => { poll().catch(() => btnDone(btn)); };
-    polling = true;
-    setTimeout(tick, 3000);
-  } catch (e) { msg('image-note', e.message, 'err'); }
-  finally {
-    if (!polling) btnDone(btn);
-  }
-}
-$('gen-image').onclick = async () => {
-  const d = buildFirstFrame();
-  if (!d) return;
-  if (!currentUser) { pendingCreate = d; openAuthPanel(); return; }
-  restoredPending = null;
-  await fireCreate(d);
-};
 $('endimg').addEventListener('change', e => {
   const f = e.target.files[0]; if (!f) { endImageB64 = null; return; }
   const reader = new FileReader();
@@ -14996,7 +14847,6 @@ const PENDING_ROUTES = {
   short: { endpoint: '/api/shorts', botId: 'botcheck5', msgId: 'short-msg' },
   drama: { endpoint: '/api/drama', botId: 'botcheck6', msgId: 'drama-msg' },
   image: { msgId: 'job-msg' },
-  'first-frame': { msgId: 'image-note' },
 };
 function pendingOkText(d) {
   if (d.kind === 'video') return isHouseModel(d.body.model)
@@ -15011,14 +14861,13 @@ function pendingOkText(d) {
   return '';
 }
 async function fireCreate(d) {
-  // The image and first frame flows hold their own buttons
-  // inside their own functions, each for the shape of its
-  // own wait. The lanes below share the Create button: it
+  // The image flow holds its own button inside its own
+  // function, for the shape of its own wait. The lanes
+  // below share the Create button: it
   // works while the submit is in flight, its label starts
   // at Starting and follows the flow from there, and it is
   // restored when the request settles, error included.
   if (d.kind === 'image') { await fireImage(d); return; }
-  if (d.kind === 'first-frame') { await fireFirstFrame(d); return; }
   if (d.kind === 'drama' && !(d.body && d.body.drama_id)) {
     // A parked drama is a story, not a creation: an episode
     // only generates from a confirmed storyboard, so the
@@ -15126,14 +14975,6 @@ function restoredFileArrived(field, value) {
 }
 function restoreCreateForm(d) {
   const b = d.body;
-  if (d.kind === 'first-frame') {
-    if ($('start-source').value !== 'generate') {
-      $('start-source').value = 'generate'; syncStartSource();
-    }
-    $('image-prompt').value = b.prompt || '';
-    if (b.aspect_ratio) $('aspect').value = b.aspect_ratio;
-    return;
-  }
   if (d.kind === 'image') {
     setImageMode(true);
     if (b.image_model) { $('image-model').value = b.image_model; buildImageSizes(); }
@@ -15417,8 +15258,6 @@ async function fetchQuote() {
   // a text mode quote outright, so leaving the image out made
   // their price unreachable and the failure silent (2026-11-19).
   if (startImageB64) want.start_image_png_b64 = startImageB64;
-  else if ($('start-source').value === 'generate' && generatedImageJobId)
-    want.start_image_job_id = generatedImageJobId;
   if (want.model === 'wan_motion') {
     want.reference_video_urls = [$('motion-url').value.trim()];
     want.reference_video_seconds = Number($('motion-seconds').value) || want.duration_seconds;
@@ -15778,19 +15617,13 @@ function applyMotionUI() {
   const m = $('model').value;
   const motion = isMotionTemplate(m) ? m : null;
   $('motion-fields').style.display = motion ? '' : 'none';
-  const bits = [$('dropzone'), $('start-source'),
-    document.querySelector('label[for="start-source"]'),
+  const bits = [$('dropzone'),
     document.querySelector('label[for="prompt"]'), $('prompt'), $('prompt-help-wrap'),
     $('more-opts'), $('segments-note')];
   for (const el of bits) if (el) el.style.display = motion ? 'none' : '';
   if (motion) {
     $('motion-fields-story').style.display = m === 'story' ? '' : 'none';
     $('motion-fields-sting').style.display = m === 'sting' ? '' : 'none';
-    $('start-upload-wrap').style.display = 'none';
-    $('start-gen-wrap').style.display = 'none';
-  } else {
-    $('start-upload-wrap').style.display = $('start-source').value === 'upload' ? '' : 'none';
-    $('start-gen-wrap').style.display = $('start-source').value === 'generate' ? '' : 'none';
   }
   return motion;
 }
@@ -15809,8 +15642,8 @@ function showTitleCardForm() {
   $('shorts-fields').style.display = 'none';
   $('drama-fields').style.display = 'none';
   $('motion-fields').style.display = 'none';
-  const hide = [$('dropzone'), document.querySelector('label[for="start-source"]'),
-    $('start-source'), document.querySelector('label[for="prompt"]'), $('prompt'), $('prompt-help-wrap'),
+  const hide = [$('dropzone'),
+    document.querySelector('label[for="prompt"]'), $('prompt'), $('prompt-help-wrap'),
     $('length-house'), $('length-api'), $('resolution-wrap'), $('aspect-wrap'),
     document.querySelector('details.more'),
     $('api-opts'), $('house-price'), $('botcheck2')];
@@ -15829,8 +15662,8 @@ function showShortsForm() {
   $('titlecard-fields').style.display = 'none';
   $('drama-fields').style.display = 'none';
   $('motion-fields').style.display = 'none';
-  const hide = [$('dropzone'), document.querySelector('label[for="start-source"]'),
-    $('start-source'), document.querySelector('label[for="prompt"]'), $('prompt'), $('prompt-help-wrap'),
+  const hide = [$('dropzone'),
+    document.querySelector('label[for="prompt"]'), $('prompt'), $('prompt-help-wrap'),
     $('length-house'), $('length-api'), $('resolution-wrap'), $('aspect-wrap'),
     document.querySelector('details.more'),
     $('api-opts'), $('house-price'), $('botcheck2')];
@@ -15850,8 +15683,8 @@ function showDramaForm() {
   $('titlecard-fields').style.display = 'none';
   $('shorts-fields').style.display = 'none';
   $('motion-fields').style.display = 'none';
-  const hide = [$('dropzone'), document.querySelector('label[for="start-source"]'),
-    $('start-source'), document.querySelector('label[for="prompt"]'), $('prompt'), $('prompt-help-wrap'),
+  const hide = [$('dropzone'),
+    document.querySelector('label[for="prompt"]'), $('prompt'), $('prompt-help-wrap'),
     $('length-house'), $('length-api'), $('resolution-wrap'), $('aspect-wrap'),
     document.querySelector('details.more'),
     $('api-opts'), $('house-price'), $('botcheck2')];
@@ -15875,10 +15708,9 @@ function updateModelUI() {
   if (!imageMode) {
     // Restore the video fields the title card form hid. The
     // length and price blocks are managed by the body below.
-    for (const el of [$('dropzone'), document.querySelector('label[for="start-source"]'),
-      $('start-source'), document.querySelector('label[for="prompt"]'), $('prompt'), $('prompt-help-wrap'),
+    for (const el of [$('dropzone'),
+      document.querySelector('label[for="prompt"]'), $('prompt'), $('prompt-help-wrap'),
       document.querySelector('details.more'), $('house-price'), $('botcheck2')]) if (el) el.style.display = '';
-    syncStartSource();
   }
   const motion = applyMotionUI();
   if (motion) {
@@ -16068,9 +15900,7 @@ function buildCreate() {
   }
   const camera = { camera_presets: selectedPresets, camera_look: selectedLook() };
   if (selectedFunPreset()) camera.camera_speed = Number($('camera-speed').value);
-  const startFields = $('start-source').value === 'generate' && generatedImageJobId
-    ? { start_image_job_id: generatedImageJobId }
-    : { start_image_png_b64: startImageB64 };
+  const startFields = { start_image_png_b64: startImageB64 };
   const neg = $('negative').value.trim();
   const seedRaw = $('seed').value.trim();
   const seedNum = seedRaw === '' ? null : Number(seedRaw);
@@ -16576,7 +16406,6 @@ async function promptHelp(textId, modelId, kind, msgId, btn) {
   finally { btnDone(btn); }
 }
 $('prompt-help-btn').onclick = (e) => promptHelp('prompt', 'prompt-draft-model', 'video', 'prompt-help-msg', e.target);
-$('start-help-btn').onclick = (e) => promptHelp('image-prompt', 'start-draft-model', 'image', 'start-help-msg', e.target);
 $('image-help-btn').onclick = (e) => promptHelp('image-gen-prompt', 'image-draft-model', 'image', 'image-help-msg', e.target);
 $('image-edit-help-btn').onclick = (e) => promptHelp('image-edit-prompt', 'image-edit-draft-model', 'image', 'image-edit-help-msg', e.target);
 
@@ -17049,7 +16878,6 @@ $('character-train').onclick = async () => {
 // Image mode: a small curated shelf alongside video, with the
 // same simplicity: a prompt, a model, a size, one button.
 let imageMode = false;
-let shelfImageJobId = null;
 let editSourceDataUrl = null;
 function imageLane() {
   return (cfg.image_models || []).find(m => m.id === $('image-model').value);
@@ -17188,8 +17016,7 @@ function setImageMode(on) {
   $('mode-video').className = 'btn' + (on ? ' secondary' : '');
   $('mode-image').className = 'btn' + (on ? '' : ' secondary');
   $('image-opts').style.display = on ? '' : 'none';
-  const videoBits = [$('dropzone'), $('start-source'), $('start-upload-wrap'), $('start-gen-wrap'),
-    document.querySelector('label[for="start-source"]'),
+  const videoBits = [$('dropzone'),
     $('model').closest('.row'), $('model-note'), document.querySelector('details.more'),
     $('api-opts'), $('house-price'), $('segments-note'), $('motion-fields')];
   for (const el of videoBits) if (el) el.style.display = on ? 'none' : '';
@@ -17249,7 +17076,6 @@ async function fireImage(d) {
       body: JSON.stringify(body) });
   } catch (e) { msg('job-msg', e.message, 'err'); return; }
   finally { btnDone(btn); }
-  shelfImageJobId = r.job_id;
   msg('job-msg', 'Making your image...', 'ok');
   $('image-result-wrap').style.display = 'none';
   $('image-result-save').innerHTML = '';
@@ -17268,14 +17094,6 @@ async function fireImage(d) {
   }
   msg('job-msg', 'Still working. Your image will appear in your library below when it lands.', 'ok');
 }
-$('image-use-start').onclick = () => {
-  if (!shelfImageJobId) return;
-  generatedImageJobId = shelfImageJobId;
-  setImageMode(false);
-  $('start-source').value = 'generate';
-  $('start-source').dispatchEvent(new Event('change'));
-  msg('job-msg', 'Start image attached. Describe the video and create it.', 'ok');
-};
 fetch('/api/config').then(r => r.json()).then(c => { cfg = c; catalogCfg = c; renderBotChecks(); buildCatalog(); });
 // The pricing payload is account aware (the owner's own
 // session sees raw costs), so it is fetched once at page

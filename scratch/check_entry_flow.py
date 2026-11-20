@@ -97,15 +97,25 @@ create_btn = SRC.split("$('create').onclick", 1)[1].split(
 check("if (!currentUser) { pendingCreate = d; openAuthPanel(); return; }"
       in create_btn,
       "the Create button captures the build and opens sign in, in place")
-gen_btn = SRC.split("$('gen-image').onclick", 1)[1].split(
-    "function buildSegmentsSeg", 1)[0] if "function buildSegmentsSeg" in SRC \
-    else SRC.split("$('gen-image').onclick", 1)[1][:800]
-check("pendingCreate = d; openAuthPanel(); return;" in gen_btn,
-      "the first frame button captures and opens sign in the same way")
+# The Start image dropdown under the drop box is gone (Jack,
+# 2026-11-20): it duplicated the drop box, and its other choices
+# went with it (a second upload control, and describe a first
+# frame and have it made). The drop box is the only way to add
+# a start image; no image dropped means text only.
+check('id="start-source"' not in SRC
+      and "No start image, text only" not in SRC
+      and "syncStartSource" not in SRC
+      and "$('gen-image')" not in SRC
+      and "function buildFirstFrame()" not in SRC
+      and "function fireFirstFrame" not in SRC
+      and 'id="image-use-start"' not in SRC,
+      "the Start image dropdown and the first frame flow it gated are gone")
+check('id="dropzone"' in SRC and 'id="startimg"' in SRC
+      and "$('startimg').click();" in SRC,
+      "the drop box stays and still browses through the hidden file input")
 check("function buildCreate()" in SRC and "function buildShort()" in SRC
       and "function buildTitleCard()" in SRC
-      and "function buildImage()" in SRC
-      and "function buildFirstFrame()" in SRC,
+      and "function buildImage()" in SRC,
       "every lane builds its payload before anything fires")
 check("async function fireCreate(d)" in SRC,
       "one fire path submits a built creation")
@@ -215,8 +225,8 @@ clips = SRC.split("function renderClipResults(jobs)", 1)[1].split(
     "$('jobs').addEventListener", 1)[0]
 check("saveControlHtml(j.id, 'video')" in clips,
       "clip results carry the control")
-check("saveControlHtml(imageJobId, 'image')" in SRC,
-      "the first frame preview carries the control the moment it lands")
+check("saveControlHtml(imageJobId, 'image')" not in SRC,
+      "no first frame preview remains to carry the control")
 check('id="image-result-save"' in HTML
       and "saveControlHtml(r.job_id, 'image')" in SRC,
       "the image mode result carries the control")
@@ -256,13 +266,8 @@ check("btnBusy(btn, 'Starting...')" in fire
       "a Create submit spins its button from Starting, follows the flow, and always restores it")
 check("btnBusy(btn, 'Starting...')" in SRC.split(
       "async function fireImage(d)", 1)[1].split(
-      "$('image-use-start')", 1)[0],
+      "fetch('/api/config')", 1)[0],
       "an image submit works its button until the job exists")
-frame = SRC.split("async function fireFirstFrame(d)", 1)[1].split(
-    "$('gen-image').onclick", 1)[0]
-check("btnBusy(btn, 'Checking the price...')" in frame
-      and "btnDone(btn);" in frame,
-      "the first frame button works until the frame lands or fails")
 check("if (b.dataset.holds) return;" in SRC,
       "a quote refresh never stomps a working button label")
 clips_btn = SRC.split("$('make-clips').onclick", 1)[1].split(
@@ -469,9 +474,8 @@ check("function loadPricing()" in SRC and "loadPricing();" in SRC
       "the pricing payload reloads when a studio session starts")
 
 # The quote prices the composition the create will send
-# (2026-11-19): fetchQuote carries the start image, an upload
-# as itself and a generated frame by its job id, which the
-# quote endpoint resolves exactly like the create path. The
+# (2026-11-19): fetchQuote carries the start image the drop
+# box holds, as itself, exactly what the create will send. The
 # image only models refuse a text mode quote, and that
 # refusal used to die in fetchQuote's catch, which cleared
 # the line and left a bare Generate: no price, no reason.
@@ -482,7 +486,7 @@ check("function loadPricing()" in SRC and "loadPricing();" in SRC
 _quote = SRC.split("async function fetchQuote()", 1)[1].split(
     "const LENGTHS", 1)[0]
 check("if (startImageB64) want.start_image_png_b64 = startImageB64;" in _quote
-      and "want.start_image_job_id = generatedImageJobId;" in _quote,
+      and "start_image_job_id" not in _quote,
       "the quote request carries the start image the create will send")
 check("if (isHouseModel($('model').value)) return;" in _quote,
       "fetchQuote leaves house picks to the house price path")
@@ -492,8 +496,8 @@ check("q.textContent = e.message;" in _quote
 check("genBlocked('Model unavailable')" in _quote
       and "function genBlocked(text)" in SRC,
       "a paused lane says so on the button too")
-check("addEventListener('change', () => { syncStartSource(); fetchQuote(); });"
-      in SRC and "renderDrop(f);\n    fetchQuote();" in SRC,
+check("renderDrop(f);\n    fetchQuote();" in SRC
+      and "startImageB64 = null; $('startimg').value = '';" in SRC,
       "attaching or removing a start image re-quotes")
 _quote_ep = SRC.split("async def quote_job(", 1)[1].split(
     "def _submit_failed", 1)[0]
