@@ -1197,30 +1197,26 @@ def clip_quote(duration_seconds: float, owner: bool = False) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Start-image generation (PARITY-PROGRAM Pass 3). A self-hosted lane,
-# so Rule 2 applies in full: the price is the worst-case measured
-# cost x the margin multiplier, grossed up for Stripe fees by the
-# same gross_up() the video lanes use, charged exactly at the floor
-# with no rounding to a nicer number.
-#
-# Measured 2026-11-16 (one proof render through the deployed worker,
-# 9:16 at 720x1280, 8 steps): 64.3 s of L40S wall for the worker
-# call, cold start and model load included (24.1 s of that was the
-# generation itself), at the L40S list rate of $0.000542/s =
-# $0.0349 per image. Carried at 5 cents worst case, the same
-# cold-start headroom shape the production lane uses (verified
-# $0.117 carried at 15c). Floor: gross_up(5 x 3) = 47 cents per
-# image from balance. The Creator included budget debits at the raw
-# carried cost, 5 cents per image (Amendment 1 one-budget rule).
-# Free accounts may generate start images for their Draft clips,
-# counted exactly like a Draft render against the free ceilings
-# (5 lifetime per account, platform-wide total in config): the free
-# tier is a capped marketing budget and a first frame is part of a
-# Draft clip's cost either way.
+# Start-image generation (PARITY-PROGRAM Pass 3). The lane runs
+# Z-Image Turbo on the house worker, which moved from Modal to
+# Kaggle's free compute on 2026-11-19, so its real marginal cost
+# is $0 per image. The 5 cent "measured cost" it carried before
+# (and the 47 cent flat price grossed up from it) was an
+# accounting carryover from a 2026-11-16 Modal L40S measurement,
+# not a real cost. On Jack's order (2026-11-20) the lane sits in
+# the image picker's Free Models group at $0, like the other
+# $0-cost free lanes: customer price 0, owner price 0, no quote
+# above 0 and no hold. Creations still count toward the user's
+# 5 free generations, exactly like every other generation, and
+# free accounts' start images still count against the free
+# ceilings (5 lifetime per account, platform-wide total in
+# config) exactly as before.
 # ---------------------------------------------------------------------------
 
-IMAGE_MEASURED_COST_CENTS = 5.0
-IMAGE_PRICE_CENTS = gross_up(IMAGE_MEASURED_COST_CENTS * MARGIN_MULTIPLIER)
+IMAGE_MEASURED_COST_CENTS = 0.0
+IMAGE_PRICE_CENTS = (
+    0 if IMAGE_MEASURED_COST_CENTS == 0
+    else gross_up(IMAGE_MEASURED_COST_CENTS * MARGIN_MULTIPLIER))
 
 
 # ---------------------------------------------------------------------------
@@ -1408,6 +1404,25 @@ IMAGE_LANES = {
         # 1024x1024, so that is the only size sold.
         "raw_cents": {"1024x1024": 0.0},
     },
+    # The stock photo lane (Jack, 2026-11-20): not a
+    # generation model at all. The picker entry returns a
+    # real Pexels photo matching the description, delivered
+    # through the same image path as a generated image.
+    # Pexels costs the platform nothing inside its free
+    # quota (25,000 requests a month, the key the shorts
+    # lane already rides), so the lane sits in Free Models
+    # honestly at raw cost $0. It sells one size because a
+    # found photo arrives at the size Pexels serves, not a
+    # size the platform picks. The create flow searches
+    # before any job exists, so a description with no match
+    # fails clean there, no job, no count, no charge (see
+    # create_image in app.py).
+    "stock": {
+        "label": "Stock image", "provider": "pexels",
+        "endpoint": "search",
+        "free": True, "picker_order": 3,
+        "raw_cents": {"large": 0.0},
+    },
 }
 
 
@@ -1439,6 +1454,11 @@ IMAGE_SIZE_LABELS = {
     # source image's dimensions, and the picker says exactly
     # that instead of inventing pixel sizes.
     "qwen_edit_unc": {"match": "Same size as your image"},
+    # The stock lane's one size is the rendition Pexels
+    # serves for a found photo; the picker says Large rather
+    # than inventing pixel dimensions for someone else's
+    # photograph.
+    "stock": {"large": "Large"},
 }
 
 

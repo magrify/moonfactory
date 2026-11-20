@@ -31,6 +31,7 @@ WORKFLOW_FILES = (
     "fun_camera_i2v.json",
     "effects_i2v.json",
     "z_image_t2i.json",
+    "flux2_klein_t2i.json",
 )
 
 

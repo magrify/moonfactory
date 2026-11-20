@@ -146,7 +146,13 @@ for mid in app.PER_SECOND_MODELS:
         check(res in rates, f"{mid} missing a rate for {res}")
 
 # --- image shelf (item 1) ------------------------------------------
-check(len(pricing.IMAGE_LANES) == 11, "image shelf has 11 lanes")
+check(len(pricing.IMAGE_LANES) == 12, "image shelf has 12 lanes")
+check(pricing.IMAGE_LANES["stock"]["provider"] == "pexels"
+      and pricing.IMAGE_LANES["stock"]["label"] == "Stock image",
+      "the stock lane returns Pexels photos under Jack's name for it")
+stock_raw, stock_debit = pricing.image_lane_price("stock", "large")
+check(stock_raw == 0.0 and stock_debit == 0.0,
+      "the stock lane prices at $0 raw and $0 customer")
 check(pricing.IMAGE_LANES["flux2_klein4b"]["provider"] == "cloudflare"
       and pricing.IMAGE_LANES["flux2_klein4b"]["endpoint"]
       == "@cf/black-forest-labs/flux-2-klein-4b",

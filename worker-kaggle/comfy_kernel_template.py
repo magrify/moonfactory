@@ -106,6 +106,7 @@ JOB_FAMILIES = {
     "nsfw": ("shared", "a14b"),
     "effects": ("shared", "effects"),
     "image": ("image",),
+    "klein": ("klein",),
 }
 # Keep at least this much disk free after staging a family.
 DISK_RESERVE_BYTES = 6 * 1024 ** 3
@@ -306,6 +307,41 @@ def build_image_workflow(prompt: str, seed: int, aspect: str = "9:16",
         elif ct == "KSampler":
             inputs["seed"] = seed
         elif ct == "EmptySD3LatentImage":
+            inputs["width"] = width
+            inputs["height"] = height
+        elif ct == "SaveImage":
+            inputs["filename_prefix"] = prefix or "sinclip/api_image"
+    return workflow
+
+
+def build_klein_image_workflow(prompt: str, seed: int,
+                               width: int = 1024, height: int = 1024,
+                               prefix: str = ""):
+    # FLUX.2 Klein 4B (2026-11-20): the Cloudflare free lane's
+    # fallback on this worker, the same model on the house
+    # ComfyUI pattern. The graph is ComfyUI's official Klein
+    # text-to-image template (the distilled subgraph) in API
+    # form: the FP8 distilled weights, the Qwen3 4B encoder
+    # loaded as type flux2, the Flux2 scheduler at 4 steps,
+    # CFG guider at 1.0, and the negative taken as the zeroed
+    # positive, exactly as the template wires it. The sold
+    # sizes are pixel dimensions, so width and height ride in
+    # directly (the scheduler takes them too: its sigmas are
+    # resolution dependent).
+    workflow = json.loads(
+        json.dumps(WORKFLOW_TEMPLATES["flux2_klein_t2i.json"]))
+    for node in workflow.values():
+        ct = node.get("class_type")
+        inputs = node.get("inputs", {})
+        if ct == "CLIPTextEncode":
+            if inputs.get("text") == "PLACEHOLDER_POSITIVE_PROMPT":
+                inputs["text"] = prompt
+        elif ct == "RandomNoise":
+            inputs["noise_seed"] = seed
+        elif ct == "EmptyFlux2LatentImage":
+            inputs["width"] = width
+            inputs["height"] = height
+        elif ct == "Flux2Scheduler":
             inputs["width"] = width
             inputs["height"] = height
         elif ct == "SaveImage":
@@ -981,6 +1017,38 @@ def run_video_job(job: dict) -> dict:
 
 
 def run_image_job(job: dict) -> dict:
+    if job.get("image_model") == "flux2_klein4b":
+        # The FLUX.2 Klein 4B fallback (2026-11-20): the
+        # Cloudflare free lane's jobs land here once the day's
+        # neuron allowance is spent. Same worker discipline as
+        # the house image: stage the family, restart ComfyUI
+        # when the model set changed under it, render, and let
+        # the caller's upload carry the result. The sold sizes
+        # are pixel dimensions on the job record.
+        if ensure_families(JOB_FAMILIES["klein"]):
+            restart_comfy()
+        started = time.time()
+        width, height = 1024, 1024
+        try:
+            w_s, h_s = str(
+                job.get("image_size") or "1024x1024").split("x", 1)
+            width, height = int(w_s), int(h_s)
+        except Exception:
+            pass
+        workflow = build_klein_image_workflow(
+            job.get("prompt") or "", int(job.get("seed") or 12345),
+            width, height,
+            prefix=f"sinclip/api_image_{job['id']}")
+        check_nodes(workflow)
+        data, exec_seconds = run_image_workflow(workflow)
+        return {
+            "data": data,
+            "render_seconds": round(time.time() - started, 1),
+            "exec_seconds": round(float(exec_seconds or 0), 1),
+            "segments_done": 1,
+            "partial": False,
+            "partial_error": "",
+        }
     if ensure_families(JOB_FAMILIES["image"]):
         restart_comfy()
     started = time.time()

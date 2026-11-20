@@ -319,9 +319,15 @@ check(app.model_picker_class("wan22_uncut") == "uncensored",
       "the Uncut lane groups as uncensored")
 check(app.model_picker_class("wan3") == "paid",
       "a moderated lane groups as paid")
-check(app.image_picker_class("house") == "paid",
-      "the house image lane (Z-Image Turbo) groups as paid, "
-      "it carries a per image price")
+check(app.image_picker_class("house") == "free",
+      "the house image lane (Z-Image Turbo) groups as free, "
+      "it runs on Kaggle free compute at a real cost of $0")
+check(pricing.IMAGE_PRICE_CENTS == 0
+      and pricing.image_price_cents() == 0
+      and pricing.image_price_cents(owner=True) == 0
+      and app.image_picker_price_cents("house") == 0,
+      "the house image lane (Z-Image Turbo) is priced $0 for "
+      "everyone, the owner included")
 for lane_id in ("seedream55_unc", "seedream5pro_unc", "zimage_unc",
                 "zimage_pro_unc", "qwen_edit_unc"):
     check(app.image_picker_class(lane_id) == "uncensored",
@@ -332,7 +338,7 @@ for lane_id in ("nano_banana_21", "nano_banana_pro", "nano_banana_2",
                 "gpt_image_26"):
     check(app.image_picker_class(lane_id) == "paid",
           f"image lane {lane_id} groups as paid")
-for lane_id in ("flux2_klein4b", "flux1_schnell"):
+for lane_id in ("flux2_klein4b", "flux1_schnell", "stock"):
     check(app.image_picker_class(lane_id) == "free",
           f"image lane {lane_id} groups as free")
     check(pricing.IMAGE_LANES[lane_id].get("free") is True,
@@ -371,13 +377,11 @@ for lane_id, base in (("nano_banana_21", "Nano Banana 2.1"),
             + _image_tier_marks(app.image_picker_price_cents(lane_id)))
     check(pricing.IMAGE_LANES[lane_id]["label"] == want,
           f"image lane {lane_id} label carries its banded tier mark")
-check('HOUSE_IMAGE_LABEL = "Z-Image Turbo · '
-      + _image_tier_marks(float(pricing.IMAGE_PRICE_CENTS)) + '"' in SRC,
-      "the house image label is its real model name, carrying "
-      "its banded tier mark behind the bullet")
-check(app.HOUSE_IMAGE_LABEL == "Z-Image Turbo · "
-      + _image_tier_marks(float(pricing.IMAGE_PRICE_CENTS)),
-      "the served house image label recomputes from its price")
+check('HOUSE_IMAGE_LABEL = "Z-Image Turbo"' in SRC,
+      "the house image label is its real model name, plain, "
+      "with no tier marks, like the other free lanes")
+check(app.HOUSE_IMAGE_LABEL == "Z-Image Turbo",
+      "the served house image label is the plain model name")
 check('"label": HOUSE_IMAGE_NAME' in SRC,
       "the config serves the house image plain name to the picker")
 check("or HOUSE_IMAGE_LABEL" in SRC,
@@ -406,7 +410,7 @@ check('"tier": image_lane_tier(mid)' in SRC
       "the config serves every image lane's tier as data")
 check(app.image_lane_name("nano_banana_21") == "Nano Banana 2.1",
       "the config's image label is the plain model name")
-for lane_id, tier in (("house", 4), ("zimage_unc", 1),
+for lane_id, tier in (("house", 1), ("zimage_unc", 1),
                       ("zimage_pro_unc", 1), ("seedream55_unc", 2),
                       ("seedream5pro_unc", 2), ("qwen_edit_unc", 3),
                       ("nano_banana_pro", 3), ("gpt_image_26", 3),

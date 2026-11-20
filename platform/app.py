@@ -1034,10 +1034,12 @@ def job_is_nsfw(job: dict) -> bool:
 # lane runs Z-Image Turbo on the house worker, so it carries
 # its real model's name everywhere the name prints (the image
 # picker serves it from the config below, the gallery falls
-# back to it). The $$$$ is the image tier banding codified
-# in pricing.py (above 10c per image), read on its 47c price.
+# back to it). The lane runs on Kaggle free compute, so its
+# real cost is $0 and it groups with the Free Models at a
+# plain name with no tier marks, like the other free lanes
+# (Jack, 2026-11-20).
 HOUSE_IMAGE_NAME = "Z-Image Turbo"
-HOUSE_IMAGE_LABEL = "Z-Image Turbo · $$$$"
+HOUSE_IMAGE_LABEL = "Z-Image Turbo"
 
 
 def model_picker_class(model_id: str) -> str:
@@ -1047,7 +1049,11 @@ def model_picker_class(model_id: str) -> str:
 
 def image_picker_class(lane_id: str) -> str:
     if lane_id == "house":
-        return "paid"
+        # The house image lane (Z-Image Turbo) runs on Kaggle
+        # free compute at a real cost of $0, so it groups as
+        # free (Jack, 2026-11-20), the class the picker's Free
+        # Models group reads.
+        return "free"
     lane = pricing.IMAGE_LANES.get(lane_id) or {}
     if lane.get("free"):
         # A lane whose raw cost is $0 (the Cloudflare free
@@ -3560,9 +3566,10 @@ def api():
                      a: pricing.image_size_label("house", a)
                      for a in HOUSE_ASPECTS},
                  "paid_only": False, "edit": False,
-                 # The house image lane carries a per image
-                 # price, so it groups with the paid image lanes
-                 # (Jack, 2026-11-19).
+                 "free": True,
+                 # The house image lane runs on free Kaggle
+                 # compute at a real cost of $0, so it groups
+                 # with the free image lanes (Jack, 2026-11-20).
                  "picker_class": image_picker_class("house"),
                  "price_cents": image_picker_price_cents("house"),
                  "uncensored": False},
@@ -4619,6 +4626,52 @@ def api():
         job["error"] = None
         jobs[job["id"]] = job
 
+    def _submit_stock_image(job: dict, prompt: str):
+        """Deliver one stock photo job: download the Pexels
+        photo the create flow picked onto the Volume and
+        settle the job, synchronously, like the Cloudflare
+        lanes. The search itself ran before the job existed
+        (a description with no match fails there, with no
+        job and no count), so the submit only fetches the
+        winning photo. Any failure raises, and the caller
+        fails the job clean with its (zero) charge refunded."""
+        url = job.get("stock_download_url")
+        if not url:
+            raise RuntimeError("stock job carries no photo to fetch")
+        _settle_provider_image(job, url)
+
+    def _queue_klein_on_kaggle(job: dict, served_free: bool):
+        """Queue a FLUX.2 Klein 4B job on the Kaggle ComfyUI
+        worker (2026-11-20): the free lane's second route, the
+        same model on the house worker once the day's
+        Cloudflare neuron allowance is spent. The record takes
+        the house image job's shape (provider kaggle-comfy,
+        route kaggle, queued) so the kernel claim, the worker
+        endpoints, the mirror's dead-kernel bounds and the
+        house restores all work it exactly like a house image,
+        while the image_model stamp stays on the record: the
+        library names the model from it, and the kernel reads
+        it to pick the Klein graph over the Z-Image one. Raw
+        cost is $0 on both routes, so the charge stays the
+        zero the shelf record already carries, and the house
+        restore fields are zeroed too: a failure on this route
+        restores nothing and charges nothing, and a job the
+        weekly Kaggle quota never reaches fails clean at the
+        comfy queued bound, never spilling to a paid route."""
+        job["provider"] = "kaggle-comfy"
+        job["route"] = "kaggle"
+        job["status"] = "queued"
+        job["worker_job_id"] = None
+        job["seed"] = pysecrets.randbelow(1_000_000_000)
+        job["charged_cents"] = 0
+        job["cost_cents"] = 0.0
+        job["included_cost_cents"] = 0
+        job["free_tier"] = bool(served_free)
+        job["bytes"] = None
+        job["last_poll"] = 0
+        jobs[job["id"]] = job
+        _comfy_maybe_trigger()
+
     def _submit_provider_image(job: dict, prompt: str,
                                source_image: str = None):
         """Submit one shelf image job to its provider, using the
@@ -4749,6 +4802,11 @@ def api():
             # settles the job inside its own submit.
             _submit_cloudflare_image(job, prompt,
                                      source_image=source_image)
+        elif provider == "pexels":
+            # The stock photo lane: a synchronous route that
+            # settles the job inside its own submit, like the
+            # Cloudflare lanes.
+            _submit_stock_image(job, prompt)
         else:
             raise RuntimeError(f"no image route for {provider}")
         jobs[job["id"]] = job
@@ -8311,10 +8369,11 @@ def api():
     # their Draft clips, counted exactly like a Draft render
     # against the free ceilings, because the free tier is a capped
     # marketing budget and the first frame is part of that clip's
-    # cost either way. Paid paths: a Creator's included budget
-    # debits at the raw measured cost; balance pays the Rule 2
-    # floor price in pricing.py. Each generation is charged,
-    # including regenerations.
+    # cost either way. The lane runs on Kaggle free compute at a
+    # real cost of $0 (Jack, 2026-11-20), so the payment rails
+    # below still resolve a method for the record but every
+    # amount on them is 0: no included-budget debit, no balance
+    # charge, no hold, for any account.
 
     def _image_params(body: dict):
         prompt = (body.get("prompt") or "").strip()
@@ -8407,6 +8466,7 @@ def api():
                 raise HTTPException(status_code=400, detail="unknown image model")
             free_lane = bool(lane.get("free"))
             served_free = False
+            klein_on_kaggle = False
             if not free_lane and not is_paid(user):
                 raise HTTPException(
                     status_code=402,
@@ -8431,13 +8491,56 @@ def api():
                 if lane["provider"] == "cloudflare" \
                         and not _cf_neuron_budget_allows(
                             _cf_neuron_estimate(lane_id, size)):
-                    # Fail clean before anything is created:
-                    # the shared daily free allowance is
-                    # spent, and the route never spills to a
-                    # paid one.
+                    if lane_id == "flux2_klein4b":
+                        # FLUX.2 Klein 4B carries a second
+                        # free route (2026-11-20): the same
+                        # model on the Kaggle house worker.
+                        # With the day's neuron allowance
+                        # spent, the job queues there instead
+                        # of failing; both routes are $0 and
+                        # the picker shows one entry either
+                        # way. Schnell has no second route
+                        # and still fails clean below.
+                        klein_on_kaggle = True
+                    else:
+                        # Fail clean before anything is created:
+                        # the shared daily free allowance is
+                        # spent, and the route never spills to a
+                        # paid one.
+                        raise HTTPException(
+                            status_code=503,
+                            detail="the free image allowance is used up for today. It resets at midnight UTC")
+            stock_pick = None
+            if lane_id == "stock":
+                # The stock lane searches before any job
+                # exists: a description with no matching photo
+                # fails clean right here, no job, no count, no
+                # charge, and no fallback to a paid lane. The
+                # winning photo's fields ride the job record
+                # to the submit, which only downloads it.
+                stock_key = shorts._env_value("PEXELS_API_KEY")
+                if not stock_key:
                     raise HTTPException(
                         status_code=503,
-                        detail="the free image allowance is used up for today. It resets at midnight UTC")
+                        detail="the stock library is unavailable right now")
+                try:
+                    stock_found = shorts.pexels_search_photos(
+                        prompt, stock_key)
+                except Exception:
+                    stock_found = None
+                if stock_found is None:
+                    raise HTTPException(
+                        status_code=503,
+                        detail="the stock library is unavailable right now")
+                if not stock_found:
+                    # A 400, not a 404: the platform's 404
+                    # handler rewrites every API 404 body to a
+                    # bare Not Found, which would swallow this
+                    # message, the one the user needs to act on.
+                    raise HTTPException(
+                        status_code=400,
+                        detail="no stock photo matches that description. Try a few different words")
+                stock_pick = stock_found[0]
             source_image = None
             if lane.get("edit"):
                 # Edit lanes take one source image alongside the
@@ -8452,6 +8555,13 @@ def api():
                     raise HTTPException(
                         status_code=400,
                         detail="this model edits one image. Add the image you want edited first")
+            if source_image:
+                # An edit never takes the Kaggle route: the
+                # house image flow is text-to-image only, so an
+                # edit job whose Cloudflare allowance is spent
+                # fails clean at its submit instead of silently
+                # dropping the source image.
+                klein_on_kaggle = False
             raw, debit = pricing.image_lane_price(
                 lane_id, size, owner=is_owner(user))
             reload_state = {}
@@ -8486,13 +8596,33 @@ def api():
             user["balance_cents"] = int(user.get("balance_cents", 0)) - charge
             save_user(user)
             jobs[job_id] = job
+            if stock_pick:
+                job["stock_download_url"] = stock_pick["download_url"]
+                job["stock_page_url"] = stock_pick["page_url"]
+                job["stock_credit"] = stock_pick["credit"]
+                jobs[job_id] = job
             try:
-                _submit_provider_image(job, prompt,
-                                       source_image=source_image)
-            except Exception:
-                _fail_provider_image(
-                    job, "the image model is unavailable right now, nothing was charged")
-                raise HTTPException(status_code=503, detail=MODEL_UNAVAILABLE)
+                if klein_on_kaggle:
+                    _queue_klein_on_kaggle(job, served_free)
+                else:
+                    _submit_provider_image(job, prompt,
+                                           source_image=source_image)
+            except Exception as exc:
+                if lane_id == "flux2_klein4b" \
+                        and not source_image \
+                        and "free image allowance is used up" \
+                        in str(exc):
+                    # The budget check passed but the submit's
+                    # own reservation found the allowance spent
+                    # (a concurrent job took the last of it):
+                    # the job takes the Kaggle route instead of
+                    # failing, the same split as the check above.
+                    klein_on_kaggle = True
+                    _queue_klein_on_kaggle(job, served_free)
+                else:
+                    _fail_provider_image(
+                        job, "the image model is unavailable right now, nothing was charged")
+                    raise HTTPException(status_code=503, detail=MODEL_UNAVAILABLE)
             # Provider shelf photos count toward the 5 free
             # too (the free counter rule, 2026-11-20), once
             # the image is actually submitted. A free lane
@@ -8500,7 +8630,9 @@ def api():
             # it also moves the platform free ceiling.
             count_generation(user, free_job=served_free)
             save_user(user)
-            return {"job_id": job_id, "status": "running",
+            return {"job_id": job_id,
+                    "status": "queued" if klein_on_kaggle
+                    else "running",
                     "charged_cents": charge}
         # Same in-flight limits as video jobs, counted together:
         # an image render is a render.
@@ -10053,6 +10185,8 @@ def api():
             "effect": job.get("effect"),
             "has_start_image": bool(job.get("start_image_png_b64")),
             "has_end_image": bool(job.get("end_image_png_b64")),
+            "image_model": job.get("image_model"),
+            "image_size": job.get("image_size"),
         }}
 
     def _comfy_job_image(job_id: str, field: str,
@@ -16850,6 +16984,15 @@ async function refreshImageQuote() {
   const lane = imageLane();
   if (!lane) return;
   const btn = $('create');
+  // The stock lane has no price to quote: it returns a real
+  // photo and costs nothing, so the button carries no amount
+  // and the note says what the lane does instead.
+  if (lane.id === 'stock') {
+    btn.textContent = 'Make image';
+    $('image-shelf-note').textContent =
+      'A real photo that matches your description, picked from the stock library.';
+    return;
+  }
   // An edit lane's instruction lives in its own box inside
   // the edit form; the text to image lanes read the image
   // form's own prompt box. (They used to read the shared
@@ -16869,7 +17012,9 @@ async function refreshImageQuote() {
     $('image-shelf-note').textContent = lane.id === 'house'
       ? 'Made by Moonfactory itself, at the size picked.'
       : lane.free
-        ? 'Free while the shared daily free allowance lasts. The allowance resets at midnight UTC.'
+        ? (lane.id === 'flux1_schnell'
+          ? "Free while today's free images last. Everyone shares about 55 free images a day on this model. The count starts over at midnight UTC."
+          : "Free while today's free images last. Everyone shares about 95 free images a day on this model. The count starts over at midnight UTC.")
         : lane.edit
         ? 'One edit of the image you uploaded, at its own size, charged only when it is delivered. If it fails, the charge comes back in full.'
         : 'One image at the size picked, charged only when it is delivered. If it fails, the charge comes back in full.';

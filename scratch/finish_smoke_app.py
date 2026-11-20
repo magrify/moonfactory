@@ -209,8 +209,8 @@ def run_smoke(base: str) -> dict:
     rec("price_customer_jobs", anon_p.get("job_price_cents", {}).get("production") == 99
         and anon_p.get("job_price_cents", {}).get("draft") == 199,
         anon_p.get("job_price_cents"))
-    rec("price_owner_image", (owner_p.get("image") or {}).get("price_cents") == 5
-        and (anon_p.get("image") or {}).get("price_cents") == 47,
+    rec("price_owner_image", (owner_p.get("image") or {}).get("price_cents") == 0
+        and (anon_p.get("image") or {}).get("price_cents") == 0,
         {"owner": (owner_p.get("image") or {}).get("price_cents"),
          "anon": (anon_p.get("image") or {}).get("price_cents")})
 
@@ -269,13 +269,13 @@ def run_smoke(base: str) -> dict:
                       json={"prompt": "a red balloon over green hills"},
                       timeout=30)
     rec("image_quote_owner", qi.status_code == 200
-        and qi.json().get("price_cents") == 5,
+        and qi.json().get("price_cents") == 0,
         f"{qi.status_code} {qi.text[:120]}")
     qi2 = paid_s.post(f"{base}/api/images/quote",
                       json={"prompt": "a red balloon over green hills"},
                       timeout=30)
     rec("image_quote_customer", qi2.status_code == 200
-        and qi2.json().get("price_cents") == 47,
+        and qi2.json().get("price_cents") == 0,
         f"{qi2.status_code} {qi2.text[:120]}")
     r = owner_s.post(f"{base}/api/jobs", timeout=30, json={
         "lane": "production", "prompt": "x",

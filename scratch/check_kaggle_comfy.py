@@ -239,7 +239,8 @@ for build in (kernel.build_lane_workflow,):
 g = kernel.build_fun_camera_workflow("p", "n", 1, "Orbit", prefix="x")
 g2 = kernel.build_effects_workflow("p", "n", 1, "inflate", prefix="x")
 g3 = kernel.build_image_workflow("p", 1, "9:16", prefix="x")
-for g in (g, g2, g3):
+g4 = kernel.build_klein_image_workflow("p", 1, 1024, 1024, prefix="x")
+for g in (g, g2, g3, g4):
     for n in g.values():
         for v in n.get("inputs", {}).values():
             if isinstance(v, str) and v.endswith(".safetensors"):
@@ -252,7 +253,8 @@ for name in sorted(named):
         check(entry["size"] > 0 and len(entry["sha256"]) == 64,
               f"manifest pins size and sha256 for {name}")
 families = {e["family"] for e in MANIFEST}
-check(families == {"shared", "draft", "a14b", "camera", "effects", "image"},
+check(families == {"shared", "draft", "a14b", "camera", "effects",
+                   "image", "klein"},
       "the manifest stages by family")
 total = sum(e["size"] for e in MANIFEST)
 check(total > 100 * 1024**3,

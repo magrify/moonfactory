@@ -655,6 +655,37 @@ def pexels_search_videos(query: str, api_key: str, per_page: int = 6) -> list:
     return out
 
 
+def pexels_search_photos(query: str, api_key: str, per_page: int = 6) -> list:
+    """Search Pexels photos for one description (the image
+    picker's Stock image lane). Returns candidates in the
+    same shape pexels_search_videos returns: the download
+    link (the large2x rendition, falling back to large and
+    then the original), the photographer's name, and the
+    Pexels page, the credit trail the API terms ask us to
+    keep. An empty list means no photo matched."""
+    url = PEXELS_API_BASE + "/search?" + urllib.parse.urlencode({
+        "query": query, "per_page": per_page,
+    })
+    data = _get_json(url, headers={"Authorization": api_key})
+    out = []
+    for photo in data.get("photos") or []:
+        src = photo.get("src") or {}
+        link = (src.get("large2x") or src.get("large")
+                or src.get("original"))
+        if not link:
+            continue
+        out.append({
+            "provider": "pexels",
+            "download_url": link,
+            "width": photo.get("width"),
+            "height": photo.get("height"),
+            "page_url": photo.get("url"),
+            "credit": photo.get("photographer") or "",
+            "alt": photo.get("alt") or "",
+        })
+    return out
+
+
 def commons_search_videos(query: str, per_page: int = 8) -> list:
     """Search Wikimedia Commons for openly licensed video. Uses
     the videoinfo derivatives (the transcoded webm and mp4
