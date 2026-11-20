@@ -53,12 +53,23 @@ _DRAMA_SHAPE = (
 )
 
 
-def write_drama_text(prompt: str) -> str:
+def write_drama_text(prompt: str, draft_model: str = "house") -> str:
     """One drama drafting call over the platform's text routes,
     in the shorts lane's order: Gemini first on the platform
-    key, then the free OpenRouter chain. Raises when every
-    route is down, so the caller can answer with a clean try
-    again line."""
+    key, then the free OpenRouter chain. When the draft picker
+    names a Silk model, that model writes first and the house
+    chain is its fallback (llm_providers.silk_draft_text gives
+    None on a missing key or any failure, the clean unfunded
+    lane behavior). Raises when every route is down, so the
+    caller can answer with a clean try again line."""
+    try:
+        import llm_providers
+
+        silk_text = llm_providers.silk_draft_text(prompt, draft_model)
+    except Exception:  # noqa: BLE001 - house chain is the fallback
+        silk_text = None
+    if silk_text:
+        return silk_text
     errors = []
     key = os.environ.get("GEMINI_API_KEY")
     if key:
@@ -209,17 +220,19 @@ def _parse_draft(raw: str) -> dict:
     }
 
 
-def draft_episode(source_mode: str, source_text: str) -> dict:
-    """Draft one storyboard from an idea or a script. One retry
-    with a firmer format note when the first draft does not fit
-    the guards, then the guard's clean error stands."""
+def draft_episode(source_mode: str, source_text: str,
+                  draft_model: str = "house") -> dict:
+    """Draft one storyboard from an idea or a script, through
+    the picked draft model (the house chain by default). One
+    retry with a firmer format note when the first draft does
+    not fit the guards, then the guard's clean error stands."""
     prompt = _drama_prompt(source_mode, source_text)
     try:
-        return _parse_draft(write_drama_text(prompt))
+        return _parse_draft(write_drama_text(prompt, draft_model))
     except ValueError:
         firmer = (prompt + " Return exactly four shots and at most "
                   "two people. JSON only.")
-        return _parse_draft(write_drama_text(firmer))
+        return _parse_draft(write_drama_text(firmer, draft_model))
 
 
 def validate_storyboard(entities, shots) -> tuple:

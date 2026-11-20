@@ -64,6 +64,17 @@ Provider state at wiring time (2026-11-17):
   BUILD-LOG.
 - morph: DROPPED 2026-11-17 (Jack). The pursuit ended and the
   registry entry was removed; no key ever existed.
+- silk: Silk Compute (2026-11-20, Jack: "use for drafts").
+  OpenAI compatible chat at https://api.silkcompute.com, key
+  env SILK_API_KEY in the same moonfactory-providers secret.
+  The signup is finishing separately, so NO key exists yet:
+  every Silk call below is dark-safe (no key, no call, no
+  error surfaced) and the drafting flows fall back to the
+  house chain exactly like other unfunded lanes fail clean.
+  Silk is wired for DRAFTING ONLY (the Short drama and
+  Faceless shorts topic writers, through the draft model
+  picker in Create): it is deliberately NOT in PICK_CHAIN,
+  so clipping keeps its free-only fallback ruling.
 """
 
 import json
@@ -136,7 +147,127 @@ LLM_PROVIDERS = [
              "label": "DeepSeek V4.1 Flash 1017 Fast Abliterated"},
         ],
     },
+    {
+        "id": "silk",
+        "label": "Silk Compute",
+        "base_url": "https://api.silkcompute.com",
+        "key_env": "SILK_API_KEY",
+        "access": "key_pending",
+        "models": [
+            {"id": "deepseek-v4.1-flash-1017-uncensored",
+             "label": "DeepSeek V4.1 Flash"},
+            {"id": "glm-5.3-flash-uncensored",
+             "label": "GLM-5.3 Flash"},
+            {"id": "kimi-k3.1-pro-uncensored",
+             "label": "Kimi K3.1 Pro"},
+        ],
+    },
 ]
+
+# The draft model picker (2026-11-20, Jack: "use for drafts.
+# offer a model picker for drafts"). The Create flows that
+# draft text (Short drama, and the Faceless shorts topic
+# writer) offer these plain names only, never hosting or API
+# details. "house" is the incumbent chain the platform already
+# drafts with (Gemini first, then the free OpenRouter chain)
+# and stays the default; the other three are Silk Compute's
+# uncensored builds, tried first when picked and fallen back
+# from to the house chain whenever Silk is unavailable (no
+# key yet, an error, an empty answer), so a Silk pick can
+# never break a draft.
+DRAFT_MODEL_HOUSE = "house"
+DRAFT_MODELS = [
+    {"id": DRAFT_MODEL_HOUSE, "label": "House draft",
+     "provider": None},
+    {"id": "deepseek-v4.1-flash-1017-uncensored",
+     "label": "DeepSeek V4.1 Flash", "provider": "silk"},
+    {"id": "glm-5.3-flash-uncensored",
+     "label": "GLM-5.3 Flash", "provider": "silk"},
+    {"id": "kimi-k3.1-pro-uncensored",
+     "label": "Kimi K3.1 Pro", "provider": "silk"},
+]
+
+
+def draft_model_options() -> list:
+    """The picker view: plain names, ids, and whether picking
+    the entry could actually reach its provider right now.
+    Never key material."""
+    return [
+        {
+            "id": m["id"],
+            "label": m["label"],
+            "configured": (
+                True if m["provider"] is None
+                else silk_configured()),
+        }
+        for m in DRAFT_MODELS
+    ]
+
+
+def is_draft_model(value) -> bool:
+    return any(m["id"] == value for m in DRAFT_MODELS)
+
+
+def normalize_draft_model(value) -> str:
+    """An unknown or missing pick reads as the house default,
+    so older clients and parked creations keep drafting."""
+    return value if is_draft_model(value) else DRAFT_MODEL_HOUSE
+
+
+def silk_configured() -> bool:
+    """True when the Silk key is present in the environment
+    (the moonfactory-providers secret). False today by design:
+    the signup is finishing separately."""
+    p = _provider("silk")
+    return bool(p["base_url"] and os.environ.get(p["key_env"]))
+
+
+def _silk_chat(prompt: str, api_key: str, model: str) -> str:
+    """One OpenAI compatible chat call to Silk Compute,
+    returning the raw text (drafting wants prose or the drama
+    JSON, not a parsed shape). Raises on any failure so the
+    caller falls back to the house chain."""
+    p = _provider("silk")
+    url = p["base_url"].rstrip("/") + "/chat/completions"
+    body = {
+        "model": model,
+        "temperature": 0.7,
+        "messages": [{"role": "user", "content": prompt}],
+    }
+    req = urllib.request.Request(
+        url, data=json.dumps(body).encode(),
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=120) as resp:
+        data = json.loads(resp.read())
+    text = data["choices"][0]["message"]["content"] or ""
+    if not text.strip():
+        raise RuntimeError("silk draft came back empty")
+    return text
+
+
+def silk_draft_text(prompt: str, draft_model: str):
+    """The picked Silk model's draft, or None when the pick is
+    the house default, the key is absent, or the call fails
+    for any reason. Never raises: None is the caller's signal
+    to run the house chain, exactly the clean failure the
+    unfunded lanes give."""
+    entry = next(
+        (m for m in DRAFT_MODELS if m["id"] == draft_model), None)
+    if entry is None or entry["provider"] != "silk":
+        return None
+    p = _provider("silk")
+    api_key = os.environ.get(p["key_env"])
+    if not api_key or not p["base_url"]:
+        return None
+    try:
+        return _silk_chat(prompt, api_key, entry["id"])
+    except Exception:  # noqa: BLE001 - house chain is the fallback
+        return None
 
 # The picking fallback chain (2026-11-17, Jack's free-only
 # ruling): OpenRouter FREE models only, tried only after the

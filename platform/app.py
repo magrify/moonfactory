@@ -9912,6 +9912,47 @@ x_api_key: str = Header(default="")):
         return {"ok": True}
 
 
+    # -- prompt help (draft picker expansion, 2026-11-20) ------------------
+    # Every generative prompt field in Create (the video prompt,
+    # the image prompt, the image edit instruction, the first
+    # frame description) carries the draft model picker and an
+    # Improve my prompt button. The pick drives this call server
+    # side through shorts.improve_prompt: a Silk model writes
+    # first when picked, the house chain is the fallback, and a
+    # missing Silk key or balance fails clean into that fallback
+    # like every unfunded lane. Free, and no job is created.
+
+    @web.post("/api/prompt-help")
+    async def prompt_help(request: Request, mf_session: str = Cookie(default="")):
+        user = require_user(request, mf_session)
+        if _rate_limited("prompthelp", user["id"], 10, window=600):
+            raise HTTPException(status_code=429, detail="too much prompt help, slow down")
+        if not user["verified"]:
+            raise HTTPException(status_code=403, detail="verify your email before creating")
+        body = await request.json()
+        text = (body.get("text") or "").strip()
+        if not text or len(text) > 1000:
+            raise HTTPException(
+                status_code=422,
+                detail="write a prompt of up to 1000 characters first")
+        kind = "image" if body.get("kind") == "image" else "video"
+        raw_draft_model = (body.get("draft_model") or "").strip()
+        if raw_draft_model and \
+                not llm_providers.is_draft_model(raw_draft_model):
+            raise HTTPException(
+                status_code=422,
+                detail="pick one of the draft models on the list")
+        draft_model = raw_draft_model or "house"
+        try:
+            improved = shorts.improve_prompt(text, draft_model, kind)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        except Exception:
+            raise HTTPException(
+                status_code=503,
+                detail="The writing route is busy. Try again in a moment.")
+        return {"text": improved, "draft_model": draft_model}
+
     # -- faceless shorts lane ----------------------------------------------
     # The MoneyPrinterTurbo shape on the platform's own pieces
     # (platform/shorts.py): a topic or a pasted script, one stock
@@ -9949,6 +9990,7 @@ x_api_key: str = Header(default="")):
             "default_voice": DEFAULT_SPEECH_VOICE,
             "paid": is_paid(user),
             "topic_available": shorts.script_routes_configured(),
+            "draft_models": llm_providers.draft_model_options(),
             "stock_provider": (
                 "pexels" if shorts._env_value("PEXELS_API_KEY")
                 else "commons"),
@@ -9996,6 +10038,16 @@ x_api_key: str = Header(default="")):
             raise HTTPException(
                 status_code=422,
                 detail="a topic must be 200 characters or fewer")
+        # The draft model pick (2026-11-20): it drives the
+        # topic writing call server side, with the house chain
+        # as the fallback when the picked route is unavailable.
+        raw_draft_model = (body.get("draft_model") or "").strip()
+        if raw_draft_model and \
+                not llm_providers.is_draft_model(raw_draft_model):
+            raise HTTPException(
+                status_code=422,
+                detail="pick one of the draft models on the list")
+        draft_model = raw_draft_model or "house"
         script_text = (body.get("script") or "").strip()
         # The length choice: topic mode writes to the picked
         # target, script mode's pasted words are the length, so
@@ -10023,7 +10075,7 @@ x_api_key: str = Header(default="")):
             # one.
             try:
                 script_text = shorts.script_from_topic(
-                    topic, length_seconds)
+                    topic, length_seconds, draft_model)
             except Exception:
                 raise HTTPException(
                     status_code=422,
@@ -10114,6 +10166,7 @@ x_api_key: str = Header(default="")):
             "created_at": _now(),
             "charged_cents": 0,
             "short_topic": topic or None,
+            "short_draft_model": draft_model,
             "short_target_seconds": target_seconds,
             "short_lines": lines,
             "short_scenes": [],
@@ -10620,8 +10673,16 @@ x_api_key: str = Header(default="")):
             raise HTTPException(
                 status_code=422,
                 detail=f"write a {'script' if source_mode == 'script' else 'story idea'} of up to {cap} characters first")
+        raw_draft_model = (body.get("draft_model") or "").strip()
+        if raw_draft_model and \
+                not llm_providers.is_draft_model(raw_draft_model):
+            raise HTTPException(
+                status_code=422,
+                detail="pick one of the draft models on the list")
+        draft_model = raw_draft_model or "house"
         try:
-            draft = drama.draft_episode(source_mode, source_text)
+            draft = drama.draft_episode(
+                source_mode, source_text, draft_model)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc))
         except Exception:
@@ -10634,6 +10695,7 @@ x_api_key: str = Header(default="")):
             "status": "draft",
             "source_mode": source_mode,
             "source_text": source_text,
+            "draft_model": draft_model,
             "title": draft["title"],
             "summary": draft["summary"],
             "entities": draft["entities"],
@@ -12943,6 +13005,15 @@ APP_HTML = (
     <div id="start-gen-wrap" style="display:none">
       <label>Describe the first frame</label>
       <textarea id="image-prompt" rows="2" maxlength="1000" placeholder="a red hot air balloon over rolling green hills at sunrise, bright daylight"></textarea>
+      <label>Draft model</label>
+      <select id="start-draft-model">
+        <option value="house" selected>House draft</option>
+        <option value="deepseek-v4.1-flash-1017-uncensored">DeepSeek V4.1 Flash</option>
+        <option value="glm-5.3-flash-uncensored">GLM-5.3 Flash</option>
+        <option value="kimi-k3.1-pro-uncensored">Kimi K3.1 Pro</option>
+      </select>
+      <p><button class="btn secondary" id="start-help-btn" type="button">Improve my description</button></p>
+      <p id="start-help-msg"></p>
       <button class="btn secondary" id="gen-image" type="button">Make the first frame</button>
       <p class="muted" id="image-note">We make the opening frame at the aspect ratio picked for the video. Check it here, and it attaches to your video with one click. Every frame we make is charged like a small render. The exact price shows before it runs. Not happy with it? Make another.</p>
       <div id="image-preview"></div>
@@ -12950,6 +13021,17 @@ APP_HTML = (
 
     <label class="flabel" for="prompt" style="margin-top:6px">Prompt</label>
     <textarea id="prompt" rows="4" class="composer-prompt" placeholder="Describe what happens… e.g. a red hot air balloon rising over green hills, gentle forward camera movement, bright daylight"></textarea>
+    <div id="prompt-help-wrap">
+      <label class="flabel" for="prompt-draft-model">Draft model</label>
+      <select id="prompt-draft-model">
+        <option value="house" selected>House draft</option>
+        <option value="deepseek-v4.1-flash-1017-uncensored">DeepSeek V4.1 Flash</option>
+        <option value="glm-5.3-flash-uncensored">GLM-5.3 Flash</option>
+        <option value="kimi-k3.1-pro-uncensored">Kimi K3.1 Pro</option>
+      </select>
+      <p><button class="btn secondary" id="prompt-help-btn" type="button">Improve my prompt</button></p>
+      <p id="prompt-help-msg"></p>
+    </div>
 
     <div id="image-opts" style="display:none">
       <div class="row">
@@ -12965,6 +13047,15 @@ APP_HTML = (
       <div id="image-gen-prompt-wrap">
         <label class="flabel" for="image-gen-prompt">Prompt</label>
         <textarea id="image-gen-prompt" rows="3" placeholder="Describe the image… e.g. a lighthouse at dusk, waves crashing, dramatic sky"></textarea>
+        <label class="flabel" for="image-draft-model">Draft model</label>
+        <select id="image-draft-model">
+          <option value="house" selected>House draft</option>
+          <option value="deepseek-v4.1-flash-1017-uncensored">DeepSeek V4.1 Flash</option>
+          <option value="glm-5.3-flash-uncensored">GLM-5.3 Flash</option>
+          <option value="kimi-k3.1-pro-uncensored">Kimi K3.1 Pro</option>
+        </select>
+        <p><button class="btn secondary" id="image-help-btn" type="button">Improve my prompt</button></p>
+        <p id="image-help-msg"></p>
       </div>
       <div id="image-edit-wrap" style="display:none">
         <label class="flabel" for="image-edit-file">Image to edit (PNG or JPEG)</label>
@@ -12972,6 +13063,15 @@ APP_HTML = (
         <p class="muted">This model edits one image you upload, following the instruction in the prompt. The result comes back at the same size as your image.</p>
         <label class="flabel" for="image-edit-prompt">What should change in your image</label>
         <textarea id="image-edit-prompt" rows="3" placeholder="change the jacket to black leather, keep the face, the pose and the room exactly the same"></textarea>
+        <label class="flabel" for="image-edit-draft-model">Draft model</label>
+        <select id="image-edit-draft-model">
+          <option value="house" selected>House draft</option>
+          <option value="deepseek-v4.1-flash-1017-uncensored">DeepSeek V4.1 Flash</option>
+          <option value="glm-5.3-flash-uncensored">GLM-5.3 Flash</option>
+          <option value="kimi-k3.1-pro-uncensored">Kimi K3.1 Pro</option>
+        </select>
+        <p><button class="btn secondary" id="image-edit-help-btn" type="button">Improve my prompt</button></p>
+        <p id="image-edit-help-msg"></p>
         <div id="image-edit-preview"></div>
       </div>
       <p class="muted" id="image-shelf-note"></p>
@@ -13113,6 +13213,13 @@ APP_HTML = (
         <option value="120">2 minutes</option>
       </select>
       <p class="muted" id="short-topic-note"></p>
+      <label>Draft model</label>
+      <select id="short-draft-model">
+        <option value="house" selected>House draft</option>
+        <option value="deepseek-v4.1-flash-1017-uncensored">DeepSeek V4.1 Flash</option>
+        <option value="glm-5.3-flash-uncensored">GLM-5.3 Flash</option>
+        <option value="kimi-k3.1-pro-uncensored">Kimi K3.1 Pro</option>
+      </select>
     </div>
     <div id="short-script-wrap" style="display:none">
       <label>Your script</label>
@@ -13208,6 +13315,13 @@ APP_HTML = (
       <label>Your script</label>
       <textarea id="drama-script" rows="8" maxlength="4000" placeholder="Write the story with the lines people say. We shape it into four short shots."></textarea>
     </div>
+    <label>Draft model</label>
+    <select id="drama-draft-model">
+      <option value="house" selected>House draft</option>
+      <option value="deepseek-v4.1-flash-1017-uncensored">DeepSeek V4.1 Flash</option>
+      <option value="glm-5.3-flash-uncensored">GLM-5.3 Flash</option>
+      <option value="kimi-k3.1-pro-uncensored">Kimi K3.1 Pro</option>
+    </select>
     <p><button class="btn" id="drama-draft-btn" type="button">Draft my episode</button></p>
     <div id="drama-board" style="display:none">
       <h3 id="drama-title"></h3>
@@ -14233,6 +14347,7 @@ function restoreCreateForm(d) {
       shortMode = 'topic';
       $('short-topic').value = b.topic || '';
       if (b.length_seconds) $('short-length').value = String(b.length_seconds);
+      if (b.draft_model) $('short-draft-model').value = b.draft_model;
     }
     shortShowMode();
     if (b.voice) $('short-voice').value = b.voice;
@@ -14244,6 +14359,7 @@ function restoreCreateForm(d) {
     dramaShowMode(b.source_mode === 'script' ? 'script' : 'idea');
     if (b.source_mode === 'script') $('drama-script').value = b.source_text || '';
     else $('drama-idea').value = b.source_text || '';
+    if (b.draft_model) $('drama-draft-model').value = b.draft_model;
     return;
   }
   // video
@@ -14815,7 +14931,7 @@ function applyMotionUI() {
   $('motion-fields').style.display = motion ? '' : 'none';
   const bits = [$('dropzone'), $('start-source'),
     document.querySelector('label[for="start-source"]'),
-    document.querySelector('label[for="prompt"]'), $('prompt'),
+    document.querySelector('label[for="prompt"]'), $('prompt'), $('prompt-help-wrap'),
     $('more-opts'), $('segments-note')];
   for (const el of bits) if (el) el.style.display = motion ? 'none' : '';
   if (motion) {
@@ -14845,7 +14961,7 @@ function showTitleCardForm() {
   $('drama-fields').style.display = 'none';
   $('motion-fields').style.display = 'none';
   const hide = [$('dropzone'), document.querySelector('label[for="start-source"]'),
-    $('start-source'), document.querySelector('label[for="prompt"]'), $('prompt'),
+    $('start-source'), document.querySelector('label[for="prompt"]'), $('prompt'), $('prompt-help-wrap'),
     $('length-house'), $('length-api'), $('resolution-wrap'), $('aspect-wrap'),
     document.querySelector('details.more'),
     $('api-opts'), $('house-price'), $('botcheck2')];
@@ -14865,7 +14981,7 @@ function showShortsForm() {
   $('drama-fields').style.display = 'none';
   $('motion-fields').style.display = 'none';
   const hide = [$('dropzone'), document.querySelector('label[for="start-source"]'),
-    $('start-source'), document.querySelector('label[for="prompt"]'), $('prompt'),
+    $('start-source'), document.querySelector('label[for="prompt"]'), $('prompt'), $('prompt-help-wrap'),
     $('length-house'), $('length-api'), $('resolution-wrap'), $('aspect-wrap'),
     document.querySelector('details.more'),
     $('api-opts'), $('house-price'), $('botcheck2')];
@@ -14886,7 +15002,7 @@ function showDramaForm() {
   $('shorts-fields').style.display = 'none';
   $('motion-fields').style.display = 'none';
   const hide = [$('dropzone'), document.querySelector('label[for="start-source"]'),
-    $('start-source'), document.querySelector('label[for="prompt"]'), $('prompt'),
+    $('start-source'), document.querySelector('label[for="prompt"]'), $('prompt'), $('prompt-help-wrap'),
     $('length-house'), $('length-api'), $('resolution-wrap'), $('aspect-wrap'),
     document.querySelector('details.more'),
     $('api-opts'), $('house-price'), $('botcheck2')];
@@ -14911,7 +15027,7 @@ function updateModelUI() {
     // Restore the video fields the title card form hid. The
     // length and price blocks are managed by the body below.
     for (const el of [$('dropzone'), document.querySelector('label[for="start-source"]'),
-      $('start-source'), document.querySelector('label[for="prompt"]'), $('prompt'),
+      $('start-source'), document.querySelector('label[for="prompt"]'), $('prompt'), $('prompt-help-wrap'),
       document.querySelector('details.more'), $('house-price'), $('botcheck2')]) if (el) el.style.display = '';
     syncStartSource();
   }
@@ -15590,6 +15706,31 @@ $('make-clips').onclick = async () => {
   finally { btnDone(btn); }
 };
 
+// ---- Prompt help (the draft picker on every generative prompt) ----
+// Each text to video and text to image prompt field carries
+// the draft model picker and an Improve button. The pick goes
+// to /api/prompt-help and the picked model does the rewriting
+// server side; the answer replaces the field text so the user
+// reads it over before anything is made.
+async function promptHelp(textId, modelId, kind, msgId, btn) {
+  const ta = $(textId);
+  const text = ta.value.trim();
+  if (!text) { msg(msgId, 'Write a prompt first, then ask for help with it.', 'err'); return; }
+  if (!currentUser) { msg(msgId, 'Sign in to use prompt help.', 'err'); return; }
+  btnBusy(btn, 'Writing...');
+  try {
+    const r = await api('/api/prompt-help', { method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ text, kind, draft_model: $(modelId).value }) });
+    ta.value = r.text;
+    msg(msgId, 'Your prompt is updated. Read it over and change anything you like.', 'ok');
+  } catch (e) { msg(msgId, e.message, 'err'); }
+  finally { btnDone(btn); }
+}
+$('prompt-help-btn').onclick = (e) => promptHelp('prompt', 'prompt-draft-model', 'video', 'prompt-help-msg', e.target);
+$('start-help-btn').onclick = (e) => promptHelp('image-prompt', 'start-draft-model', 'image', 'start-help-msg', e.target);
+$('image-help-btn').onclick = (e) => promptHelp('image-gen-prompt', 'image-draft-model', 'image', 'image-help-msg', e.target);
+$('image-edit-help-btn').onclick = (e) => promptHelp('image-edit-prompt', 'image-edit-draft-model', 'image', 'image-edit-help-msg', e.target);
+
 // ---- Short drama (the folded drama lane, folded into Create) ----
 // The form lives in the Create card and shows when the Short
 // drama entry is picked in the model picker. The flow mirrors
@@ -15621,7 +15762,7 @@ async function dramaDraft() {
   if (!currentUser) {
     // A guest's story parks like every other creation; after
     // sign in it comes back into the form and the draft runs.
-    pendingCreate = { kind: 'drama', body: { source_mode: dramaMode, source_text: text } };
+    pendingCreate = { kind: 'drama', body: { source_mode: dramaMode, source_text: text, draft_model: $('drama-draft-model').value } };
     openAuthPanel();
     return;
   }
@@ -15629,7 +15770,7 @@ async function dramaDraft() {
   btnBusy(btn, 'Drafting...');
   try {
     const r = await api('/api/drama/draft', { method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ source_mode: dramaMode, source_text: text }) });
+      body: JSON.stringify({ source_mode: dramaMode, source_text: text, draft_model: $('drama-draft-model').value }) });
     dramaState = { dramaId: r.drama_id, title: r.title, summary: r.summary,
       people: r.entities.people, place: r.entities.place, shots: r.shots };
     dramaRenderBoard();
@@ -15982,6 +16123,7 @@ function buildShort() {
   if (payload.visuals === 'ai') payload.style = $('short-style').value;
   if (shortMode === 'topic') {
     payload.topic = $('short-topic').value;
+    payload.draft_model = $('short-draft-model').value;
     payload.length_seconds = parseInt($('short-length').value, 10);
     if (!payload.topic.trim()) { msg('short-msg', 'Give the short a topic first.', 'err'); return null; }
   } else {
