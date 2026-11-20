@@ -146,7 +146,18 @@ for mid in app.PER_SECOND_MODELS:
         check(res in rates, f"{mid} missing a rate for {res}")
 
 # --- image shelf (item 1) ------------------------------------------
-check(len(pricing.IMAGE_LANES) == 9, "image shelf has 9 lanes")
+check(len(pricing.IMAGE_LANES) == 11, "image shelf has 11 lanes")
+check(pricing.IMAGE_LANES["flux2_klein4b"]["provider"] == "cloudflare"
+      and pricing.IMAGE_LANES["flux2_klein4b"]["endpoint"]
+      == "@cf/black-forest-labs/flux-2-klein-4b",
+      "FLUX.2 Klein 4B rides Cloudflare Workers AI")
+check(pricing.IMAGE_LANES["flux1_schnell"]["provider"] == "cloudflare"
+      and pricing.IMAGE_LANES["flux1_schnell"]["endpoint"]
+      == "@cf/black-forest-labs/flux-1-schnell",
+      "FLUX.1 Schnell rides Cloudflare Workers AI")
+cf_raw, cf_debit = pricing.image_lane_price("flux2_klein4b", "1024x1024")
+check(cf_raw == 0.0 and cf_debit == 0.0,
+      "the Cloudflare free lanes price at $0 raw and $0 customer")
 raw, debit = pricing.image_lane_price("nano_banana_pro", "1K")
 check(raw == 5.0 and abs(debit - 6.25) < 1e-9,
       "Nano Banana Pro: raw $0.05, customer $0.0625 (under Higgsfield $0.098)")

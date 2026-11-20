@@ -332,6 +332,11 @@ for lane_id in ("nano_banana_21", "nano_banana_pro", "nano_banana_2",
                 "gpt_image_26"):
     check(app.image_picker_class(lane_id) == "paid",
           f"image lane {lane_id} groups as paid")
+for lane_id in ("flux2_klein4b", "flux1_schnell"):
+    check(app.image_picker_class(lane_id) == "free",
+          f"image lane {lane_id} groups as free")
+    check(pricing.IMAGE_LANES[lane_id].get("free") is True,
+          f"image lane {lane_id} carries its free flag in pricing")
 for lane_id, lane in pricing.IMAGE_LANES.items():
     check("· Free" not in lane["label"]
           and "· Uncensored" not in lane["label"],

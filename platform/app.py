@@ -1049,6 +1049,11 @@ def image_picker_class(lane_id: str) -> str:
     if lane_id == "house":
         return "paid"
     lane = pricing.IMAGE_LANES.get(lane_id) or {}
+    if lane.get("free"):
+        # A lane whose raw cost is $0 (the Cloudflare free
+        # image lanes, 2026-11-20) groups as free, the class
+        # the picker's Free Models group reads.
+        return "free"
     return "uncensored" if lane.get("uncensored") else "paid"
 
 
@@ -1237,6 +1242,7 @@ PROVIDER_KEY_ENV = {
     "spicyapi": "SPICYAPI_API_KEY",
     "hotapi": "HOTAPI_API_KEY",
     "wiro": "WIRO_API_KEY",
+    "cloudflare": "CLOUDFLARE_API_TOKEN",
 }
 # Per-resolution route overrides: Seedance 2.5's cheapest route
 # is a different supplier at 480p/720p (CometAPI) than at 1080p
@@ -3567,7 +3573,9 @@ def api():
                  "size_labels": {
                      s: pricing.image_size_label(mid, s)
                      for s in lane["raw_cents"]},
-                 "paid_only": True,
+                 "paid_only": not bool(lane.get("free")),
+                 "free": bool(lane.get("free")),
+                 "picker_order": lane.get("picker_order"),
                  "edit": bool(lane.get("edit")),
                  "picker_class": image_picker_class(mid),
                  "price_cents": image_picker_price_cents(mid),
@@ -4445,6 +4453,172 @@ def api():
                 pass
         return job
 
+    # ------------------------------------------------------
+    # Cloudflare Workers AI free image route (2026-11-20).
+    # The free allowance is 10,000 neurons a day, resetting
+    # 00:00 UTC, on every Workers plan. This account is on
+    # Workers PAID (plan checked 2026-11-20), where usage
+    # past the allowance bills at $0.011 per 1,000 neurons,
+    # so the platform keeps its own neuron ledger in meta
+    # and stops the route before the allowance is spent:
+    # dispatch takes a reservation at the estimated cost,
+    # the reservation is corrected to the figure Cloudflare
+    # metered (the cf-ai-neurons response header) on success
+    # and released on a clean refusal. The budget below is
+    # the allowance minus a safety margin that absorbs
+    # metering drift, so the route cannot bill: no spill to
+    # any paid route, no silent conversion.
+    # ------------------------------------------------------
+    CF_DAILY_FREE_NEURONS = 10_000.0
+    CF_NEURON_SAFETY_MARGIN = 500.0
+    CF_NEURON_BUDGET = CF_DAILY_FREE_NEURONS - CF_NEURON_SAFETY_MARGIN
+    CF_SCHNELL_STEPS = 4
+
+    def _cf_neuron_day_key() -> str:
+        return "cfneurons:" + time.strftime(
+            "%Y-%m-%d", time.gmtime())
+
+    def _cf_neurons_used() -> float:
+        return float(meta.get(_cf_neuron_day_key()) or 0.0)
+
+    def _cf_neuron_estimate(lane_id: str, size: str) -> float:
+        """The published neuron rate for one image on a
+        Cloudflare lane (Cloudflare's pricing page, read
+        2026-11-20; both figures confirmed against the
+        cf-ai-neurons header on live probes the same day)."""
+        try:
+            w_s, h_s = size.split("x", 1)
+            w, h = int(w_s), int(h_s)
+        except Exception:
+            w, h = 1024, 1024
+        tiles = (max(1, math.ceil(w / 512))
+                 * max(1, math.ceil(h / 512)))
+        if lane_id == "flux2_klein4b":
+            # 26.05 neurons per output tile, metered with a
+            # four tile floor: a 512x512 probe metered the
+            # same 104.2 neurons as a 1024x1024 image.
+            return max(4, tiles) * 26.05
+        # FLUX.1 Schnell: 4.80 neurons per tile plus 9.60
+        # per step per tile, at the 4 steps the lane runs.
+        return tiles * (4.80 + 9.60 * CF_SCHNELL_STEPS)
+
+    def _cf_neuron_budget_allows(estimate: float) -> bool:
+        return _cf_neurons_used() + estimate <= CF_NEURON_BUDGET
+
+    def _cf_neuron_reserve(estimate: float) -> bool:
+        """Take a reservation against today's budget.
+        Returns False when the estimate would cross the
+        budget, leaving the ledger untouched."""
+        key = _cf_neuron_day_key()
+        used = float(meta.get(key) or 0.0)
+        if used + estimate > CF_NEURON_BUDGET:
+            return False
+        meta[key] = used + estimate
+        return True
+
+    def _cf_neuron_settle(estimate: float, actual: float):
+        """Correct a reservation to what Cloudflare
+        actually metered for the call."""
+        key = _cf_neuron_day_key()
+        used = float(meta.get(key) or 0.0)
+        meta[key] = max(0.0, used - estimate + actual)
+
+    def _cf_neuron_release(estimate: float):
+        """Give a reservation back after a call that
+        plainly never ran (a clean HTTP refusal)."""
+        key = _cf_neuron_day_key()
+        used = float(meta.get(key) or 0.0)
+        meta[key] = max(0.0, used - estimate)
+
+    def _cf_source_bytes(source_image: str) -> bytes:
+        """The edit source as raw bytes for the multipart
+        form: a data URL decodes in place, an https URL is
+        fetched. Same two forms the other edit lanes take."""
+        if source_image.startswith("data:image/"):
+            return base64.b64decode(source_image.split(",", 1)[1])
+        got = requests.get(source_image, timeout=60)
+        if got.status_code != 200:
+            raise RuntimeError("edit source image could not be fetched")
+        return got.content
+
+    def _submit_cloudflare_image(job: dict, prompt: str,
+                                 source_image: str = None):
+        """Run one free image job on Cloudflare Workers AI.
+        The API is synchronous: the run call returns the
+        image as base64 in the same response, so the job
+        settles here instead of polling. Any failure raises,
+        and the caller fails the job clean with its (zero)
+        charge refunded, exactly like an unfunded lane."""
+        lane_id = job["image_model"]
+        lane = pricing.IMAGE_LANES[lane_id]
+        token = os.environ.get("CLOUDFLARE_API_TOKEN", "")
+        account = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")
+        if not token or not account:
+            raise RuntimeError(
+                "cloudflare image route is not configured")
+        size = job.get("image_size") or "1024x1024"
+        estimate = _cf_neuron_estimate(lane_id, size)
+        if not _cf_neuron_reserve(estimate):
+            raise RuntimeError(
+                "the free image allowance is used up for today")
+        url = ("https://api.cloudflare.com/client/v4/accounts/"
+               f"{account}/ai/run/{lane['endpoint']}")
+        headers = {"Authorization": f"Bearer {token}"}
+        try:
+            if lane_id == "flux2_klein4b":
+                w, h = size.split("x", 1)
+                form = {"prompt": (None, prompt),
+                        "width": (None, w), "height": (None, h)}
+                if source_image:
+                    # Klein edits as well as generates: the
+                    # same multipart form carries the source
+                    # image when one is supplied.
+                    form["image"] = (
+                        "source.png",
+                        _cf_source_bytes(source_image), "image/png")
+                resp = requests.post(url, headers=headers,
+                                     files=form, timeout=120)
+            else:
+                resp = requests.post(
+                    url, headers=headers,
+                    json={"prompt": prompt,
+                          "steps": CF_SCHNELL_STEPS},
+                    timeout=120)
+        except Exception:
+            # Ambiguous: the call may have run and metered.
+            # The reservation stays spent rather than risk
+            # the paid overage the budget exists to prevent.
+            raise RuntimeError("cloudflare image submit failed")
+        if resp.status_code != 200:
+            _cf_neuron_release(estimate)
+            raise RuntimeError(
+                f"image submit http {resp.status_code}")
+        actual = estimate
+        metered = resp.headers.get("cf-ai-neurons")
+        if metered:
+            try:
+                actual = float(metered)
+            except ValueError:
+                pass
+        _cf_neuron_settle(estimate, actual)
+        job["cf_neurons"] = actual
+        try:
+            payload = resp.json() or {}
+            image_b64 = (payload.get("result") or {}).get("image")
+            raw = base64.b64decode(image_b64) if image_b64 else b""
+        except Exception:
+            raw = b""
+        if not raw:
+            raise RuntimeError("image submit returned no image")
+        FILES_DIR.mkdir(parents=True, exist_ok=True)
+        out_path = FILES_DIR / f"{job['id']}.png"
+        out_path.write_bytes(raw)
+        data_volume.commit()
+        job["bytes"] = len(raw)
+        job["status"] = "done"
+        job["error"] = None
+        jobs[job["id"]] = job
+
     def _submit_provider_image(job: dict, prompt: str,
                                source_image: str = None):
         """Submit one shelf image job to its provider, using the
@@ -4570,6 +4744,11 @@ def api():
                 raise RuntimeError("image submit returned no task id")
             job["provider_task_id"] = task_id
             job["provider_socket_token"] = data.get("socketaccesstoken")
+        elif provider == "cloudflare":
+            # The free image lanes: a synchronous route that
+            # settles the job inside its own submit.
+            _submit_cloudflare_image(job, prompt,
+                                     source_image=source_image)
         else:
             raise RuntimeError(f"no image route for {provider}")
         jobs[job["id"]] = job
@@ -8187,7 +8366,7 @@ def api():
             return {
                 "price_cents": round(debit, 2),
                 "raw_cost_cents": raw,
-                "paid_only": True,
+                "paid_only": not bool(lane.get("free")),
                 "ceiling_ok": (
                     True if is_owner(user) else ceiling_allows(user, raw)),
                 "balance_ok": int(user.get("balance_cents", 0)) >= int(round(debit)),
@@ -8217,12 +8396,18 @@ def api():
         if body.get("image_model"):
             # The curated image shelf: provider image models,
             # paid accounts only, charged per image at submit
-            # and refunded in full if the image is not delivered.
+            # and refunded in full if the image is not
+            # delivered. The free lanes (2026-11-20) are the
+            # exception: raw cost $0, open to every account,
+            # and a free account spends them from its 5 free
+            # generations like any free lane.
             lane_id = str(body["image_model"])
             lane = pricing.IMAGE_LANES.get(lane_id)
             if not lane:
                 raise HTTPException(status_code=400, detail="unknown image model")
-            if not is_paid(user):
+            free_lane = bool(lane.get("free"))
+            served_free = False
+            if not free_lane and not is_paid(user):
                 raise HTTPException(
                     status_code=402,
                     detail="image models are for paid accounts. The image maker built into Moonfactory stays free to try")
@@ -8231,6 +8416,28 @@ def api():
                 raise HTTPException(
                     status_code=400,
                     detail=f"this image model makes {', '.join(lane['raw_cents'])} images")
+            if free_lane:
+                if user["plan"] == "free" and not is_paid(user):
+                    if free_jobs_total(user) >= FREE_CLIPS_TOTAL:
+                        raise HTTPException(
+                            status_code=403,
+                            detail=f"your free clips are used up. The free plan is {FREE_CLIPS_TOTAL} clips in total")
+                    if int(meta.get("freecount:total") or 0) \
+                            >= FREE_PLATFORM_TOTAL_CEILING:
+                        raise HTTPException(
+                            status_code=503,
+                            detail="the free tier is paused")
+                    served_free = True
+                if lane["provider"] == "cloudflare" \
+                        and not _cf_neuron_budget_allows(
+                            _cf_neuron_estimate(lane_id, size)):
+                    # Fail clean before anything is created:
+                    # the shared daily free allowance is
+                    # spent, and the route never spills to a
+                    # paid one.
+                    raise HTTPException(
+                        status_code=503,
+                        detail="the free image allowance is used up for today. It resets at midnight UTC")
             source_image = None
             if lane.get("edit"):
                 # Edit lanes take one source image alongside the
@@ -8288,8 +8495,10 @@ def api():
                 raise HTTPException(status_code=503, detail=MODEL_UNAVAILABLE)
             # Provider shelf photos count toward the 5 free
             # too (the free counter rule, 2026-11-20), once
-            # the image is actually submitted.
-            count_generation(user)
+            # the image is actually submitted. A free lane
+            # serving a free account is a free tier job, so
+            # it also moves the platform free ceiling.
+            count_generation(user, free_job=served_free)
             save_user(user)
             return {"job_id": job_id, "status": "running",
                     "charged_cents": charge}
@@ -16575,7 +16784,12 @@ function buildImageModels() {
       return a.label.localeCompare(b.label) || (a.id < b.id ? -1 : 1);
     if (pa == null) return 1;
     if (pb == null) return -1;
-    return (pa - pb) || a.label.localeCompare(b.label)
+    // Equal prices fall to a lane's pinned picker order when
+    // it carries one (the free image lanes, 2026-11-20: FLUX.2
+    // Klein 4B ahead of FLUX.1 Schnell), then the name.
+    return (pa - pb)
+      || ((a.picker_order ?? 1e9) - (b.picker_order ?? 1e9))
+      || a.label.localeCompare(b.label)
       || (a.id < b.id ? -1 : 1);
   };
   for (const [cls, name] of [['free', 'Free Models'], ['paid', 'Regular Models'],
@@ -16654,7 +16868,9 @@ async function refreshImageQuote() {
     btn.textContent = 'Make image · $' + (q.price_cents / 100).toFixed(2);
     $('image-shelf-note').textContent = lane.id === 'house'
       ? 'Made by Moonfactory itself, at the size picked.'
-      : lane.edit
+      : lane.free
+        ? 'Free while the shared daily free allowance lasts. The allowance resets at midnight UTC.'
+        : lane.edit
         ? 'One edit of the image you uploaded, at its own size, charged only when it is delivered. If it fails, the charge comes back in full.'
         : 'One image at the size picked, charged only when it is delivered. If it fails, the charge comes back in full.';
   } catch (e) {

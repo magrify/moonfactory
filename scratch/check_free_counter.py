@@ -113,9 +113,11 @@ check(free_jobs_total(legacy) == 4,
       "counting continues from the migrated total")
 
 # --- enforcement and counting, pinned per create flow ---------------------------
-check(SRC.count("free_jobs_total(user) >= FREE_CLIPS_TOTAL") == 4,
+check(SRC.count("free_jobs_total(user) >= FREE_CLIPS_TOTAL") == 5,
       "the before dispatch enforcement stands on the four "
-      "free eligible flows (video, photo, titles, shorts)")
+      "free eligible flows (video, photo, titles, shorts); "
+      "photo enforces it twice, once per rail (house and the "
+      "free shelf lanes such as Cloudflare)")
 
 video = func_src("create_job")
 check("free_jobs_total(user) >= FREE_CLIPS_TOTAL" in video,
@@ -130,8 +132,11 @@ check("count_generation(user)" in api_video,
 image = func_src("create_image")
 check("free_jobs_total(user) >= FREE_CLIPS_TOTAL" in image,
       "photo create enforces the counter before dispatch")
-check(image.count("count_generation(user)") == 2,
-      "paid photos count on both photo rails (shelf and house)")
+check(image.count("count_generation(user)") == 1
+      and "count_generation(user, free_job=served_free)" in image,
+      "photos count on both photo rails (shelf and house); the "
+      "shelf call passes its served_free flag, so a free lane "
+      "serving a free account also moves the platform ceiling")
 
 short = func_src("create_short")
 check("free_jobs_total(user) >= FREE_CLIPS_TOTAL" in short,

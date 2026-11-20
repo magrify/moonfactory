@@ -1371,6 +1371,43 @@ IMAGE_LANES = {
         "edit": True,
         "raw_cents": {"match": 3.8},
     },
+    # The free image lanes (2026-11-20): Cloudflare Workers
+    # AI, raw cost $0 inside the account's free daily neuron
+    # allowance (10,000 neurons, resetting 00:00 UTC), so both
+    # lanes honestly sit in the picker's Free Models group.
+    # Cloudflare's own neuron rates (pricing page read
+    # 2026-11-20): FLUX.2 Klein 4B meters 26.05 neurons per
+    # output 512x512 tile (a 1024x1024 image is 4 tiles,
+    # 104.2 neurons, about 95 images a day); FLUX.1 Schnell
+    # meters 4.80 per tile plus 9.60 per step per tile (172.8
+    # neurons at the 4 steps the lane runs, about 57 a day).
+    # Both models are Apache 2.0 and Cloudflare's terms give
+    # the customer all IP rights in outputs with no training
+    # on inputs. The account is on Workers PAID, where usage
+    # past the free allowance would bill at $0.011 per 1,000
+    # neurons, so the platform tracks the day's neurons
+    # itself and stops this route before the allowance is
+    # spent (see _cf_neuron_* in app.py): the cap, not the
+    # plan, is what keeps the route at $0. API shapes probed
+    # live 2026-11-20: Klein takes a multipart form (prompt,
+    # width, height, optional edit image) and answers JSON
+    # with a base64 JPEG; Schnell takes JSON {prompt, steps}
+    # only and always answers a 1024x1024 JPEG.
+    "flux2_klein4b": {
+        "label": "FLUX.2 Klein 4B", "provider": "cloudflare",
+        "endpoint": "@cf/black-forest-labs/flux-2-klein-4b",
+        "free": True, "picker_order": 1,
+        "raw_cents": {"1024x1024": 0.0, "1024x768": 0.0,
+                      "768x1024": 0.0},
+    },
+    "flux1_schnell": {
+        "label": "FLUX.1 Schnell", "provider": "cloudflare",
+        "endpoint": "@cf/black-forest-labs/flux-1-schnell",
+        "free": True, "picker_order": 2,
+        # Schnell's API takes no size: every image is
+        # 1024x1024, so that is the only size sold.
+        "raw_cents": {"1024x1024": 0.0},
+    },
 }
 
 
