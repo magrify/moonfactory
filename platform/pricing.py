@@ -44,6 +44,22 @@ MEASURED_COST_CENTS = {
     # cost entry, so the shared formulas give it the same job
     # price and the same raw cost for the owner).
     "nsfw": 15,
+    # The LTX-2.5 Uncensored lane (2026-11-20, Jack's order): the
+    # ChrisColeTech FP8 build of LTX-2.5 on the house worker,
+    # Modal execution (the one house lane that stayed on Modal
+    # when the others moved to the free Kaggle worker; Jack's
+    # call). PROVISIONAL entry: no render has run yet, so this
+    # is the pre-render estimate's worst case, not a measurement
+    # — Modal's L40S list rate ($0.000542/s, the rate the entries
+    # above derive from) times a 480 s worst-case wall for one
+    # 5 s 720p-class clip (cold start, the 37.7 GB model set
+    # loading, 8 distilled steps, joint audio/video decode)
+    # = $0.26. The expected wall is about 270 s (~$0.15). The
+    # approved proof render's measured wall replaces this entry
+    # before the lane is promoted anywhere; the shared formulas
+    # give the lane its job price and the owner this raw cost
+    # in the meantime, exactly the Uncut lane's structure.
+    "ltx_unc": 26,
 }
 
 CREATOR_PRICE_CENTS = 2000  # $20/mo

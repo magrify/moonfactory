@@ -177,7 +177,8 @@ for other_id, other in by_id.items():
 
 # House routing map and availability treatment.
 check(dict_literal(PTREE, "HOUSE_MODEL_PRICING_LANE")
-      == {"wan2.2": "production", "wan22_uncut": "nsfw"},
+      == {"wan2.2": "production", "wan22_uncut": "nsfw",
+          "ltx25_unc": "ltx_unc"},
       "house model pricing lane map drifted")
 check("True if m[\"id\"] in HOUSE_MODEL_PRICING_LANE" in PLATFORM,
       "config availability no longer treats house models as available")
@@ -203,7 +204,8 @@ check("lip_sync_applies(model, speech_script)" in PLATFORM,
 
 # Studio treatment: the house form, the hidden lane choice, and
 # the house price line reading this lane's price.
-check("const HOUSE_MODEL_IDS = ['wan2.2', 'wan22_uncut'];" in PLATFORM,
+check("const HOUSE_MODEL_IDS = ['wan2.2', 'wan22_uncut', 'ltx25_unc'];"
+      in PLATFORM,
       "studio house model list drifted")
 check("const api = !isHouseModel(m);" in PLATFORM,
       "updateModelUI no longer treats the uncut model as a house model")

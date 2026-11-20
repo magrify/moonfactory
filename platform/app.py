@@ -945,6 +945,14 @@ MODELS = [
     {"id": "seedance15pro_unc", "label": "Seedance 1.5 Pro", "paid_only": True},
     {"id": "ltx23_unc", "label": "LTX 2.3", "paid_only": True},
     {"id": "ltx23_lora_unc", "label": "LTX 2.3 LoRA", "paid_only": True},
+    # LTX-2.5 Uncensored (2026-11-20): the ChrisColeTech FP8
+    # build on the house worker, the one house lane that runs
+    # on Modal (Jack's call). Paid only, gallery excluded via
+    # UNCENSORED_VIDEO_MODELS below, priced on its own house
+    # pricing lane (ltx_unc in pricing.py). The model's card
+    # license reads "unknown"; the lane ships dark and
+    # unpromoted, named here like every other shelf entry.
+    {"id": "ltx25_unc", "label": "LTX 2.5 Uncensored", "paid_only": True},
 ]
 MODEL_LABELS = {m["id"]: m["label"] for m in MODELS}
 DEFAULT_MODEL = "wan2.2"
@@ -965,6 +973,9 @@ UNCENSORED_VIDEO_MODELS = (
     # The house Uncut lane: our own worker, open weights, no
     # provider moderation layer.
     "wan22_uncut",
+    # LTX-2.5 Uncensored (2026-11-20): the house worker again,
+    # the uncensored FP8 build; same treatment.
+    "ltx25_unc",
 )
 # House video models: served by our own worker on the per-job
 # price table rather than the per-second shelf. Each maps to the
@@ -973,6 +984,10 @@ UNCENSORED_VIDEO_MODELS = (
 HOUSE_MODEL_PRICING_LANE = {
     "wan2.2": "production",
     "wan22_uncut": "nsfw",
+    # LTX-2.5 Uncensored settles on its own pricing lane: the
+    # model is far bigger than the Wan experts, so it carries
+    # its own measured-cost entry rather than borrowing one.
+    "ltx25_unc": "ltx_unc",
 }
 
 
@@ -1265,6 +1280,8 @@ LANE_AUDIO = {
                "note": "house model is silent; music bed and the voiceover path run in post"},
     "wan22_uncut": {"native_speech": False, "native_audio": False,
                "note": "house model is silent; music bed and the voiceover path run in post"},
+    "ltx25_unc": {"native_speech": True, "native_audio": True,
+               "note": "LTX-2.5 generates synchronized audio with speech in the render itself; no post stage runs"},
     "wan3": {"native_speech": False, "native_audio": True,
              "note": "native audio is music/SFX-led; speech is not reliable"},
     "wan3_prime": {"native_speech": False, "native_audio": True,
@@ -7741,6 +7758,35 @@ def api():
                     status_code=422,
                     detail="This lane needs a start image. Upload the photo the video starts from")
             lane = "nsfw"
+        if model == "ltx25_unc":
+            # LTX-2.5 Uncensored (2026-11-20): the house worker
+            # lane on Modal. Text-to-video and image-to-video
+            # both run (a start image is welcome, never
+            # required); one clip per job in v1, so a segments
+            # count above 1 is a clean refusal here rather than
+            # a chained render whose later segments would lose
+            # the model's native audio in the stitch.
+            if pricing.lane_paused("ltx_unc"):
+                raise HTTPException(
+                    status_code=503,
+                    detail="this lane is paused while its costs are reviewed")
+            if effect_id:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Effects run on Wan 2.2. Pick that model for an effect video")
+            if fun_preset is not None:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Fun Camera presets run on Wan 2.2. Pick that model for a camera move")
+            if end_image:
+                raise HTTPException(
+                    status_code=422,
+                    detail="LTX 2.5 Uncensored does not take an end image")
+            if segments > 1:
+                raise HTTPException(
+                    status_code=422,
+                    detail="LTX 2.5 Uncensored renders one clip per job")
+            lane = "ltx_unc"
         if model in PER_SECOND_MODELS:
             # Per-second lanes take their length from
             # duration_seconds (the nine-length menu), never from
@@ -14578,7 +14624,7 @@ let pricingData = null;
 // House models run on our own worker with the house form
 // (segments and a start image), never the per-second form. The
 // list mirrors HOUSE_MODEL_PRICING_LANE in the platform code.
-const HOUSE_MODEL_IDS = ['wan2.2', 'wan22_uncut'];
+const HOUSE_MODEL_IDS = ['wan2.2', 'wan22_uncut', 'ltx25_unc'];
 function isHouseModel(id) { return HOUSE_MODEL_IDS.includes(id); }
 // Motion templates ride the same picker as the models (Jack,
 // 2026-11-18: one Create, no separate wing). They are not
@@ -14751,6 +14797,7 @@ function updateHousePrice() {
   }
   const segs = Number($('segments').value) || 1;
   const per = $('model').value === 'wan22_uncut' ? (jp.nsfw || 0)
+    : $('model').value === 'ltx25_unc' ? (jp.ltx_unc || 0)
     : $('lane').value === 'production' ? (jp.production || 0) : (jp.draft || 0);
   el.textContent = 'It costs ' + moneyC(per * segs) + ' from your balance for ' +
     segs + (segs === 1 ? ' segment' : ' segments') + ' at ' + moneyC(per) +

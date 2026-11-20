@@ -119,6 +119,20 @@ comfy_image = (
         "/root/comfy/ComfyUI/custom_nodes/ComfyUI-SeedVR2_VideoUpscaler/requirements.txt "
         "|| true"
     )
+    # The LTX-2.5 lane's loader and joint A/V decode nodes
+    # (LTXV25ModelsLoader, LTXV25AVDecode) come from the model
+    # author's own pack, the one the model card names. Only its
+    # core requirements are installed (gguf, sentencepiece,
+    # protobuf): the pack's optional TTS requirements pull a
+    # transformers major version the worker's stack does not
+    # carry, and no LTX node reads them.
+    .run_commands(
+        "git clone https://github.com/ChrisColeTech/ComfyUI-GGUF-Loader.git "
+        "/root/comfy/ComfyUI/custom_nodes/ComfyUI-GGUF-Loader"
+    )
+    .run_commands(
+        "pip install gguf sentencepiece protobuf || true"
+    )
 )
 
 COMFY_BASE = "http://127.0.0.1:8188"
@@ -139,7 +153,7 @@ class ComfyUI:
         import shutil
 
         models_dir = COMFY_ROOT / "models"
-        for category in ("diffusion_models", "text_encoders", "vae", "clip_vision", "SEEDVR2", "loras"):
+        for category in ("diffusion_models", "text_encoders", "vae", "clip_vision", "SEEDVR2", "loras", "latent_upscale_models"):
             target = Path(MODELS_MOUNT) / category
             link = models_dir / category
             if link.is_symlink() or link.exists():
@@ -268,7 +282,7 @@ class ComfyUI:
             raise TimeoutError(f"prompt {prompt_id} did not finish in time")
 
         for node_output in entry.get("outputs", {}).values():
-            for key in ("gifs", "videos", "images"):
+            for key in ("gifs", "videos", "video", "images"):
                 for item in node_output.get(key, []):
                     filename = item.get("filename", "")
                     if filename.endswith((".mp4", ".webm")):
@@ -553,6 +567,79 @@ NSFW_LORA_LOW = "NSFW-22-L-e8.safetensors"
 NSFW_TRIGGER = "nsfwsks"
 NSFW_LANE = "nsfw"
 
+# ---------------------------------------------------------------------------
+# LTX-2.5 Uncensored lane (2026-11-20, Jack's order)
+#
+# ChrisColeTech/LTX-2.5-uncensored-v1.1-FP8: the full LTX-2.5
+# (Lightricks, 21B) with the Eros10 NSFW LoRA and the DMD
+# distilled LoRA baked into the FP8-scaled transformer, the
+# uncensored Gemma text encoder baked in alongside, and native
+# synchronized audio with speech generated in the same pass.
+# The model card's license field reads "unknown"; Jack knows,
+# and the lane ships dark and unpromoted (paid only, never in
+# the public gallery — the platform side enforces both).
+#
+# This is the one house lane that executes on Modal (Jack's
+# call, 2026-11-20, reversing a Kaggle test plan): the FP8 set
+# is 37.7 GB and does not fit the free Kaggle GPU. The files
+# live in the models Volume under an ltx25/ subfolder of each
+# category, the layout the loader node's own example workflows
+# use, staged by the local batch upload recorded in
+# ~/workspace/sinclip/ltx25-uncensored-modal-2026-11-20.md and
+# size-verified there. The latent upscalers are staged with
+# the set (the card's two-stage flows use them) but v1 renders
+# the single-stage distilled graph below and never calls them.
+#
+# The graph is built in code (no template file): the loader
+# and the joint A/V decode come from the author's own
+# ComfyUI-GGUF-Loader pack (installed in the worker image);
+# everything between them is core ComfyUI LTXV nodes, wired
+# exactly as the repo's own giga_ltx25_distilled and
+# ltx25_i2v_simple example workflows wire them. The recipe is
+# the card's: 8 steps, cfg 1.0, euler/simple, 24 fps, 121
+# frames (one 5.04 s clip, the house segment shape). Sizes use
+# the model's native grid (dimensions are multiples of 32):
+# 1280x704 for 16:9, the nearest grid shape to the card's
+# recommended 1280x720.
+LTX_LANE = "ltx_unc"
+LTX_UNET_NAME = "ltx25/ltx25_uncensored_v1.1-fp8_scaled.safetensors"
+LTX_CLIP_NAME = "ltx25/gemma4_12b_ltx25_uncensored-int8.safetensors"
+LTX_VIDEO_VAE_NAME = "ltx25/ltx25_uncensored_video_vae.safetensors"
+LTX_AUDIO_VAE_NAME = "ltx25/ltx25_uncensored_audio_vae.safetensors"
+LTX_FRAMES = 121
+LTX_FPS = 24.0
+LTX_STEPS = 8
+LTX_CFG = 1.0
+# The default negative from the repo's own LTX 2.5 example
+# workflows (the "LTX 2.5 Clip Encode (prompt)" subgraph in
+# ltx25_i2v_simple.json), verbatim, used when the caller sends
+# none (the endpoint's Wan-shaped house negative does not
+# describe this model).
+LTX_NEGATIVE = (
+    "blurry, out of focus, overexposed, underexposed, low contrast, "
+    "washed out colors, excessive noise, grainy texture, poor lighting, "
+    "flickering, motion blur, distorted proportions, unnatural skin "
+    "tones, deformed facial features, asymmetrical face, missing facial "
+    "features, extra limbs, disfigured hands, wrong hand count, "
+    "artifacts around text, unreadable text on shirt or hat, incorrect "
+    "lettering on cap (“PNTR”), incorrect t-shirt slogan (“JUST DO "
+    "IT”), missing microphone, misplaced microphone, inconsistent "
+    "perspective, camera shake, incorrect depth of field, background "
+    "too sharp, background clutter, distracting reflections, harsh "
+    "shadows, inconsistent lighting direction, color banding, "
+    "cartoonish rendering, 3D CGI look, unrealistic materials, uncanny "
+    "valley effect, incorrect ethnicity, wrong gender, exaggerated "
+    "expressions, smiling, laughing, exaggerated sadness, wrong gaze "
+    "direction, eyes looking at camera, mismatched lip sync, silent or "
+    "muted audio, distorted voice, robotic voice, echo, background "
+    "noise, off-sync audio, missing sniff sounds, incorrect dialogue, "
+    "added dialogue, repetitive speech, jittery movement, awkward "
+    "pauses, incorrect timing, unnatural transitions, inconsistent "
+    "framing, tilted camera, missing door or shelves, missing shallow "
+    "depth of field, flat lighting, inconsistent tone, cinematic "
+    "oversaturation, stylized filters, or AI artifacts."
+)
+
 
 @app.function(image=download_image, volumes={"/models": volume}, timeout=1800)
 def download_nsfw_lora():
@@ -699,6 +786,10 @@ LANE_DIMS = {
     "production": {"9:16": (720, 1280), "16:9": (1280, 720), "1:1": (960, 960)},
     # The Uncut lane renders at the production house dimensions.
     "nsfw": {"9:16": (720, 1280), "16:9": (1280, 720), "1:1": (960, 960)},
+    # LTX-2.5 renders on its native grid (dimensions are
+    # multiples of 32): 1280x704 is the nearest grid shape to
+    # the model card's recommended 1280x720.
+    "ltx_unc": {"9:16": (704, 1280), "16:9": (1280, 704), "1:1": (960, 960)},
 }
 
 # Start-image generation (Pass 3): one still image per job at the
@@ -730,6 +821,127 @@ def _build_image_workflow(prompt: str, seed: int, aspect: str = "9:16",
             inputs["height"] = height
         elif ct == "SaveImage":
             inputs["filename_prefix"] = prefix or "sinclip/api_image"
+    return workflow
+
+
+def _build_ltx_workflow(prompt: str, negative: str, seed: int,
+                        aspect: str = "9:16", text_only: bool = False,
+                        prefix: str = ""):
+    """The LTX-2.5 graph, built in code (see the LTX block at
+    the lane constants for the why). One 121-frame clip at
+    24 fps with joint audio: the loader feeds both text
+    encodes and both latents, the sampler runs the card's
+    distilled recipe (8 steps, cfg 1.0), and the author's
+    decode node muxes picture and sound into one VIDEO the
+    core SaveVideo writes. With a start image, the empty video
+    latent passes through LTXVImgToVideoInplace at strength
+    1.0, the i2v subgraph's own wiring; without one the graph
+    is the distilled text-to-video example as authored."""
+    width, height = LANE_DIMS[LTX_LANE][aspect]
+    workflow = {
+        "1": {
+            "class_type": "LTXV25ModelsLoader",
+            "inputs": {
+                "unet_name": LTX_UNET_NAME,
+                "clip_name": LTX_CLIP_NAME,
+                "video_vae_name": LTX_VIDEO_VAE_NAME,
+                "audio_vae_name": LTX_AUDIO_VAE_NAME,
+            },
+        },
+        "2": {
+            "class_type": "CLIPTextEncode",
+            "inputs": {"clip": ["1", 1], "text": prompt},
+        },
+        "3": {
+            "class_type": "CLIPTextEncode",
+            "inputs": {"clip": ["1", 1], "text": negative},
+        },
+        "4": {
+            "class_type": "LTXVConditioning",
+            "inputs": {
+                "positive": ["2", 0],
+                "negative": ["3", 0],
+                "frame_rate": LTX_FPS,
+            },
+        },
+        "5": {
+            "class_type": "EmptyLTXVLatentVideo",
+            "inputs": {
+                "width": width,
+                "height": height,
+                "length": LTX_FRAMES,
+                "batch_size": 1,
+            },
+        },
+        "7": {
+            "class_type": "LTXVEmptyLatentAudio",
+            "inputs": {
+                "frames_number": LTX_FRAMES,
+                "frame_rate": int(LTX_FPS),
+                "audio_vae": ["1", 3],
+                "batch_size": 1,
+            },
+        },
+        "8": {
+            "class_type": "LTXVConcatAVLatent",
+            "inputs": {
+                "video_latent": ["5", 0],
+                "audio_latent": ["7", 0],
+            },
+        },
+        "10": {
+            "class_type": "KSampler",
+            "inputs": {
+                "model": ["1", 0],
+                "positive": ["4", 0],
+                "negative": ["4", 1],
+                "latent_image": ["8", 0],
+                "seed": seed,
+                "steps": LTX_STEPS,
+                "cfg": LTX_CFG,
+                "sampler_name": "euler",
+                "scheduler": "simple",
+                "denoise": 1.0,
+            },
+        },
+        "11": {
+            "class_type": "LTXV25AVDecode",
+            "inputs": {
+                "latent": ["10", 0],
+                "vae": ["1", 2],
+                "audio_vae": ["1", 3],
+                "fps": LTX_FPS,
+                "tile_size": 512,
+                "overlap": 64,
+                "temporal_size": 64,
+                "temporal_overlap": 16,
+            },
+        },
+        "12": {
+            "class_type": "SaveVideo",
+            "inputs": {
+                "video": ["11", 0],
+                "filename_prefix": prefix or f"sinclip/api_{LTX_LANE}",
+                "format": "auto",
+                "codec": "auto",
+            },
+        },
+    }
+    if not text_only:
+        workflow["9"] = {
+            "class_type": "LoadImage",
+            "inputs": {"image": "PLACEHOLDER_START_IMAGE"},
+        }
+        workflow["6"] = {
+            "class_type": "LTXVImgToVideoInplace",
+            "inputs": {
+                "vae": ["1", 2],
+                "image": ["9", 0],
+                "latent": ["5", 0],
+                "strength": 1.0,
+            },
+        }
+        workflow["8"]["inputs"]["video_latent"] = ["6", 0]
     return workflow
 
 
@@ -1141,6 +1353,31 @@ def run_job(job_id: str, lane: str, prompt: str, negative: str, seed: int,
                         workflow,
                         images={start_name: start_bytes, end_name: end_bytes},
                     )
+                elif lane == LTX_LANE:
+                    # LTX-2.5: one clip per job (the endpoint
+                    # refuses segments above 1), text-to-video or
+                    # image-to-video by whether a start image
+                    # came with the job. A caller negative wins;
+                    # the house default is Wan-shaped, so this
+                    # lane falls back to the model's own example
+                    # negative instead.
+                    text_only = start_bytes is None
+                    workflow = _build_ltx_workflow(
+                        prompt,
+                        negative if negative != NEGATIVE_PROMPT
+                        else LTX_NEGATIVE,
+                        seg_seed, aspect,
+                        text_only=text_only, prefix=prefix)
+                    if text_only:
+                        video = ComfyUI().run_workflow.remote(workflow)
+                    else:
+                        image_name = f"job_{job_id}_seg{i + 1}.png"
+                        for node in workflow.values():
+                            if node.get("class_type") == "LoadImage":
+                                node["inputs"]["image"] = image_name
+                        video = ComfyUI().run_workflow.remote(
+                            workflow, image_bytes=start_bytes,
+                            image_name=image_name)
                 else:
                     text_only = start_bytes is None
                     workflow = _build_lane_workflow(
@@ -1334,11 +1571,11 @@ def api():
         # An effects job carries lane "effects" (or a house lane
         # label) plus its effect id; the effect block below validates
         # the id and rewrites the record's lane to "effects".
-        if lane not in LANE_WORKFLOWS \
+        if lane not in LANE_WORKFLOWS and lane != LTX_LANE \
                 and not (body.get("effect") and lane == "effects"):
             raise HTTPException(
                 status_code=422,
-                detail=f"lane must be one of {sorted(LANE_WORKFLOWS)}")
+                detail=f"lane must be one of {sorted(LANE_WORKFLOWS) + [LTX_LANE]}")
         prompt = (body.get("prompt") or "").strip()
         if not prompt:
             raise HTTPException(status_code=422, detail="prompt is required")
@@ -1370,6 +1607,20 @@ def api():
             raise HTTPException(
                 status_code=422,
                 detail="the nsfw lane needs a start image; it is an image-to-video lane")
+        if lane == LTX_LANE:
+            # LTX-2.5 renders one clip per job: no chaining
+            # (the stitch path drops later segments' audio,
+            # and this model's sound is half the point) and no
+            # end image. Text-only and start-image jobs both
+            # run.
+            if segments != 1:
+                raise HTTPException(
+                    status_code=422,
+                    detail="the ltx lane renders one clip per job")
+            if end_image:
+                raise HTTPException(
+                    status_code=422,
+                    detail="the ltx lane does not take an end image")
         # Fun Camera conditioning: a camera_pose switches the
         # production render to the Fun Camera workflow. It is a
         # single conditioned move: production lane only, one
