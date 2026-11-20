@@ -6358,7 +6358,16 @@ def api():
         shelf images refund through their own path, and house
         jobs restore exactly what their own error paths restore.
         No job may sit in a running state past its bound."""
-        if job.get("kind") == "image" and job.get("image_model"):
+        # A kaggle-comfy image job (the FLUX.2 Klein fallback
+        # carries an image_model on a house record) fails
+        # through the house branch below, never the shelf
+        # refund path: its charge and restore fields are the
+        # house ones, and the shelf path's message and refund
+        # bookkeeping are wrong for it (found live 2026-11-20,
+        # when a fallback job whose kernel session died during
+        # the Klein staging took the shelf message).
+        if job.get("kind") == "image" and job.get("image_model") \
+                and job.get("provider") != "kaggle-comfy":
             _fail_provider_image(
                 job, "the image took too long, nothing was charged")
             return

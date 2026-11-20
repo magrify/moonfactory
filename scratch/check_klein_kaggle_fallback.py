@@ -132,6 +132,12 @@ check(mirror_src.index('job.get("provider") == "kaggle-comfy"')
       < mirror_src.index('job.get("image_model")'),
       "the mirror works a diverted job as a comfy job, so the "
       "dead-kernel bounds fail it clean when Kaggle never comes")
+stale_src = func_src("_fail_stale_job")
+check('job.get("provider") != "kaggle-comfy"' in stale_src
+      and stale_src.index('job.get("provider") != "kaggle-comfy"')
+      < stale_src.index("_restore_house_image(job)"),
+      "a stale comfy image job fails through the house restore "
+      "path, never the shelf refund path")
 
 # --- the kernel graph ----------------------------------------------
 spec = importlib.util.spec_from_file_location(
