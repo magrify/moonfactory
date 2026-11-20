@@ -62,8 +62,20 @@ Provider state at wiring time (2026-11-17):
   2026-11-17 free-only ruling keeps it out of clipping. Key
   stays stored; this entry is a record only. Recorded in
   BUILD-LOG.
-- morph: DROPPED 2026-11-17 (Jack). The pursuit ended and the
-  registry entry was removed; no key ever existed.
+- morph: DROPPED from the picking chain 2026-11-17 and its
+  registry entry removed then; RESTORED 2026-11-20 as a
+  draft picker record only (Jack's model choice rule: every
+  model is listed individually). The entry is the original
+  2026-11-16 registration (key env MORPH_API_KEY, model
+  morph-dsv41flash-abliterated) with the base URL Morph's
+  API answers on today (https://api.morphllm.com/v1; its
+  models route verified live 2026-11-20, 401 key required).
+  Morph granted access to this model on the account's key
+  (their mail, 2026-11-17), but a key-names probe of the
+  moonfactory-providers secret on 2026-11-20 found NO
+  MORPH_API_KEY in it, so the record is dark (configured
+  False) until the key is stored; a pick of it fails clean
+  under the no-substitution draft rule below.
 - silk: Silk Compute (2026-11-20, Jack: "use for drafts").
   OpenAI compatible chat at https://api.silkcompute.com, key
   env SILK_API_KEY in the same moonfactory-providers secret.
@@ -75,11 +87,30 @@ Provider state at wiring time (2026-11-17):
   Faceless shorts topic writers, through the draft model
   picker in Create): it is deliberately NOT in PICK_CHAIN,
   so clipping keeps its free-only fallback ruling.
+- draft picker expansion (2026-11-20, Jack: "just do the
+  other uncensored llms ive given u then" + "add regular
+  llms too"), corrected the same day by Jack's model
+  choice rule: EVERY model is listed individually under
+  its own plain name and a pick calls exactly that model;
+  no composite labels, no silent substitution when a pick
+  fails. The old "House draft" entry is gone: the chain's
+  first model, Gemini 3.8 Flash, is the default pick as
+  its own option, and Gemini 3.5 Flash Lite is a separate
+  option. DRAFT_MODELS below offers the two Gemini models
+  (platform key), regular models through the stored
+  OpenRouter and Venice keys, the registry's uncensored
+  models (Jack's 2026-11-18 tier picks first), the Morph
+  model, and the three Silk picks. The regular ids were
+  verified against OpenRouter's and Venice's live model
+  lists on 2026-11-20 (free reads), and every registered
+  Venice uncensored id was confirmed still listed.
+  PICK_CHAIN and clipping are untouched.
 """
 
 import json
 import os
 import urllib.error
+import urllib.parse
 import urllib.request
 
 LLM_PROVIDERS = [
@@ -148,6 +179,17 @@ LLM_PROVIDERS = [
         ],
     },
     {
+        "id": "morph",
+        "label": "Morph",
+        "base_url": "https://api.morphllm.com/v1",
+        "key_env": "MORPH_API_KEY",
+        "access": "key_pending",
+        "models": [
+            {"id": "morph-dsv41flash-abliterated",
+             "label": "DeepSeek V4.1 Flash Abliterated"},
+        ],
+    },
+    {
         "id": "silk",
         "label": "Silk Compute",
         "base_url": "https://api.silkcompute.com",
@@ -165,69 +207,250 @@ LLM_PROVIDERS = [
 ]
 
 # The draft model picker (2026-11-20, Jack: "use for drafts.
-# offer a model picker for drafts"). The Create flows that
-# draft text (Short drama, and the Faceless shorts topic
-# writer) offer these plain names only, never hosting or API
-# details. "house" is the incumbent chain the platform already
-# drafts with (Gemini first, then the free OpenRouter chain)
-# and stays the default; the other three are Silk Compute's
-# uncensored builds, tried first when picked and fallen back
-# from to the house chain whenever Silk is unavailable (no
-# key yet, an error, an empty answer), so a Silk pick can
-# never break a draft.
+# offer a model picker for drafts"), under Jack's model
+# choice rule (2026-11-20): every model Moonfactory can
+# offer for drafting and prompt help is its own individually
+# selectable option under its own plain name, a pick calls
+# exactly that model, and a pick that errors or answers
+# empty fails clean (DraftModelUnavailable) with NO silent
+# substitution. There is no composite entry: the old "House
+# draft" label folded the Gemini chain into one name, which
+# the rule kills. The default pick is Gemini 3.8 Flash, the
+# chain's first model, as its own option; Gemini 3.5 Flash
+# Lite is a separate option. "house" survives only as a
+# legacy value from parked creations and older clients; it
+# normalizes to the default pick. The internal chains in
+# shorts and clipping are NOT user picks and keep their own
+# behavior; this rule governs the picker only.
+#
+# Entry fields: id (the picker value), label (the plain
+# name shown), provider (the route the call takes: "gemini"
+# is the platform Google key, the others are LLM_PROVIDERS
+# records), model (the provider-side model id; defaults to
+# the id), group ("regular" or "uncensored" in the select).
 DRAFT_MODEL_HOUSE = "house"
+DRAFT_MODEL_DEFAULT = "gemini:gemini-3.8-flash"
 DRAFT_MODELS = [
-    {"id": DRAFT_MODEL_HOUSE, "label": "House draft",
-     "provider": None},
+    # Regular: the platform Gemini models first (the default
+    # pick first), then the regular catalogs reachable
+    # through the stored OpenRouter and Venice keys.
+    {"id": DRAFT_MODEL_DEFAULT, "label": "Gemini 3.8 Flash",
+     "provider": "gemini", "model": "gemini-3.8-flash",
+     "group": "regular"},
+    {"id": "gemini:gemini-3.5-flash-lite",
+     "label": "Gemini 3.5 Flash Lite",
+     "provider": "gemini", "model": "gemini-3.5-flash-lite",
+     "group": "regular"},
+    {"id": "openrouter:anthropic/claude-sonnet-5",
+     "label": "Claude Sonnet 5", "provider": "openrouter",
+     "model": "anthropic/claude-sonnet-5", "group": "regular"},
+    {"id": "openrouter:openai/gpt-5.5",
+     "label": "GPT-5.5", "provider": "openrouter",
+     "model": "openai/gpt-5.5", "group": "regular"},
+    {"id": "openrouter:google/gemini-3.1-pro-preview",
+     "label": "Gemini 3.1 Pro", "provider": "openrouter",
+     "model": "google/gemini-3.1-pro-preview",
+     "group": "regular"},
+    {"id": "openrouter:x-ai/grok-4.7",
+     "label": "Grok 4.7", "provider": "openrouter",
+     "model": "x-ai/grok-4.7", "group": "regular"},
+    {"id": "venice:llama-3.3-70b",
+     "label": "Llama 3.3 70B", "provider": "venice",
+     "model": "llama-3.3-70b", "group": "regular"},
+    {"id": "venice:z-ai-glm-5-3",
+     "label": "GLM 5.3", "provider": "venice",
+     "model": "z-ai-glm-5-3", "group": "regular"},
+    # Uncensored: Jack's 2026-11-18 tier picks first (best
+    # overall, hosted, writing, fast), then the rest of the
+    # Venice registry, Refuseless, the OpenRouter Dolphin,
+    # Morph, and the Silk picks (dark until SILK_API_KEY
+    # lands). The tier list's small pick (a Gemma 4 12B) has
+    # no registered hosted entry, so it is not listed.
+    {"id": "venice:qwen-3-8-27b",
+     "label": "Qwen 3.8 27B", "provider": "venice",
+     "model": "qwen-3-8-27b", "group": "uncensored"},
+    {"id": "venice:deepseek-v4-1-flash-uncensored",
+     "label": "DeepSeek V4.1 Flash Uncensored",
+     "provider": "venice",
+     "model": "deepseek-v4-1-flash-uncensored",
+     "group": "uncensored"},
+    {"id": "venice:gemma-4-uncensored",
+     "label": "Gemma 4 Uncensored", "provider": "venice",
+     "model": "gemma-4-uncensored", "group": "uncensored"},
+    {"id": "venice:qwen-3-6-plus",
+     "label": "Qwen 3.6 Plus Uncensored", "provider": "venice",
+     "model": "qwen-3-6-plus", "group": "uncensored"},
+    {"id": "venice:venice-uncensored-1-2",
+     "label": "Venice Uncensored 1.2", "provider": "venice",
+     "model": "venice-uncensored-1-2", "group": "uncensored"},
+    {"id": "venice:venice-uncensored-role-play",
+     "label": "Venice Role Play Uncensored",
+     "provider": "venice",
+     "model": "venice-uncensored-role-play",
+     "group": "uncensored"},
+    {"id": "venice:deepseek-v4-1-flash-1017-uncensored",
+     "label": "DeepSeek V4.1 Flash 1017 Uncensored",
+     "provider": "venice",
+     "model": "deepseek-v4-1-flash-1017-uncensored",
+     "group": "uncensored"},
+    {"id": "venice:e2ee-deepseek-v4-1-flash-1017-abliterated",
+     "label": "DeepSeek V4.1 Flash 1017 Abliterated (E2EE)",
+     "provider": "venice",
+     "model": "e2ee-deepseek-v4-1-flash-1017-abliterated",
+     "group": "uncensored"},
+    {"id": "venice:glm-5-3-flash-uncensored",
+     "label": "GLM 5.3 Flash Uncensored", "provider": "venice",
+     "model": "glm-5-3-flash-uncensored",
+     "group": "uncensored"},
+    {"id": "venice:olafangensan-glm-4.7-flash-heretic",
+     "label": "GLM 4.7 Flash Heretic", "provider": "venice",
+     "model": "olafangensan-glm-4.7-flash-heretic",
+     "group": "uncensored"},
+    {"id": "venice:abliteration-abliterated-model-large-v2",
+     "label": "Abliterated Large V2", "provider": "venice",
+     "model": "abliteration-abliterated-model-large-v2",
+     "group": "uncensored"},
+    {"id": "venice:abliteration-abliterated-model-large-flash",
+     "label": "Abliterated Large Flash", "provider": "venice",
+     "model": "abliteration-abliterated-model-large-flash",
+     "group": "uncensored"},
+    {"id": "venice:aion-labs-aion-3-5",
+     "label": "Aion 3.5", "provider": "venice",
+     "model": "aion-labs-aion-3-5", "group": "uncensored"},
+    {"id": "venice:aion-labs-aion-3-5-mini",
+     "label": "Aion 3.5 Mini", "provider": "venice",
+     "model": "aion-labs-aion-3-5-mini", "group": "uncensored"},
+    {"id": "venice:aion-labs-aion-3-0-mini",
+     "label": "Aion 3.0 Mini", "provider": "venice",
+     "model": "aion-labs-aion-3-0-mini", "group": "uncensored"},
+    {"id": "refuseless:glm-5.3-abliterated",
+     "label": "GLM 5.3 Abliterated", "provider": "refuseless",
+     "model": "glm-5.3-abliterated", "group": "uncensored"},
+    {"id": "refuseless:glm-5.3-flash-abliterated",
+     "label": "GLM 5.3 Flash Abliterated",
+     "provider": "refuseless",
+     "model": "glm-5.3-flash-abliterated",
+     "group": "uncensored"},
+    {"id": "refuseless:deepseek-v4.1-flash-abliterated",
+     "label": "DeepSeek V4.1 Flash 1017 Abliterated",
+     "provider": "refuseless",
+     "model": "deepseek-v4.1-flash-abliterated",
+     "group": "uncensored"},
+    {"id": "refuseless:deepseek-v4.1-flash-abliterated-fast",
+     "label": "DeepSeek V4.1 Flash 1017 Fast Abliterated",
+     "provider": "refuseless",
+     "model": "deepseek-v4.1-flash-abliterated-fast",
+     "group": "uncensored"},
+    {"id": "openrouter:cognitivecomputations/"
+           "dolphin-mistral-24b-venice-edition",
+     "label": "Dolphin Mistral 24B", "provider": "openrouter",
+     "model": "cognitivecomputations/"
+              "dolphin-mistral-24b-venice-edition",
+     "group": "uncensored"},
+    {"id": "morph:morph-dsv41flash-abliterated",
+     "label": "DeepSeek V4.1 Flash Abliterated",
+     "provider": "morph",
+     "model": "morph-dsv41flash-abliterated",
+     "group": "uncensored"},
     {"id": "deepseek-v4.1-flash-1017-uncensored",
-     "label": "DeepSeek V4.1 Flash", "provider": "silk"},
+     "label": "DeepSeek V4.1 Flash", "provider": "silk",
+     "group": "uncensored"},
     {"id": "glm-5.3-flash-uncensored",
-     "label": "GLM-5.3 Flash", "provider": "silk"},
+     "label": "GLM-5.3 Flash", "provider": "silk",
+     "group": "uncensored"},
     {"id": "kimi-k3.1-pro-uncensored",
-     "label": "Kimi K3.1 Pro", "provider": "silk"},
+     "label": "Kimi K3.1 Pro", "provider": "silk",
+     "group": "uncensored"},
 ]
 
 
+def draft_model_entry(value) -> dict:
+    """The registry entry for a picker value, or None."""
+    return next(
+        (m for m in DRAFT_MODELS if m["id"] == value), None)
+
+
+def draft_model_label(value) -> str:
+    """The plain name for a picker value (the default pick's
+    name for an unknown value)."""
+    entry = draft_model_entry(value)
+    if entry is not None:
+        return entry["label"]
+    return draft_model_entry(DRAFT_MODEL_DEFAULT)["label"]
+
+
+def provider_configured(provider_id: str) -> bool:
+    """True when a provider route could actually be called
+    right now (base URL and key env present). The "gemini"
+    route is the platform Google key, not a registry record."""
+    if provider_id == "gemini":
+        return bool(os.environ.get("GEMINI_API_KEY"))
+    p = _provider(provider_id)
+    return bool(p["base_url"] and os.environ.get(p["key_env"]))
+
+
+def any_draft_configured() -> bool:
+    """True when at least one picker entry's route is live."""
+    return any(
+        provider_configured(m["provider"]) for m in DRAFT_MODELS)
+
+
 def draft_model_options() -> list:
-    """The picker view: plain names, ids, and whether picking
-    the entry could actually reach its provider right now.
-    Never key material."""
+    """The picker view: plain names, ids, groups, and whether
+    picking the entry could actually reach its model right
+    now. Never key material."""
     return [
         {
             "id": m["id"],
             "label": m["label"],
-            "configured": (
-                True if m["provider"] is None
-                else silk_configured()),
+            "group": m["group"],
+            "configured": provider_configured(m["provider"]),
         }
         for m in DRAFT_MODELS
     ]
 
 
 def is_draft_model(value) -> bool:
-    return any(m["id"] == value for m in DRAFT_MODELS)
+    return draft_model_entry(value) is not None
 
 
 def normalize_draft_model(value) -> str:
-    """An unknown or missing pick reads as the house default,
-    so older clients and parked creations keep drafting."""
-    return value if is_draft_model(value) else DRAFT_MODEL_HOUSE
+    """A missing, unknown, or legacy "house" pick reads as
+    the default pick (Gemini 3.8 Flash, its own model), so
+    older clients and parked creations keep drafting."""
+    if value and value != DRAFT_MODEL_HOUSE \
+            and is_draft_model(value):
+        return value
+    return DRAFT_MODEL_DEFAULT
 
 
 def silk_configured() -> bool:
     """True when the Silk key is present in the environment
     (the moonfactory-providers secret). False today by design:
     the signup is finishing separately."""
-    p = _provider("silk")
-    return bool(p["base_url"] and os.environ.get(p["key_env"]))
+    return provider_configured("silk")
 
 
-def _silk_chat(prompt: str, api_key: str, model: str) -> str:
-    """One OpenAI compatible chat call to Silk Compute,
-    returning the raw text (drafting wants prose or the drama
-    JSON, not a parsed shape). Raises on any failure so the
-    caller falls back to the house chain."""
-    p = _provider("silk")
+class DraftModelUnavailable(RuntimeError):
+    """The picked draft model did not answer: its route is
+    not configured, the call failed, or the answer came back
+    empty. Under the model choice rule a pick is never
+    silently replaced by another model, so the drafting
+    flows surface this as a clean failure that names the
+    pick. Carries the pick's plain label."""
+
+    def __init__(self, label: str):
+        super().__init__(f"{label} did not answer")
+        self.label = label
+
+
+def _provider_chat(prompt: str, provider_id: str,
+                   api_key: str, model: str) -> str:
+    """One OpenAI compatible chat call to a registry
+    provider, returning the raw text (drafting wants prose
+    or the drama JSON, not a parsed shape). Raises on any
+    failure or an empty answer."""
+    p = _provider(provider_id)
     url = p["base_url"].rstrip("/") + "/chat/completions"
     body = {
         "model": model,
@@ -246,18 +469,83 @@ def _silk_chat(prompt: str, api_key: str, model: str) -> str:
         data = json.loads(resp.read())
     text = data["choices"][0]["message"]["content"] or ""
     if not text.strip():
-        raise RuntimeError("silk draft came back empty")
+        raise RuntimeError("draft came back empty")
     return text
 
 
+def _silk_chat(prompt: str, api_key: str, model: str) -> str:
+    """One chat call to Silk Compute (kept as the named seam
+    the first draft build's checks stub)."""
+    return _provider_chat(prompt, "silk", api_key, model)
+
+
+def _gemini_chat(prompt: str, api_key: str, model: str) -> str:
+    """One Google Gemini call for exactly the named model,
+    in the same request shape shorts._gemini_text uses.
+    Raises on any failure or an empty answer."""
+    url = (
+        "https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{model}:generateContent?key="
+        + urllib.parse.quote(api_key)
+    )
+    body = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"temperature": 0.7},
+    }
+    req = urllib.request.Request(
+        url, data=json.dumps(body).encode(),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=120) as resp:
+        data = json.loads(resp.read())
+    text = data["candidates"][0]["content"]["parts"][0]["text"]
+    if not text or not text.strip():
+        raise RuntimeError("draft came back empty")
+    return text
+
+
+def draft_text(prompt: str, draft_model: str) -> str:
+    """The picked draft model's text, from exactly that
+    model. Raises DraftModelUnavailable when the pick is
+    unknown, its route is not configured, the call fails,
+    or the answer is empty: under the model choice rule a
+    user pick is never silently substituted with another
+    model, so the caller turns this into a clean failure
+    that names the pick."""
+    entry = draft_model_entry(draft_model)
+    if entry is None:
+        raise DraftModelUnavailable(
+            draft_model_label(draft_model))
+    label = entry["label"]
+    model = entry.get("model") or entry["id"]
+    try:
+        if entry["provider"] == "gemini":
+            api_key = os.environ.get("GEMINI_API_KEY")
+            if not api_key:
+                raise DraftModelUnavailable(label)
+            return _gemini_chat(prompt, api_key, model)
+        p = _provider(entry["provider"])
+        api_key = os.environ.get(p["key_env"])
+        if not api_key or not p["base_url"]:
+            raise DraftModelUnavailable(label)
+        if entry["provider"] == "silk":
+            return _silk_chat(prompt, api_key, model)
+        return _provider_chat(
+            prompt, entry["provider"], api_key, model)
+    except DraftModelUnavailable:
+        raise
+    except Exception:  # noqa: BLE001 - the pick failed, cleanly
+        raise DraftModelUnavailable(label)
+
+
 def silk_draft_text(prompt: str, draft_model: str):
-    """The picked Silk model's draft, or None when the pick is
-    the house default, the key is absent, or the call fails
-    for any reason. Never raises: None is the caller's signal
-    to run the house chain, exactly the clean failure the
-    unfunded lanes give."""
-    entry = next(
-        (m for m in DRAFT_MODELS if m["id"] == draft_model), None)
+    """Compatibility view from the first draft build: the
+    picked Silk model's text, or None for a non-Silk pick,
+    a missing key, or any failure. The drafting flows no
+    longer use it (they call draft_text, which never
+    substitutes a pick); it stays for the original checks."""
+    entry = draft_model_entry(draft_model)
     if entry is None or entry["provider"] != "silk":
         return None
     p = _provider("silk")
@@ -266,7 +554,7 @@ def silk_draft_text(prompt: str, draft_model: str):
         return None
     try:
         return _silk_chat(prompt, api_key, entry["id"])
-    except Exception:  # noqa: BLE001 - house chain is the fallback
+    except Exception:  # noqa: BLE001
         return None
 
 # The picking fallback chain (2026-11-17, Jack's free-only

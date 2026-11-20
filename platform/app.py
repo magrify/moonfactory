@@ -3229,6 +3229,28 @@ def api():
             user["free_jobs_total"] = total
         return int(total)
 
+    def count_generation(user: dict, free_job: bool = False):
+        """The free counter rule (Jack, 2026-11-20): EVERY
+        generation counts toward the account's 5 free — every
+        video, every faceless short, every photo, and a drama
+        episode counts as one video. No generation type is
+        exempt. One shared lifetime counter, moved at the
+        acceptance commit of each create flow, the same point
+        where the free lanes have always committed theirs, so
+        the enforcement the free blocks read (free_jobs_total
+        >= FREE_CLIPS_TOTAL, before dispatch) sees every type.
+        A free job also moves the platform free ceiling,
+        exactly as before; a paid generation was not served
+        from the free tier, so the ceiling is untouched.
+        Callers save the user with their commit."""
+        u = usage(user)
+        u["free_jobs"] = int(u.get("free_jobs") or 0) + 1
+        user["free_jobs_total"] = free_jobs_total(user) + 1
+        user["usage"] = u
+        if free_job:
+            meta["freecount:total"] = \
+                int(meta.get("freecount:total") or 0) + 1
+
     def display_handle(user: dict) -> str:
         """The only name the public gallery ever shows. A handle the
         user picked, or a neutral derived one (creator-XXXXXX from the
@@ -7480,6 +7502,11 @@ def api():
         if job_is_nsfw(job):
             job["gallery_public"] = False
         jobs[job["id"]] = job
+        # API lane videos count toward the 5 free too (the
+        # free counter rule, 2026-11-20), at the same
+        # acceptance point as the hold commit above.
+        count_generation(user)
+        save_user(user)
         submit_api_job(job, body, params, prompt, base)
         return JSONResponse(public_job(job), status_code=202)
 
@@ -7968,6 +7995,10 @@ def api():
             user["cost_settled_cents"] = (
                 float(user.get("cost_settled_cents") or 0.0) + job_cost_cents
             )
+        if not is_free_job:
+            # Paid video generations count toward the 5 free
+            # too (the free counter rule, 2026-11-20).
+            count_generation(user)
         user["usage"] = u
         save_user(user)
         job = {
@@ -8253,6 +8284,11 @@ def api():
                 _fail_provider_image(
                     job, "the image model is unavailable right now, nothing was charged")
                 raise HTTPException(status_code=503, detail=MODEL_UNAVAILABLE)
+            # Provider shelf photos count toward the 5 free
+            # too (the free counter rule, 2026-11-20), once
+            # the image is actually submitted.
+            count_generation(user)
+            save_user(user)
             return {"job_id": job_id, "status": "running",
                     "charged_cents": charge}
         # Same in-flight limits as video jobs, counted together:
@@ -8314,6 +8350,10 @@ def api():
             u["free_jobs"] += 1
             user["free_jobs_total"] = free_jobs_total(user) + 1
             meta["freecount:total"] = int(meta.get("freecount:total") or 0) + 1
+        if not is_free_job:
+            # Paid house photos count toward the 5 free too
+            # (the free counter rule, 2026-11-20).
+            count_generation(user)
         if used_budget:
             u["included_cost_cents"] = included_cost_used(user) + used_budget
         if charged:
@@ -9521,6 +9561,11 @@ def api():
             user["usage"] = u
             meta["freecount:total"] = int(meta.get("freecount:total") or 0) + 1
             save_user(user)
+        if not is_free_job:
+            # Paid title and motion videos count toward the
+            # 5 free too (the free counter rule, 2026-11-20).
+            count_generation(user)
+            save_user(user)
         _hf_maybe_trigger()
         return JSONResponse(public_job(job), status_code=202)
 
@@ -9942,11 +9987,19 @@ x_api_key: str = Header(default="")):
             raise HTTPException(
                 status_code=422,
                 detail="pick one of the draft models on the list")
-        draft_model = raw_draft_model or "house"
+        draft_model = llm_providers.normalize_draft_model(
+            raw_draft_model)
         try:
             improved = shorts.improve_prompt(text, draft_model, kind)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc))
+        except llm_providers.DraftModelUnavailable as exc:
+            # The picked model did not answer and no other
+            # model may take its place (the model choice
+            # rule): the failure names the pick.
+            raise HTTPException(
+                status_code=503,
+                detail=f"{exc.label} did not answer, so your prompt was not changed. Pick another draft model and try again.")
         except Exception:
             raise HTTPException(
                 status_code=503,
@@ -10047,7 +10100,8 @@ x_api_key: str = Header(default="")):
             raise HTTPException(
                 status_code=422,
                 detail="pick one of the draft models on the list")
-        draft_model = raw_draft_model or "house"
+        draft_model = llm_providers.normalize_draft_model(
+            raw_draft_model)
         script_text = (body.get("script") or "").strip()
         # The length choice: topic mode writes to the picked
         # target, script mode's pasted words are the length, so
@@ -10076,6 +10130,13 @@ x_api_key: str = Header(default="")):
             try:
                 script_text = shorts.script_from_topic(
                     topic, length_seconds, draft_model)
+            except llm_providers.DraftModelUnavailable as exc:
+                # The picked model did not answer and no
+                # other model may take its place (the model
+                # choice rule): the failure names the pick.
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"{exc.label} did not answer, so no script was written. Pick another draft model, or paste your script instead")
             except Exception:
                 raise HTTPException(
                     status_code=422,
@@ -10196,6 +10257,11 @@ x_api_key: str = Header(default="")):
             user["free_jobs_total"] = free_jobs_total(user) + 1
             user["usage"] = u
             meta["freecount:total"] = int(meta.get("freecount:total") or 0) + 1
+            save_user(user)
+        if not is_free_job:
+            # Paid shorts count toward the 5 free too (the
+            # free counter rule, 2026-11-20).
+            count_generation(user)
             save_user(user)
         process_short_job.spawn(job["id"])
         return JSONResponse(public_job(job), status_code=202)
@@ -10679,12 +10745,20 @@ x_api_key: str = Header(default="")):
             raise HTTPException(
                 status_code=422,
                 detail="pick one of the draft models on the list")
-        draft_model = raw_draft_model or "house"
+        draft_model = llm_providers.normalize_draft_model(
+            raw_draft_model)
         try:
             draft = drama.draft_episode(
                 source_mode, source_text, draft_model)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc))
+        except llm_providers.DraftModelUnavailable as exc:
+            # The picked model did not answer and no other
+            # model may take its place (the model choice
+            # rule): the failure names the pick.
+            raise HTTPException(
+                status_code=503,
+                detail=f"{exc.label} did not answer, so no draft was written. Pick another draft model and try again.")
         except Exception:
             raise HTTPException(
                 status_code=503,
@@ -10865,6 +10939,12 @@ x_api_key: str = Header(default="")):
         rec["parent_job_id"] = parent["id"]
         rec["updated_at"] = _now()
         dramas[rec["id"]] = rec
+        # A drama episode counts as one video toward the 5
+        # free (the free counter rule, 2026-11-20): once per
+        # episode, here at creation. Retakes and resumes are
+        # the same episode and never count again.
+        count_generation(user)
+        save_user(user)
         fresh = users.get(f"id:{user['id']}") or user
         _drama_create_shot_job(fresh, parent, rec, rec["shots"][0])
         return JSONResponse(public_job(parent), status_code=202)
@@ -13007,10 +13087,42 @@ APP_HTML = (
       <textarea id="image-prompt" rows="2" maxlength="1000" placeholder="a red hot air balloon over rolling green hills at sunrise, bright daylight"></textarea>
       <label>Draft model</label>
       <select id="start-draft-model">
-        <option value="house" selected>House draft</option>
-        <option value="deepseek-v4.1-flash-1017-uncensored">DeepSeek V4.1 Flash</option>
-        <option value="glm-5.3-flash-uncensored">GLM-5.3 Flash</option>
-        <option value="kimi-k3.1-pro-uncensored">Kimi K3.1 Pro</option>
+        <optgroup label="Regular">
+          <option value="gemini:gemini-3.8-flash" selected>Gemini 3.8 Flash</option>
+          <option value="gemini:gemini-3.5-flash-lite">Gemini 3.5 Flash Lite</option>
+          <option value="openrouter:anthropic/claude-sonnet-5">Claude Sonnet 5</option>
+          <option value="openrouter:openai/gpt-5.5">GPT-5.5</option>
+          <option value="openrouter:google/gemini-3.1-pro-preview">Gemini 3.1 Pro</option>
+          <option value="openrouter:x-ai/grok-4.7">Grok 4.7</option>
+          <option value="venice:llama-3.3-70b">Llama 3.3 70B</option>
+          <option value="venice:z-ai-glm-5-3">GLM 5.3</option>
+        </optgroup>
+        <optgroup label="Uncensored">
+          <option value="venice:qwen-3-8-27b">Qwen 3.8 27B</option>
+          <option value="venice:deepseek-v4-1-flash-uncensored">DeepSeek V4.1 Flash Uncensored</option>
+          <option value="venice:gemma-4-uncensored">Gemma 4 Uncensored</option>
+          <option value="venice:qwen-3-6-plus">Qwen 3.6 Plus Uncensored</option>
+          <option value="venice:venice-uncensored-1-2">Venice Uncensored 1.2</option>
+          <option value="venice:venice-uncensored-role-play">Venice Role Play Uncensored</option>
+          <option value="venice:deepseek-v4-1-flash-1017-uncensored">DeepSeek V4.1 Flash 1017 Uncensored</option>
+          <option value="venice:e2ee-deepseek-v4-1-flash-1017-abliterated">DeepSeek V4.1 Flash 1017 Abliterated (E2EE)</option>
+          <option value="venice:glm-5-3-flash-uncensored">GLM 5.3 Flash Uncensored</option>
+          <option value="venice:olafangensan-glm-4.7-flash-heretic">GLM 4.7 Flash Heretic</option>
+          <option value="venice:abliteration-abliterated-model-large-v2">Abliterated Large V2</option>
+          <option value="venice:abliteration-abliterated-model-large-flash">Abliterated Large Flash</option>
+          <option value="venice:aion-labs-aion-3-5">Aion 3.5</option>
+          <option value="venice:aion-labs-aion-3-5-mini">Aion 3.5 Mini</option>
+          <option value="venice:aion-labs-aion-3-0-mini">Aion 3.0 Mini</option>
+          <option value="refuseless:glm-5.3-abliterated">GLM 5.3 Abliterated</option>
+          <option value="refuseless:glm-5.3-flash-abliterated">GLM 5.3 Flash Abliterated</option>
+          <option value="refuseless:deepseek-v4.1-flash-abliterated">DeepSeek V4.1 Flash 1017 Abliterated</option>
+          <option value="refuseless:deepseek-v4.1-flash-abliterated-fast">DeepSeek V4.1 Flash 1017 Fast Abliterated</option>
+          <option value="openrouter:cognitivecomputations/dolphin-mistral-24b-venice-edition">Dolphin Mistral 24B</option>
+          <option value="morph:morph-dsv41flash-abliterated">DeepSeek V4.1 Flash Abliterated</option>
+          <option value="deepseek-v4.1-flash-1017-uncensored">DeepSeek V4.1 Flash</option>
+          <option value="glm-5.3-flash-uncensored">GLM-5.3 Flash</option>
+          <option value="kimi-k3.1-pro-uncensored">Kimi K3.1 Pro</option>
+        </optgroup>
       </select>
       <p><button class="btn secondary" id="start-help-btn" type="button">Improve my description</button></p>
       <p id="start-help-msg"></p>
@@ -13024,10 +13136,42 @@ APP_HTML = (
     <div id="prompt-help-wrap">
       <label class="flabel" for="prompt-draft-model">Draft model</label>
       <select id="prompt-draft-model">
-        <option value="house" selected>House draft</option>
-        <option value="deepseek-v4.1-flash-1017-uncensored">DeepSeek V4.1 Flash</option>
-        <option value="glm-5.3-flash-uncensored">GLM-5.3 Flash</option>
-        <option value="kimi-k3.1-pro-uncensored">Kimi K3.1 Pro</option>
+        <optgroup label="Regular">
+          <option value="gemini:gemini-3.8-flash" selected>Gemini 3.8 Flash</option>
+          <option value="gemini:gemini-3.5-flash-lite">Gemini 3.5 Flash Lite</option>
+          <option value="openrouter:anthropic/claude-sonnet-5">Claude Sonnet 5</option>
+          <option value="openrouter:openai/gpt-5.5">GPT-5.5</option>
+          <option value="openrouter:google/gemini-3.1-pro-preview">Gemini 3.1 Pro</option>
+          <option value="openrouter:x-ai/grok-4.7">Grok 4.7</option>
+          <option value="venice:llama-3.3-70b">Llama 3.3 70B</option>
+          <option value="venice:z-ai-glm-5-3">GLM 5.3</option>
+        </optgroup>
+        <optgroup label="Uncensored">
+          <option value="venice:qwen-3-8-27b">Qwen 3.8 27B</option>
+          <option value="venice:deepseek-v4-1-flash-uncensored">DeepSeek V4.1 Flash Uncensored</option>
+          <option value="venice:gemma-4-uncensored">Gemma 4 Uncensored</option>
+          <option value="venice:qwen-3-6-plus">Qwen 3.6 Plus Uncensored</option>
+          <option value="venice:venice-uncensored-1-2">Venice Uncensored 1.2</option>
+          <option value="venice:venice-uncensored-role-play">Venice Role Play Uncensored</option>
+          <option value="venice:deepseek-v4-1-flash-1017-uncensored">DeepSeek V4.1 Flash 1017 Uncensored</option>
+          <option value="venice:e2ee-deepseek-v4-1-flash-1017-abliterated">DeepSeek V4.1 Flash 1017 Abliterated (E2EE)</option>
+          <option value="venice:glm-5-3-flash-uncensored">GLM 5.3 Flash Uncensored</option>
+          <option value="venice:olafangensan-glm-4.7-flash-heretic">GLM 4.7 Flash Heretic</option>
+          <option value="venice:abliteration-abliterated-model-large-v2">Abliterated Large V2</option>
+          <option value="venice:abliteration-abliterated-model-large-flash">Abliterated Large Flash</option>
+          <option value="venice:aion-labs-aion-3-5">Aion 3.5</option>
+          <option value="venice:aion-labs-aion-3-5-mini">Aion 3.5 Mini</option>
+          <option value="venice:aion-labs-aion-3-0-mini">Aion 3.0 Mini</option>
+          <option value="refuseless:glm-5.3-abliterated">GLM 5.3 Abliterated</option>
+          <option value="refuseless:glm-5.3-flash-abliterated">GLM 5.3 Flash Abliterated</option>
+          <option value="refuseless:deepseek-v4.1-flash-abliterated">DeepSeek V4.1 Flash 1017 Abliterated</option>
+          <option value="refuseless:deepseek-v4.1-flash-abliterated-fast">DeepSeek V4.1 Flash 1017 Fast Abliterated</option>
+          <option value="openrouter:cognitivecomputations/dolphin-mistral-24b-venice-edition">Dolphin Mistral 24B</option>
+          <option value="morph:morph-dsv41flash-abliterated">DeepSeek V4.1 Flash Abliterated</option>
+          <option value="deepseek-v4.1-flash-1017-uncensored">DeepSeek V4.1 Flash</option>
+          <option value="glm-5.3-flash-uncensored">GLM-5.3 Flash</option>
+          <option value="kimi-k3.1-pro-uncensored">Kimi K3.1 Pro</option>
+        </optgroup>
       </select>
       <p><button class="btn secondary" id="prompt-help-btn" type="button">Improve my prompt</button></p>
       <p id="prompt-help-msg"></p>
@@ -13049,10 +13193,42 @@ APP_HTML = (
         <textarea id="image-gen-prompt" rows="3" placeholder="Describe the image… e.g. a lighthouse at dusk, waves crashing, dramatic sky"></textarea>
         <label class="flabel" for="image-draft-model">Draft model</label>
         <select id="image-draft-model">
-          <option value="house" selected>House draft</option>
-          <option value="deepseek-v4.1-flash-1017-uncensored">DeepSeek V4.1 Flash</option>
-          <option value="glm-5.3-flash-uncensored">GLM-5.3 Flash</option>
-          <option value="kimi-k3.1-pro-uncensored">Kimi K3.1 Pro</option>
+          <optgroup label="Regular">
+            <option value="gemini:gemini-3.8-flash" selected>Gemini 3.8 Flash</option>
+            <option value="gemini:gemini-3.5-flash-lite">Gemini 3.5 Flash Lite</option>
+            <option value="openrouter:anthropic/claude-sonnet-5">Claude Sonnet 5</option>
+            <option value="openrouter:openai/gpt-5.5">GPT-5.5</option>
+            <option value="openrouter:google/gemini-3.1-pro-preview">Gemini 3.1 Pro</option>
+            <option value="openrouter:x-ai/grok-4.7">Grok 4.7</option>
+            <option value="venice:llama-3.3-70b">Llama 3.3 70B</option>
+            <option value="venice:z-ai-glm-5-3">GLM 5.3</option>
+          </optgroup>
+          <optgroup label="Uncensored">
+            <option value="venice:qwen-3-8-27b">Qwen 3.8 27B</option>
+            <option value="venice:deepseek-v4-1-flash-uncensored">DeepSeek V4.1 Flash Uncensored</option>
+            <option value="venice:gemma-4-uncensored">Gemma 4 Uncensored</option>
+            <option value="venice:qwen-3-6-plus">Qwen 3.6 Plus Uncensored</option>
+            <option value="venice:venice-uncensored-1-2">Venice Uncensored 1.2</option>
+            <option value="venice:venice-uncensored-role-play">Venice Role Play Uncensored</option>
+            <option value="venice:deepseek-v4-1-flash-1017-uncensored">DeepSeek V4.1 Flash 1017 Uncensored</option>
+            <option value="venice:e2ee-deepseek-v4-1-flash-1017-abliterated">DeepSeek V4.1 Flash 1017 Abliterated (E2EE)</option>
+            <option value="venice:glm-5-3-flash-uncensored">GLM 5.3 Flash Uncensored</option>
+            <option value="venice:olafangensan-glm-4.7-flash-heretic">GLM 4.7 Flash Heretic</option>
+            <option value="venice:abliteration-abliterated-model-large-v2">Abliterated Large V2</option>
+            <option value="venice:abliteration-abliterated-model-large-flash">Abliterated Large Flash</option>
+            <option value="venice:aion-labs-aion-3-5">Aion 3.5</option>
+            <option value="venice:aion-labs-aion-3-5-mini">Aion 3.5 Mini</option>
+            <option value="venice:aion-labs-aion-3-0-mini">Aion 3.0 Mini</option>
+            <option value="refuseless:glm-5.3-abliterated">GLM 5.3 Abliterated</option>
+            <option value="refuseless:glm-5.3-flash-abliterated">GLM 5.3 Flash Abliterated</option>
+            <option value="refuseless:deepseek-v4.1-flash-abliterated">DeepSeek V4.1 Flash 1017 Abliterated</option>
+            <option value="refuseless:deepseek-v4.1-flash-abliterated-fast">DeepSeek V4.1 Flash 1017 Fast Abliterated</option>
+            <option value="openrouter:cognitivecomputations/dolphin-mistral-24b-venice-edition">Dolphin Mistral 24B</option>
+            <option value="morph:morph-dsv41flash-abliterated">DeepSeek V4.1 Flash Abliterated</option>
+            <option value="deepseek-v4.1-flash-1017-uncensored">DeepSeek V4.1 Flash</option>
+            <option value="glm-5.3-flash-uncensored">GLM-5.3 Flash</option>
+            <option value="kimi-k3.1-pro-uncensored">Kimi K3.1 Pro</option>
+          </optgroup>
         </select>
         <p><button class="btn secondary" id="image-help-btn" type="button">Improve my prompt</button></p>
         <p id="image-help-msg"></p>
@@ -13065,10 +13241,42 @@ APP_HTML = (
         <textarea id="image-edit-prompt" rows="3" placeholder="change the jacket to black leather, keep the face, the pose and the room exactly the same"></textarea>
         <label class="flabel" for="image-edit-draft-model">Draft model</label>
         <select id="image-edit-draft-model">
-          <option value="house" selected>House draft</option>
-          <option value="deepseek-v4.1-flash-1017-uncensored">DeepSeek V4.1 Flash</option>
-          <option value="glm-5.3-flash-uncensored">GLM-5.3 Flash</option>
-          <option value="kimi-k3.1-pro-uncensored">Kimi K3.1 Pro</option>
+          <optgroup label="Regular">
+            <option value="gemini:gemini-3.8-flash" selected>Gemini 3.8 Flash</option>
+            <option value="gemini:gemini-3.5-flash-lite">Gemini 3.5 Flash Lite</option>
+            <option value="openrouter:anthropic/claude-sonnet-5">Claude Sonnet 5</option>
+            <option value="openrouter:openai/gpt-5.5">GPT-5.5</option>
+            <option value="openrouter:google/gemini-3.1-pro-preview">Gemini 3.1 Pro</option>
+            <option value="openrouter:x-ai/grok-4.7">Grok 4.7</option>
+            <option value="venice:llama-3.3-70b">Llama 3.3 70B</option>
+            <option value="venice:z-ai-glm-5-3">GLM 5.3</option>
+          </optgroup>
+          <optgroup label="Uncensored">
+            <option value="venice:qwen-3-8-27b">Qwen 3.8 27B</option>
+            <option value="venice:deepseek-v4-1-flash-uncensored">DeepSeek V4.1 Flash Uncensored</option>
+            <option value="venice:gemma-4-uncensored">Gemma 4 Uncensored</option>
+            <option value="venice:qwen-3-6-plus">Qwen 3.6 Plus Uncensored</option>
+            <option value="venice:venice-uncensored-1-2">Venice Uncensored 1.2</option>
+            <option value="venice:venice-uncensored-role-play">Venice Role Play Uncensored</option>
+            <option value="venice:deepseek-v4-1-flash-1017-uncensored">DeepSeek V4.1 Flash 1017 Uncensored</option>
+            <option value="venice:e2ee-deepseek-v4-1-flash-1017-abliterated">DeepSeek V4.1 Flash 1017 Abliterated (E2EE)</option>
+            <option value="venice:glm-5-3-flash-uncensored">GLM 5.3 Flash Uncensored</option>
+            <option value="venice:olafangensan-glm-4.7-flash-heretic">GLM 4.7 Flash Heretic</option>
+            <option value="venice:abliteration-abliterated-model-large-v2">Abliterated Large V2</option>
+            <option value="venice:abliteration-abliterated-model-large-flash">Abliterated Large Flash</option>
+            <option value="venice:aion-labs-aion-3-5">Aion 3.5</option>
+            <option value="venice:aion-labs-aion-3-5-mini">Aion 3.5 Mini</option>
+            <option value="venice:aion-labs-aion-3-0-mini">Aion 3.0 Mini</option>
+            <option value="refuseless:glm-5.3-abliterated">GLM 5.3 Abliterated</option>
+            <option value="refuseless:glm-5.3-flash-abliterated">GLM 5.3 Flash Abliterated</option>
+            <option value="refuseless:deepseek-v4.1-flash-abliterated">DeepSeek V4.1 Flash 1017 Abliterated</option>
+            <option value="refuseless:deepseek-v4.1-flash-abliterated-fast">DeepSeek V4.1 Flash 1017 Fast Abliterated</option>
+            <option value="openrouter:cognitivecomputations/dolphin-mistral-24b-venice-edition">Dolphin Mistral 24B</option>
+            <option value="morph:morph-dsv41flash-abliterated">DeepSeek V4.1 Flash Abliterated</option>
+            <option value="deepseek-v4.1-flash-1017-uncensored">DeepSeek V4.1 Flash</option>
+            <option value="glm-5.3-flash-uncensored">GLM-5.3 Flash</option>
+            <option value="kimi-k3.1-pro-uncensored">Kimi K3.1 Pro</option>
+          </optgroup>
         </select>
         <p><button class="btn secondary" id="image-edit-help-btn" type="button">Improve my prompt</button></p>
         <p id="image-edit-help-msg"></p>
@@ -13215,10 +13423,42 @@ APP_HTML = (
       <p class="muted" id="short-topic-note"></p>
       <label>Draft model</label>
       <select id="short-draft-model">
-        <option value="house" selected>House draft</option>
-        <option value="deepseek-v4.1-flash-1017-uncensored">DeepSeek V4.1 Flash</option>
-        <option value="glm-5.3-flash-uncensored">GLM-5.3 Flash</option>
-        <option value="kimi-k3.1-pro-uncensored">Kimi K3.1 Pro</option>
+        <optgroup label="Regular">
+          <option value="gemini:gemini-3.8-flash" selected>Gemini 3.8 Flash</option>
+          <option value="gemini:gemini-3.5-flash-lite">Gemini 3.5 Flash Lite</option>
+          <option value="openrouter:anthropic/claude-sonnet-5">Claude Sonnet 5</option>
+          <option value="openrouter:openai/gpt-5.5">GPT-5.5</option>
+          <option value="openrouter:google/gemini-3.1-pro-preview">Gemini 3.1 Pro</option>
+          <option value="openrouter:x-ai/grok-4.7">Grok 4.7</option>
+          <option value="venice:llama-3.3-70b">Llama 3.3 70B</option>
+          <option value="venice:z-ai-glm-5-3">GLM 5.3</option>
+        </optgroup>
+        <optgroup label="Uncensored">
+          <option value="venice:qwen-3-8-27b">Qwen 3.8 27B</option>
+          <option value="venice:deepseek-v4-1-flash-uncensored">DeepSeek V4.1 Flash Uncensored</option>
+          <option value="venice:gemma-4-uncensored">Gemma 4 Uncensored</option>
+          <option value="venice:qwen-3-6-plus">Qwen 3.6 Plus Uncensored</option>
+          <option value="venice:venice-uncensored-1-2">Venice Uncensored 1.2</option>
+          <option value="venice:venice-uncensored-role-play">Venice Role Play Uncensored</option>
+          <option value="venice:deepseek-v4-1-flash-1017-uncensored">DeepSeek V4.1 Flash 1017 Uncensored</option>
+          <option value="venice:e2ee-deepseek-v4-1-flash-1017-abliterated">DeepSeek V4.1 Flash 1017 Abliterated (E2EE)</option>
+          <option value="venice:glm-5-3-flash-uncensored">GLM 5.3 Flash Uncensored</option>
+          <option value="venice:olafangensan-glm-4.7-flash-heretic">GLM 4.7 Flash Heretic</option>
+          <option value="venice:abliteration-abliterated-model-large-v2">Abliterated Large V2</option>
+          <option value="venice:abliteration-abliterated-model-large-flash">Abliterated Large Flash</option>
+          <option value="venice:aion-labs-aion-3-5">Aion 3.5</option>
+          <option value="venice:aion-labs-aion-3-5-mini">Aion 3.5 Mini</option>
+          <option value="venice:aion-labs-aion-3-0-mini">Aion 3.0 Mini</option>
+          <option value="refuseless:glm-5.3-abliterated">GLM 5.3 Abliterated</option>
+          <option value="refuseless:glm-5.3-flash-abliterated">GLM 5.3 Flash Abliterated</option>
+          <option value="refuseless:deepseek-v4.1-flash-abliterated">DeepSeek V4.1 Flash 1017 Abliterated</option>
+          <option value="refuseless:deepseek-v4.1-flash-abliterated-fast">DeepSeek V4.1 Flash 1017 Fast Abliterated</option>
+          <option value="openrouter:cognitivecomputations/dolphin-mistral-24b-venice-edition">Dolphin Mistral 24B</option>
+          <option value="morph:morph-dsv41flash-abliterated">DeepSeek V4.1 Flash Abliterated</option>
+          <option value="deepseek-v4.1-flash-1017-uncensored">DeepSeek V4.1 Flash</option>
+          <option value="glm-5.3-flash-uncensored">GLM-5.3 Flash</option>
+          <option value="kimi-k3.1-pro-uncensored">Kimi K3.1 Pro</option>
+        </optgroup>
       </select>
     </div>
     <div id="short-script-wrap" style="display:none">
@@ -13317,10 +13557,42 @@ APP_HTML = (
     </div>
     <label>Draft model</label>
     <select id="drama-draft-model">
-      <option value="house" selected>House draft</option>
-      <option value="deepseek-v4.1-flash-1017-uncensored">DeepSeek V4.1 Flash</option>
-      <option value="glm-5.3-flash-uncensored">GLM-5.3 Flash</option>
-      <option value="kimi-k3.1-pro-uncensored">Kimi K3.1 Pro</option>
+      <optgroup label="Regular">
+        <option value="gemini:gemini-3.8-flash" selected>Gemini 3.8 Flash</option>
+        <option value="gemini:gemini-3.5-flash-lite">Gemini 3.5 Flash Lite</option>
+        <option value="openrouter:anthropic/claude-sonnet-5">Claude Sonnet 5</option>
+        <option value="openrouter:openai/gpt-5.5">GPT-5.5</option>
+        <option value="openrouter:google/gemini-3.1-pro-preview">Gemini 3.1 Pro</option>
+        <option value="openrouter:x-ai/grok-4.7">Grok 4.7</option>
+        <option value="venice:llama-3.3-70b">Llama 3.3 70B</option>
+        <option value="venice:z-ai-glm-5-3">GLM 5.3</option>
+      </optgroup>
+      <optgroup label="Uncensored">
+        <option value="venice:qwen-3-8-27b">Qwen 3.8 27B</option>
+        <option value="venice:deepseek-v4-1-flash-uncensored">DeepSeek V4.1 Flash Uncensored</option>
+        <option value="venice:gemma-4-uncensored">Gemma 4 Uncensored</option>
+        <option value="venice:qwen-3-6-plus">Qwen 3.6 Plus Uncensored</option>
+        <option value="venice:venice-uncensored-1-2">Venice Uncensored 1.2</option>
+        <option value="venice:venice-uncensored-role-play">Venice Role Play Uncensored</option>
+        <option value="venice:deepseek-v4-1-flash-1017-uncensored">DeepSeek V4.1 Flash 1017 Uncensored</option>
+        <option value="venice:e2ee-deepseek-v4-1-flash-1017-abliterated">DeepSeek V4.1 Flash 1017 Abliterated (E2EE)</option>
+        <option value="venice:glm-5-3-flash-uncensored">GLM 5.3 Flash Uncensored</option>
+        <option value="venice:olafangensan-glm-4.7-flash-heretic">GLM 4.7 Flash Heretic</option>
+        <option value="venice:abliteration-abliterated-model-large-v2">Abliterated Large V2</option>
+        <option value="venice:abliteration-abliterated-model-large-flash">Abliterated Large Flash</option>
+        <option value="venice:aion-labs-aion-3-5">Aion 3.5</option>
+        <option value="venice:aion-labs-aion-3-5-mini">Aion 3.5 Mini</option>
+        <option value="venice:aion-labs-aion-3-0-mini">Aion 3.0 Mini</option>
+        <option value="refuseless:glm-5.3-abliterated">GLM 5.3 Abliterated</option>
+        <option value="refuseless:glm-5.3-flash-abliterated">GLM 5.3 Flash Abliterated</option>
+        <option value="refuseless:deepseek-v4.1-flash-abliterated">DeepSeek V4.1 Flash 1017 Abliterated</option>
+        <option value="refuseless:deepseek-v4.1-flash-abliterated-fast">DeepSeek V4.1 Flash 1017 Fast Abliterated</option>
+        <option value="openrouter:cognitivecomputations/dolphin-mistral-24b-venice-edition">Dolphin Mistral 24B</option>
+        <option value="morph:morph-dsv41flash-abliterated">DeepSeek V4.1 Flash Abliterated</option>
+        <option value="deepseek-v4.1-flash-1017-uncensored">DeepSeek V4.1 Flash</option>
+        <option value="glm-5.3-flash-uncensored">GLM-5.3 Flash</option>
+        <option value="kimi-k3.1-pro-uncensored">Kimi K3.1 Pro</option>
+      </optgroup>
     </select>
     <p><button class="btn" id="drama-draft-btn" type="button">Draft my episode</button></p>
     <div id="drama-board" style="display:none">

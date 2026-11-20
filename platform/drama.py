@@ -22,7 +22,6 @@ import json
 import os
 import re
 
-from shorts import _gemini_text, _openrouter_text
 
 # The one lane Phase 1 generates on, the fixed episode format,
 # and the record caps the storyboard guards enforce.
@@ -53,36 +52,18 @@ _DRAMA_SHAPE = (
 )
 
 
-def write_drama_text(prompt: str, draft_model: str = "house") -> str:
-    """One drama drafting call over the platform's text routes,
-    in the shorts lane's order: Gemini first on the platform
-    key, then the free OpenRouter chain. When the draft picker
-    names a Silk model, that model writes first and the house
-    chain is its fallback (llm_providers.silk_draft_text gives
-    None on a missing key or any failure, the clean unfunded
-    lane behavior). Raises when every route is down, so the
-    caller can answer with a clean try again line."""
-    try:
-        import llm_providers
+def write_drama_text(prompt: str, draft_model: str = None) -> str:
+    """One drama drafting call with the picked draft model:
+    exactly that model writes, under Jack's model choice rule
+    (2026-11-20). The default pick is Gemini 3.8 Flash. When
+    the picked model cannot answer this raises
+    llm_providers.DraftModelUnavailable and no other model is
+    tried in its place, so the caller answers with a clean
+    failure that names the pick."""
+    import llm_providers
 
-        silk_text = llm_providers.silk_draft_text(prompt, draft_model)
-    except Exception:  # noqa: BLE001 - house chain is the fallback
-        silk_text = None
-    if silk_text:
-        return silk_text
-    errors = []
-    key = os.environ.get("GEMINI_API_KEY")
-    if key:
-        try:
-            return _gemini_text(prompt, key)
-        except Exception as exc:  # noqa: BLE001 - try the free chain
-            errors.append(str(exc))
-    try:
-        return _openrouter_text(prompt)
-    except Exception as exc:  # noqa: BLE001 - no route left
-        errors.append(str(exc))
-    raise RuntimeError(
-        "drama writing failed: " + "; ".join(errors)[:200])
+    return llm_providers.draft_text(
+        prompt, llm_providers.normalize_draft_model(draft_model))
 
 
 def _drama_prompt(source_mode: str, source_text: str) -> str:
@@ -221,11 +202,13 @@ def _parse_draft(raw: str) -> dict:
 
 
 def draft_episode(source_mode: str, source_text: str,
-                  draft_model: str = "house") -> dict:
+                  draft_model: str = None) -> dict:
     """Draft one storyboard from an idea or a script, through
-    the picked draft model (the house chain by default). One
+    the picked draft model (Gemini 3.8 Flash by default). One
     retry with a firmer format note when the first draft does
-    not fit the guards, then the guard's clean error stands."""
+    not fit the guards, then the guard's clean error stands.
+    The retry calls the same picked model; a pick that cannot
+    answer raises DraftModelUnavailable on the first call."""
     prompt = _drama_prompt(source_mode, source_text)
     try:
         return _parse_draft(write_drama_text(prompt, draft_model))

@@ -355,32 +355,31 @@ def _openrouter_text(prompt: str) -> str:
     raise RuntimeError(f"free script writing unavailable: {last_exc}")
 
 
-def _silk_draft_text(prompt: str, draft_model: str):
-    """The picked draft model's text when it is a Silk model
-    and Silk answers, else None. The draft picker (2026-11-20)
-    lives in llm_providers; None means run the house chain,
-    which is also what a missing Silk key gives, so an
-    unfunded Silk pick fails clean into the normal routes."""
-    try:
-        import llm_providers
+def _picked_draft_text(prompt: str, draft_model: str) -> str:
+    """The picked draft model's text, from exactly that model
+    (the draft picker lives in llm_providers). Under Jack's
+    model choice rule (2026-11-20) a pick is never silently
+    substituted: when the picked model cannot answer, this
+    raises llm_providers.DraftModelUnavailable and the caller
+    turns it into a clean failure that names the pick."""
+    import llm_providers
 
-        return llm_providers.silk_draft_text(prompt, draft_model)
-    except Exception:  # noqa: BLE001 - drafting falls back
-        return None
+    return llm_providers.draft_text(
+        prompt, llm_providers.normalize_draft_model(draft_model))
 
 
 def script_routes_configured() -> bool:
     """Whether any wired route could write a script from a
     topic: the platform Gemini key, the free picking fallback
-    chain, or a configured Silk draft route. The studio reads
-    this to offer topic mode only when it can work."""
+    chain, or any configured draft model route. The studio
+    reads this to offer topic mode only when it can work."""
     if os.environ.get("GEMINI_API_KEY"):
         return True
     try:
         import llm_providers
 
         return llm_providers.any_configured() \
-            or llm_providers.silk_configured()
+            or llm_providers.any_draft_configured()
     except Exception:  # noqa: BLE001 - module not shipped, no route
         return False
 
@@ -388,44 +387,21 @@ def script_routes_configured() -> bool:
 def script_from_topic(topic: str,
                       target_seconds: int =
                       SHORTS_DEFAULT_LENGTH_SECONDS,
-                      draft_model: str = "house") -> str:
-    """Write a script for a topic through the wired routes. The
-    house order is the Clip lane's: Gemini first (the primary
-    brain), the free OpenRouter chain after. When the draft
-    picker names a Silk model, that model writes first and the
-    house chain is its fallback, so the pick drives the call
-    and can never break the lane. The script is written to the
-    chosen length's plan. Returns script text the caller
-    validates with split_script. Raises RuntimeError when no
-    route is configured or every route fails; the create route
-    turns that into a clean ask for a pasted script."""
+                      draft_model: str = None) -> str:
+    """Write a script for a topic with the picked draft model:
+    exactly that model writes, under the model choice rule.
+    The default pick is Gemini 3.8 Flash. When the picked
+    model cannot answer, this raises
+    llm_providers.DraftModelUnavailable and no other model is
+    tried in its place; the create route turns that into a
+    clean failure that names the pick and asks for a pasted
+    script instead. Returns script text the caller validates
+    with split_script."""
     topic = (topic or "").strip()
     if not topic:
         raise ValueError("give the short a topic first")
     prompt = script_prompt(topic, target_seconds)
-    silk_text = _silk_draft_text(prompt, draft_model)
-    if silk_text:
-        return silk_text
-    errors = []
-    if os.environ.get("GEMINI_API_KEY"):
-        try:
-            return _gemini_text(prompt, os.environ["GEMINI_API_KEY"])
-        except Exception as exc:  # noqa: BLE001 - try the free chain
-            errors.append(str(exc))
-    try:
-        import llm_providers
-
-        configured = llm_providers.any_configured()
-    except Exception:  # noqa: BLE001
-        configured = False
-    if configured:
-        try:
-            return _openrouter_text(prompt)
-        except Exception as exc:  # noqa: BLE001
-            errors.append(str(exc))
-    if not errors:
-        raise RuntimeError("no script writing route is configured")
-    raise RuntimeError("script writing failed: " + "; ".join(errors)[:200])
+    return _picked_draft_text(prompt, draft_model)
 
 
 # ---------------------------------------------------------------------------
@@ -463,16 +439,15 @@ def _clean_helped_prompt(text: str) -> str:
     return cleaned[:2000]
 
 
-def improve_prompt(text: str, draft_model: str = "house",
+def improve_prompt(text: str, draft_model: str = None,
                    kind: str = "video") -> str:
     """Improve one generative prompt with the picked draft
     model (2026-11-20 expansion: every text to image and text
     to video prompt field in Create carries the draft picker).
-    A Silk pick writes first and the house chain (Gemini, then
-    the free OpenRouter chain) is its fallback, the same shape
-    as the topic writer, so the pick drives the call and can
-    never break the field. Raises RuntimeError when no route
-    is configured or every route fails."""
+    Exactly the picked model helps, under the model choice
+    rule; when it cannot answer this raises
+    llm_providers.DraftModelUnavailable and the field keeps
+    the user's own words, with the failure named in the UI."""
     text = (text or "").strip()
     if not text:
         raise ValueError("write a prompt first")
@@ -481,30 +456,8 @@ def improve_prompt(text: str, draft_model: str = "house",
             "that prompt is too long to help with, keep it "
             "under 1000 characters")
     prompt = prompt_help_instruction(text, kind)
-    silk_text = _silk_draft_text(prompt, draft_model)
-    if silk_text:
-        return _clean_helped_prompt(silk_text)
-    errors = []
-    if os.environ.get("GEMINI_API_KEY"):
-        try:
-            return _clean_helped_prompt(
-                _gemini_text(prompt, os.environ["GEMINI_API_KEY"]))
-        except Exception as exc:  # noqa: BLE001 - try the free chain
-            errors.append(str(exc))
-    try:
-        import llm_providers
-
-        configured = llm_providers.any_configured()
-    except Exception:  # noqa: BLE001
-        configured = False
-    if configured:
-        try:
-            return _clean_helped_prompt(_openrouter_text(prompt))
-        except Exception as exc:  # noqa: BLE001
-            errors.append(str(exc))
-    if not errors:
-        raise RuntimeError("no prompt help route is configured")
-    raise RuntimeError("prompt help failed: " + "; ".join(errors)[:200])
+    return _clean_helped_prompt(
+        _picked_draft_text(prompt, draft_model))
 
 
 # ---------------------------------------------------------------------------
