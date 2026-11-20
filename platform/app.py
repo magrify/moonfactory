@@ -10830,7 +10830,7 @@ x_api_key: str = Header(default="")):
         if not rec or rec.get("user_id") != user["id"]:
             raise HTTPException(
                 status_code=404,
-                detail="that draft is gone. Draft your episode again.")
+                detail="that episode plan is gone. Write your episode again.")
         if rec.get("parent_job_id"):
             raise HTTPException(
                 status_code=409,
@@ -13088,7 +13088,7 @@ APP_HTML = (
     <div id="start-gen-wrap" style="display:none">
       <label>Describe the first frame</label>
       <textarea id="image-prompt" rows="2" maxlength="1000" placeholder="a red hot air balloon over rolling green hills at sunrise, bright daylight"></textarea>
-      <label>Draft model</label>
+      <label>Improve my prompt</label>
       <select id="start-draft-model">
         <optgroup label="Regular Models">
           <option value="gemini:gemini-3.8-flash" selected>Gemini 3.8 Flash</option>
@@ -13137,7 +13137,7 @@ APP_HTML = (
     <label class="flabel" for="prompt" style="margin-top:6px">Prompt</label>
     <textarea id="prompt" rows="4" class="composer-prompt" placeholder="Describe what happens… e.g. a red hot air balloon rising over green hills, gentle forward camera movement, bright daylight"></textarea>
     <div id="prompt-help-wrap">
-      <label class="flabel" for="prompt-draft-model">Draft model</label>
+      <label class="flabel" for="prompt-draft-model">Improve my prompt</label>
       <select id="prompt-draft-model">
         <optgroup label="Regular Models">
           <option value="gemini:gemini-3.8-flash" selected>Gemini 3.8 Flash</option>
@@ -13194,7 +13194,7 @@ APP_HTML = (
       <div id="image-gen-prompt-wrap">
         <label class="flabel" for="image-gen-prompt">Prompt</label>
         <textarea id="image-gen-prompt" rows="3" placeholder="Describe the image… e.g. a lighthouse at dusk, waves crashing, dramatic sky"></textarea>
-        <label class="flabel" for="image-draft-model">Draft model</label>
+        <label class="flabel" for="image-draft-model">Improve my prompt</label>
         <select id="image-draft-model">
           <optgroup label="Regular Models">
             <option value="gemini:gemini-3.8-flash" selected>Gemini 3.8 Flash</option>
@@ -13242,7 +13242,7 @@ APP_HTML = (
         <p class="muted">This model edits one image you upload, following the instruction in the prompt. The result comes back at the same size as your image.</p>
         <label class="flabel" for="image-edit-prompt">What should change in your image</label>
         <textarea id="image-edit-prompt" rows="3" placeholder="change the jacket to black leather, keep the face, the pose and the room exactly the same"></textarea>
-        <label class="flabel" for="image-edit-draft-model">Draft model</label>
+        <label class="flabel" for="image-edit-draft-model">Improve my prompt</label>
         <select id="image-edit-draft-model">
           <optgroup label="Regular Models">
             <option value="gemini:gemini-3.8-flash" selected>Gemini 3.8 Flash</option>
@@ -13424,7 +13424,7 @@ APP_HTML = (
         <option value="120">2 minutes</option>
       </select>
       <p class="muted" id="short-topic-note"></p>
-      <label>Draft model</label>
+      <label>Improve my prompt</label>
       <select id="short-draft-model">
         <optgroup label="Regular Models">
           <option value="gemini:gemini-3.8-flash" selected>Gemini 3.8 Flash</option>
@@ -13558,7 +13558,7 @@ APP_HTML = (
       <label>Your script</label>
       <textarea id="drama-script" rows="8" maxlength="4000" placeholder="Write the story with the lines people say. We shape it into four short shots."></textarea>
     </div>
-    <label>Draft model</label>
+    <label>Improve my prompt</label>
     <select id="drama-draft-model">
       <optgroup label="Regular Models">
         <option value="gemini:gemini-3.8-flash" selected>Gemini 3.8 Flash</option>
@@ -13597,7 +13597,7 @@ APP_HTML = (
         <option value="kimi-k3.1-pro-uncensored">Kimi K3.1 Pro</option>
       </optgroup>
     </select>
-    <p><button class="btn" id="drama-draft-btn" type="button">Draft my episode</button></p>
+    <p><button class="btn" id="drama-draft-btn" type="button">Write my episode</button></p>
     <div id="drama-board" style="display:none">
       <h3 id="drama-title"></h3>
       <p class="muted" id="drama-summary"></p>
@@ -16241,7 +16241,7 @@ async function dramaQuoteRefresh() {
   } catch (e) { line.textContent = ''; }
 }
 function buildDrama() {
-  if (!dramaState) { msg('drama-msg', 'Draft your episode first.', 'err'); return null; }
+  if (!dramaState) { msg('drama-msg', 'Write your episode first.', 'err'); return null; }
   if (!dramaReady()) {
     msg('drama-msg', 'Each person needs a picture, and everyone and the place need to be marked as looking right.', 'err');
     return null;
