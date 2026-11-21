@@ -1291,6 +1291,7 @@ def assemble_short(scene_paths: list, scene_durations: list,
            "-map", "0:v:0", "-map", "[aout]",
            "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
            "-c:a", "aac", "-b:a", "160k",
+           "-movflags", "+faststart",
            "-t", f"{total:.3f}", str(out_path)]
     _run(cmd, timeout=1200, cwd=work_dir)
     return probe(out_path)

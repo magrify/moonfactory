@@ -9520,6 +9520,59 @@ def api():
             data_volume.commit()
         return out_path
 
+    def _moov_first(path: Path) -> bool:
+        """True when the mp4's index (moov) sits ahead of its
+        media data (mdat), the layout phones can start playing
+        from the first bytes. Several producers write the index
+        at the end instead, and phone browsers sit on a black
+        player rather than fetch the tail first."""
+        try:
+            with open(path, "rb") as fh:
+                head = fh.read(1 << 20)
+        except Exception:
+            return True
+        moov = head.find(b"moov")
+        mdat = head.find(b"mdat")
+        if moov == -1:
+            return False
+        return mdat == -1 or moov < mdat
+
+    def ensure_web_file(job: dict, src: Path) -> Path:
+        """The copy of a finished video the players are served:
+        the delivered file itself when its index is already up
+        front, else a one time stream copy remux with the index
+        moved to the front, cached beside it. No re-encode, the
+        picture and sound are byte identical streams."""
+        if _moov_first(src):
+            return src
+        web_path = FILES_DIR / f"{job['id']}.web.mp4"
+        if not web_path.exists():
+            try:
+                data_volume.reload()
+            except Exception:
+                pass
+        if web_path.exists() and _moov_first(web_path):
+            return web_path
+        tmp_path = FILES_DIR / f"{job['id']}.web.tmp.mp4"
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+        try:
+            subprocess.run(
+                ["ffmpeg", "-y", "-i", str(src), "-c", "copy",
+                 "-movflags", "+faststart", str(tmp_path)],
+                check=True, capture_output=True, timeout=600)
+            tmp_path.replace(web_path)
+            data_volume.commit()
+        except Exception:
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+            return src
+        return web_path
+
     def ensure_poster(job: dict) -> Path:
         """The preview picture for a finished video, its first
         frame, cut with ffmpeg the first time anyone needs it and
@@ -9609,8 +9662,28 @@ def api():
             ensure_poster(job)
         except Exception:
             pass
-        return FileResponse(out_path, media_type="video/mp4",
+        # Players get the web copy (index up front) inline, not
+        # as a download: an attachment header plus an index at
+        # the end of the file leaves phone browsers on a black
+        # player (Jack, 2026-11-21).
+        resp = FileResponse(ensure_web_file(job, out_path),
+                            media_type="video/mp4",
                             filename=f"moonfactory-{job_id}.mp4")
+        resp.headers["content-disposition"] = (
+            f'inline; filename="moonfactory-{job_id}.mp4"')
+        return resp
+
+    @web.get("/api/jobs/{job_id}/poster")
+    def job_poster(job_id: str, request: Request, mf_session: str = Cookie(default="")):
+        user = require_user(request, mf_session)
+        job = jobs.get(job_id)
+        if not job or job.get("user_id") != user["id"]:
+            raise HTTPException(status_code=404, detail="unknown job")
+        job = mirror_status(job)
+        if job["status"] != "done" or job.get("kind") == "image":
+            raise HTTPException(status_code=409, detail="no poster")
+        return FileResponse(ensure_poster(job), media_type="image/jpeg",
+                            filename=f"moonfactory-{job_id}.jpg")
 
     @web.delete("/api/jobs/{job_id}")
     def delete_job(job_id: str, request: Request, mf_session: str = Cookie(default="")):
@@ -9655,6 +9728,7 @@ def api():
                 del dramas[rec["id"]]
         del jobs[job_id]
         for path in (FILES_DIR / f"{job_id}.mp4",
+                     FILES_DIR / f"{job_id}.web.mp4",
                      FILES_DIR / f"{job_id}.raw.mp4",
                      FILES_DIR / f"{job_id}.png",
                      FILES_DIR / "beds" / f"{job_id}.wav"):
@@ -11838,8 +11912,12 @@ x_api_key: str = Header(default="")):
             ensure_poster(job)
         except Exception:
             pass
-        return FileResponse(out_path, media_type="video/mp4",
+        resp = FileResponse(ensure_web_file(job, out_path),
+                            media_type="video/mp4",
                             filename=f"moonfactory-{job_id}.mp4")
+        resp.headers["content-disposition"] = (
+            f'inline; filename="moonfactory-{job_id}.mp4"')
+        return resp
 
     @web.get("/gallery/{job_id}/poster")
     def gallery_poster(job_id: str):
@@ -16298,7 +16376,7 @@ async function loadJobs() {
         '<br><span class="muted">Music made for this video from its music prompt</span>';
       if (j.status === 'done' && j.kind === 'image') html += '<br><img class="thumb" src="/api/jobs/' + j.id + '/file" alt="">' +
         '<br>' + saveControlHtml(j.id, 'image');
-      if (j.status === 'done' && j.kind !== 'image') html += '<br><video controls src="/api/jobs/' + j.id + '/file"></video>' +
+      if (j.status === 'done' && j.kind !== 'image') html += '<br><video controls playsinline preload="metadata" poster="/api/jobs/' + j.id + '/poster" src="/api/jobs/' + j.id + '/file"></video>' +
         '<br>' + saveControlHtml(j.id, 'video');
       if (j.status === 'done' && j.kind === 'drama') html +=
         '<br><button class="btn secondary" data-drama-fix="' + j.id + '">Fix a shot</button>' +
@@ -16337,7 +16415,7 @@ function renderClipResults(jobs) {
     let h = '<strong>' + (j.hook || 'Clip') + '</strong> · ' + (j.duration_seconds || '') + 's';
     if (j.score !== null && j.score !== undefined) h += ' · Score ' + j.score;
     if (j.has_thumb) h += '<br><img class="thumb" src="/api/jobs/' + j.id + '/thumb" alt="">';
-    h += '<br><video controls src="/api/jobs/' + j.id + '/file"></video>' +
+    h += '<br><video controls playsinline preload="metadata" poster="/api/jobs/' + j.id + '/poster" src="/api/jobs/' + j.id + '/file"></video>' +
       '<br>' + saveControlHtml(j.id, 'video');
     d.innerHTML = h; box.appendChild(d);
   }
