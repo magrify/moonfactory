@@ -3176,6 +3176,21 @@ def api():
         untouched."""
         return bool(user and user.get("is_owner"))
 
+    def bot_check_ok(req_body: dict, remote_ip: str,
+                     user: dict = None) -> bool:
+        """The bot check (Turnstile token or proof of work) with
+        the owner exemption (Jack, 2026-11-21): once the owner
+        account is signed in, the human check wall is off for
+        that account only. The decision reads the same is_owner
+        flag on the server-resolved session record as the
+        pricing exemption; nothing the client sends (no email
+        field, header, or flag in the body) can claim it. Every
+        other account, and every signed-out call, runs
+        _verify_bot_check exactly as before."""
+        if is_owner(user):
+            return True
+        return _verify_bot_check(req_body, remote_ip)
+
     def ceiling_allows(user: dict, worst_case_cost_cents: float) -> bool:
         """Rule 3, Amendment 2: the hard per-account cost ceiling.
         An account is never served more generation cost (settled
@@ -3289,6 +3304,11 @@ def api():
             "verified": user["verified"],
             "plan": user["plan"],
             "paid_customer": is_paid(user),
+            # The owner flag rides the same record the pricing
+            # exemption reads (is_owner above); the studio uses
+            # it to drop the bot check wall for the owner
+            # account only (Jack, 2026-11-21).
+            "is_owner": is_owner(user),
             # The access model (Jack, 2026-11-16; surfaces merged
             # 2026-11-19): there is one composer surface, Create,
             # for every account, and it is the page's first paint.
@@ -7880,7 +7900,7 @@ def api():
         if user.get("past_due"):
             raise HTTPException(status_code=403, detail="your subscription payment is past due")
         body = await request.json()
-        if not _verify_bot_check(body, client_ip(request)):
+        if not bot_check_ok(body, client_ip(request), user):
             raise HTTPException(status_code=403, detail="bot check failed")
         # The default model is Wan 2.2 for every account (Rule 3,
         # Amendment 2); a bigger model is always an active choice.
@@ -8570,7 +8590,7 @@ def api():
         if user.get("past_due"):
             raise HTTPException(status_code=403, detail="your subscription payment is past due")
         body = await request.json()
-        if not _verify_bot_check(body, client_ip(request)):
+        if not bot_check_ok(body, client_ip(request), user):
             raise HTTPException(status_code=403, detail="bot check failed")
         prompt, aspect = _image_params(body)
         if body.get("image_model"):
@@ -9738,7 +9758,7 @@ def api():
         if user.get("past_due"):
             raise HTTPException(status_code=403, detail="your subscription payment is past due")
         body = await request.json()
-        if not _verify_bot_check(body, client_ip(request)):
+        if not bot_check_ok(body, client_ip(request), user):
             raise HTTPException(status_code=403, detail="bot check failed")
         if not is_paid(user):
             raise HTTPException(status_code=403, detail="clipping is a paid feature")
@@ -9997,7 +10017,7 @@ def api():
         if user.get("past_due"):
             raise HTTPException(status_code=403, detail="your subscription payment is past due")
         body = await request.json()
-        if not _verify_bot_check(body, client_ip(request)):
+        if not bot_check_ok(body, client_ip(request), user):
             raise HTTPException(status_code=403, detail="bot check failed")
         template_id = str(body.get("template") or "")
         try:
@@ -10619,7 +10639,7 @@ x_api_key: str = Header(default="")):
         if user.get("past_due"):
             raise HTTPException(status_code=403, detail="your subscription payment is past due")
         body = await request.json()
-        if not _verify_bot_check(body, client_ip(request)):
+        if not bot_check_ok(body, client_ip(request), user):
             raise HTTPException(status_code=403, detail="bot check failed")
         topic = (body.get("topic") or "").strip()
         if len(topic) > 200:
@@ -11353,7 +11373,7 @@ x_api_key: str = Header(default="")):
         if user.get("past_due"):
             raise HTTPException(status_code=403, detail="your subscription payment is past due")
         body = await request.json()
-        if not _verify_bot_check(body, client_ip(request)):
+        if not bot_check_ok(body, client_ip(request), user):
             raise HTTPException(status_code=403, detail="bot check failed")
         if not is_paid(user):
             raise HTTPException(
@@ -11548,7 +11568,7 @@ x_api_key: str = Header(default="")):
         if user.get("past_due"):
             raise HTTPException(status_code=403, detail="your subscription payment is past due")
         body = await request.json()
-        if not _verify_bot_check(body, client_ip(request)):
+        if not bot_check_ok(body, client_ip(request), user):
             raise HTTPException(status_code=403, detail="bot check failed")
         job = jobs.get(job_id)
         if not job or job.get("user_id") != user["id"] \
@@ -14442,7 +14462,15 @@ async function solvePow() {
 // resets the widget and waits for a fresh token before submitting.
 const botWidgets = {};
 const botHandedOut = {};
+// Owner exemption (Jack, 2026-11-21): set from /api/me's
+// is_owner when the signed-in account is the owner account.
+// While set, no widget renders and no submit waits for a
+// token or proof of work; the server makes the same decision
+// from the session record itself, so this flag only controls
+// what the page shows, never what the server accepts.
+let botExempt = false;
 async function botFields(containerId) {
+  if (botExempt) return {};
   if (cfg.turnstile_site_key) {
     const wid = botWidgets[containerId];
     const readApi = () => {
@@ -14472,6 +14500,7 @@ async function botFields(containerId) {
   return await solvePow();
 }
 function renderBotChecks() {
+  if (botExempt) return;
   if (cfg.turnstile_site_key && window.turnstile) {
     for (const id of ['botcheck', 'botcheck2', 'botcheck3', 'botcheck4', 'botcheck5', 'botcheck6']) {
       if (!document.getElementById(id)) continue;
@@ -14481,6 +14510,21 @@ function renderBotChecks() {
         'error-callback': () => { try { turnstile.reset(botWidgets[id]); } catch (e) {} },
       });
     }
+  }
+}
+function dropBotChecks() {
+  // The signed-in account is the owner: take the wall down.
+  // Any widget already rendered is removed and its container
+  // emptied, and botExempt keeps later renders and submits
+  // from ever asking for a token again on this page.
+  botExempt = true;
+  for (const id of Object.keys(botWidgets)) {
+    if (window.turnstile) {
+      try { turnstile.remove(botWidgets[id]); } catch (e) {}
+    }
+    delete botWidgets[id];
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = '';
   }
 }
 async function api(path, opts) {
@@ -14921,6 +14965,7 @@ async function fireCreate(d) {
 // an account holding a stored creation from sign-up claims it.
 async function afterSignIn(u) {
   currentUser = u;
+  if (u.is_owner) dropBotChecks();
   if (pendingCreate) {
     const d = pendingCreate;
     pendingCreate = null;
