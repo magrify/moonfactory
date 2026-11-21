@@ -10534,7 +10534,12 @@ x_api_key: str = Header(default="")):
             raise HTTPException(
                 status_code=503,
                 detail="The writing route is busy. Try again in a moment.")
-        return {"text": improved, "draft_model": draft_model}
+        # The unchanged flag (Jack, 2026-11-21): a pick can
+        # send the words back untouched, and the page must
+        # say so instead of calling it an update.
+        return {"text": improved, "draft_model": draft_model,
+                "unchanged": shorts.help_unchanged(
+                    text, improved, kind)}
 
     # -- faceless shorts lane ----------------------------------------------
     # The MoneyPrinterTurbo shape on the platform's own pieces
@@ -16410,6 +16415,13 @@ async function promptHelp(textId, modelId, kind, msgId, btn, noun) {
   try {
     const r = await api('/api/prompt-help', { method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ text, kind, draft_model: $(modelId).value }) });
+    if (r.unchanged) {
+      // The pick sent the words back untouched (Jack,
+      // 2026-11-21): say so plainly, never call it an
+      // update, and leave the field exactly as it was.
+      msg(msgId, 'That model sent your ' + what + ' back unchanged. Try another model or add more to your ' + what + ' first.');
+      return;
+    }
     ta.value = r.text;
     msg(msgId, 'Your ' + what + ' is updated. Read it over and change anything you like.', 'ok');
   } catch (e) { msg(msgId, e.message, 'err'); }

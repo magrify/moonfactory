@@ -220,9 +220,18 @@ try:
     # Script help (the shorts form's Improve my script pick,
     # 2026-11-20): the instruction keeps the line breaks and
     # the helped script comes back with its lines intact, at
-    # the script cap rather than the prompt cap.
+    # the script cap rather than the prompt cap. The script
+    # below runs over the short script expansion threshold
+    # (2026-11-21), so it takes the polish only instruction.
+    polish_script = (
+        "First line of a longer script that talks about the "
+        "morning rush at the diner and the people who come "
+        "in early for coffee and pie.\n"
+        "Second line keeps going with more of the story so "
+        "the whole script is long enough to count as a real "
+        "script for polishing.")
     check("keep the line breaks"
-          in shorts.prompt_help_instruction("one\ntwo", "script"),
+          in shorts.prompt_help_instruction(polish_script, "script"),
           "script help asks for the line breaks kept")
     llm_providers._gemini_chat = lambda prompt, api_key, model: \
         '"First line, clearer now.\nSecond line follows it."'

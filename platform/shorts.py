@@ -59,6 +59,13 @@ SHORTS_MAX_LINES = 20
 SHORTS_MAX_SCRIPT_CHARS = 2200
 SHORTS_MAX_LINE_CHARS = 300
 SHORTS_MIN_LINES = 2
+# A script under this many words is a fragment, not a script:
+# Improve my script expands it into full narration lines
+# about the same subject instead of polishing it, because a
+# three word line has nothing to polish and comes back word
+# for word (Jack, 2026-11-21). Scripts at or over the
+# threshold keep the polish only instruction exactly.
+SHORT_SCRIPT_EXPAND_WORDS = 40
 # Spoken pace the length math plans on, about 150 words a
 # minute. Topic mode writes to a chosen target length; script
 # mode's estimate reads the same pace back to the customer.
@@ -417,8 +424,23 @@ def prompt_help_instruction(text: str, kind: str) -> str:
     The script kind (the Faceless shorts form's Improve my
     script pick, Jack, 2026-11-20) rewrites a narration script
     instead: same facts, same order, one line for each scene,
-    and the line breaks kept, because one line is one scene."""
+    and the line breaks kept, because one line is one scene.
+    A very short script (under SHORT_SCRIPT_EXPAND_WORDS
+    words) has nothing to polish, so its instruction instead
+    expands it into full narration lines about the same
+    subject (Jack, 2026-11-21)."""
     if kind == "script":
+        if len(text.split()) < SHORT_SCRIPT_EXPAND_WORDS:
+            return (
+                "Turn the short script below into a full "
+                "narration script about the same subject. "
+                "Write full spoken lines, one line for each "
+                "scene, keeping the subject and any facts "
+                "given in it. Use plain language that reads "
+                "well out loud. Keep the whole script under "
+                "1500 characters. Return only the script, "
+                "with no words before or after it and no "
+                "quotation marks. Script follows. " + text)
         return (
             "Rewrite the narration script below so it reads "
             "better out loud. Keep the same facts in the same "
@@ -495,6 +517,23 @@ def improve_prompt(text: str, draft_model: str = None,
     prompt = prompt_help_instruction(text, kind)
     return _clean_helped_prompt(
         _picked_draft_text(prompt, draft_model))
+
+
+def help_unchanged(text: str, improved: str, kind: str) -> bool:
+    """True when a prompt help answer is the submitted text
+    itself, compared the way the answer was cleaned: the
+    picked model sent the words back untouched, so the page
+    must say so instead of calling it an update (Jack,
+    2026-11-21). Scripts compare line by line with blank
+    lines dropped; prompts compare with whitespace folded,
+    matching _clean_helped_script and _clean_helped_prompt."""
+    if kind == "script":
+        submitted = "\n".join(
+            line.strip() for line in (text or "").splitlines()
+            if line.strip())
+    else:
+        submitted = re.sub(r"\s+", " ", text or "").strip()
+    return bool(submitted) and submitted == (improved or "")
 
 
 # ---------------------------------------------------------------------------
