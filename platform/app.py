@@ -2895,8 +2895,9 @@ def _session_secret() -> str:
     return os.environ.get("SESSION_SECRET", "")
 
 
-def _make_session(user_id: str) -> str:
-    payload = {"uid": user_id, "exp": int(_now()) + 7 * 24 * 3600}
+def _make_session(user_id: str, epoch: str = "") -> str:
+    payload = {"uid": user_id, "exp": int(_now()) + 7 * 24 * 3600,
+               "ep": epoch}
     raw = json.dumps(payload, separators=(",", ":")).encode()
     import base64
 
@@ -2918,7 +2919,7 @@ def _read_session(token: str):
         payload = json.loads(base64.urlsafe_b64decode(body + "=" * (-len(body) % 4)))
         if payload.get("exp", 0) < _now():
             return None
-        return payload.get("uid")
+        return payload
     except Exception:
         return None
 
@@ -3104,10 +3105,22 @@ def api():
         return os.environ.get("PUBLIC_BASE_URL") or str(request.base_url).rstrip("/")
 
     def current_user(request: Request, mf_session: str = Cookie(default="")):
-        uid = _read_session(mf_session) if mf_session else None
-        if not uid:
+        payload = _read_session(mf_session) if mf_session else None
+        if not payload:
             return None
-        return users.get(f"id:{uid}")
+        user = users.get(f"id:{payload.get('uid')}")
+        if not user:
+            return None
+        # Logout revokes server side: logging out stamps a fresh
+        # session epoch on the account, and only tokens minted
+        # under the current epoch are honored. A browser that
+        # keeps a stale cookie (a deletion it did not apply, a
+        # duplicate under another path) is still signed out,
+        # because its token carries the old epoch.
+        epoch = user.get("session_epoch")
+        if epoch and payload.get("ep") != epoch:
+            return None
+        return user
 
     def require_user(request: Request, mf_session: str = Cookie(default="")):
         user = current_user(request, mf_session)
@@ -3883,15 +3896,32 @@ def api():
             raise HTTPException(status_code=401, detail="email or password is wrong")
         resp = JSONResponse({"status": "ok", "user": public_user(user)})
         resp.set_cookie(
-            "mf_session", _make_session(user["id"]),
+            "mf_session", _make_session(user["id"],
+                                        user.get("session_epoch", "")),
             max_age=7 * 24 * 3600, httponly=True, samesite="lax",
         )
         return resp
 
     @web.post("/api/logout")
-    def logout():
+    def logout(request: Request, mf_session: str = Cookie(default="")):
+        # Revoke first, then clear: stamping a new session epoch
+        # kills the token this browser holds even if the browser
+        # never applies the cookie deletion below.
+        user = current_user(request, mf_session)
+        if user:
+            import uuid
+
+            user["session_epoch"] = uuid.uuid4().hex
+            save_user(user)
         resp = JSONResponse({"status": "ok"})
         resp.delete_cookie("mf_session")
+        # Belt and braces: also expire any duplicate of the
+        # cookie sitting under the studio path.
+        resp.headers.append(
+            "set-cookie",
+            'mf_session=""; expires=Thu, 01 Jan 1970 00:00:00 GMT; '
+            "Max-Age=0; Path=/app; SameSite=lax",
+        )
         return resp
 
     @web.get("/api/me")
@@ -15185,7 +15215,7 @@ document.querySelectorAll('[data-close-panel]').forEach(b => {
 for (const pid of ['panel-account', 'panel-billing']) {
   $(pid).addEventListener('click', e => { if (e.target === $(pid)) closePanels(); });
 }
-$('menu-logout').onclick = async () => { await api('/api/logout', { method: 'POST' }); location.reload(); };
+$('menu-logout').onclick = async () => { try { await api('/api/logout', { method: 'POST' }); } catch (e) {} location.reload(); };
 
 let currentUser = null;
 // The access model: one composer surface, Create, for every
