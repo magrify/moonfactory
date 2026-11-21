@@ -15,8 +15,8 @@ modal-worker/audio_app.py and exercised against plain data and
 fake speak/transcribe callables, and the platform wrapper's
 placement and failure handling are asserted in app.py source.
 
-Run:  python3 scratch/check_word_check.py
-(system python carries numpy; the modal-venv does not)
+Run:  ~/workspace/sinclip/modal-venv/bin/python scratch/check_word_check.py
+(the modal-venv carries numpy, installed 2026-11-21)
 """
 import ast
 import sys
@@ -263,8 +263,37 @@ check(body.index("_word_check_for_job(job, out_path)")
       > body.index("_process_file(raw_path, out_path"),
       "the word check runs before the final mux, not after it")
 
-check(APP_SRC.count('"word_check_status": None,') == 3,
-      "job creation paths do not all initialize word_check_status")
+# Every job record created with a speech script must initialize
+# word_check_status to None: the finishing stage reads the field
+# to decide whether the check already ran. The expected set is
+# derived from app.py itself (job record literals carrying a
+# speech_script key), never a hard-coded count: the drama lane
+# added two speech creation paths on 2026-11-19 (the shot child in
+# _drama_create_shot_job and the parent episode in create_drama)
+# and the old hard-coded 3 went stale without any path being
+# wrong. Records with no speech script (images, clips, templates,
+# the drama draft) can never enter the word check, whose wrapper
+# returns at once without a script, so they stay out of the set.
+speech_jobs = []
+for node in ast.walk(APP_TREE):
+    if isinstance(node, ast.Dict):
+        vals = {k.value: v for k, v in zip(node.keys, node.values)
+                if isinstance(k, ast.Constant)
+                and isinstance(k.value, str)}
+        if "speech_script" in vals and "user_id" in vals \
+                and "status" in vals and "created_at" in vals:
+            speech_jobs.append((node, vals))
+check(bool(speech_jobs),
+      "no speech job creation paths found in app.py")
+for node, vals in speech_jobs:
+    wc = vals.get("word_check_status")
+    check(isinstance(wc, ast.Constant) and wc.value is None,
+          f"the job creation path at app.py line {node.lineno} "
+          "does not initialize word_check_status")
+check(APP_SRC.count('"word_check_status": None,')
+      == len(speech_jobs),
+      "word_check_status initializations do not match the speech "
+      "job creation paths")
 check('"word_check_status": job.get("word_check_status")' in APP_SRC,
       "the job payload does not expose word_check_status")
 check('"word_check_listen_at": job.get("word_check_listen_at")'
