@@ -96,6 +96,14 @@ LANE_WORKFLOWS = {
 NSFW_LORA_HIGH = "NSFW-22-H-e8.safetensors"
 NSFW_LORA_LOW = "NSFW-22-L-e8.safetensors"
 NSFW_LANE = "nsfw"
+# Krea 2 Verite (2026-11-21): the lane's baked negative, the
+# quality half of the proven test kernel's negative (the
+# test's clothing exclusion was proof-only and is not a lane
+# default). The positive's trigger words are stamped by the
+# platform at queue time, not here.
+KREA2_NEGATIVE_PROMPT = (
+    "cartoon, anime, illustration, painting, cgi, 3d render, "
+    "blurry, deformed, extra limbs, watermark, text")
 ASPECT_RATIOS = ("9:16", "16:9", "1:1")
 
 # Which model families a job needs on disk before it renders.
@@ -107,6 +115,7 @@ JOB_FAMILIES = {
     "effects": ("shared", "effects"),
     "image": ("image",),
     "klein": ("klein",),
+    "krea2": ("krea2",),
 }
 # Keep at least this much disk free after staging a family.
 DISK_RESERVE_BYTES = 6 * 1024 ** 3
@@ -342,6 +351,40 @@ def build_klein_image_workflow(prompt: str, seed: int,
             inputs["width"] = width
             inputs["height"] = height
         elif ct == "Flux2Scheduler":
+            inputs["width"] = width
+            inputs["height"] = height
+        elif ct == "SaveImage":
+            inputs["filename_prefix"] = prefix or "sinclip/api_image"
+    return workflow
+
+
+def build_krea2_image_workflow(prompt: str, seed: int,
+                               width: int = 832, height: int = 1216,
+                               prefix: str = ""):
+    # Krea 2 Verite (2026-11-21): the Verite realism LoRA on
+    # Comfy-Org's int8 convrot build of Krea-2-Raw, the graph
+    # the standalone Kaggle test proved end to end the same
+    # day. UNETLoader into LoraLoaderModelOnly at the card's
+    # 0.8 strength, the Qwen3VL 4B FP8 encoder loaded as type
+    # krea2, the Qwen image VAE, 30 steps at cfg 4.5, euler
+    # on the simple scheduler, a real negative (the lane's
+    # baked quality negative), and the sold sizes as pixel
+    # dimensions, the tested 832x1216 frame leading. The
+    # prompt arrives with its trigger words already stamped
+    # by the platform.
+    workflow = json.loads(
+        json.dumps(WORKFLOW_TEMPLATES["krea2_verite_t2i.json"]))
+    for node in workflow.values():
+        ct = node.get("class_type")
+        inputs = node.get("inputs", {})
+        if ct == "CLIPTextEncode":
+            if inputs.get("text") == "PLACEHOLDER_POSITIVE_PROMPT":
+                inputs["text"] = prompt
+            elif inputs.get("text") == "PLACEHOLDER_NEGATIVE_PROMPT":
+                inputs["text"] = KREA2_NEGATIVE_PROMPT
+        elif ct == "KSampler":
+            inputs["seed"] = seed
+        elif ct == "EmptyLatentImage":
             inputs["width"] = width
             inputs["height"] = height
         elif ct == "SaveImage":
@@ -1017,6 +1060,38 @@ def run_video_job(job: dict) -> dict:
 
 
 def run_image_job(job: dict) -> dict:
+    if job.get("image_model") == "krea2_verite":
+        # Krea 2 Verite (2026-11-21): the uncensored Krea 2
+        # lane on this worker. Same discipline as the Klein
+        # branch below: stage the family, restart ComfyUI
+        # when the model set changed under it, render, and
+        # let the caller's upload carry the result. The sold
+        # sizes are pixel dimensions on the job record; the
+        # tested frame is the fallback.
+        if ensure_families(JOB_FAMILIES["krea2"]):
+            restart_comfy()
+        started = time.time()
+        width, height = 832, 1216
+        try:
+            w_s, h_s = str(
+                job.get("image_size") or "832x1216").split("x", 1)
+            width, height = int(w_s), int(h_s)
+        except Exception:
+            pass
+        workflow = build_krea2_image_workflow(
+            job.get("prompt") or "", int(job.get("seed") or 12345),
+            width, height,
+            prefix=f"sinclip/api_image_{job['id']}")
+        check_nodes(workflow)
+        data, exec_seconds = run_image_workflow(workflow)
+        return {
+            "data": data,
+            "render_seconds": round(time.time() - started, 1),
+            "exec_seconds": round(float(exec_seconds or 0), 1),
+            "segments_done": 1,
+            "partial": False,
+            "partial_error": "",
+        }
     if job.get("image_model") == "flux2_klein4b":
         # The FLUX.2 Klein 4B fallback (2026-11-20): the
         # Cloudflare free lane's jobs land here once the day's

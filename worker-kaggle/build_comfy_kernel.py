@@ -32,6 +32,7 @@ WORKFLOW_FILES = (
     "effects_i2v.json",
     "z_image_t2i.json",
     "flux2_klein_t2i.json",
+    "krea2_verite_t2i.json",
 )
 
 

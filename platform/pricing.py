@@ -1353,6 +1353,34 @@ IMAGE_LANES = {
                       "1536x1024": 1.9, "2048x2048": 1.9,
                       "2560x1440": 1.9, "1440x2560": 1.9},
     },
+    "krea2_verite": {
+        # Krea 2 Verite (2026-11-21): the Verite realism
+        # LoRA (f23gg/Krea-2-NSFW-V5) on Comfy-Org's int8
+        # convrot build of Krea-2-Raw, running on the house
+        # Kaggle ComfyUI worker like the house image lane,
+        # not on a provider API. The lane rides the shelf
+        # for its picker entry, its paid gate and its per
+        # image charge, then converts to the house job shape
+        # at submit (see _queue_krea2_on_kaggle in app.py).
+        # The raw figure is a price basis, not a provider
+        # bill: it matches the Z-Image Pro uncensored lane's
+        # raw, so the customer price takes the same shape
+        # (raw x FRONTIER_MIN_MARKUP = 2.375c, the $ band).
+        # The route's true raw cost is $0 on Kaggle's free
+        # compute, and that is what the owner pays
+        # (image_lane_price returns $0 for the owner on a
+        # kaggle-comfy lane). The LoRA carries no license
+        # statement; Jack ordered the wiring knowing that
+        # (2026-11-21), and the lane never lists in the
+        # public gallery. Text to image only, no edit mode.
+        # The tested frame leads the sizes; all three sell
+        # at the one flat raw, like the Z-Image lanes.
+        "label": "Krea 2 Verite · $", "provider": "kaggle-comfy",
+        "uncensored": True,
+        "endpoint": "krea2-verite",
+        "raw_cents": {"832x1216": 1.9, "1024x1024": 1.9,
+                      "1216x832": 1.9},
+    },
     "qwen_edit_unc": {
         "label": "Qwen Image Edit · $$$",
         "provider": "spicyapi",
@@ -1555,6 +1583,13 @@ def image_size_label(lane_id: str, size: str) -> str:
 def image_lane_price(model: str, size: str, owner: bool = False):
     """(raw provider cost, customer debit) in cents per image."""
     raw = float(IMAGE_LANES[model]["raw_cents"][size])
+    if owner and IMAGE_LANES[model]["provider"] == "kaggle-comfy":
+        # A lane on the house Kaggle worker (Krea 2 Verite)
+        # costs the platform $0 on free compute, so the
+        # owner's at-cost price is $0; the entry's raw figure
+        # is the customer price basis, set to match the
+        # comparable uncensored lanes.
+        return 0.0, 0.0
     return raw, (raw if owner else raw * FRONTIER_MIN_MARKUP)
 
 

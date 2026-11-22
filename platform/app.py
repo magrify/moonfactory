@@ -4747,6 +4747,49 @@ def api():
         jobs[job["id"]] = job
         _comfy_maybe_trigger()
 
+    def _queue_krea2_on_kaggle(job: dict):
+        """Queue a Krea 2 Verite job on the Kaggle ComfyUI
+        worker (2026-11-21): the uncensored Krea 2 lane rides
+        the image shelf for its picker entry, its paid gate
+        and its per image charge, then takes the house image
+        job's shape here (provider kaggle-comfy, route
+        kaggle, queued) so the kernel claim, the worker
+        endpoints, the mirror's dead-kernel bounds and the
+        house restores all work it exactly like a house
+        image, while the image_model stamp stays on the
+        record for the kernel to pick the Krea graph by.
+        Two stamps differ from the Klein conversion beside
+        it. The shelf charge stays on the record as
+        charged_cents, so a failure restores it in full
+        through _restore_house_image instead of the shelf
+        refund path (the stale path already routes
+        kaggle-comfy image jobs to the house branch). And
+        the lane's trigger words lead the prompt, the way
+        the proven test prompt used them, with the user's
+        own words kept on the record as user_prompt. The
+        route's raw cost is $0 on Kaggle, so cost_cents is
+        0. The job is stamped out of the public gallery at
+        creation, the uncensored treatment."""
+        job["user_prompt"] = job.get("prompt") or ""
+        job["prompt"] = ("verite realism, nsfw, "
+                         + (job.get("prompt") or ""))
+        job["provider"] = "kaggle-comfy"
+        job["route"] = "kaggle"
+        job["status"] = "queued"
+        job["worker_job_id"] = None
+        if not isinstance(job.get("seed"), int):
+            job["seed"] = pysecrets.randbelow(1_000_000_000)
+        job["charged_cents"] = int(job.get("image_charge_cents")
+                                    or 0)
+        job["cost_cents"] = 0.0
+        job["included_cost_cents"] = 0
+        job["free_tier"] = False
+        job["gallery_public"] = False
+        job["bytes"] = None
+        job["last_poll"] = 0
+        jobs[job["id"]] = job
+        _comfy_maybe_trigger()
+
     # ------------------------------------------------------
     # OVHcloud AI Endpoints free image route (2026-11-20).
     # SDXL is priced at 0 EUR in OVHcloud's own catalog and
@@ -8827,6 +8870,13 @@ def api():
             try:
                 if klein_on_kaggle:
                     _queue_klein_on_kaggle(job, served_free)
+                elif lane_id == "krea2_verite":
+                    # Krea 2 Verite (2026-11-21): the lane's
+                    # only route is the house Kaggle worker,
+                    # so the job queues there at submit, the
+                    # Klein conversion's shape with the paid
+                    # charge kept on the record.
+                    _queue_krea2_on_kaggle(job)
                 else:
                     _submit_provider_image(job, prompt,
                                            source_image=source_image)
@@ -8855,6 +8905,7 @@ def api():
             save_user(user)
             return {"job_id": job_id,
                     "status": "queued" if klein_on_kaggle
+                    or lane_id == "krea2_verite"
                     else "running",
                     "charged_cents": charge}
         # Same in-flight limits as video jobs, counted together:

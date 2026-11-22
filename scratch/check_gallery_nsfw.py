@@ -148,13 +148,17 @@ for route_fn in ("gallery_list", "gallery_file", "gallery_poster",
 
 # -- creation stamps -------------------------------------------------------
 
-check(SRC.count('job["gallery_public"] = False') == 2,
-      "expected exactly two creation stamps (API path, house path)")
+check(SRC.count('job["gallery_public"] = False') == 3,
+      "expected exactly three creation stamps (API path, house "
+      "path, Krea 2 Verite queue)")
 for create_fn in ("create_api_job", "create_job"):
     src = func_src(create_fn)
     check("job_is_nsfw(job)" in src
           and 'job["gallery_public"] = False' in src,
           f"{create_fn} does not stamp NSFW jobs at creation")
+check('job["gallery_public"] = False' in func_src("_queue_krea2_on_kaggle"),
+      "the Krea 2 Verite queue does not stamp its jobs out of "
+      "the public gallery")
 
 # -- the owner's own views are untouched ----------------------------------
 

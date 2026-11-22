@@ -254,7 +254,7 @@ for name in sorted(named):
               f"manifest pins size and sha256 for {name}")
 families = {e["family"] for e in MANIFEST}
 check(families == {"shared", "draft", "a14b", "camera", "effects",
-                   "image", "klein"},
+                   "image", "klein", "krea2"},
       "the manifest stages by family")
 total = sum(e["size"] for e in MANIFEST)
 check(total > 100 * 1024**3,

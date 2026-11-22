@@ -146,7 +146,19 @@ for mid in app.PER_SECOND_MODELS:
         check(res in rates, f"{mid} missing a rate for {res}")
 
 # --- image shelf (item 1) ------------------------------------------
-check(len(pricing.IMAGE_LANES) == 13, "image shelf has 13 lanes")
+check(len(pricing.IMAGE_LANES) == 14, "image shelf has 14 lanes")
+check(pricing.IMAGE_LANES["krea2_verite"]["provider"] == "kaggle-comfy"
+      and pricing.IMAGE_LANES["krea2_verite"]["endpoint"] == "krea2-verite"
+      and pricing.IMAGE_LANES["krea2_verite"].get("uncensored") is True,
+      "Krea 2 Verite rides the house Kaggle worker as an uncensored lane")
+krea_raw, krea_debit = pricing.image_lane_price(
+    "krea2_verite", "832x1216")
+check(krea_raw == 1.9 and abs(krea_debit - 2.375) < 1e-9,
+      "Krea 2 Verite: raw basis $0.019, customer $0.02375 at any size")
+krea_raw_o, krea_debit_o = pricing.image_lane_price(
+    "krea2_verite", "832x1216", owner=True)
+check(krea_raw_o == 0.0 and krea_debit_o == 0.0,
+      "the owner pays the Kaggle route's $0 raw cost on Krea 2 Verite")
 check(pricing.IMAGE_LANES["sdxl_ovh"]["provider"] == "ovhcloud"
       and pricing.IMAGE_LANES["sdxl_ovh"]["label"] == "SDXL"
       and pricing.IMAGE_LANES["sdxl_ovh"]["free"] is True,
