@@ -206,6 +206,38 @@ LLM_PROVIDERS = [
              "label": "Kimi K3.1 Pro"},
         ],
     },
+    {
+        # Numes (2026-11-21, Jack's tap): an OpenAI-shaped
+        # inference marketplace. The moonfactory key is
+        # stored (NUMES_API_KEY). Its launch promo serves a
+        # set of chat models at $0 (verified live against
+        # GET /models and one $0 chat call); the draft
+        # entries below carry no DRAFT_MODEL_PRICES record,
+        # so they read as $0 like the OpenRouter :free
+        # picks. If the promo ends and Numes starts
+        # charging for any of them, that model must get a
+        # price record or leave the picker the same day:
+        # nothing that costs the platform money may sit at
+        # $0. This models list is the uncensored registry
+        # view, so it holds only the uncensored Numes
+        # builds; the clean free builds are draft picks
+        # only.
+        "id": "numes",
+        "label": "Numes",
+        "base_url": "https://api.numes.ai/api/v1",
+        "key_env": "NUMES_API_KEY",
+        "access": "key_stored",
+        "models": [
+            {"id": "dealignai/deepseek-v4.1-flash-uncensored-fp8:free",
+             "label": "DeepSeek V4.1 Flash Uncensored FP8"},
+            {"id": "dealignai/glm-5.3-uncensored-fp8:free",
+             "label": "GLM 5.3 Uncensored FP8"},
+            {"id": "dealignai/glm-5.3-flash-uncensored-fp8:free",
+             "label": "GLM 5.3 Flash Uncensored FP8"},
+            {"id": "uniboshi/kimi-k3-abliterated-v1:free",
+             "label": "Kimi K3 Abliterated"},
+        ],
+    },
 ]
 
 # The draft model picker (2026-11-20, Jack: "use for drafts.
@@ -258,6 +290,27 @@ DRAFT_MODELS = [
     {"id": "openrouter:nvidia/nemotron-3.5-lightning:free",
      "label": "Nemotron 3.5 Lightning", "provider": "openrouter",
      "model": "nvidia/nemotron-3.5-lightning:free",
+     "group": "free"},
+    # Free Models, Numes route (2026-11-21): the clean
+    # builds Numes serves at $0 under its launch promo,
+    # verified live with the platform key. Same $0
+    # treatment as the OpenRouter :free picks above (no
+    # DRAFT_MODEL_PRICES record). Nemotron 3 Ultra is also
+    # free on Numes but is NOT duplicated here: the
+    # OpenRouter entry above already offers that model.
+    {"id": "numes:moonshotai/kimi-k3.1-pro:free",
+     "label": "Kimi K3.1 Pro", "provider": "numes",
+     "model": "moonshotai/kimi-k3.1-pro:free",
+     "group": "free"},
+    {"id": "numes:z-ai/glm-5.3:free",
+     "label": "GLM 5.3", "provider": "numes",
+     "model": "z-ai/glm-5.3:free", "group": "free"},
+    {"id": "numes:z-ai/glm-5.3-flash:free",
+     "label": "GLM 5.3 Flash", "provider": "numes",
+     "model": "z-ai/glm-5.3-flash:free", "group": "free"},
+    {"id": "numes:deepseek/deepseek-v4.1-flash:free",
+     "label": "DeepSeek V4.1 Flash", "provider": "numes",
+     "model": "deepseek/deepseek-v4.1-flash:free",
      "group": "free"},
     # Regular: the platform Gemini models first, then the
     # regular catalogs reachable
@@ -388,6 +441,30 @@ DRAFT_MODELS = [
      "group": "uncensored"},
     {"id": "kimi-k3.1-pro-uncensored",
      "label": "Kimi K3.1 Pro", "provider": "silk",
+     "group": "uncensored"},
+    # Uncensored, Numes route (2026-11-21): the uncensored
+    # builds Numes serves at $0 under the same launch
+    # promo. They sit in the Uncensored group (their
+    # nature) with no price record, so they band at tier
+    # 0 like the free picks; the promo caveat on the
+    # provider record above applies to them in full.
+    {"id": "numes:dealignai/deepseek-v4.1-flash-uncensored-fp8:free",
+     "label": "DeepSeek V4.1 Flash Uncensored FP8",
+     "provider": "numes",
+     "model": "dealignai/deepseek-v4.1-flash-uncensored-fp8:free",
+     "group": "uncensored"},
+    {"id": "numes:dealignai/glm-5.3-uncensored-fp8:free",
+     "label": "GLM 5.3 Uncensored FP8", "provider": "numes",
+     "model": "dealignai/glm-5.3-uncensored-fp8:free",
+     "group": "uncensored"},
+    {"id": "numes:dealignai/glm-5.3-flash-uncensored-fp8:free",
+     "label": "GLM 5.3 Flash Uncensored FP8",
+     "provider": "numes",
+     "model": "dealignai/glm-5.3-flash-uncensored-fp8:free",
+     "group": "uncensored"},
+    {"id": "numes:uniboshi/kimi-k3-abliterated-v1:free",
+     "label": "Kimi K3 Abliterated", "provider": "numes",
+     "model": "uniboshi/kimi-k3-abliterated-v1:free",
      "group": "uncensored"},
 ]
 

@@ -58,9 +58,10 @@ check("silk" not in [pid for pid, _m in llm_providers.PICK_CHAIN],
 
 # --- the draft registry ----------------------------------------------------
 draft_ids = [m["id"] for m in llm_providers.DRAFT_MODELS]
-check(draft_ids[-3:] == list(SILK_IDS),
-      "the silk picks close the draft registry in order")
-check([m["label"] for m in llm_providers.DRAFT_MODELS[-3:]]
+check(draft_ids[-7:-4] == list(SILK_IDS),
+      "the silk picks sit in order just before the Numes "
+      "uncensored picks that now close the registry")
+check([m["label"] for m in llm_providers.DRAFT_MODELS[-7:-4]]
       == list(SILK_LABELS), "the silk pick labels")
 check(llm_providers.DRAFT_MODEL_DEFAULT
       == "openrouter:nvidia/nemotron-3-ultra-550b-a55b:free",
@@ -95,8 +96,8 @@ check(all(o["configured"] is False for o in opts),
 check(opts[0]["group"] == "free"
       and opts[0]["label"] == "Nemotron 3 Ultra 550B",
       "the picker payload leads with the Free Models group")
-check(opts[3]["group"] == "regular"
-      and opts[3]["label"] == "Gemini 3.8 Flash",
+first_regular = next(o for o in opts if o["group"] == "regular")
+check(first_regular["label"] == "Gemini 3.8 Flash",
       "Gemini 3.8 Flash leads the payload's regular group")
 
 # --- dark-safe: no key, no call, clean fallback signal ---------------------

@@ -41,14 +41,22 @@ MODELS = llm_providers.DRAFT_MODELS
 BY_ID = {m["id"]: m for m in MODELS}
 
 # --- the registry shape ----------------------------------------------------
-check(len(MODELS) == 35, f"expected 35 draft models, got {len(MODELS)}")
+check(len(MODELS) == 43, f"expected 43 draft models, got {len(MODELS)}")
 check(len(BY_ID) == len(MODELS), "draft model ids are unique")
-labels = [m["label"] for m in MODELS]
-check(len(set(labels)) == len(labels), "draft model labels are unique")
+# Labels are unique WITHIN each group (2026-11-21): the
+# Numes free route offers some models under the same plain
+# name a paid or dark route already carries in another
+# group (GLM 5.3 free vs GLM 5.3 regular). The group
+# heading is what separates them in the picker; a repeated
+# name inside one group would be a real collision.
+for g in ("free", "regular", "uncensored"):
+    g_labels = [m["label"] for m in MODELS if m["group"] == g]
+    check(len(set(g_labels)) == len(g_labels),
+          f"draft model labels are unique in the {g} group")
 groups = {}
 for m in MODELS:
     groups[m["group"]] = groups.get(m["group"], 0) + 1
-check(groups == {"free": 3, "regular": 8, "uncensored": 24},
+check(groups == {"free": 7, "regular": 8, "uncensored": 28},
       f"group sizes drifted: {groups}")
 check([m["id"] for m in MODELS[:3]] == [
     "openrouter:nvidia/nemotron-3-ultra-550b-a55b:free",
@@ -177,8 +185,10 @@ check(all(o["configured"] is False for o in opts),
 for m in MODELS:
     check(SRC.count(f'value="{m["id"]}"') == 5,
           f"all five forms offer {m['id']} individually")
+    same_label = sum(1 for x in MODELS
+                     if x["label"] == m["label"])
     check(SRC.count(
-        f'>{m["label"]}</option>') == 5,
+        f'>{m["label"]}</option>') == 5 * same_label,
         f"all five forms name {m['label']} plainly, "
         "no price text")
 check(SRC.count('value="openrouter:nvidia/nemotron-3-ultra-'
@@ -234,6 +244,8 @@ def expected_tier(m):
     if m["group"] == "free":
         return 0
     cost = expected_cost(m["id"])
+    if cost is None:
+        return 0
     tier = 1
     for band in TIER_BANDS:
         if cost >= band:
@@ -278,7 +290,8 @@ def expected_select_tokens():
         for m in members:
             if expected_tier(m) != cur:
                 cur = expected_tier(m)
-                tokens.append(("sep", cur))
+                if cur > 0:
+                    tokens.append(("sep", cur))
             tokens.append(("opt", m["id"]))
     return tokens
 
