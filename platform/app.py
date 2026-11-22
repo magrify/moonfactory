@@ -40,6 +40,7 @@ import math
 import os
 import re
 import secrets as pysecrets
+import shutil
 import subprocess
 import sys
 import time
@@ -81,6 +82,10 @@ image = (
         str(Path(__file__).parent.parent
             / "worker-kaggle" / "comfy_worker_kernel.py"),
         "/platform/comfy_worker_kernel.py")
+    .add_local_file(
+        str(Path(__file__).parent.parent
+            / "worker-kaggle" / "voice_worker_kernel.py"),
+        "/platform/voice_worker_kernel.py")
     .add_local_file(str(Path(__file__).parent / "clipping.py"), "/platform/clipping.py")
     .add_local_file(str(Path(__file__).parent / "fun_camera.py"), "/platform/fun_camera.py")
     .add_local_file(str(Path(__file__).parent / "llm_providers.py"), "/platform/llm_providers.py")
@@ -123,6 +128,10 @@ clip_image = (
         str(Path(__file__).parent.parent
             / "worker-kaggle" / "comfy_worker_kernel.py"),
         "/platform/comfy_worker_kernel.py")
+    .add_local_file(
+        str(Path(__file__).parent.parent
+            / "worker-kaggle" / "voice_worker_kernel.py"),
+        "/platform/voice_worker_kernel.py")
     .add_local_file(str(Path(__file__).parent / "clipping.py"), "/platform/clipping.py")
     .add_local_file(str(Path(__file__).parent / "fun_camera.py"), "/platform/fun_camera.py")
     .add_local_file(str(Path(__file__).parent / "llm_providers.py"), "/platform/llm_providers.py")
@@ -388,7 +397,8 @@ def _short_word_check(job: dict, out_path: Path):
         if proc.returncode != 0 or not audio_path.exists():
             raise RuntimeError("final audio extraction failed")
         voice = ""
-        if job.get("voiceover_status") == "ready":
+        if job.get("voiceover_status") == "ready" \
+                and job.get("speech_voice") != CLONE_VOICE_ID:
             voice = job.get("speech_voice") or DEFAULT_SPEECH_VOICE
         word_check = modal.Function.from_name(
             "sinclip-audio", "word_check")
@@ -517,6 +527,159 @@ def _short_ai_scenes(job: dict, lines: list):
     job["short_picture_jobs"] = children
     job["short_picture_prompts"] = prompts
     return paths
+
+
+def _clone_debit_once(parent: dict) -> bool:
+    """Take the one-time voice cloning charge for a parent job
+    (pricing.voice_clone_price_cents: the nominal basis marked
+    up once, 2 cents; the owner pays the Kaggle route's true
+    raw cost, $0, so his stamp is 0 and nothing moves). Runs
+    at module level because the shorts processor, which runs
+    outside the web layer, debits through the same path; the
+    users Dict write mirrors save_user exactly. Idempotent
+    through the parent record's clone_charged stamp. Returns
+    False only when a paying account's balance cannot cover
+    the charge, so the caller fails the voice stage clean
+    instead of cloning on credit."""
+    if parent.get("clone_charged"):
+        return True
+    user = users.get(f"id:{parent['user_id']}")
+    if not user:
+        return False
+    price = pricing.voice_clone_price_cents(
+        owner=bool(user.get("is_owner")))
+    if price:
+        if int(user.get("balance_cents", 0)) < price:
+            return False
+        user["balance_cents"] = int(user.get("balance_cents", 0)) - price
+        users[f"id:{user['id']}"] = user
+        users[f"email:{user['email']}"] = user
+    parent["clone_charge_cents"] = price
+    parent["clone_charged"] = True
+    jobs[parent["id"]] = parent
+    return True
+
+
+def _clone_refund_if_unsuccessful(parent_id: str) -> None:
+    """Give the cloning charge back when no clone child of the
+    parent ever succeeded: the platform never keeps money for
+    a cloned voice it did not deliver. Idempotent through the
+    parent record's clone_charge_refunded stamp; called from
+    the wait helper when its wait ends empty and from the
+    worker fail endpoint when a child fails."""
+    parent = jobs.get(parent_id) or {}
+    charge = int(parent.get("clone_charge_cents") or 0)
+    if not charge or parent.get("clone_charge_refunded"):
+        return
+    children = [jobs.get(cid) or {}
+                for cid in parent.get("clone_children") or []]
+    if any(c.get("status") == "done" for c in children):
+        return
+    user = users.get(f"id:{parent['user_id']}")
+    if user:
+        user["balance_cents"] = int(user.get("balance_cents", 0)) + charge
+        users[f"id:{user['id']}"] = user
+        users[f"email:{user['email']}"] = user
+    parent["clone_charge_refunded"] = True
+    jobs[parent_id] = parent
+
+
+def _queue_clone_child(parent: dict, text: str) -> str:
+    """Queue one voice_clone child job for the Kaggle voice
+    worker: the text to speak, the parent's reference clip
+    (served to the worker through the worker endpoints), and
+    the optional transcript of that clip. The child carries
+    no charge of its own; the parent took the one-time clone
+    charge. A clone_parent mark keeps the child out of the
+    library and the gallery."""
+    child = {
+        "id": pysecrets.token_hex(8),
+        "user_id": parent["user_id"],
+        "worker_job_id": None,
+        "provider": "kaggle-voice",
+        "kind": "voice_clone",
+        "status": "queued",
+        "error": None,
+        "bytes": None,
+        "created_at": _now(),
+        "charged_cents": 0,
+        "clone_parent": parent["id"],
+        "clone_text": text,
+        "clone_reference_text":
+            parent.get("clone_reference_text") or "",
+        "clone_reference_ext":
+            parent.get("clone_reference_ext") or "wav",
+        "plan_at_job": parent.get("plan_at_job"),
+    }
+    jobs[child["id"]] = child
+    parent.setdefault("clone_children", []).append(child["id"])
+    jobs[parent["id"]] = parent
+    return child["id"]
+
+
+def _wait_clone_child(parent: dict, text: str,
+                      wait_seconds=None):
+    """Clone the parent job's reference voice speaking one
+    text on the Kaggle voice worker and wait for the wav: the
+    voice cloning twin of _short_ai_scenes. Debits the
+    parent's one-time clone charge first (a balance that
+    cannot cover it ends the wait before anything queues),
+    queues one child, wakes the voice kernel, and polls the
+    child record. Returns the finished wav path, or None when
+    the child fails or the wait runs out; a child still open
+    at that point is closed on the spot so a kernel never
+    clones for nobody, and the charge goes back whenever no
+    child of the parent ever succeeded."""
+    if wait_seconds is None:
+        wait_seconds = CLONE_WAIT_SECONDS
+    if not _clone_debit_once(parent):
+        return None
+    # Rejoin before queueing: a caller that was cut off
+    # mid-wait (the video voiceover stage waits inside the
+    # web function) leaves its child cooking, and the next
+    # caller for the same words waits on that same child
+    # instead of paying a second synthesis for them. A child
+    # already done hands its file straight back.
+    child_id = None
+    for cid in parent.get("clone_children") or []:
+        rec = jobs.get(cid) or {}
+        if rec.get("clone_text") != text:
+            continue
+        if rec.get("status") == "done":
+            try:
+                data_volume.reload()
+            except Exception:
+                pass
+            done_path = FILES_DIR / "voice_clone" / f"{cid}.wav"
+            if done_path.exists():
+                return done_path
+        if rec.get("status") in ("queued", "running"):
+            child_id = cid
+            break
+    if child_id is None:
+        child_id = _queue_clone_child(parent, text)
+    _wake_voice_kernel()
+    deadline = time.time() + wait_seconds
+    while time.time() < deadline:
+        rec = jobs.get(child_id) or {}
+        if rec.get("status") == "done":
+            try:
+                data_volume.reload()
+            except Exception:
+                pass
+            path = FILES_DIR / "voice_clone" / f"{child_id}.wav"
+            return path if path.exists() else None
+        if rec.get("status") == "error":
+            break
+        time.sleep(10)
+    rec = jobs.get(child_id) or {}
+    if rec.get("status") in ("queued", "running"):
+        rec["status"] = "error"
+        rec["error"] = "the voice wait ended first"
+        rec["internal_error"] = "the clone wait ended first"
+        jobs[child_id] = rec
+    _clone_refund_if_unsuccessful(parent["id"])
+    return None
 
 
 def _short_bed_for_job(job: dict):
@@ -648,9 +811,26 @@ def process_short_job(job_id: str):
         line_wavs = []
         line_durations = []
         for i, line in enumerate(lines):
-            data = generate_voiceover.remote(line, voice)
             wav = work / f"line_{i}.wav"
-            wav.write_bytes(data)
+            if voice == CLONE_VOICE_ID:
+                # Voice cloning (2026-11-21): the line is spoken
+                # by the cloned voice from the Kaggle voice
+                # worker, never by a Kokoro voice standing in
+                # for it. A clone that cannot be made fails the
+                # short clean, the same shape as a voice failure
+                # below; the wait helper has already returned
+                # the one-time clone charge if no line of this
+                # short was ever cloned.
+                cloned = _wait_clone_child(
+                    job, line,
+                    wait_seconds=CLONE_WAIT_SHORTS_SECONDS)
+                if cloned is None:
+                    raise RuntimeError(
+                        "the cloned voice could not be made")
+                shutil.copyfile(cloned, wav)
+            else:
+                data = generate_voiceover.remote(line, voice)
+                wav.write_bytes(data)
             duration = shorts.probe(wav)["duration"]
             if duration <= 0:
                 raise RuntimeError("the narration came back empty")
@@ -786,6 +966,42 @@ def _validate_image_b64(value, field: str):
     if not (raw.startswith(b"\x89PNG\r\n\x1a\n") or raw.startswith(b"\xff\xd8\xff")):
         raise ValueError(f"{field} must be a PNG or JPEG image")
     return value
+
+
+def _decode_clone_reference(value):
+    """Decode and shape-check a voice cloning reference clip:
+    valid base64 carrying a WAV, MP3, M4A, OGG, FLAC or WebM
+    audio file under the size cap. Returns (raw bytes, file
+    extension). Raises ValueError; job creation turns it into
+    a clean 422. Mirrors _validate_image_b64's shape for the
+    audio upload the cloning pick carries."""
+    if not isinstance(value, str) or not value:
+        raise ValueError("voice cloning needs a short reference clip")
+    if value.startswith("data:"):
+        value = value.split(",", 1)[1] if "," in value else ""
+    try:
+        raw = base64.b64decode(value, validate=True)
+    except Exception:
+        raise ValueError(
+            "the reference clip is not valid audio data") from None
+    if len(raw) > CLONE_REFERENCE_MAX_BYTES:
+        raise ValueError("the reference clip is larger than 20 MB")
+    if raw.startswith(b"RIFF") and raw[8:12] == b"WAVE":
+        return raw, "wav"
+    if raw.startswith(b"ID3") or raw[:2] in (b"\xff\xfb", b"\xff\xf3",
+                                             b"\xff\xf2"):
+        return raw, "mp3"
+    if raw[4:8] == b"ftyp":
+        return raw, "m4a"
+    if raw.startswith(b"OggS"):
+        return raw, "ogg"
+    if raw.startswith(b"fLaC"):
+        return raw, "flac"
+    if raw.startswith(b"\x1aE\xdf\xa3"):
+        return raw, "webm"
+    raise ValueError(
+        "the reference clip must be a WAV, MP3, M4A, OGG, FLAC "
+        "or WebM audio file")
 # Paid feature gates (Jack, 2026-11-16; Amendment 3): custom audio,
 # model/lane switching, and gallery opt-out are open to any paying
 # customer (active subscription OR an account that has ever paid
@@ -846,6 +1062,40 @@ SPEECH_VOICE_LABELS = {
     "bm_george": "George, British man",
     "bm_lewis": "Lewis, British man",
 }
+# Voice cloning (2026-11-21): one extra pick in the same
+# voice picker, not a Kokoro voice. The engine is CosyVoice
+# (FunAudioLLM/Fun-CosyVoice3-0.5B-2512, Apache-2.0 weights,
+# zero-shot cloning), chosen from VoiceStudio's bundled
+# engine set because its weights allow commercial use;
+# VoiceStudio's default cloning engine OmniVoice carries
+# CC-BY-NC weights and is never used here. The pick rides
+# the existing voice flow: the user supplies a short
+# reference clip and the cloned voice speaks their script on
+# the house Kaggle voice worker. SPEECH_VOICES stays the
+# pure Kokoro set the voice checks pin; cloning joins only
+# through ALL_SPEECH_VOICES at the validation and config
+# sites. Paid only, like every non-default voice: the
+# existing speech gates (a spoken line needs a paid account;
+# a non-default shorts voice needs a paid account) already
+# cover it, and the clone price in pricing.py debits once
+# per job that uses it.
+CLONE_VOICE_ID = "clone"
+ALL_SPEECH_VOICES = SPEECH_VOICES + (CLONE_VOICE_ID,)
+SPEECH_VOICE_LABELS[CLONE_VOICE_ID] = "Voice cloning"
+CLONE_REFERENCE_MAX_BYTES = 20 * 1024 * 1024
+CLONE_REFERENCE_TEXT_MAX = 300
+# The wait bound sits under the web function's 1200 second
+# timeout with margin: the video voiceover stage waits inside
+# it, and a wait that outlives its caller would strand the
+# clone. A cold voice kernel session (deps, code, weights,
+# load, one synthesis) measures well under this bound. The
+# shorts processor runs under its own 3600 second timeout,
+# so its per-line waits get the longer bound below: a cold
+# kernel start plus a slow Kaggle queue slot can eat the
+# short one whole (two proof shorts died exactly that way
+# on 2026-11-22 while their kernel sat queued).
+CLONE_WAIT_SECONDS = 900
+CLONE_WAIT_SHORTS_SECONDS = 1500
 HANDLE_RE = re.compile(r"[A-Za-z0-9_-]{3,20}")
 
 BED_PATH = Path("/worker-models/audio/music_bed_first.wav")
@@ -1617,6 +1867,48 @@ def _wake_comfy_kernel() -> None:
             datasets=[HF_KEY_DATASET], gpu=True)
         if not ok:
             meta["comfy:last_trigger_error"] = detail
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# Voice cloning worker (2026-11-21): CosyVoice zero-shot
+# cloning on a Kaggle kernel, the same wake discipline as the
+# ComfyUI worker above with its own meta keys and slug. The
+# kernel script ships in both Modal images as
+# /platform/voice_worker_kernel.py.
+# ---------------------------------------------------------------------------
+
+VOICE_KERNEL_SLUG = "magrify/moonfactory-voice-worker"
+VOICE_WORKER_SCRIPT_PATH = Path("/platform/voice_worker_kernel.py")
+VOICE_HEARTBEAT_STALE_SECONDS = 180
+VOICE_TRIGGER_MIN_INTERVAL_SECONDS = 180
+
+
+def _wake_voice_kernel() -> None:
+    """Wake the voice cloning kernel when a clone job waits
+    and no kernel heartbeat is fresh: a version push of the
+    worker script makes Kaggle run it. Throttled exactly like
+    _wake_comfy_kernel and never raises: a failed wake leaves
+    the job queued for the next nudge."""
+    try:
+        if _now() - float(meta.get("voice:heartbeat") or 0) \
+                < VOICE_HEARTBEAT_STALE_SECONDS:
+            return
+        if _now() - float(meta.get("voice:last_trigger") or 0) \
+                < VOICE_TRIGGER_MIN_INTERVAL_SECONDS:
+            return
+        token = os.environ.get("KAGGLE_API_TOKEN") or ""
+        if not token:
+            return
+        script_text = VOICE_WORKER_SCRIPT_PATH.read_text()
+        meta["voice:last_trigger"] = _now()
+        ok, detail = kaggle_push(
+            token, script_text, slug=VOICE_KERNEL_SLUG,
+            title="Moonfactory Voice Worker",
+            datasets=[HF_KEY_DATASET], gpu=True)
+        if not ok:
+            meta["voice:last_trigger_error"] = detail
     except Exception:
         pass
 # The house lanes that execute on the Kaggle ComfyUI worker.
@@ -7808,7 +8100,8 @@ def api():
     def create_api_job(user: dict, body: dict, model: str, base: str,
                        prompt: str, music_prompt: str, camera: dict = None,
                        speech_script: str = "", speech_voice: str = "",
-                       captions: bool = False):
+                       captions: bool = False,
+                       clone_reference=None, clone_reference_text: str = ""):
         """Quote -> hold -> submit, per design s.3. Any failure at or
         before submission leaves an error job with the clean public
         message and the hold fully released: no charge, nothing
@@ -7955,6 +8248,8 @@ def api():
         if job_is_nsfw(job):
             job["gallery_public"] = False
         jobs[job["id"]] = job
+        _store_clone_reference(job, clone_reference,
+                               clone_reference_text)
         # API lane videos count toward the 5 free too (the
         # free counter rule, 2026-11-20), at the same
         # acceptance point as the hold commit above.
@@ -8022,8 +8317,29 @@ def api():
                 detail=f"speech script must be {SPEECH_SCRIPT_MAX_CHARS} characters or fewer",
             )
         speech_voice = (body.get("speech_voice") or "").strip()
-        if speech_voice and speech_voice not in SPEECH_VOICES:
+        if speech_voice and speech_voice not in ALL_SPEECH_VOICES:
             raise HTTPException(status_code=422, detail="unknown speech voice")
+        # Voice cloning (2026-11-21): the clone pick needs a
+        # spoken line and the reference clip it clones, carried
+        # as base64 in the body like the start image. The clip
+        # is decoded and shape checked here, before any gate,
+        # hold or dispatch, and stored under the job id once
+        # the job exists (both create paths below).
+        clone_reference = None
+        clone_reference_text = ""
+        if speech_voice == CLONE_VOICE_ID:
+            if not speech_script:
+                raise HTTPException(
+                    status_code=422,
+                    detail="voice cloning needs a spoken line")
+            try:
+                clone_reference = _decode_clone_reference(
+                    body.get("clone_reference_audio_b64"))
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc))
+            clone_reference_text = (
+                body.get("clone_reference_text") or "").strip()[
+                    :CLONE_REFERENCE_TEXT_MAX]
         # Captions (Jack's call, 2026-11-18): a generation time
         # opt in, either checked or not. The finishing stage
         # burns word timed captions into the delivered file when
@@ -8306,7 +8622,8 @@ def api():
                     and other.get("status") in ("queued", "running")
                     and other.get("provider") != "clip"
                     and not other.get("drama_parent")
-                    and other.get("kind") not in ("clip_job", "clip_output")):
+                    and other.get("kind") not in (
+                        "clip_job", "clip_output", "voice_clone")):
                 in_flight += 1
         if in_flight >= limit:
             raise HTTPException(
@@ -8324,6 +8641,8 @@ def api():
                 user, body, model, base_url(request), prompt, music_prompt,
                 camera=camera, speech_script=speech_script,
                 speech_voice=speech_voice, captions=captions,
+                clone_reference=clone_reference,
+                clone_reference_text=clone_reference_text,
             )
         u = usage(user)
         charged = 0
@@ -8524,6 +8843,8 @@ def api():
         if job_is_nsfw(job):
             job["gallery_public"] = False
         jobs[job["id"]] = job
+        _store_clone_reference(job, clone_reference,
+                               clone_reference_text)
         if on_kaggle:
             _comfy_maybe_trigger()
         return JSONResponse(public_job(job), status_code=202)
@@ -8536,7 +8857,8 @@ def api():
             job = jobs.get(key)
             if job and job.get("user_id") == user["id"] \
                     and not job.get("short_parent") \
-                    and not job.get("drama_parent"):
+                    and not job.get("drama_parent") \
+                    and not job.get("clone_parent"):
                 mine.append(mirror_status(job))
         mine.sort(key=lambda j: j["created_at"], reverse=True)
         active = sorted(
@@ -8918,7 +9240,8 @@ def api():
                     and other.get("status") in ("queued", "running")
                     and other.get("provider") != "clip"
                     and not other.get("drama_parent")
-                    and other.get("kind") not in ("clip_job", "clip_output")):
+                    and other.get("kind") not in (
+                        "clip_job", "clip_output", "voice_clone")):
                 in_flight += 1
         if in_flight >= limit:
             raise HTTPException(
@@ -9173,6 +9496,28 @@ def api():
             jobs[job["id"]] = job
             return None
 
+    def _store_clone_reference(job: dict, clone_reference,
+                               clone_reference_text: str):
+        """Store a job's voice cloning reference clip on the
+        data Volume and stamp the job record with where it
+        lives. The voice worker downloads the clip through the
+        worker endpoints when it claims a clone child of this
+        job. Runs at creation on both video create paths and
+        on shorts create."""
+        if clone_reference is None:
+            return
+        raw, ext = clone_reference
+        ref_dir = FILES_DIR / "voice_refs"
+        ref_dir.mkdir(parents=True, exist_ok=True)
+        (ref_dir / f"{job['id']}.{ext}").write_bytes(raw)
+        job["clone_reference_ext"] = ext
+        job["clone_reference_text"] = clone_reference_text or ""
+        jobs[job["id"]] = job
+        try:
+            data_volume.commit()
+        except Exception:
+            pass
+
     def _voiceover_for_job(job: dict):
         """The Kokoro voiceover stage (Jack's correction,
         2026-11-16): speak the job's speech_script with Kokoro
@@ -9198,6 +9543,31 @@ def api():
                 job["voiceover_status"] = "ready"
                 jobs[job["id"]] = job
             return voice_file
+        if job.get("speech_voice") == CLONE_VOICE_ID:
+            # Voice cloning (2026-11-21): the cloned voice comes
+            # from the Kaggle voice worker through the clone
+            # child machinery, never from Kokoro: a requested
+            # clone is never silently replaced by a stock voice.
+            # Failure lands exactly where a Kokoro failure
+            # lands: the job is flagged unavailable, delivery
+            # proceeds with the lane's own audio, and the clone
+            # charge has already gone back inside the wait
+            # helper whenever no clone was delivered.
+            cloned = _wait_clone_child(job, script)
+            if cloned is not None:
+                voice_file.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(cloned, voice_file)
+                try:
+                    data_volume.commit()
+                except Exception:
+                    pass
+                job["voiceover_status"] = "ready"
+                jobs[job["id"]] = job
+                return voice_file
+            job["voiceover_status"] = "unavailable"
+            job["audio_fallback"] = True
+            jobs[job["id"]] = job
+            return None
         try:
             generate_voiceover = modal.Function.from_name(
                 "sinclip-audio", "generate_voiceover")
@@ -9249,8 +9619,12 @@ def api():
             # The fix pass is only possible where the platform's
             # Kokoro stage voiced the job: that clean track is the
             # same voice. Native lanes get the check and the flag.
+            # A cloned voice gets the check and the flag too: no
+            # Kokoro voice can repair a clone's words, so the fix
+            # pass stays off for the clone pick.
             voice = ""
-            if job.get("voiceover_status") == "ready":
+            if job.get("voiceover_status") == "ready" \
+                    and job.get("speech_voice") != CLONE_VOICE_ID:
                 voice = job.get("speech_voice") or "af_heart"
             word_check = modal.Function.from_name(
                 "sinclip-audio", "word_check")
@@ -10375,6 +10749,121 @@ def api():
         jobs[job["id"]] = job
         return {"ok": True}
 
+    # -- Kaggle voice worker (voice cloning, 2026-11-21) ------------------
+    # Voice cloning runs on the Kaggle voice worker kernel
+    # (worker-kaggle/voice_worker_kernel.py, CosyVoice). The
+    # worker authenticates with the same worker key as the
+    # template worker, and the claim shape mirrors it:
+    # heartbeat, claim, reference download, file, fail. A
+    # claimed job is a voice_clone child of a video or short
+    # job; the file it uploads is the cloned voice speaking
+    # the child's text, and the parent's wait helper collects
+    # it from the voice_clone folder on the data Volume.
+
+    def _voice_worker_ok(x_api_key: str) -> bool:
+        return _hf_worker_ok(x_api_key)
+
+    @web.post("/api/worker/voice/heartbeat")
+    def voice_heartbeat(x_api_key: str = Header(default="")):
+        if not _voice_worker_ok(x_api_key):
+            raise HTTPException(status_code=401, detail="bad worker key")
+        meta["voice:heartbeat"] = _now()
+        return {"ok": True}
+
+    @web.get("/api/worker/voice/jobs/next")
+    def voice_next_job(x_api_key: str = Header(default="")):
+        if not _voice_worker_ok(x_api_key):
+            raise HTTPException(status_code=401, detail="bad worker key")
+        meta["voice:heartbeat"] = _now()
+        queued = []
+        for key in list(jobs.keys()):
+            other = jobs.get(key)
+            if (other and other.get("kind") == "voice_clone"
+                    and other.get("status") == "queued"):
+                queued.append(other)
+        if not queued:
+            return {"job": None}
+        queued.sort(key=lambda j: j["created_at"])
+        job = queued[0]
+        job["status"] = "running"
+        job["claimed_at"] = _now()
+        jobs[job["id"]] = job
+        parent = jobs.get(job.get("clone_parent") or "") or {}
+        return {"job": {
+            "id": job["id"],
+            "text": job.get("clone_text") or "",
+            "reference_text": job.get("clone_reference_text") or "",
+            "has_reference": bool(parent.get("clone_reference_ext")),
+        }}
+
+    @web.get("/api/worker/voice/jobs/{job_id}/reference")
+    def voice_job_reference(job_id: str,
+                            x_api_key: str = Header(default="")):
+        if not _voice_worker_ok(x_api_key):
+            raise HTTPException(status_code=401, detail="bad worker key")
+        job = jobs.get(job_id)
+        if not job or job.get("kind") != "voice_clone":
+            raise HTTPException(status_code=404, detail="unknown job")
+        parent = jobs.get(job.get("clone_parent") or "") or {}
+        ext = parent.get("clone_reference_ext") or ""
+        if not ext:
+            raise HTTPException(
+                status_code=404, detail="the reference clip is missing")
+        path = FILES_DIR / "voice_refs" / f"{parent['id']}.{ext}"
+        if not path.exists():
+            try:
+                data_volume.reload()
+            except Exception:
+                pass
+        if not path.exists():
+            raise HTTPException(
+                status_code=404, detail="the reference clip is missing")
+        return FileResponse(path, filename=f"reference.{ext}")
+
+    @web.post("/api/worker/voice/jobs/{job_id}/file")
+    async def voice_job_file(job_id: str, request: Request,
+                             x_api_key: str = Header(default="")):
+        if not _voice_worker_ok(x_api_key):
+            raise HTTPException(status_code=401, detail="bad worker key")
+        job = jobs.get(job_id)
+        if not job or job.get("kind") != "voice_clone":
+            raise HTTPException(status_code=404, detail="unknown job")
+        if job["status"] != "running":
+            raise HTTPException(
+                status_code=409, detail=f"job status is {job['status']}")
+        data = await request.body()
+        if not data or len(data) > 100 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail="bad file size")
+        out_dir = FILES_DIR / "voice_clone"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_path = out_dir / f"{job_id}.wav"
+        out_path.write_bytes(data)
+        data_volume.commit()
+        job["bytes"] = len(data)
+        job["status"] = "done"
+        jobs[job["id"]] = job
+        return {"ok": True, "bytes": len(data)}
+
+    @web.post("/api/worker/voice/jobs/{job_id}/fail")
+    async def voice_job_fail(job_id: str, request: Request,
+                             x_api_key: str = Header(default="")):
+        if not _voice_worker_ok(x_api_key):
+            raise HTTPException(status_code=401, detail="bad worker key")
+        job = jobs.get(job_id)
+        if not job or job.get("kind") != "voice_clone":
+            raise HTTPException(status_code=404, detail="unknown job")
+        if job["status"] not in ("queued", "running"):
+            raise HTTPException(
+                status_code=409, detail=f"job status is {job['status']}")
+        body = await request.json()
+        job["status"] = "error"
+        job["error"] = "the cloned voice could not be made"
+        job["internal_error"] = str(body.get("error") or "")[:300]
+        jobs[job["id"]] = job
+        if job.get("clone_parent"):
+            _clone_refund_if_unsuccessful(job["clone_parent"])
+        return {"ok": True}
+
     # -- Kaggle ComfyUI worker (the house lanes, 2026-11-19) --------------
     # The house video lanes and the house image lane run on the
     # Kaggle ComfyUI worker kernel (worker-kaggle/
@@ -10748,7 +11237,7 @@ x_api_key: str = Header(default="")):
         return {
             "voices": [
                 {"id": voice, "label": SPEECH_VOICE_LABELS[voice]}
-                for voice in SPEECH_VOICES
+                for voice in ALL_SPEECH_VOICES
             ],
             "default_voice": DEFAULT_SPEECH_VOICE,
             "paid": is_paid(user),
@@ -10873,12 +11362,28 @@ x_api_key: str = Header(default="")):
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc))
         voice = (body.get("voice") or "").strip() or DEFAULT_SPEECH_VOICE
-        if voice not in SPEECH_VOICES:
+        if voice not in ALL_SPEECH_VOICES:
             raise HTTPException(
                 status_code=422, detail="pick one of the voices on the list")
         if voice != DEFAULT_SPEECH_VOICE and not is_paid(user):
             raise HTTPException(
                 status_code=403, detail="picking a voice is a paid feature")
+        # Voice cloning (2026-11-21): the clone pick carries
+        # its reference clip as base64 in the body, decoded and
+        # shape checked here and stored under the job id once
+        # the job exists. The paid gate above already covers
+        # the pick (it is a non-default voice).
+        clone_reference = None
+        clone_reference_text = ""
+        if voice == CLONE_VOICE_ID:
+            try:
+                clone_reference = _decode_clone_reference(
+                    body.get("clone_reference_audio_b64"))
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc))
+            clone_reference_text = (
+                body.get("clone_reference_text") or "").strip()[
+                    :CLONE_REFERENCE_TEXT_MAX]
         visuals = (body.get("visuals") or "stock").strip()
         if visuals not in ("stock", "ai"):
             raise HTTPException(
@@ -10961,6 +11466,8 @@ x_api_key: str = Header(default="")):
             "music_prompt": None,
         }
         jobs[job["id"]] = job
+        _store_clone_reference(job, clone_reference,
+                               clone_reference_text)
         if is_free_job:
             u = usage(user)
             u["free_jobs"] += 1
@@ -11561,7 +12068,8 @@ x_api_key: str = Header(default="")):
                     and other.get("status") in ("queued", "running")
                     and other.get("provider") != "clip"
                     and not other.get("drama_parent")
-                    and other.get("kind") not in ("clip_job", "clip_output")):
+                    and other.get("kind") not in (
+                        "clip_job", "clip_output", "voice_clone")):
                 in_flight += 1
         if in_flight >= limit:
             raise HTTPException(
@@ -14243,8 +14751,16 @@ APP_HTML = (
       <option value="bm_fable">Fable, British man</option>
       <option value="bm_george">George, British man</option>
       <option value="bm_lewis">Lewis, British man</option>
+      <option value="clone">Voice cloning</option>
     </select>
     <p class="muted" id="short-voice-note"></p>
+    <div id="short-clone-opts" style="display:none">
+      <label>Reference clip</label>
+      <input id="short-clone-ref" type="file" accept="audio/*">
+      <p class="muted">A short clip of the voice to copy. A few seconds of clear speech works best.</p>
+      <label>What the clip says (optional)</label>
+      <input id="short-clone-ref-text" type="text" maxlength="300" placeholder="type the words spoken in the clip if you know them">
+    </div>
     <label>Music</label>
     <select id="short-music">
       <option value="house" selected>House bed</option>
@@ -14458,8 +14974,16 @@ APP_HTML = (
         <option value="bm_fable">Fable, British man</option>
         <option value="bm_george">George, British man</option>
         <option value="bm_lewis">Lewis, British man</option>
+        <option value="clone">Voice cloning</option>
       </select>
       <p class="muted" id="voice-note"></p>
+      <div id="clone-opts" style="display:none">
+        <label>Reference clip</label>
+        <input id="clone-ref" type="file" accept="audio/*">
+        <p class="muted">A short clip of the voice to copy. A few seconds of clear speech works best.</p>
+        <label>What the clip says (optional)</label>
+        <input id="clone-ref-text" type="text" maxlength="300" placeholder="type the words spoken in the clip if you know them">
+      </div>
       <label style="font-weight:400;display:block">
         <input type="checkbox" id="captions" style="width:auto;margin:0 6px 0 0">
         Add captions</label>
@@ -14794,8 +15318,7 @@ function spinMsg(id, text) {
 
 // Start image: one reader path for the file input, the drop zone's
 // click, and drag-and-drop, so all three set the same state.
-function readStartFile(f) {
-  if (!f) { startImageB64 = null; renderDrop(); fetchQuote(); return; }
+function readStartFile(f) {  if (!f) { startImageB64 = null; renderDrop(); fetchQuote(); return; }
   renderDropLoading();
   const reader = new FileReader();
   reader.onload = () => {
@@ -14807,6 +15330,27 @@ function readStartFile(f) {
   reader.onerror = () => { renderDrop(); };
   reader.readAsDataURL(f);
 }
+
+// Voice cloning: the reference clip reads in as base64 the
+// same way the start image does, and the extra fields show
+// only while the clone pick is chosen in the voice picker.
+let cloneRefB64 = null;
+function syncCloneOpts() {
+  const on = !$('speech').disabled
+    && $('speech-voice').value === 'clone';
+  $('clone-opts').style.display = on ? '' : 'none';
+}
+$('speech-voice').addEventListener('change', syncCloneOpts);
+$('clone-ref').addEventListener('change', () => {
+  const f = $('clone-ref').files[0];
+  if (!f) { cloneRefB64 = null; return; }
+  const reader = new FileReader();
+  reader.onload = () => {
+    cloneRefB64 = String(reader.result).split(',')[1];
+  };
+  reader.onerror = () => { cloneRefB64 = null; };
+  reader.readAsDataURL(f);
+});
 // While a picked start image reads in, the drop zone itself
 // shows the wait instead of sitting on the empty prompt.
 function renderDropLoading() {
@@ -15293,7 +15837,7 @@ function restoreCreateForm(d) {
     $('model').value = SHORTS_ID; updateModelUI();
     if (b.script) $('short-script').value = b.script;
     if (b.draft_model) $('short-draft-model').value = b.draft_model;
-    if (b.voice) $('short-voice').value = b.voice;
+    if (b.voice) { $('short-voice').value = b.voice; syncShortCloneOpts(); }
     shortScriptEstimate();
     return;
   }
@@ -15315,7 +15859,7 @@ function restoreCreateForm(d) {
   if (b.resolution) $('resolution').value = b.resolution;
   $('music').value = b.music_prompt || '';
   $('speech').value = b.speech_script || '';
-  if (b.speech_voice) $('speech-voice').value = b.speech_voice;
+  if (b.speech_voice) { $('speech-voice').value = b.speech_voice; syncCloneOpts(); }
   $('captions').checked = !!b.captions;
   $('negative').value = b.negative_prompt || '';
   $('seed').value = (b.seed === undefined || b.seed === null) ? '' : String(b.seed);
@@ -15454,6 +15998,7 @@ function showStudio(u) {
     $('speech').disabled = false;
     $('speech-note').textContent = 'On models that talk, the model performs the line. On the rest, a voice speaks it over the video.';
     $('speech-voice').disabled = false;
+    syncCloneOpts();
     applyEffectGate();
   } else {
     opt.disabled = true; opt.checked = false;
@@ -15467,6 +16012,7 @@ function showStudio(u) {
     $('speech').disabled = true; $('speech').value = '';
     $('speech-note').textContent = 'Voiceover unlocks with any payment.';
     $('speech-voice').disabled = true;
+    syncCloneOpts();
     selectedEffect = null;
     applyEffectGate();
   }
@@ -16169,6 +16715,10 @@ function buildCreate() {
     : {};
   const charFields = $('character').value
     ? { character_id: $('character').value } : {};
+  const cloneFields = (!$('speech').disabled
+      && $('speech-voice').value === 'clone' && cloneRefB64)
+    ? { clone_reference_audio_b64: cloneRefB64,
+        clone_reference_text: $('clone-ref-text').value.trim() } : {};
   const jobBody = isHouseModel(model)
     ? { model: model, lane: selectedEffect ? 'effects' : $('lane').value, prompt: $('prompt').value,
         music_prompt: $('music').disabled ? '' : $('music').value,
@@ -16178,7 +16728,7 @@ function buildCreate() {
         effect: selectedEffect || undefined,
         ...startFields, end_image_png_b64: selectedEffect ? null : endImageB64,
         aspect_ratio: $('aspect').value, segments: selectedEffect ? 1 : Number($('segments').value),
-        ...(selectedEffect ? {} : camera), ...detailFields, ...charFields }
+        ...(selectedEffect ? {} : camera), ...detailFields, ...charFields, ...cloneFields }
     : { model: model, prompt: $('prompt').value,
         music_prompt: $('music').disabled ? '' : $('music').value,
         speech_script: $('speech').disabled ? '' : $('speech').value,
@@ -16186,7 +16736,7 @@ function buildCreate() {
         captions: $('captions').checked,
         aspect_ratio: $('aspect').value,
         duration_seconds: Number($('duration').value), resolution: $('resolution').value,
-        ...startFields, ...camera, ...detailFields, ...motionFields, ...charFields };
+        ...startFields, ...camera, ...detailFields, ...motionFields, ...charFields, ...cloneFields };
   return { kind: 'video', endpoint: '/api/jobs', botId: 'botcheck2',
     msgId: 'job-msg', body: jobBody };
 }
@@ -17006,6 +17556,23 @@ function buildTitleCard() {
 // choice are gone from the form. The server still accepts a
 // topic submission exactly as before.
 let shortCfg = null;
+let shortCloneRefB64 = null;
+function syncShortCloneOpts() {
+  const on = !$('short-voice').disabled
+    && $('short-voice').value === 'clone';
+  $('short-clone-opts').style.display = on ? '' : 'none';
+}
+$('short-voice').addEventListener('change', syncShortCloneOpts);
+$('short-clone-ref').addEventListener('change', () => {
+  const f = $('short-clone-ref').files[0];
+  if (!f) { shortCloneRefB64 = null; return; }
+  const reader = new FileReader();
+  reader.onload = () => {
+    shortCloneRefB64 = String(reader.result).split(',')[1];
+  };
+  reader.onerror = () => { shortCloneRefB64 = null; };
+  reader.readAsDataURL(f);
+});
 function shortShowVisuals() {
   $('short-style-wrap').style.display =
     $('short-visuals').value === 'ai' ? '' : 'none';
@@ -17022,6 +17589,7 @@ async function loadShortsConfig() {
       $('short-voice-note').textContent = 'The voice reads your script over the footage.';
     }
     if (r.max_script_chars) $('short-script').maxLength = r.max_script_chars;
+    syncShortCloneOpts();
   } catch (e) { /* signed out: the form keeps its default shape */ }
 }
 // In script mode the pasted words are the length, so the form
@@ -17057,6 +17625,10 @@ function buildShort() {
     music: $('short-music').value,
     caption_style: $('short-captions').value };
   if (payload.visuals === 'ai') payload.style = $('short-style').value;
+  if (payload.voice === 'clone' && shortCloneRefB64) {
+    payload.clone_reference_audio_b64 = shortCloneRefB64;
+    payload.clone_reference_text = $('short-clone-ref-text').value.trim();
+  }
   payload.script = $('short-script').value;
   payload.split = $('short-split').value;
   if (!payload.script.trim()) { msg('short-msg', 'Paste your script first.', 'err'); return null; }

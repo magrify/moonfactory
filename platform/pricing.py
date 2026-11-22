@@ -1598,3 +1598,25 @@ def image_quote(owner: bool = False) -> dict:
         "price_cents": image_price_cents(owner),
         "measured_cost_cents": IMAGE_MEASURED_COST_CENTS,
     }
+
+
+# Voice cloning (2026-11-21): CosyVoice zero-shot cloning on
+# the house Kaggle voice worker, wired as the "Voice cloning"
+# pick in the voice picker. Same economics as the Krea 2
+# Verite lane above: the run itself costs $0 on Kaggle's free
+# compute, and the nominal raw basis matches the comparable
+# uncensored lanes' 1.9 cents, so the customer price is that
+# basis marked up once by the frontier minimum, debited once
+# per job that uses cloning, never per line. The owner pays
+# the route's true raw cost, $0.
+VOICE_CLONE_RAW_CENTS = 1.9
+
+
+def voice_clone_price_cents(owner: bool = False) -> int:
+    """The integer cents one job using voice cloning debits:
+    the nominal basis marked up once by the frontier minimum
+    (2 cents), or the true raw cost for the owner ($0 on the
+    Kaggle route)."""
+    if owner:
+        return 0
+    return int(round(VOICE_CLONE_RAW_CENTS * FRONTIER_MIN_MARKUP))

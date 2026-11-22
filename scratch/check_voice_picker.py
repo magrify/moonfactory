@@ -7,6 +7,14 @@ Kokoro set with plain friendly names, sends speech_voice exactly
 as the API already accepts, and changes no price. Voiceover
 stays paid only.
 
+Extended 2026-11-21 for the voice cloning pick: the picker
+gains one extra option, "Voice cloning" (the CosyVoice
+zero-shot cloning lane), appended after the Kokoro set.
+SPEECH_VOICES stays exactly the verified Kokoro set; the
+clone pick joins only through ALL_SPEECH_VOICES, which is
+what create validation now targets, and its label is stamped
+onto SPEECH_VOICE_LABELS at runtime beside the literal.
+
 No Modal, no network, no generation, no audio: reads app.py,
 extracts the SPEECH_VOICES / SPEECH_VOICE_LABELS /
 DEFAULT_SPEECH_VOICE literals by AST, replays the create_job
@@ -74,21 +82,27 @@ check(SPEECH_VOICES[0] == DEFAULT_SPEECH_VOICE,
       "default voice is not first in the picker order")
 check(set(SPEECH_VOICE_LABELS) == set(SPEECH_VOICES),
       "SPEECH_VOICE_LABELS does not cover exactly SPEECH_VOICES")
+# The clone pick's label is stamped at runtime beside the
+# literal (2026-11-21); the literal above stays the Kokoro set.
+check('SPEECH_VOICE_LABELS[CLONE_VOICE_ID] = "Voice cloning"' in SRC,
+      "clone pick label is not stamped beside SPEECH_VOICE_LABELS")
+ALL_VOICES = list(SPEECH_VOICES) + ["clone"]
 
 # Create validation: the predicate create_job applies today is
-# "reject when the value is non-empty and not in SPEECH_VOICES".
+# "reject when the value is non-empty and not in
+# ALL_SPEECH_VOICES" (the Kokoro set plus the clone pick).
 # Pin the source shape, then replay the predicate per id.
-check('speech_voice and speech_voice not in SPEECH_VOICES' in SRC,
-      "create_job no longer validates speech_voice against SPEECH_VOICES")
+check('speech_voice and speech_voice not in ALL_SPEECH_VOICES' in SRC,
+      "create_job no longer validates speech_voice against ALL_SPEECH_VOICES")
 check('detail="unknown speech voice"' in SRC,
       "create_job unknown voice rejection changed")
 
 
 def rejected(voice):
-    return bool(voice) and voice not in SPEECH_VOICES
+    return bool(voice) and voice not in ALL_VOICES
 
 
-for v in SPEECH_VOICES:
+for v in ALL_VOICES:
     check(not rejected(v), f"verified voice {v} would be rejected")
 for bad in ("af_heart2", "heart", "AF_HEART", "bf_emma ",
             "not_a_voice", "af_santa_claus"):
@@ -113,11 +127,12 @@ if m:
     options = re.findall(
         r'<option value="([a-z0-9_]+)"( selected)?>([^<]+)</option>',
         m.group(1))
-    check([o[0] for o in options] == list(SPEECH_VOICES),
-          "picker option values do not match SPEECH_VOICES in order")
+    check([o[0] for o in options] == ALL_VOICES,
+          "picker option values do not match the voice set in order")
     check([o[2] for o in options]
-          == [SPEECH_VOICE_LABELS[v] for v in SPEECH_VOICES],
-          "picker option labels do not match SPEECH_VOICE_LABELS")
+          == [SPEECH_VOICE_LABELS[v] for v in SPEECH_VOICES]
+          + ["Voice cloning"],
+          "picker option labels do not match the voice labels")
     check(options and options[0][0] == DEFAULT_SPEECH_VOICE
           and options[0][1] == " selected",
           "picker does not preselect the default voice")
@@ -153,7 +168,8 @@ check(NOTE_PLATFORM in SRC, "platform voice note wording missing")
 
 # Customer copy rule on everything this build shows: no colons,
 # no semicolons, no hyphens or dashes in labels or notes.
-for text in list(SPEECH_VOICE_LABELS.values()) + [NOTE_NATIVE, NOTE_PLATFORM]:
+for text in list(SPEECH_VOICE_LABELS.values()) + ["Voice cloning",
+                                                  NOTE_NATIVE, NOTE_PLATFORM]:
     check(not re.search(r"[:;\u2010-\u2015-]", text),
           f"customer copy rule broken by {text!r}")
 

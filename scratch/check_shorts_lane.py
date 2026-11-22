@@ -632,8 +632,9 @@ pane_voices = {
     part.split('"')[0]
     for part in voice_select.split('<option value="')[1:]
 }
-check(pane_voices == set(app.SPEECH_VOICES),
-      "the form picker offers exactly the platform voice set")
+check(pane_voices == set(app.SPEECH_VOICES) | {"clone"},
+      "the form picker offers exactly the platform voice set "
+      "plus the voice cloning pick")
 check('id="short-length"' not in pane,
       "the topic length picker left the form with topic mode")
 check('id="short-script-estimate"' in pane,
