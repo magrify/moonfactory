@@ -55,7 +55,8 @@ _DRAMA_SHAPE = (
 def write_drama_text(prompt: str, draft_model: str = None) -> str:
     """One drama drafting call with the picked draft model:
     exactly that model writes, under Jack's model choice rule
-    (2026-11-20). The default pick is Gemini 3.8 Flash. When
+    (2026-11-20). The default pick is Nemotron 3 Ultra 550B,
+    a free model (Jack, 2026-11-21). When
     the picked model cannot answer this raises
     llm_providers.DraftModelUnavailable and no other model is
     tried in its place, so the caller answers with a clean
@@ -204,7 +205,8 @@ def _parse_draft(raw: str) -> dict:
 def draft_episode(source_mode: str, source_text: str,
                   draft_model: str = None) -> dict:
     """Draft one storyboard from an idea or a script, through
-    the picked draft model (Gemini 3.8 Flash by default). One
+    the picked draft model (Nemotron 3 Ultra 550B, a free
+    model, by default). One
     retry with a firmer format note when the first draft does
     not fit the guards, then the guard's clean error stands.
     The retry calls the same picked model; a pick that cannot

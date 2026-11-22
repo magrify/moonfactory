@@ -62,15 +62,18 @@ check(draft_ids[-3:] == list(SILK_IDS),
       "the silk picks close the draft registry in order")
 check([m["label"] for m in llm_providers.DRAFT_MODELS[-3:]]
       == list(SILK_LABELS), "the silk pick labels")
-check(llm_providers.DRAFT_MODEL_DEFAULT == "gemini:gemini-3.8-flash",
-      "the default pick is Gemini 3.8 Flash as its own model")
+check(llm_providers.DRAFT_MODEL_DEFAULT
+      == "openrouter:nvidia/nemotron-3-ultra-550b-a55b:free",
+      "the default pick is Nemotron 3 Ultra 550B, a free "
+      "model (Jack, 2026-11-21)")
 check(draft_ids[:3] == [
     "openrouter:nvidia/nemotron-3-ultra-550b-a55b:free",
     "openrouter:google/gemma-4-31b-it:free",
     "openrouter:nvidia/nemotron-3.5-lightning:free",
 ], "the free models lead the registry")
-check(draft_ids[3] == llm_providers.DRAFT_MODEL_DEFAULT,
-      "the default pick leads the regular group")
+check(draft_ids[0] == llm_providers.DRAFT_MODEL_DEFAULT,
+      "the default pick leads the picker as the first "
+      "free model")
 check("house" not in draft_ids,
       "there is no composite house entry in the registry")
 check(not llm_providers.is_draft_model("house"),
@@ -94,7 +97,7 @@ check(opts[0]["group"] == "free"
       "the picker payload leads with the Free Models group")
 check(opts[3]["group"] == "regular"
       and opts[3]["label"] == "Gemini 3.8 Flash",
-      "the default pick leads the payload's regular group")
+      "Gemini 3.8 Flash leads the payload's regular group")
 
 # --- dark-safe: no key, no call, clean fallback signal ---------------------
 check(llm_providers.silk_configured() is False,
@@ -168,15 +171,17 @@ try:
         check(True, "a failed silk pick raises DraftModelUnavailable")
     check(house_calls == [],
           "no house chain model is tried after a failed pick")
-    os.environ["GEMINI_API_KEY"] = "test-gemini-key"
-    llm_providers._gemini_chat = \
-        lambda prompt, api_key, model: "gemini wrote this"
+    os.environ["OPENROUTER_API_KEY"] = "test-openrouter-key"
+    real_provider_chat = llm_providers._provider_chat
+    llm_providers._provider_chat = \
+        lambda prompt, provider_id, api_key, model: \
+        "nemotron wrote this"
     out = shorts.script_from_topic("the deep sea", 30, "house")
-    check(out == "gemini wrote this",
-          "a legacy house pick drafts on Gemini 3.8 Flash itself")
+    check(out == "nemotron wrote this",
+          "a legacy house pick drafts on the free default itself")
     out = shorts.script_from_topic("the deep sea", 30)
-    check(out == "gemini wrote this",
-          "the default pick is Gemini 3.8 Flash itself")
+    check(out == "nemotron wrote this",
+          "the default pick is the free Nemotron itself")
     shorts._gemini_text = real_gemini
     shorts._openrouter_text = real_openrouter
 
@@ -212,11 +217,13 @@ try:
         check(False, "a failed silk pick must raise in prompt help")
     except llm_providers.DraftModelUnavailable:
         check(True, "prompt help raises DraftModelUnavailable")
-    llm_providers._gemini_chat = \
-        lambda prompt, api_key, model: '"gemini helped this"'
+    llm_providers._provider_chat = \
+        lambda prompt, provider_id, api_key, model: \
+        '"nemotron helped this"'
     out = shorts.improve_prompt("a cat", None, "video")
-    check(out == "gemini helped this",
-          "the default pick helps through Gemini 3.8 Flash and cleans")
+    check(out == "nemotron helped this",
+          "the default pick helps through the free Nemotron "
+          "and cleans")
     # Script help (the shorts form's Improve my script pick,
     # 2026-11-20): the instruction keeps the line breaks and
     # the helped script comes back with its lines intact, at
@@ -233,7 +240,8 @@ try:
     check("keep the line breaks"
           in shorts.prompt_help_instruction(polish_script, "script"),
           "script help asks for the line breaks kept")
-    llm_providers._gemini_chat = lambda prompt, api_key, model: \
+    llm_providers._provider_chat = \
+        lambda prompt, provider_id, api_key, model: \
         '"First line, clearer now.\nSecond line follows it."'
     out = shorts.improve_prompt(
         "First line here.\nSecond line follows.", None, "script")
@@ -253,8 +261,10 @@ try:
 finally:
     llm_providers._silk_chat = real_chat
     llm_providers._gemini_chat = real_gemini_chat
+    llm_providers._provider_chat = real_provider_chat
     os.environ.pop("SILK_API_KEY", None)
     os.environ.pop("GEMINI_API_KEY", None)
+    os.environ.pop("OPENROUTER_API_KEY", None)
 
 # --- source wiring -----------------------------------------------------------
 check('id="short-draft-model"' in SRC, "the shorts picker exists")

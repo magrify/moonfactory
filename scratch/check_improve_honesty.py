@@ -125,26 +125,26 @@ check(not shorts.help_unchanged("a cat naps", "", "video"),
 
 # --- end to end through improve_prompt, provider stubbed ----------------------
 
-real_gemini_chat = llm_providers._gemini_chat
-os.environ["GEMINI_API_KEY"] = "test-gemini-key"
+real_provider_chat = llm_providers._provider_chat
+os.environ["OPENROUTER_API_KEY"] = "test-openrouter-key"
 try:
     seen = {}
 
-    def echo_chat(prompt, api_key, model):
+    def echo_chat(prompt, provider_id, api_key, model):
         seen["prompt"] = prompt
         return prompt.split("Script follows. ", 1)[1]
 
-    llm_providers._gemini_chat = echo_chat
+    llm_providers._provider_chat = echo_chat
     out = shorts.improve_prompt(long_script, None, "script")
     check(shorts.help_unchanged(long_script, out, "script"),
           "an echoed script reads as unchanged end to end")
 
-    def expand_chat(prompt, api_key, model):
+    def expand_chat(prompt, provider_id, api_key, model):
         seen["prompt"] = prompt
         return ("A big guy steps onto the dance floor.\n"
                 "The music starts and he starts moving.")
 
-    llm_providers._gemini_chat = expand_chat
+    llm_providers._provider_chat = expand_chat
     out = shorts.improve_prompt("fat guy dancing", None, "script")
     check("full narration script" in seen["prompt"],
           "a tiny script sends the expansion instruction")
@@ -153,8 +153,8 @@ try:
     check(not shorts.help_unchanged("fat guy dancing", out, "script"),
           "an expanded script reads as changed")
 finally:
-    llm_providers._gemini_chat = real_gemini_chat
-    os.environ.pop("GEMINI_API_KEY", None)
+    llm_providers._provider_chat = real_provider_chat
+    os.environ.pop("OPENROUTER_API_KEY", None)
 
 # --- endpoint and page wiring -------------------------------------------------
 

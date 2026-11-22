@@ -93,9 +93,11 @@ Provider state at wiring time (2026-11-17):
   choice rule: EVERY model is listed individually under
   its own plain name and a pick calls exactly that model;
   no composite labels, no silent substitution when a pick
-  fails. The old "House draft" entry is gone: the chain's
-  first model, Gemini 3.8 Flash, is the default pick as
-  its own option, and Gemini 3.5 Flash Lite is a separate
+  fails. The old "House draft" entry is gone: Gemini 3.8
+  Flash was the default pick as its own option until
+  2026-11-21, when Jack moved the default to a free model
+  (Nemotron 3 Ultra 550B, the first Free Models entry);
+  Gemini 3.5 Flash Lite is a separate
   option. DRAFT_MODELS below offers the two Gemini models
   (platform key), regular models through the stored
   OpenRouter and Venice keys, the registry's uncensored
@@ -215,9 +217,12 @@ LLM_PROVIDERS = [
 # empty fails clean (DraftModelUnavailable) with NO silent
 # substitution. There is no composite entry: the old "House
 # draft" label folded the Gemini chain into one name, which
-# the rule kills. The default pick is Gemini 3.8 Flash, the
-# chain's first model, as its own option; Gemini 3.5 Flash
-# Lite is a separate option. "house" survives only as a
+# the rule kills. The default pick was Gemini 3.8 Flash
+# until 2026-11-21, when Jack ordered the default moved to
+# a free model: the default pick is now Nemotron 3 Ultra
+# 550B, the first Free Models entry, as its own option;
+# Gemini 3.8 Flash and Gemini 3.5 Flash Lite stay separate
+# regular options. "house" survives only as a
 # legacy value from parked creations and older clients; it
 # normalizes to the default pick. The internal chains in
 # shorts and clipping are NOT user picks and keep their own
@@ -232,7 +237,11 @@ LLM_PROVIDERS = [
 # DRAFT_MODEL_PRICES below, keyed by id; it is internal
 # only and never renders in a label.
 DRAFT_MODEL_HOUSE = "house"
-DRAFT_MODEL_DEFAULT = "gemini:gemini-3.8-flash"
+# Jack, 2026-11-21: the default pick is a free model, not
+# Gemini 3.8 Flash. The default is Nemotron 3 Ultra 550B,
+# the first Free Models entry (verified $0 in and $0 out).
+DRAFT_MODEL_DEFAULT = \
+    "openrouter:nvidia/nemotron-3-ultra-550b-a55b:free"
 DRAFT_MODELS = [
     # Free Models: the three OpenRouter :free models the
     # internal chains already fall back to, verified $0 in
@@ -250,10 +259,10 @@ DRAFT_MODELS = [
      "label": "Nemotron 3.5 Lightning", "provider": "openrouter",
      "model": "nvidia/nemotron-3.5-lightning:free",
      "group": "free"},
-    # Regular: the platform Gemini models first (the default
-    # pick first), then the regular catalogs reachable
+    # Regular: the platform Gemini models first, then the
+    # regular catalogs reachable
     # through the stored OpenRouter and Venice keys.
-    {"id": DRAFT_MODEL_DEFAULT, "label": "Gemini 3.8 Flash",
+    {"id": "gemini:gemini-3.8-flash", "label": "Gemini 3.8 Flash",
      "provider": "gemini", "model": "gemini-3.8-flash",
      "group": "regular"},
     {"id": "gemini:gemini-3.5-flash-lite",
@@ -561,8 +570,9 @@ def is_draft_model(value) -> bool:
 
 def normalize_draft_model(value) -> str:
     """A missing, unknown, or legacy "house" pick reads as
-    the default pick (Gemini 3.8 Flash, its own model), so
-    older clients and parked creations keep drafting."""
+    the default pick (Nemotron 3 Ultra 550B, the first free
+    model), so older clients and parked creations keep
+    drafting."""
     if value and value != DRAFT_MODEL_HOUSE \
             and is_draft_model(value):
         return value

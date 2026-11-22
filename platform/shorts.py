@@ -399,7 +399,8 @@ def script_from_topic(topic: str,
                       draft_model: str = None) -> str:
     """Write a script for a topic with the picked draft model:
     exactly that model writes, under the model choice rule.
-    The default pick is Gemini 3.8 Flash. When the picked
+    The default pick is Nemotron 3 Ultra 550B, a free model
+    (Jack, 2026-11-21). When the picked
     model cannot answer, this raises
     llm_providers.DraftModelUnavailable and no other model is
     tried in its place; the create route turns that into a

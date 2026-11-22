@@ -59,10 +59,13 @@ check([m["id"] for m in MODELS[:3]] == [
 check(all(m["group"] == "free" for m in MODELS[:3]),
       "the first three entries are the free group")
 check(BY_ID[llm_providers.DRAFT_MODEL_DEFAULT]["model"]
-      == "gemini-3.8-flash"
+      == "nvidia/nemotron-3-ultra-550b-a55b:free"
       and BY_ID[llm_providers.DRAFT_MODEL_DEFAULT]["label"]
-      == "Gemini 3.8 Flash",
-      "the default pick is Gemini 3.8 Flash, its own model")
+      == "Nemotron 3 Ultra 550B"
+      and BY_ID[llm_providers.DRAFT_MODEL_DEFAULT]["group"]
+      == "free",
+      "the default pick is Nemotron 3 Ultra 550B, a free "
+      "model (Jack, 2026-11-21)")
 check(BY_ID["gemini:gemini-3.5-flash-lite"]["model"]
       == "gemini-3.5-flash-lite",
       "Gemini 3.5 Flash Lite is a separate model, not a fold-in")
@@ -178,8 +181,12 @@ for m in MODELS:
         f'>{m["label"]}</option>') == 5,
         f"all five forms name {m['label']} plainly, "
         "no price text")
-check(SRC.count('value="gemini:gemini-3.8-flash" selected') == 5,
-      "Gemini 3.8 Flash is the selected default in all five forms")
+check(SRC.count('value="openrouter:nvidia/nemotron-3-ultra-'
+                '550b-a55b:free" selected') == 5,
+      "Nemotron 3 Ultra 550B, a free model, is the selected "
+      "default in all five forms")
+check(SRC.count('value="gemini:gemini-3.8-flash" selected') == 0,
+      "Gemini 3.8 Flash is not preselected in any form")
 check(SRC.count('<optgroup label="Free Models">') == 5,
       "all five forms open with the Free Models group")
 for host in ("api.venice.ai", "api.refuseless.com",

@@ -13743,7 +13743,7 @@ APP_HTML = (
       <label class="flabel" for="prompt-draft-model">Improve my prompt</label>
       <select id="prompt-draft-model">
         <optgroup label="Free Models">
-          <option value="openrouter:nvidia/nemotron-3-ultra-550b-a55b:free">Nemotron 3 Ultra 550B</option>
+          <option value="openrouter:nvidia/nemotron-3-ultra-550b-a55b:free" selected>Nemotron 3 Ultra 550B</option>
           <option value="openrouter:google/gemma-4-31b-it:free">Gemma 4 31B</option>
           <option value="openrouter:nvidia/nemotron-3.5-lightning:free">Nemotron 3.5 Lightning</option>
         </optgroup>
@@ -13752,7 +13752,7 @@ APP_HTML = (
           <option value="gemini:gemini-3.5-flash-lite">Gemini 3.5 Flash Lite</option>
           <option value="venice:llama-3.3-70b">Llama 3.3 70B</option>
           <option disabled data-tier-sep="1">$$$</option>
-          <option value="gemini:gemini-3.8-flash" selected>Gemini 3.8 Flash</option>
+          <option value="gemini:gemini-3.8-flash">Gemini 3.8 Flash</option>
           <option value="venice:z-ai-glm-5-3">GLM 5.3</option>
           <option value="openrouter:x-ai/grok-4.7">Grok 4.7</option>
           <option disabled data-tier-sep="1">$$$$</option>
@@ -13812,7 +13812,7 @@ APP_HTML = (
         <label class="flabel" for="image-draft-model">Improve my prompt</label>
         <select id="image-draft-model">
           <optgroup label="Free Models">
-            <option value="openrouter:nvidia/nemotron-3-ultra-550b-a55b:free">Nemotron 3 Ultra 550B</option>
+            <option value="openrouter:nvidia/nemotron-3-ultra-550b-a55b:free" selected>Nemotron 3 Ultra 550B</option>
             <option value="openrouter:google/gemma-4-31b-it:free">Gemma 4 31B</option>
             <option value="openrouter:nvidia/nemotron-3.5-lightning:free">Nemotron 3.5 Lightning</option>
           </optgroup>
@@ -13821,7 +13821,7 @@ APP_HTML = (
             <option value="gemini:gemini-3.5-flash-lite">Gemini 3.5 Flash Lite</option>
             <option value="venice:llama-3.3-70b">Llama 3.3 70B</option>
             <option disabled data-tier-sep="1">$$$</option>
-            <option value="gemini:gemini-3.8-flash" selected>Gemini 3.8 Flash</option>
+            <option value="gemini:gemini-3.8-flash">Gemini 3.8 Flash</option>
             <option value="venice:z-ai-glm-5-3">GLM 5.3</option>
             <option value="openrouter:x-ai/grok-4.7">Grok 4.7</option>
             <option disabled data-tier-sep="1">$$$$</option>
@@ -13872,7 +13872,7 @@ APP_HTML = (
         <label class="flabel" for="image-edit-draft-model">Improve my prompt</label>
         <select id="image-edit-draft-model">
           <optgroup label="Free Models">
-            <option value="openrouter:nvidia/nemotron-3-ultra-550b-a55b:free">Nemotron 3 Ultra 550B</option>
+            <option value="openrouter:nvidia/nemotron-3-ultra-550b-a55b:free" selected>Nemotron 3 Ultra 550B</option>
             <option value="openrouter:google/gemma-4-31b-it:free">Gemma 4 31B</option>
             <option value="openrouter:nvidia/nemotron-3.5-lightning:free">Nemotron 3.5 Lightning</option>
           </optgroup>
@@ -13881,7 +13881,7 @@ APP_HTML = (
             <option value="gemini:gemini-3.5-flash-lite">Gemini 3.5 Flash Lite</option>
             <option value="venice:llama-3.3-70b">Llama 3.3 70B</option>
             <option disabled data-tier-sep="1">$$$</option>
-            <option value="gemini:gemini-3.8-flash" selected>Gemini 3.8 Flash</option>
+            <option value="gemini:gemini-3.8-flash">Gemini 3.8 Flash</option>
             <option value="venice:z-ai-glm-5-3">GLM 5.3</option>
             <option value="openrouter:x-ai/grok-4.7">Grok 4.7</option>
             <option disabled data-tier-sep="1">$$$$</option>
@@ -14056,7 +14056,7 @@ APP_HTML = (
       <label>Improve my script</label>
       <select id="short-draft-model">
         <optgroup label="Free Models">
-          <option value="openrouter:nvidia/nemotron-3-ultra-550b-a55b:free">Nemotron 3 Ultra 550B</option>
+          <option value="openrouter:nvidia/nemotron-3-ultra-550b-a55b:free" selected>Nemotron 3 Ultra 550B</option>
           <option value="openrouter:google/gemma-4-31b-it:free">Gemma 4 31B</option>
           <option value="openrouter:nvidia/nemotron-3.5-lightning:free">Nemotron 3.5 Lightning</option>
         </optgroup>
@@ -14065,7 +14065,7 @@ APP_HTML = (
           <option value="gemini:gemini-3.5-flash-lite">Gemini 3.5 Flash Lite</option>
           <option value="venice:llama-3.3-70b">Llama 3.3 70B</option>
           <option disabled data-tier-sep="1">$$$</option>
-          <option value="gemini:gemini-3.8-flash" selected>Gemini 3.8 Flash</option>
+          <option value="gemini:gemini-3.8-flash">Gemini 3.8 Flash</option>
           <option value="venice:z-ai-glm-5-3">GLM 5.3</option>
           <option value="openrouter:x-ai/grok-4.7">Grok 4.7</option>
           <option disabled data-tier-sep="1">$$$$</option>
@@ -14199,7 +14199,7 @@ APP_HTML = (
     <label>Improve my prompt</label>
     <select id="drama-draft-model">
       <optgroup label="Free Models">
-        <option value="openrouter:nvidia/nemotron-3-ultra-550b-a55b:free">Nemotron 3 Ultra 550B</option>
+        <option value="openrouter:nvidia/nemotron-3-ultra-550b-a55b:free" selected>Nemotron 3 Ultra 550B</option>
         <option value="openrouter:google/gemma-4-31b-it:free">Gemma 4 31B</option>
         <option value="openrouter:nvidia/nemotron-3.5-lightning:free">Nemotron 3.5 Lightning</option>
       </optgroup>
@@ -14208,7 +14208,7 @@ APP_HTML = (
         <option value="gemini:gemini-3.5-flash-lite">Gemini 3.5 Flash Lite</option>
         <option value="venice:llama-3.3-70b">Llama 3.3 70B</option>
         <option disabled data-tier-sep="1">$$$</option>
-        <option value="gemini:gemini-3.8-flash" selected>Gemini 3.8 Flash</option>
+        <option value="gemini:gemini-3.8-flash">Gemini 3.8 Flash</option>
         <option value="venice:z-ai-glm-5-3">GLM 5.3</option>
         <option value="openrouter:x-ai/grok-4.7">Grok 4.7</option>
         <option disabled data-tier-sep="1">$$$$</option>
