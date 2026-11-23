@@ -126,8 +126,11 @@ check("_hf_maybe_trigger()" in lane,
       "creation still wakes the Kaggle worker")
 check(app.TEMPLATE_DAILY_CAP_PAID == 20, "the paid daily cap is still 20")
 check(set(app.HF_TEMPLATES) == {"title", "captions", "stat", "promo",
-                                 "story", "sting"},
-      "all six templates still exist server side")
+                                 "story", "sting", "explainer",
+                                 "explainer_pop", "explainer_energy",
+                                 "kinetic", "intro", "outro", "chart"},
+      "the starter templates, the motion wing and the motion pack "
+      "templates all exist server side")
 check(app.HF_TEMPLATES["title"]["fields"] == ("headline", "subline"),
       "the title card still takes a headline and a subline")
 

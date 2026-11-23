@@ -84,6 +84,32 @@ for text in ("Add captions", SUBLINE):
 check(SRC.count("captions: $('captions').checked") == 2,
       "captions is not sent by both create payload branches")
 
+# -- the caption style and lower third (2026-11-23) ---------------------------
+
+check('id="caption-style"' in SRC, "the caption style pick is missing")
+check('id="lower-third-name"' in SRC and 'id="lower-third-sub"' in SRC,
+      "the lower third inputs are missing from the video form")
+check(SRC.count("caption_style: $('caption-style').value") == 2,
+      "the caption style is not sent by both create payload branches")
+check(SRC.count("lower_third_name: $('lower-third-name').value.trim()") == 2,
+      "the lower third name is not sent by both create payload branches")
+check("caption_style = _clean_caption_style(body)" in SRC
+      and "lower_third = _clean_lower_third(body)" in SRC,
+      "the create endpoint does not clean the style and lower third")
+check(SRC.count('"caption_style": caption_style,') == 3,
+      "the two generation job records do not store the caption style "
+      "(the third match is the clip lane's own older field)")
+check(SRC.count('"lower_third": lower_third,') == 2,
+      "both job creation paths do not store the lower third")
+check(SRC.count('"lower_third_status": None,') == 2,
+      "both job creation paths do not initialize lower_third_status")
+check("caption_style=caption_style, lower_third=lower_third," in SRC,
+      "the create endpoint does not pass the style and lower third to create_api_job")
+check('"caption_style": job.get("caption_style")' in SRC,
+      "the job payload does not expose the caption style")
+check('"lower_third_status": job.get("lower_third_status")' in SRC,
+      "the job payload does not expose lower_third_status")
+
 # -- creation -----------------------------------------------------------------
 
 check('captions = bool(body.get("captions"))' in SRC,
@@ -110,8 +136,15 @@ check('"captions_status": job.get("captions_status")' in SRC,
 
 stage = func_src(TREE, SRC, "_captions_for_job")
 check(bool(stage), "_captions_for_job is missing from app.py")
-check('if not job.get("captions"):' in stage,
-      "the stage does not bail out untouched for unchecked jobs")
+check('want_captions = bool(job.get("captions"))' in stage
+      and 'if not want_captions and not lower_third:' in stage,
+      "the stage does not bail out untouched for jobs with neither captions nor a lower third")
+check('job["lower_third_status"] = "applied"' in stage,
+      "the stage never records the lower third as applied")
+check('job["lower_third_status"] = "unavailable"' in stage,
+      "the stage does not flag the lower third unavailable on failure")
+check("lower_third=lower_third" in stage,
+      "the stage does not pass the job's lower third to the ASS builder")
 check('job["captions_status"] = "applied"' in stage,
       "the stage never records applied")
 check('job["captions_status"] = "no_speech"' in stage,
@@ -158,14 +191,21 @@ check('raise ValueError("transcribe needs audio bytes")' in tr,
 # -- the pure builders, replayed -------------------------------------------------
 
 ns = {}
-for name in ("CAPTIONS_MAX_WORDS", "CAPTIONS_MIN_SECONDS"):
+for name in ("CAPTIONS_MAX_WORDS", "CAPTIONS_MIN_SECONDS",
+             "VIDEO_CAPTION_STYLES", "VIDEO_CAPTION_STYLE_DEFAULT",
+             "LOWER_THIRD_NAME_MAX", "LOWER_THIRD_SUB_MAX",
+             "LOWER_THIRD_SECONDS"):
     ns[name] = literal(name)
 check(ns["CAPTIONS_MAX_WORDS"] == 4,
       "caption chunking drifted from the Shorts lane's 4 words")
 check(ns["CAPTIONS_MIN_SECONDS"] == 0.35,
       "caption minimum hold drifted from the Shorts lane's 0.35s")
+check(ns["VIDEO_CAPTION_STYLES"] == ("classic", "karaoke", "pop"),
+      "the video caption styles drifted")
 for name in ("_caption_ass_time", "_caption_ass_escape",
-             "caption_events", "build_captions_ass"):
+             "caption_events", "_karaoke_events", "_lower_third_ass",
+             "build_captions_ass", "_clean_caption_style",
+             "_clean_lower_third"):
     exec(func_src(TREE, SRC, name), ns)
 caption_events = ns["caption_events"]
 build_captions_ass = ns["build_captions_ass"]
@@ -215,6 +255,42 @@ esc = build_captions_ass(
     [{"word": "a{b}c", "start": 0.0, "end": 0.5}], 1080, 1920)
 check("a(b)c" in esc and "a{b}c" not in esc,
       "ASS control characters in a word are not escaped")
+
+kara = build_captions_ass(heard(["hello", "world"]), 1080, 1920,
+                          style="karaoke")
+check("{\\kf40}hello" in kara and "&H0000FFFF" in kara,
+      "karaoke captions do not carry per word fill tags in the spoken color")
+pop = build_captions_ass(heard(["hello"]), 1080, 1920, style="pop")
+check("{\\fscx55\\fscy55\\t(0,170,\\fscx100\\fscy100)}hello" in pop,
+      "pop captions do not scale each chunk in")
+bogus = build_captions_ass(heard(["hello"]), 1080, 1920, style="bogus")
+check(bogus == build_captions_ass(heard(["hello"]), 1080, 1920),
+      "an unknown caption style does not fall back to classic")
+LT = {"name": "Jane Doe", "sub": "Owner, Riverside Park"}
+lt_only = build_captions_ass([], 1080, 1920, lower_third=LT)
+check("Style: LowerName" in lt_only and "Jane Doe" in lt_only
+      and "Riverside Park" in lt_only,
+      "a lower third alone does not build its styles and words")
+check("Dialogue: 0," not in lt_only,
+      "a lower third alone must carry no caption dialogues")
+check("Dialogue: 1,0:00:00.50,0:00:05.00,LowerName" in lt_only,
+      "the lower third does not play across the first seconds")
+both = build_captions_ass(heard(["hello"]), 1080, 1920, lower_third=LT)
+check("Dialogue: 0," in both and "Dialogue: 1," in both,
+      "captions and a lower third do not ride the same file")
+clean_lt = ns["_clean_lower_third"]
+check(clean_lt({"lower_third_name": "  Jane   Doe ",
+                "lower_third_sub": " Owner "})
+      == {"name": "Jane Doe", "sub": "Owner"},
+      "the lower third cleaner does not tidy its words")
+check(clean_lt({"lower_third_name": "   "}) is None,
+      "a lower third with no name is not dropped")
+check(clean_lt({"lower_third": {"name": "A B", "sub": ""}})
+      == {"name": "A B", "sub": ""},
+      "the lower third cleaner does not accept the object shape")
+check(ns["_clean_caption_style"]({"caption_style": "pop"}) == "pop"
+      and ns["_clean_caption_style"]({"caption_style": "nope"}) == "classic",
+      "the caption style cleaner does not validate its pick")
 
 # -- no price, no gallery reach ---------------------------------------------------
 

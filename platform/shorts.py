@@ -39,6 +39,7 @@ the job record, the quotas, and the audio stage calls.
 """
 
 import json
+import math
 import os
 import re
 import subprocess
@@ -1036,17 +1037,10 @@ def _ass_escape(text: str) -> str:
             .replace("}", ")").replace("\n", " "))
 
 
-def caption_events(lines: list, timings: list) -> list:
-    """Word timed caption chunks for the whole short.
-
-    timings holds one (start, duration) per line, the measured
-    narration placement the processor computed. Inside a line,
-    words are placed by character share of the line's length
-    (the line is one breath of one voice, so share tracks speech
-    closely at sentence length) and grouped into chunks of at
-    most CAPTION_MAX_WORDS words. Returns (start, end, text)
-    events in order."""
-    events = []
+def _word_placements(lines: list, timings: list) -> list:
+    """Per line word placements: a list of (placed, line_end)
+    where placed is a list of (start, end, word) in order."""
+    groups = []
     for line, (start, duration) in zip(lines, timings):
         words = line.split()
         if not words:
@@ -1059,6 +1053,22 @@ def caption_events(lines: list, timings: list) -> list:
             placed.append((cursor, cursor + span, word))
             cursor += span
         line_end = float(start) + float(duration)
+        groups.append((placed, line_end))
+    return groups
+
+
+def caption_events(lines: list, timings: list) -> list:
+    """Word timed caption chunks for the whole short.
+
+    timings holds one (start, duration) per line, the measured
+    narration placement the processor computed. Inside a line,
+    words are placed by character share of the line's length
+    (the line is one breath of one voice, so share tracks speech
+    closely at sentence length) and grouped into chunks of at
+    most CAPTION_MAX_WORDS words. Returns (start, end, text)
+    events in order."""
+    events = []
+    for placed, line_end in _word_placements(lines, timings):
         for i in range(0, len(placed), CAPTION_MAX_WORDS):
             chunk = placed[i:i + CAPTION_MAX_WORDS]
             c_start = chunk[0][0]
@@ -1086,6 +1096,10 @@ CAPTION_STYLES = {
             "outline": 7, "margin_v": 430},
     "quiet": {"label": "Quiet", "fontsize": 58,
               "outline": 3, "margin_v": 220},
+    "karaoke": {"label": "Karaoke", "fontsize": 72,
+                "outline": 5, "margin_v": 300},
+    "pop": {"label": "Pop", "fontsize": 72,
+            "outline": 5, "margin_v": 300},
     "none": {"label": "No captions"},
 }
 CAPTION_STYLE_DEFAULT = "classic"
@@ -1093,7 +1107,8 @@ CAPTION_STYLE_NONE = "none"
 
 
 def build_captions_ass(lines: list, timings: list,
-                       style: str = CAPTION_STYLE_DEFAULT) -> str:
+                       style: str = CAPTION_STYLE_DEFAULT,
+                       lower_third=None) -> str:
     """The ASS subtitle file for one short: bold white words
     with a black outline, low on the frame, in the picked
     caption look (classic is the house shorts style). Burned in
@@ -1106,6 +1121,28 @@ def build_captions_ass(lines: list, timings: list,
     else:
         look = CAPTION_STYLES.get(style) or \
             CAPTION_STYLES[CAPTION_STYLE_DEFAULT]
+    # Lower third: only when a non-empty name is supplied.
+    lt_name = ""
+    lt_sub = ""
+    if lower_third:
+        lt_name = str(lower_third.get("name") or "").strip()
+        lt_sub = str(lower_third.get("sub") or "").strip()
+        if not lt_name:
+            lt_sub = ""
+    primary = "&H0000FFFF" if style == "karaoke" else "&H00FFFFFF"
+    secondary = "&H00FFFFFF"
+    lower_styles = ""
+    if lt_name:
+        lower_styles = (
+            "Style: LowerName,DejaVu Sans,56,"
+            "&H00FFFFFF,&H00FFFFFF,"
+            "&H00000000,&H96101418,-1,0,0,0,100,100,0,0,3,"
+            "14,0,1,64,60,168,1\n"
+            "Style: LowerSub,DejaVu Sans,40,"
+            "&H00D8D5CC,&H00FFFFFF,"
+            "&H00000000,&H96101418,0,0,0,0,100,100,0,0,3,"
+            "12,0,1,64,60,104,1\n"
+        )
     header = (
         "[Script Info]\n"
         "ScriptType: v4.00+\n"
@@ -1120,22 +1157,65 @@ def build_captions_ass(lines: list, timings: list,
         "BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, "
         "MarginV, Encoding\n"
         f"Style: Shorts,DejaVu Sans,{look['fontsize']},"
-        "&H00FFFFFF,&H00FFFFFF,"
+        f"{primary},{secondary},"
         "&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,"
         f"{look['outline']},0,2,60,60,{look['margin_v']},1\n"
+        f"{lower_styles}"
         "\n"
         "[Events]\n"
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, "
         "MarginV, Effect, Text\n"
     )
+    lower_body = ""
+    if lt_name:
+        lower_body = (
+            f"Dialogue: 1,{_ass_time(0.40)},{_ass_time(4.60)},"
+            f"LowerName,,0,0,0,,{{\\fad(220,260)}}"
+            f"{_ass_escape(lt_name)}\n"
+        )
+        if lt_sub:
+            lower_body += (
+                f"Dialogue: 1,{_ass_time(0.40)},{_ass_time(4.60)},"
+                f"LowerSub,,0,0,0,,{{\\fad(220,260)}}"
+                f"{_ass_escape(lt_sub)}\n"
+            )
     if style == CAPTION_STYLE_NONE:
-        return header
+        return header + lower_body
+    if style == "karaoke":
+        karaoke_events = []
+        for placed, line_end in _word_placements(lines, timings):
+            for i in range(0, len(placed), CAPTION_MAX_WORDS):
+                chunk = placed[i:i + CAPTION_MAX_WORDS]
+                c_start = chunk[0][0]
+                c_end = min(line_end, chunk[-1][1])
+                if c_end - c_start < CAPTION_MIN_SECONDS:
+                    c_end = min(line_end,
+                                c_start + CAPTION_MIN_SECONDS)
+                text = " ".join(
+                    f"{{\\kf{round((e - s) * 100)}}}"
+                    f"{_ass_escape(w)}"
+                    for s, e, w in chunk)
+                karaoke_events.append((c_start, c_end, text))
+        body = "".join(
+            f"Dialogue: 0,{_ass_time(start)},{_ass_time(end)},"
+            f"Shorts,,0,0,0,,{text}\n"
+            for start, end, text in karaoke_events
+        )
+        return header + body + lower_body
+    if style == "pop":
+        pop_prefix = "{\\fscx55\\fscy55\\t(0,170,\\fscx100\\fscy100)}"
+        body = "".join(
+            f"Dialogue: 0,{_ass_time(start)},{_ass_time(end)},Shorts,,"
+            f"0,0,0,,{pop_prefix}{_ass_escape(text)}\n"
+            for start, end, text in caption_events(lines, timings)
+        )
+        return header + body + lower_body
     body = "".join(
         f"Dialogue: 0,{_ass_time(start)},{_ass_time(end)},Shorts,,"
         f"0,0,0,,{_ass_escape(text)}\n"
         for start, end, text in caption_events(lines, timings)
     )
-    return header + body
+    return header + body + lower_body
 
 
 # ---------------------------------------------------------------------------
@@ -1154,15 +1234,19 @@ def _run(cmd: list, timeout: int = 1200, cwd: Path = None):
 
 
 def build_narration_track(line_wavs: list, line_durations: list,
-                          work_dir: Path) -> Path:
+                          work_dir: Path,
+                          scene_durations=None) -> Path:
     """Join the per line narration wavs into one track, each
     line padded with silence out to its scene length (line
     duration plus the gap; the last line gets the tail)."""
     work_dir.mkdir(parents=True, exist_ok=True)
     segments = []
     for i, (wav, duration) in enumerate(zip(line_wavs, line_durations)):
-        pad = TAIL_SECONDS if i == len(line_wavs) - 1 \
-            else LINE_GAP_SECONDS
+        if scene_durations is not None:
+            pad = max(0.0, float(scene_durations[i]) - float(duration))
+        else:
+            pad = TAIL_SECONDS if i == len(line_wavs) - 1 \
+                else LINE_GAP_SECONDS
         seg = work_dir / f"vox_{i}.wav"
         _run(["ffmpeg", "-y", "-i", str(wav),
               "-af", f"apad,atrim=0:{duration + pad:.3f}",
@@ -1217,11 +1301,31 @@ def animate_image_scene(image_path, duration: float,
     return out_path
 
 
+def snap_durations_to_beat(durations, bpm):
+    """Snap each duration up to the next whole multiple of the
+    beat (60/bpm seconds); a duration already on a multiple
+    stays, and the minimum is one beat. bpm <= 0 leaves the
+    durations unchanged."""
+    try:
+        bpm_value = float(bpm)
+    except (TypeError, ValueError):
+        return durations
+    if bpm_value <= 0:
+        return durations
+    beat = 60.0 / bpm_value
+    snapped = []
+    for duration in durations:
+        steps = math.ceil(float(duration) / beat - 1e-9)
+        steps = max(1, steps)
+        snapped.append(steps * beat)
+    return snapped
+
+
 def assemble_short(scene_paths: list, scene_durations: list,
                    narration_path, captions_ass: Path,
                    out_path: Path, work_dir: Path,
                    bed_path=None, watermark: bool = False,
-                   font_path: str = "") -> dict:
+                   font_path: str = "", overlays=None) -> dict:
     """Assemble one finished short at 1080 x 1920.
 
     Each stock clip is scaled to cover the frame, cropped,
@@ -1260,14 +1364,29 @@ def assemble_short(scene_paths: list, scene_durations: list,
          timeout=600, cwd=work_dir)
 
     total = sum(scene_durations)
+    active_overlays = []
+    if overlays:
+        for entry in overlays:
+            if entry is not None:
+                active_overlays.append(entry)
+    has_overlays = bool(active_overlays)
     inputs = ["-i", str(joined), "-i", str(narration_path)]
     filters = []
     mix = ["[vox]"]
     filters.append("[1:a]volume=1.0[vox]")
+    next_input = 2
     if bed_path and Path(bed_path).exists():
         inputs += ["-stream_loop", "-1", "-i", str(bed_path)]
-        filters.append("[2:a]volume=0.22[bed]")
+        filters.append(f"[{next_input}:a]volume=0.22[bed]")
+        next_input += 1
         mix.append("[bed]")
+    overlay_inputs = []
+    if has_overlays:
+        for entry in active_overlays:
+            overlay_inputs.append(next_input)
+            inputs += ["-stream_loop", "-1", "-i",
+                       str(entry["path"])]
+            next_input += 1
     filters.append(
         "".join(mix)
         + f"amix=inputs={len(mix)}:duration=first:"
@@ -1284,12 +1403,53 @@ def assemble_short(scene_paths: list, scene_durations: list,
             f"drawtext=fontfile={font_path}:text='Moonfactory':"
             "fontcolor=white@0.55:fontsize=h/26:borderw=2:"
             "bordercolor=black@0.3:x=w-tw-24:y=h-th-24")
+    if not has_overlays:
+        cmd = ["ffmpeg", "-y", *inputs,
+               "-filter_complex", ";".join(filters)]
+        if vf_parts:
+            cmd += ["-vf", ",".join(vf_parts)]
+        cmd += [
+               "-map", "0:v:0", "-map", "[aout]",
+               "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+               "-c:a", "aac", "-b:a", "160k",
+               "-movflags", "+faststart",
+               "-t", f"{total:.3f}", str(out_path)]
+        _run(cmd, timeout=1200, cwd=work_dir)
+        return probe(out_path)
+    # Overlay path: everything (audio mix, overlays, captions,
+    # watermark) lives in one filter_complex graph.
+    def _num(value):
+        return f"{float(value):g}"
+    video_filters = []
+    for j, (entry, k) in enumerate(
+            zip(active_overlays, overlay_inputs)):
+        o_start = float(entry["start"])
+        o_duration = float(entry["duration"])
+        video_filters.append(
+            f"[{k}:v]scale=400:225:"
+            "force_original_aspect_ratio=increase,"
+            "crop=400:225,fps=30,format=yuv420p,"
+            f"trim=0:{_num(o_duration)},"
+            f"setpts=PTS-STARTPTS+{_num(o_start)}/TB[ov{j}]")
+    prev_label = "0:v"
+    for j, entry in enumerate(active_overlays):
+        o_start = float(entry["start"])
+        o_duration = float(entry["duration"])
+        next_label = f"vov{j}"
+        video_filters.append(
+            f"[{prev_label}][ov{j}]overlay=x=W-w-40:y=H-h-620:"
+            f"enable='between(t,{_num(o_start)},"
+            f"{_num(o_start + o_duration)})'[{next_label}]")
+        prev_label = next_label
+    for part in vf_parts:
+        next_label = f"vfin{len(video_filters)}"
+        video_filters.append(f"[{prev_label}]{part}[{next_label}]")
+        prev_label = next_label
+    filters.extend(video_filters)
     cmd = ["ffmpeg", "-y", *inputs,
            "-filter_complex", ";".join(filters)]
-    if vf_parts:
-        cmd += ["-vf", ",".join(vf_parts)]
     cmd += [
-           "-map", "0:v:0", "-map", "[aout]",
+           "-map", f"[{prev_label}]", "-map", "[aout]",
            "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
            "-c:a", "aac", "-b:a", "160k",
            "-movflags", "+faststart",

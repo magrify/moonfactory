@@ -34,8 +34,10 @@ check(app.TEMPLATE_DAILY_CAP_PAID == 20,
 check(app.TEMPLATE_MAX_SOURCE_SECONDS == 60,
       "captions source cap is 60s")
 check(set(app.HF_TEMPLATES) == {"title", "captions", "stat", "promo",
-                                 "story", "sting"},
-      "four starter templates plus the two motion templates exist")
+                                 "story", "sting", "explainer",
+                                 "explainer_pop", "explainer_energy",
+                                 "kinetic", "intro", "outro", "chart"},
+      "starter templates, the motion wing and the motion pack templates exist")
 check(app.HF_TEMPLATES["story"]["name"] == "Animated story short",
       "story template carries its studio name")
 check(app.HF_TEMPLATES["story"].get("motion") is True,
@@ -197,6 +199,112 @@ check("Willow" in sting_html and "Bakery" in sting_html,
 check('data-duration="4"' in sting_html, "sting composition runs four seconds")
 check("strokeDashoffset" in sting_html, "sting ring is animated on the timeline")
 
+# --- the motion pack (2026-11-23): explainers, kinetic, intro/outro, data --
+exp = app.hf_clean_fields("explainer", {
+    "headline": "How it works",
+    "points": "One booking page\nGuests book direct\nNo commission"})
+check(exp["points"].count("\n") == 2,
+      "explainer points are stored newline joined")
+check(raises(lambda: app.hf_clean_fields(
+    "explainer", {"points": "a\nb"})),
+      "explainer without a headline rejected")
+one_point = app.hf_clean_fields(
+    "explainer", {"headline": "H", "points": "a"})
+check(one_point["points"] == "a",
+      "an explainer with a single point is allowed")
+check(raises(lambda: app.hf_clean_fields(
+    "explainer", {"headline": "H", "points": "  \n  "})),
+      "explainer with no points rejected")
+check(raises(lambda: app.hf_clean_fields(
+    "explainer", {"headline": "H",
+                  "points": "\n".join(f"p{i}" for i in range(5))})),
+      "explainer with five points rejected")
+check(raises(lambda: app.hf_clean_fields(
+    "explainer_pop", {"headline": "H", "points": "ok\n" + "x" * 91})),
+      "explainer point over 90 characters rejected")
+
+kin = app.hf_clean_fields("kinetic", {"words": "Book more\nStay longer"})
+check(kin["words"].count("\n") == 1, "kinetic words are stored newline joined")
+check(app.hf_kinetic_duration(2) == 4.5,
+      "kinetic length follows the line count")
+check(raises(lambda: app.hf_clean_fields("kinetic", {"words": "one"})),
+      "kinetic with one line rejected")
+check(raises(lambda: app.hf_clean_fields(
+    "kinetic", {"words": "\n".join(f"w{i}" for i in range(7))})),
+      "kinetic with seven lines rejected")
+check(raises(lambda: app.hf_clean_fields("kinetic", {"words": "a\n" + "x" * 43})),
+      "kinetic line over 42 characters rejected")
+
+check(raises(lambda: app.hf_clean_fields("intro", {"subline": "x"})),
+      "intro without headline rejected")
+check(raises(lambda: app.hf_clean_fields("outro", {"cta": "Book now"})),
+      "outro without headline rejected")
+outro_clean = app.hf_clean_fields(
+    "outro", {"headline": "H", "cta": "Book now"})
+check(outro_clean["cta"] == "Book now",
+      "the outro call to action passes through when given")
+
+parsed = app.hf_parse_chart_data("Month, Bookings\nJan, 120\nFeb: 240\nMar 90")
+check(parsed == [["Jan", 120.0], ["Feb", 240.0], ["Mar", 90.0]],
+      "chart data parses label/value rows and skips a header row")
+check(app.hf_parse_chart_data("A, $1,200\nB, 45%") == [["A", 1200.0],
+                                                        ["B", 45.0]],
+      "chart values drop money and percent dressing")
+check(raises(lambda: app.hf_parse_chart_data("A, -5\nB, 3")),
+      "negative chart values rejected")
+check(raises(lambda: app.hf_parse_chart_data("only one row, 5")),
+      "a chart with one point rejected")
+check(raises(lambda: app.hf_parse_chart_data("words\nmore words")),
+      "chart rows with no numbers rejected")
+chart_clean = app.hf_clean_fields("chart", {"title": "Bookings",
+                                            "data": "Jan, 120\nFeb, 240"})
+check(chart_clean["points"] == [["Jan", 120.0], ["Feb", 240.0]],
+      "chart fields carry the parsed points")
+check(raises(lambda: app.hf_clean_fields("chart", {"data": "A, 1\nB, 2"})),
+      "chart without a title rejected")
+
+exp_html = app.build_hf_composition("explainer", exp)
+check("expl-head" in exp_html and "book direct" in exp_html,
+      "explainer composition carries its headline and points")
+pop_html = app.build_hf_composition(
+    "explainer_pop", app.hf_clean_fields(
+        "explainer_pop", {"headline": "H", "points": "a\nb"}))
+check("expl-row-0" in pop_html and "border-radius:999px" in pop_html,
+      "explainer pop lays its points out as pills")
+energy_html = app.build_hf_composition(
+    "explainer_energy", app.hf_clean_fields(
+        "explainer_energy", {"headline": "H", "points": "a\nb"}))
+check('data-duration="7"' in energy_html,
+      "explainer energy runs seven seconds")
+kin_html = app.build_hf_composition("kinetic", kin)
+check('data-duration="4.5"' in kin_html,
+      "kinetic composition length follows the line count")
+check("Book more" in kin_html and "Stay longer" in kin_html,
+      "kinetic composition carries every line")
+intro_html = app.build_hf_composition(
+    "intro", {"headline": "Willow Ford", "subline": "stay a while",
+              "color": "#6366f1"})
+check("intro-dot" in intro_html and 'data-duration="5"' in intro_html,
+      "intro composition draws its mark and runs five seconds")
+check("autoAlpha: 0" not in intro_html.split("tl.to(")[-1],
+      "intro holds its lockup instead of exiting")
+outro_html = app.build_hf_composition(
+    "outro", {"headline": "Willow Ford", "subline": "stay a while",
+              "cta": "Book your stay", "color": "#6366f1"})
+check("Book your stay" in outro_html and 'id="outro-cta"' in outro_html,
+      "outro composition carries the call to action")
+chart_html = app.build_hf_composition("chart", chart_clean)
+check("chart-bar" in chart_html and ">120<" in chart_html
+      and ">240<" in chart_html,
+      "chart composition draws bars with their values")
+check("Bookings" in chart_html, "chart composition carries its title")
+evil_chart = app.build_hf_composition(
+    "chart", {"title": "<b>T</b>", "points": [["<i>L</i>", 5.0],
+                                               ["B", 6.0]],
+              "data": "x", "color": "#6366f1"})
+check("<i>L</i>" not in evil_chart and "&lt;i&gt;L&lt;/i&gt;" in evil_chart,
+      "chart labels never land as raw html")
+
 # --- lane wiring in the source ------------------------------------------
 lane = SRC.split("# -- template lane", 1)[1].split(
     '@web.get("/api/jobs/{job_id}/thumb")', 1)[0]
@@ -248,6 +356,30 @@ check('id="mf-story-lines"' in SRC and 'id="mf-story-title"' in SRC
 check("function applyMotionUI()" in SRC
       and "isMotionTemplate(sel.value)" in SRC,
       "picking a motion template swaps the composer fields and stays open to free accounts")
+for tid, tname in (("explainer", "Explainer"),
+                   ("explainer_pop", "Explainer pop"),
+                   ("explainer_energy", "Explainer energy"),
+                   ("kinetic", "Kinetic type"),
+                   ("intro", "Logo intro"),
+                   ("outro", "Logo outro"),
+                   ("chart", "Data video")):
+    check(app.HF_TEMPLATES[tid]["name"] == tname,
+          f"{tid} carries its studio name")
+    check(f"{{ id: '{tid}', name: '{tname}' }}" in SRC,
+          f"the Create picker carries {tid} under its studio name")
+check('id="motion-fields-explainer"' in SRC
+      and 'id="motion-fields-kinetic"' in SRC
+      and 'id="motion-fields-intro"' in SRC
+      and 'id="motion-fields-outro"' in SRC
+      and 'id="motion-fields-chart"' in SRC,
+      "the Create form has field blocks for every motion pack template")
+check('id="mf-chart-data"' in SRC and 'id="mf-chart-file"' in SRC
+      and 'id="mf-kinetic-words"' in SRC and 'id="mf-outro-cta"' in SRC,
+      "the data video form takes pasted rows or a CSV file, the kinetic form its lines, the outro its call to action")
+check("payload.data = $('mf-chart-data').value" in SRC
+      and "payload.words = $('mf-kinetic-words').value" in SRC
+      and "payload.cta = $('mf-outro-cta').value" in SRC,
+      "the Create button sends the motion pack fields to the template lane")
 check("payload.title = $('mf-story-title').value" in SRC
       and "payload.headline = $('mf-sting-headline').value" in SRC
       and SRC.count("endpoint: '/api/templates'") >= 2,

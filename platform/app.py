@@ -777,7 +777,7 @@ def process_short_job(job_id: str):
         stock_key = shorts._env_value("PEXELS_API_KEY")
 
         image_paths = None
-        if (job.get("short_visuals") or "stock") == "ai":
+        if (job.get("short_visuals") or "stock") in ("ai", "overlay"):
             set_stage("Making the pictures")
             image_paths = _short_ai_scenes(job, lines)
             if image_paths is None:
@@ -814,6 +814,42 @@ def process_short_job(job_id: str):
             ]
             jobs[job_id] = job
 
+        overlay_clips = None
+        if (job.get("short_visuals") or "") == "overlay":
+            # B-roll overlays (2026-11-23, the motion b-roll
+            # playbook): one stock clip per line, fetched the
+            # same way the stock scenes are, laid over the main
+            # picture in a corner panel timed to the line's
+            # narration in the assembly. The base picture is
+            # the AI pictures lane above (with its own stock
+            # fallback). A line whose search comes back empty
+            # simply gets no panel; the short never dies on
+            # an overlay.
+            set_stage("Finding the B-roll")
+            overlay_clips = []
+            broll_records = []
+            for i, line in enumerate(lines):
+                terms = shorts.search_terms_for_line(
+                    line, job.get("short_topic") or "")
+                try:
+                    clip = shorts.find_stock_clip(
+                        terms, work / "broll", i, stock_key)
+                except Exception:
+                    clip = None
+                overlay_clips.append(clip)
+                if clip is not None:
+                    broll_records.append(
+                        {"provider": clip.get("provider"),
+                         "terms": clip.get("terms"),
+                         "page_url": clip.get("page_url"),
+                         "credit": clip.get("credit"),
+                         "license": clip.get("license")})
+            job["short_broll"] = broll_records
+            job["short_visuals_used"] = (
+                "overlay-ai" if image_paths is not None
+                else "overlay-stock")
+            jobs[job_id] = job
+
         set_stage(SHORTS_STAGES[1])
         generate_voiceover = modal.Function.from_name(
             "sinclip-audio", "generate_voiceover")
@@ -847,32 +883,51 @@ def process_short_job(job_id: str):
             line_durations.append(duration)
         job["voiceover_status"] = "ready"
         jobs[job_id] = job
-        narration = shorts.build_narration_track(
-            line_wavs, line_durations, work)
         scene_durations = []
-        timings = []
-        cursor = 0.0
         for i, duration in enumerate(line_durations):
             pad = shorts.TAIL_SECONDS if i == len(line_durations) - 1 \
                 else shorts.LINE_GAP_SECONDS
             scene_durations.append(duration + pad)
+        if job.get("short_beat_sync"):
+            # Beat synced cuts (2026-11-23, the beat sync
+            # playbook): every scene runs on to the next beat
+            # of the picked music's tempo, so the picture cuts
+            # land on the beat. The narration track is built
+            # against the same lengths below, so the voice
+            # pads out and stays locked to the picture.
+            bpm = (SHORTS_MUSIC_STYLES.get(
+                job.get("short_music") or "house") or {}).get(
+                    "bpm") or 100
+            scene_durations = shorts.snap_durations_to_beat(
+                scene_durations, bpm)
+            job["short_beat_bpm"] = bpm
+            jobs[job_id] = job
+        narration = shorts.build_narration_track(
+            line_wavs, line_durations, work,
+            scene_durations=scene_durations)
+        timings = []
+        cursor = 0.0
+        for i, duration in enumerate(line_durations):
             timings.append((cursor, duration))
-            cursor += duration + pad
+            cursor += scene_durations[i]
 
         set_stage(SHORTS_STAGES[2])
         # The No captions pick (Jack, 2026-11-20): no captions
         # file is written and the assembly runs with no
         # subtitles filter, so the finished short carries no
-        # captions at all.
+        # captions at all. The one exception (2026-11-23): a
+        # lower third is its own overlay, so a short with one
+        # still writes the file, holding the lower third alone.
         ass_path = None
-        if (job.get("short_caption_style")
-                or shorts.CAPTION_STYLE_DEFAULT) != "none":
+        caption_style = job.get("short_caption_style") \
+            or shorts.CAPTION_STYLE_DEFAULT
+        if caption_style != "none" or job.get("short_lower_third"):
             ass_path = work / "captions.ass"
             ass_path.write_text(
                 shorts.build_captions_ass(
                     lines, timings,
-                    style=job.get("short_caption_style")
-                    or shorts.CAPTION_STYLE_DEFAULT),
+                    style=caption_style,
+                    lower_third=job.get("short_lower_third")),
                 encoding="utf-8")
 
         set_stage(SHORTS_STAGES[3])
@@ -886,13 +941,26 @@ def process_short_job(job_id: str):
                 scene_paths.append(scene_file)
         else:
             scene_paths = [Path(scene["path"]) for scene in scenes]
+        overlay_specs = None
+        if overlay_clips is not None:
+            overlay_specs = []
+            for i, clip in enumerate(overlay_clips):
+                if clip is None:
+                    overlay_specs.append(None)
+                else:
+                    overlay_specs.append({
+                        "path": clip["path"],
+                        "start": timings[i][0],
+                        "duration": scene_durations[i],
+                    })
         out_path = files_dir / f"{job_id}.mp4"
         info = shorts.assemble_short(
             scene_paths,
             scene_durations, narration, ass_path, out_path, work,
             bed_path=_short_bed_for_job(job),
             watermark=bool(job.get("free_tier")),
-            font_path=FONT_PATH)
+            font_path=FONT_PATH,
+            overlays=overlay_specs)
         job["duration_seconds"] = round(float(info["duration"]), 2)
         job["bytes"] = out_path.stat().st_size
         jobs[job_id] = job
@@ -1898,15 +1966,18 @@ SHORTS_STAGES = (
 # one bed generation once, not one per short. None is no music
 # under the narration at all.
 SHORTS_MUSIC_STYLES = {
-    "house": {"label": "House bed", "caption": ""},
+    "house": {"label": "House bed", "caption": "", "bpm": 96},
     "calm": {"label": "Calm piano",
-             "caption": "calm soft piano, gentle and warm"},
+             "caption": "calm soft piano, gentle and warm",
+             "bpm": 80},
     "upbeat": {"label": "Upbeat pop",
-               "caption": "upbeat cheerful pop, light and bright"},
+               "caption": "upbeat cheerful pop, light and bright",
+               "bpm": 124},
     "cinematic": {"label": "Cinematic strings",
                   "caption": "cinematic orchestral strings, "
-                             "emotional and swelling"},
-    "none": {"label": "No music", "caption": ""},
+                             "emotional and swelling",
+                  "bpm": 90},
+    "none": {"label": "No music", "caption": "", "bpm": 100},
 }
 TEMPLATE_MAX_SOURCE_SECONDS = 60
 TEMPLATE_MAX_UPLOAD_BYTES = 200 * 1024 * 1024
@@ -2077,6 +2148,47 @@ HF_TEMPLATES = {
         "duration": 4.0,
         "fields": ("headline", "subline"),
     },
+    # The motion pack (2026-11-23): explainer styles from the
+    # Barty playbooks (default, engaging, high energy), kinetic
+    # type, logo intro and outro cards, and the data video from
+    # the chart animation playbook. All of them are plain
+    # HyperFrames compositions on this same free lane: zero
+    # credits, the title card pricing rule, nothing new to run.
+    "explainer": {
+        "name": "Explainer",
+        "duration": 8.0,
+        "fields": ("headline", "points"),
+    },
+    "explainer_pop": {
+        "name": "Explainer pop",
+        "duration": 8.0,
+        "fields": ("headline", "points"),
+    },
+    "explainer_energy": {
+        "name": "Explainer energy",
+        "duration": 7.0,
+        "fields": ("headline", "points"),
+    },
+    "kinetic": {
+        "name": "Kinetic type",
+        "duration": None,  # the line count sets it
+        "fields": ("words",),
+    },
+    "intro": {
+        "name": "Logo intro",
+        "duration": 5.0,
+        "fields": ("headline", "subline"),
+    },
+    "outro": {
+        "name": "Logo outro",
+        "duration": 6.0,
+        "fields": ("headline", "subline", "cta"),
+    },
+    "chart": {
+        "name": "Data video",
+        "duration": 9.0,
+        "fields": ("title", "data"),
+    },
 }
 
 _HF_FIELD_LIMITS = {
@@ -2088,6 +2200,9 @@ _HF_FIELD_LIMITS = {
     "cta": 40,
     "title": 90,
     "lines": 1100,
+    "points": 1100,
+    "words": 300,
+    "data": 2000,
 }
 
 
@@ -2104,6 +2219,18 @@ def hf_clean_fields(template_id: str, body: dict) -> dict:
         if field == "lines":
             out[field] = _hf_clean_lines(body.get(field))
             continue
+        if field == "points":
+            out[field] = _hf_clean_points(body.get(field))
+            continue
+        if field == "words":
+            out[field] = _hf_clean_words(body.get(field))
+            continue
+        if field == "data":
+            points = hf_parse_chart_data(body.get(field))
+            out["points"] = points
+            out[field] = "\n".join(
+                f"{label}, {value:g}" for label, value in points)
+            continue
         value = str(body.get(field) or "").strip()
         limit = _HF_FIELD_LIMITS[field]
         if len(value) > limit:
@@ -2116,6 +2243,13 @@ def hf_clean_fields(template_id: str, body: dict) -> dict:
         "promo": ("headline",),
         "story": ("title", "lines"),
         "sting": ("headline",),
+        "explainer": ("headline", "points"),
+        "explainer_pop": ("headline", "points"),
+        "explainer_energy": ("headline", "points"),
+        "kinetic": ("words",),
+        "intro": ("headline",),
+        "outro": ("headline",),
+        "chart": ("title", "data"),
     }[template_id]
     for field in required:
         if not out.get(field):
@@ -2149,6 +2283,152 @@ def _hf_clean_lines(raw) -> str:
     if len(lines) > 8:
         raise ValueError("keep it to eight story lines at most")
     return "\n".join(lines)
+
+
+def _hf_clean_points(raw) -> str:
+    """The explainer templates' points: one short point per
+    row, one to four of them, each short enough to read at a
+    glance. Stored newline joined, the shape the composition
+    builder splits back apart."""
+    if isinstance(raw, (list, tuple)):
+        items = [str(x) for x in raw]
+    else:
+        items = str(raw or "").split("\n")
+    points = []
+    for item in items:
+        line = " ".join(str(item).split())
+        if not line:
+            continue
+        if len(line) > 90:
+            raise ValueError("keep each point under 90 characters")
+        points.append(line)
+    if not points:
+        raise ValueError("write at least one point, one on each row")
+    if len(points) > 4:
+        raise ValueError("keep it to four points at most")
+    return "\n".join(points)
+
+
+def _hf_clean_words(raw) -> str:
+    """The kinetic type template's lines: two to six short
+    lines, each one a punch of a few words, shown one at a
+    time at full screen size."""
+    if isinstance(raw, (list, tuple)):
+        items = [str(x) for x in raw]
+    else:
+        items = str(raw or "").split("\n")
+    words = []
+    for item in items:
+        line = " ".join(str(item).split())
+        if not line:
+            continue
+        if len(line) > 42:
+            raise ValueError("keep each line under 42 characters")
+        words.append(line)
+    if len(words) < 2:
+        raise ValueError("write at least two lines, one on each row")
+    if len(words) > 6:
+        raise ValueError("keep it to six lines at most")
+    return "\n".join(words)
+
+
+def hf_kinetic_duration(count: int) -> float:
+    """The kinetic type length: a beat to land, one and a
+    half seconds a line, and a short hold on the last one."""
+    return round(0.6 + 1.5 * count + 0.9, 2)
+
+
+def _hf_chart_value(text: str):
+    """One chart value as a float, or None when the text is
+    not a plain number. Currency signs, thousands commas and
+    a trailing percent sign are presentation, not value."""
+    t = str(text or "").strip().rstrip("%").replace(",", "")
+    t = t.lstrip("$£€").strip()
+    if not t:
+        return None
+    try:
+        value = float(t)
+    except ValueError:
+        return None
+    if value != value or value in (float("inf"), float("-inf")):
+        return None
+    return value
+
+
+def hf_parse_chart_data(raw) -> list:
+    """Parse pasted chart data into [[label, value], ...].
+
+    One point per row, in any of the shapes a person pastes:
+    'Label, 120', 'Label: 120', 'Label 120', or a bare number
+    (its label becomes 'Point N'). A first row that does not
+    parse while the rest do is read as a header and skipped.
+    Two to twelve points, labels under 24 characters, values
+    at zero or above (the bars grow up from one baseline)."""
+    rows = []
+    for line in str(raw or "").replace(";", "\n").split("\n"):
+        line = line.strip().strip(",").strip()
+        if line:
+            rows.append(line)
+    points = []
+    failed_first = False
+    for idx, line in enumerate(rows):
+        label = None
+        value = None
+        if "," in line:
+            head, _, tail = line.partition(",")
+            value = _hf_chart_value(tail)
+            if value is not None:
+                label = head.strip().strip(",").strip()
+        if value is None and "\t" in line:
+            head, _, tail = line.rpartition("\t")
+            value = _hf_chart_value(tail)
+            if value is not None:
+                label = head.strip()
+        if value is None and ":" in line:
+            head, _, tail = line.rpartition(":")
+            value = _hf_chart_value(tail)
+            if value is not None:
+                label = head.strip()
+        if value is None:
+            value = _hf_chart_value(line)
+            if value is not None:
+                label = ""
+        if value is None and " " in line:
+            head, _, tail = line.rpartition(" ")
+            value = _hf_chart_value(tail)
+            if value is not None:
+                label = head.strip()
+        if value is None:
+            if idx == 0:
+                failed_first = True
+                continue
+            raise ValueError(
+                f"could not read the number in '{line[:40]}', "
+                "use one row per point, like 'Label, 120'")
+        if value < 0:
+            raise ValueError("keep the numbers at zero or above")
+        if not label:
+            label = f"Point {len(points) + 1}"
+        if len(label) > 24:
+            raise ValueError("keep each label under 24 characters")
+        points.append([label, value])
+    if failed_first and len(points) < 2:
+        raise ValueError(
+            "could not read those numbers, use one row per "
+            "point, like 'Label, 120'")
+    if len(points) < 2:
+        raise ValueError("add at least two points, one on each row")
+    if len(points) > 12:
+        raise ValueError("keep it to twelve points at most")
+    return points
+
+
+def _hf_fmt_value(value: float) -> str:
+    """A chart value the way a person reads it: whole numbers
+    with thousands commas, decimals trimmed to two places."""
+    if value == int(value):
+        return f"{int(value):,}"
+    return f"{value:,.2f}".rstrip("0").rstrip(".")
 
 
 def hf_story_plan(title: str, lines: list) -> list:
@@ -2315,9 +2595,163 @@ def build_hf_composition(template_id: str, fields: dict,
       tl.fromTo("#sting-sweep", { x: -320 }, { x: 1420, duration: 1.1, ease: "sine.inOut" }, 2.1);
       tl.to(["#sting-ring", "#sting-dot", "#sting-head", "#sting-sub"], { opacity: 0, duration: 0.65, ease: "power2.in" }, 3.3);"""
         return _hf_page(4.0, accent, clips, timeline)
+    if template_id in ("explainer", "explainer_pop",
+                       "explainer_energy"):
+        return _hf_explainer_page(template_id, fields)
+    if template_id == "kinetic":
+        lines = [ln for ln in (fields.get("words") or "").split("\n")
+                 if ln.strip()]
+        duration = hf_kinetic_duration(len(lines))
+        clips = []
+        timeline = []
+        for i, line in enumerate(lines):
+            start = 0.6 + i * 1.5
+            size = 170 if len(line) <= 10 else \
+                128 if len(line) <= 20 else 96
+            color = accent if i == len(lines) - 1 else "#f4f4f1"
+            clips.append(f"""      <div id="kin-{i}" class="clip" data-start="{start:g}" data-duration="1.5" data-track-index="{i}" style="position:absolute;left:60px;top:760px;width:960px;text-align:center;font-size:{size}px;font-weight:800;line-height:1.1;letter-spacing:-0.01em;color:{color};opacity:0;">{esc(line)}</div>""")
+            timeline.append(f"""      tl.fromTo("#kin-{i}", {{ opacity: 0, scale: 0.72 }}, {{ opacity: 1, scale: 1, duration: 0.42, ease: "expo.out" }}, {start:g});""")
+            if i < len(lines) - 1:
+                timeline.append(f"""      tl.to("#kin-{i}", {{ opacity: 0, y: -56, duration: 0.3, ease: "power2.in" }}, {start + 1.12:g});""")
+        return _hf_page(duration, accent, "\n".join(clips),
+                        "\n".join(timeline))
+    if template_id == "intro":
+        # The sting's ring and word reveal, but the lockup
+        # holds at the end instead of fading: an intro ends on
+        # the name so the content can cut in under it.
+        words = " ".join(
+            f'<span class="intro-word" style="display:inline-block;">{esc(w)}</span>'
+            for w in (fields.get("headline") or "").split())
+        sub = fields.get("subline") or ""
+        sub_clip = (
+            f"""      <p id="intro-sub" style="position:absolute;left:90px;top:1180px;width:900px;text-align:center;font-size:44px;font-weight:400;color:#b8b8c0;">{esc(sub)}</p>"""
+            if sub else "")
+        clips = f"""      <div class="clip" data-start="0" data-duration="5" data-track-index="0" style="position:absolute;left:0;top:0;width:1080px;height:1920px;">
+        <svg width="1080" height="1920" viewBox="0 0 1080 1920" style="position:absolute;left:0;top:0;">
+          <circle id="intro-dot" cx="540" cy="740" r="26" fill="{accent}" style="transform-box:fill-box;transform-origin:center;" />
+          <circle id="intro-ring" cx="540" cy="740" r="150" fill="none" stroke="{accent}" stroke-width="10" stroke-linecap="round" stroke-dasharray="943" stroke-dashoffset="943" transform="rotate(-90 540 740)" />
+        </svg>
+        <h1 id="intro-head" style="position:absolute;left:90px;top:990px;width:900px;text-align:center;font-size:92px;font-weight:800;line-height:1.12;letter-spacing:-0.01em;">{words}</h1>
+{sub_clip}
+        <div id="intro-sweep" style="position:absolute;top:0;left:0;width:260px;height:1920px;background:linear-gradient(100deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.10) 50%, rgba(255,255,255,0) 100%);"></div>
+      </div>"""
+        timeline = """      tl.fromTo("#intro-dot", { scale: 0 }, { scale: 1, duration: 0.35, ease: "expo.out" }, 0.1);
+      tl.to("#intro-ring", { strokeDashoffset: 0, duration: 0.95, ease: "power2.inOut" }, 0.3);
+      tl.fromTo(".intro-word", { opacity: 0, y: 34 }, { opacity: 1, y: 0, duration: 0.5, ease: "expo.out", stagger: 0.08 }, 1.15);
+      tl.fromTo("#intro-sub", { opacity: 0, y: 26 }, { opacity: 1, y: 0, duration: 0.45, ease: "expo.out" }, 1.75);
+      tl.fromTo("#intro-sweep", { x: -320 }, { x: 1420, duration: 1.1, ease: "sine.inOut" }, 2.1);"""
+        return _hf_page(5.0, accent, clips, timeline)
+    if template_id == "outro":
+        # The end card: the lockup walks in and holds, so the
+        # last frame is the name, the line and the button.
+        cta = fields.get("cta") or ""
+        cta_clip = (
+            f"""      <div id="outro-cta" style="position:absolute;left:50%;top:1250px;transform:translateX(-50%);padding:26px 46px;background:{accent};color:#ffffff;font-size:42px;font-weight:600;border-radius:999px;">{esc(cta)}</div>"""
+            if cta else "")
+        sub = fields.get("subline") or ""
+        sub_clip = (
+            f"""      <p id="outro-sub" style="position:absolute;left:90px;top:1090px;width:900px;text-align:center;font-size:46px;font-weight:400;color:#b8b8c0;">{esc(sub)}</p>"""
+            if sub else "")
+        clips = f"""      <div class="clip" data-start="0" data-duration="6" data-track-index="0" style="position:absolute;left:0;top:0;width:1080px;height:1920px;">
+        <svg width="1080" height="1920" viewBox="0 0 1080 1920" style="position:absolute;left:0;top:0;">
+          <circle id="outro-ring" cx="540" cy="700" r="110" fill="none" stroke="{accent}" stroke-width="9" stroke-linecap="round" stroke-dasharray="692" stroke-dashoffset="692" transform="rotate(-90 540 700)" />
+          <circle id="outro-dot" cx="540" cy="700" r="20" fill="{accent}" style="transform-box:fill-box;transform-origin:center;" />
+        </svg>
+        <h1 id="outro-head" style="position:absolute;left:90px;top:900px;width:900px;text-align:center;font-size:88px;font-weight:800;line-height:1.12;letter-spacing:-0.01em;">{esc(fields.get("headline") or "")}</h1>
+{sub_clip}
+{cta_clip}
+      </div>"""
+        timeline = """      tl.fromTo("#outro-dot", { scale: 0 }, { scale: 1, duration: 0.35, ease: "expo.out" }, 0.15);
+      tl.to("#outro-ring", { strokeDashoffset: 0, duration: 0.85, ease: "power2.inOut" }, 0.3);
+      tl.fromTo("#outro-head", { opacity: 0, y: 44 }, { opacity: 1, y: 0, duration: 0.6, ease: "expo.out" }, 0.75);
+      tl.fromTo("#outro-sub", { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.5, ease: "expo.out" }, 1.15);
+      tl.fromTo("#outro-cta", { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.5, ease: "back.out(1.7)" }, 1.5);"""
+        return _hf_page(6.0, accent, clips, timeline)
+    if template_id == "chart":
+        # The data video: bars grow from one baseline in a
+        # stagger and each value lands above its bar as the
+        # bar settles. Values are printed fully formed rather
+        # than counted up: the renderer seeks the timeline, so
+        # a printed value is exact at every frame, where a
+        # text tween would depend on seek callbacks.
+        points = fields.get("points") or []
+        maxv = max((v for _l, v in points), default=0) or 1
+        n = max(1, len(points))
+        slot = 920.0 / n
+        bar_w = min(150.0, slot * 0.55)
+        base_y = 1480
+        max_h = 760
+        parts = [f"""      <div class="clip" data-start="0" data-duration="9" data-track-index="0" style="position:absolute;left:0;top:0;width:1080px;height:1920px;">
+        <div id="chart-bar" style="position:absolute;left:90px;top:290px;width:170px;height:14px;background:{accent};border-radius:7px;"></div>
+        <h1 id="chart-title" style="position:absolute;left:90px;top:346px;width:900px;font-size:72px;font-weight:800;line-height:1.12;letter-spacing:-0.01em;">{esc(fields.get("title") or "")}</h1>
+        <div style="position:absolute;left:80px;top:{base_y}px;width:920px;height:3px;background:#3a3a42;"></div>"""]
+        timeline = ["""      tl.fromTo("#chart-bar", { scaleX: 0, transformOrigin: "left center" }, { scaleX: 1, duration: 0.5, ease: "power3.out" }, 0.2);""",
+                    """      tl.fromTo("#chart-title", { opacity: 0, y: 40 }, { opacity: 1, y: 0, duration: 0.55, ease: "power3.out" }, 0.35);"""]
+        for i, (label, value) in enumerate(points):
+            h = max(8, round(max_h * value / maxv))
+            x = 80 + slot * i + (slot - bar_w) / 2
+            start = 0.7 + i * 0.22
+            parts.append(f"""        <div id="chart-bar-{i}" style="position:absolute;left:{x:.0f}px;top:{base_y - h}px;width:{bar_w:.0f}px;height:{h}px;background:linear-gradient(180deg, {accent}, {accent}b3);border-radius:12px 12px 0 0;transform-origin:50% 100%;"></div>
+        <div id="chart-val-{i}" style="position:absolute;left:{80 + slot * i:.0f}px;top:{base_y - h - 88}px;width:{slot:.0f}px;text-align:center;font-size:54px;font-weight:800;">{_hf_fmt_value(value)}</div>
+        <div id="chart-cat-{i}" style="position:absolute;left:{80 + slot * i:.0f}px;top:{base_y + 26}px;width:{slot:.0f}px;text-align:center;font-size:32px;color:#b8b8c0;">{esc(label)}</div>""")
+            timeline.append(f"""      tl.fromTo("#chart-bar-{i}", {{ scaleY: 0 }}, {{ scaleY: 1, duration: 0.85, ease: "power3.out" }}, {start:g});""")
+            timeline.append(f"""      tl.fromTo("#chart-cat-{i}", {{ opacity: 0 }}, {{ opacity: 1, duration: 0.4, ease: "power1.out" }}, {start + 0.3:g});""")
+            timeline.append(f"""      tl.fromTo("#chart-val-{i}", {{ opacity: 0, y: 18, scale: 0.7 }}, {{ opacity: 1, y: 0, scale: 1, duration: 0.45, ease: "back.out(1.8)" }}, {start + 0.55:g});""")
+        parts.append("      </div>")
+        return _hf_page(9.0, accent, "\n".join(parts),
+                        "\n".join(timeline))
     if template_id == "story":
         return _hf_story_page(fields)
     raise ValueError(f"unknown template {template_id}")
+
+
+def _hf_explainer_page(template_id: str, fields: dict) -> str:
+    """The explainer family: one headline, then the points
+    arriving one at a time under it. The three styles share
+    the layout and differ in how things move, the shape of
+    the playbooks they came from: the default is calm fades
+    and slides, pop lands each point as a pill with a spring,
+    and energy comes in fast from the side, bigger and
+    louder."""
+    import html as _html
+
+    esc = _html.escape
+    accent = fields.get("color") or "#6366f1"
+    duration = float(HF_TEMPLATES[template_id]["duration"])
+    points = [p for p in (fields.get("points") or "").split("\n")
+              if p.strip()]
+    headline_size = 110 if template_id == "explainer_energy" else 96
+    parts = [f"""      <div class="clip" data-start="0" data-duration="{duration:g}" data-track-index="0" style="position:absolute;left:0;top:0;width:1080px;height:1920px;">
+        <div id="expl-bar" style="position:absolute;left:90px;top:520px;width:180px;height:14px;background:{accent};border-radius:7px;"></div>
+        <h1 id="expl-head" style="position:absolute;left:90px;top:580px;width:900px;font-size:{headline_size}px;font-weight:800;line-height:1.1;letter-spacing:-0.015em;">{esc(fields.get("headline") or "")}</h1>"""]
+    timeline = []
+    if template_id == "explainer_energy":
+        timeline.append("""      tl.fromTo("#expl-bar", { scaleX: 0, transformOrigin: "left center" }, { scaleX: 1, duration: 0.3, ease: "power4.out" }, 0.12);""")
+        timeline.append("""      tl.fromTo("#expl-head", { opacity: 0, x: -70 }, { opacity: 1, x: 0, duration: 0.38, ease: "power4.out" }, 0.22);""")
+    elif template_id == "explainer_pop":
+        timeline.append("""      tl.fromTo("#expl-bar", { scaleX: 0, transformOrigin: "left center" }, { scaleX: 1, duration: 0.45, ease: "back.out(1.8)" }, 0.2);""")
+        timeline.append("""      tl.fromTo("#expl-head", { opacity: 0, scale: 0.85, transformOrigin: "left center" }, { opacity: 1, scale: 1, duration: 0.5, ease: "back.out(1.7)" }, 0.3);""")
+    else:
+        timeline.append("""      tl.fromTo("#expl-bar", { scaleX: 0, transformOrigin: "left center" }, { scaleX: 1, duration: 0.5, ease: "power3.out" }, 0.2);""")
+        timeline.append("""      tl.fromTo("#expl-head", { opacity: 0, y: 56 }, { opacity: 1, y: 0, duration: 0.6, ease: "power3.out" }, 0.35);""")
+    for i, point in enumerate(points):
+        top = 1000 + i * 168
+        if template_id == "explainer_pop":
+            parts.append(f"""        <div id="expl-row-{i}" style="position:absolute;left:90px;top:{top}px;width:900px;padding:30px 42px;background:{accent}26;border:2px solid {accent};border-radius:999px;font-size:54px;font-weight:600;">{esc(point)}</div>""")
+            start = 0.9 + i * 0.6
+            timeline.append(f"""      tl.fromTo("#expl-row-{i}", {{ opacity: 0, scale: 0.6 }}, {{ opacity: 1, scale: 1, duration: 0.5, ease: "back.out(2.2)" }}, {start:g});""")
+        elif template_id == "explainer_energy":
+            parts.append(f"""        <div id="expl-row-{i}" style="position:absolute;left:90px;top:{top}px;width:900px;font-size:60px;font-weight:700;"><span style="display:inline-block;width:26px;height:26px;border-radius:50%;background:{accent};margin-right:26px;vertical-align:middle;"></span>{esc(point)}</div>""")
+            start = 0.75 + i * 0.42
+            timeline.append(f"""      tl.fromTo("#expl-row-{i}", {{ opacity: 0, x: -90, rotation: -2 }}, {{ opacity: 1, x: 0, rotation: 0, duration: 0.42, ease: "power4.out" }}, {start:g});""")
+        else:
+            parts.append(f"""        <div id="expl-row-{i}" style="position:absolute;left:90px;top:{top}px;width:900px;font-size:58px;font-weight:600;line-height:1.25;"><span style="display:inline-block;width:24px;height:24px;border-radius:50%;background:{accent};margin-right:26px;vertical-align:middle;"></span>{esc(point)}</div>""")
+            start = 0.95 + i * 0.8
+            timeline.append(f"""      tl.fromTo("#expl-row-{i}", {{ opacity: 0, y: 44 }}, {{ opacity: 1, y: 0, duration: 0.55, ease: "power3.out" }}, {start:g});""")
+    parts.append("      </div>")
+    timeline.append(f"""      tl.to("#root > div", {{ opacity: 0, duration: 0.5, ease: "power2.in" }}, {duration - 0.6:g});""")
+    return _hf_page(duration, accent, "\n".join(parts),
+                    "\n".join(timeline))
 
 
 def _hf_story_page(fields: dict) -> str:
@@ -6214,6 +6648,8 @@ def api():
             "word_check_listen_at": job.get("word_check_listen_at") or [],
             "captions": bool(job.get("captions")),
             "captions_status": job.get("captions_status"),
+            "caption_style": job.get("caption_style"),
+            "lower_third_status": job.get("lower_third_status"),
             "native_speech": lane_audio(
                 job.get("model") or DEFAULT_MODEL)["native_speech"],
             "kind": job.get("kind") or "generation",
@@ -8648,6 +9084,8 @@ def api():
                        prompt: str, music_prompt: str, camera: dict = None,
                        speech_script: str = "", speech_voice: str = "",
                        captions: bool = False,
+                       caption_style: str = VIDEO_CAPTION_STYLE_DEFAULT,
+                       lower_third: dict = None,
                        clone_reference=None, clone_reference_text: str = ""):
         """Quote -> hold -> submit, per design s.3. Any failure at or
         before submission leaves an error job with the clean public
@@ -8741,6 +9179,9 @@ def api():
             "word_check_listen_at": [],
             "captions": bool(captions),
             "captions_status": None,
+            "caption_style": caption_style,
+            "lower_third": lower_third,
+            "lower_third_status": None,
             "character_id": body.get("character_id"),
             # Built-in lip sync (Jack's rule, 2026-11-17): planned
             # at creation when the job carries speech on a lane
@@ -8905,6 +9346,13 @@ def api():
         # the job has speech. No gate and no charge, and existing
         # gallery videos are never captioned after the fact.
         captions = bool(body.get("captions"))
+        # The caption look and the lower third (2026-11-23):
+        # the style only matters when the captions box is
+        # checked, and the lower third is its own overlay,
+        # cleaned here and carried on the job record for the
+        # finishing stage. No gate and no charge for either.
+        caption_style = _clean_caption_style(body)
+        lower_third = _clean_lower_third(body)
         if speech_script and not is_paid(user):
             raise HTTPException(
                 status_code=403, detail="voiceover is a paid feature"
@@ -9200,6 +9648,7 @@ def api():
                 user, body, model, base_url(request), prompt, music_prompt,
                 camera=camera, speech_script=speech_script,
                 speech_voice=speech_voice, captions=captions,
+                caption_style=caption_style, lower_third=lower_third,
                 clone_reference=clone_reference,
                 clone_reference_text=clone_reference_text,
             )
@@ -9394,6 +9843,9 @@ def api():
             "word_check_listen_at": [],
             "captions": captions,
             "captions_status": None,
+            "caption_style": caption_style,
+            "lower_third": lower_third,
+            "lower_third_status": None,
             "character_id": body.get("character_id"),
             # Built-in lip sync (Jack's rule, 2026-11-17): the
             # house lanes do not speak natively, so a spoken line
@@ -10281,39 +10733,55 @@ def api():
         spoken line, or its final audio has no words to caption),
         or unavailable (the transcription or the burn in itself
         failed). Like every finishing stage here, a failure never
-        blocks delivery and never changes the price."""
-        if not job.get("captions"):
+        blocks delivery and never changes the price.
+
+        The lower third (2026-11-23) rides this same stage: a
+        job that carries one gets it burned into the same pass,
+        with or without captions, and it needs no speech at
+        all, so a silent video can still wear its name. Its
+        outcome lands on lower_third_status the same way."""
+        want_captions = bool(job.get("captions"))
+        lower_third = job.get("lower_third") or None
+        if not want_captions and not lower_third:
             return
-        if job.get("captions_status"):
+        if want_captions and job.get("captions_status"):
             return
+        if lower_third and job.get("lower_third_status"):
+            lower_third = None
+            if not want_captions:
+                return
         has_speech = bool((job.get("speech_script") or "").strip()) \
             or job.get("voiceover_status") in ("ready", "native")
-        if not has_speech:
+        if want_captions and not has_speech:
             job["captions_status"] = "no_speech"
             jobs[job["id"]] = job
-            return
+            if not lower_third:
+                return
         audio_path = FILES_DIR / f"{job['id']}.captions.wav"
         ass_path = FILES_DIR / f"{job['id']}.captions.ass"
         burned_path = FILES_DIR / f"{job['id']}.captioned.mp4"
         try:
-            words = _CAPTION_TRANSCRIPTS.pop(job["id"], None)
-            if not words:
-                proc = subprocess.run(
-                    ["ffmpeg", "-y", "-i", str(out_path), "-vn",
-                     "-acodec", "pcm_s16le", str(audio_path)],
-                    capture_output=True, text=True, timeout=600)
-                if proc.returncode != 0 or not audio_path.exists():
-                    raise RuntimeError("final audio extraction failed")
-                transcribe = modal.Function.from_name(
-                    "sinclip-audio", "transcribe")
-                result = transcribe.remote(audio_path.read_bytes())
-                words = result.get("words") or []
-            words = [w for w in words
-                     if str(w.get("word", "")).strip()]
-            if not words:
-                job["captions_status"] = "no_speech"
-                jobs[job["id"]] = job
-                return
+            words = []
+            if want_captions and has_speech:
+                words = _CAPTION_TRANSCRIPTS.pop(job["id"], None)
+                if not words:
+                    proc = subprocess.run(
+                        ["ffmpeg", "-y", "-i", str(out_path), "-vn",
+                         "-acodec", "pcm_s16le", str(audio_path)],
+                        capture_output=True, text=True, timeout=600)
+                    if proc.returncode != 0 or not audio_path.exists():
+                        raise RuntimeError("final audio extraction failed")
+                    transcribe = modal.Function.from_name(
+                        "sinclip-audio", "transcribe")
+                    result = transcribe.remote(audio_path.read_bytes())
+                    words = result.get("words") or []
+                words = [w for w in words
+                         if str(w.get("word", "")).strip()]
+                if not words:
+                    job["captions_status"] = "no_speech"
+                    jobs[job["id"]] = job
+                    if not lower_third:
+                        return
             proc = subprocess.run(
                 ["ffprobe", "-v", "error", "-select_streams", "v:0",
                  "-show_entries", "stream=width,height",
@@ -10326,7 +10794,11 @@ def api():
             if width <= 0 or height <= 0:
                 raise RuntimeError("finished file has no readable size")
             ass_path.write_text(
-                build_captions_ass(words, width, height),
+                build_captions_ass(
+                    words, width, height,
+                    style=job.get("caption_style")
+                    or VIDEO_CAPTION_STYLE_DEFAULT,
+                    lower_third=lower_third),
                 encoding="utf-8")
             proc = subprocess.run(
                 ["ffmpeg", "-y", "-i", str(out_path),
@@ -10338,10 +10810,16 @@ def api():
             if proc.returncode != 0 or not burned_path.exists():
                 raise RuntimeError("caption burn in failed")
             burned_path.replace(out_path)
-            job["captions_status"] = "applied"
+            if words:
+                job["captions_status"] = "applied"
+            if lower_third:
+                job["lower_third_status"] = "applied"
             jobs[job["id"]] = job
         except Exception:
-            job["captions_status"] = "unavailable"
+            if want_captions and not job.get("captions_status"):
+                job["captions_status"] = "unavailable"
+            if lower_third:
+                job["lower_third_status"] = "unavailable"
             jobs[job["id"]] = job
         finally:
             for path in (audio_path, ass_path, burned_path):
@@ -11179,6 +11657,9 @@ def api():
             plan = hf_story_plan(fields["title"],
                                  fields["lines"].split("\n"))
             duration = plan[-1]["b"]
+        elif template_id == "kinetic":
+            duration = hf_kinetic_duration(
+                len(fields["words"].split("\n")))
         elif template_id == "captions":
             duration = source_duration
         else:
@@ -11186,6 +11667,7 @@ def api():
         display = (
             fields.get("headline") or fields.get("caption")
             or fields.get("stat") or fields.get("title")
+            or (fields.get("words") or "").split("\n")[0]
             or spec["name"])
         job = {
             "id": pysecrets.token_hex(8),
@@ -11986,12 +12468,12 @@ x_api_key: str = Header(default="")):
                 body.get("clone_reference_text") or "").strip()[
                     :CLONE_REFERENCE_TEXT_MAX]
         visuals = (body.get("visuals") or "stock").strip()
-        if visuals not in ("stock", "ai"):
+        if visuals not in ("stock", "ai", "overlay"):
             raise HTTPException(
                 status_code=422,
-                detail="pick stock footage or AI pictures")
+                detail="pick stock footage, AI pictures or B-roll overlays")
         style = (body.get("style") or "").strip()
-        if visuals == "ai":
+        if visuals in ("ai", "overlay"):
             if style not in shorts.VISUAL_STYLES:
                 raise HTTPException(
                     status_code=422,
@@ -12009,6 +12491,12 @@ x_api_key: str = Header(default="")):
             raise HTTPException(
                 status_code=422,
                 detail="pick one of the caption styles on the list")
+        # The lower third and the beat sync pick (2026-11-23):
+        # the lower third is the same overlay the video form
+        # carries, cleaned by the same helper; beat sync snaps
+        # the cuts to the picked music's tempo in the runner.
+        lower_third = _clean_lower_third(body)
+        beat_sync = bool(body.get("beat_sync"))
         is_free_job = False
         if not is_paid(user):
             if free_jobs_total(user) >= FREE_CLIPS_TOTAL:
@@ -12079,6 +12567,8 @@ x_api_key: str = Header(default="")):
             else "auto",
             "short_music": music,
             "short_caption_style": caption_style,
+            "short_lower_third": lower_third,
+            "short_beat_sync": beat_sync,
             "script_source": script_source,
             "speech_script": " ".join(lines),
             "speech_voice": voice,
@@ -13690,17 +14180,138 @@ def caption_events(words: list) -> list:
     return events
 
 
-def build_captions_ass(words: list, width: int, height: int) -> str:
+# The caption looks a finished video can wear (2026-11-23,
+# the motion pack): classic is the house style this stage
+# shipped with; karaoke lights each word up as it is spoken
+# (the shorts lane's karaoke, on word timings from the
+# transcription); pop scales each chunk in. The lower third
+# is a separate overlay (a name and a smaller line, low on
+# the frame for the first seconds) that rides the same burn
+# in whether or not captions are on.
+VIDEO_CAPTION_STYLES = ("classic", "karaoke", "pop")
+VIDEO_CAPTION_STYLE_DEFAULT = "classic"
+LOWER_THIRD_NAME_MAX = 60
+LOWER_THIRD_SUB_MAX = 80
+LOWER_THIRD_SECONDS = 5.0
+
+
+def _clean_caption_style(body: dict) -> str:
+    style = str(body.get("caption_style") or "").strip().lower()
+    return style if style in VIDEO_CAPTION_STYLES \
+        else VIDEO_CAPTION_STYLE_DEFAULT
+
+
+def _clean_lower_third(body: dict):
+    """The lower third words from a create body: a name and
+    a smaller line under it, either or both may be empty.
+    Returns {"name": ..., "sub": ...} or None when there is
+    no name (a lower third with no name is no lower third)."""
+    if not isinstance(body, dict):
+        return None
+    raw = body.get("lower_third")
+    if isinstance(raw, dict):
+        name = str(raw.get("name") or "")
+        sub = str(raw.get("sub") or "")
+    else:
+        name = str(body.get("lower_third_name") or "")
+        sub = str(body.get("lower_third_sub") or "")
+    name = " ".join(name.split())[:LOWER_THIRD_NAME_MAX]
+    sub = " ".join(sub.split())[:LOWER_THIRD_SUB_MAX]
+    if not name:
+        return None
+    return {"name": name, "sub": sub}
+
+
+def _karaoke_events(words: list) -> list:
+    """Word timed karaoke dialogues: chunks of at most
+    CAPTIONS_MAX_WORDS words, each word carrying a \\kf tag
+    of its own length in centiseconds, so the renderer fills
+    the word with the style's main color as it is spoken.
+    Returns (start, end, text) events like caption_events."""
+    clean = []
+    for w in words or []:
+        text = str(w.get("word", "")).strip()
+        if not text:
+            continue
+        clean.append((float(w.get("start") or 0),
+                      float(w.get("end") or 0), text))
+    events = []
+    for i in range(0, len(clean), CAPTIONS_MAX_WORDS):
+        chunk = clean[i:i + CAPTIONS_MAX_WORDS]
+        start = chunk[0][0]
+        end = chunk[-1][1]
+        if end < start + CAPTIONS_MIN_SECONDS:
+            end = start + CAPTIONS_MIN_SECONDS
+        parts = []
+        for w_start, w_end, text in chunk:
+            cs = max(1, round((w_end - w_start) * 100))
+            parts.append(f"{{\\kf{cs}}}{_caption_ass_escape(text)}")
+        events.append((start, end, " ".join(parts)))
+    return events
+
+
+def _lower_third_ass(width: int, height: int,
+                     lower_third: dict) -> tuple:
+    """The lower third's ASS styles and events, scaled to
+    this video's frame the way the captions are: a name in a
+    dark band low on the left, the smaller line under it,
+    fading in and out across the first seconds (the lower
+    thirds playbook: staggered in, hold to read, quicker
+    out). Returns (style_lines, event_lines)."""
+    scale = (height or 1920) / 1920.0
+    scale_w = (width or 1080) / 1080.0
+    name_size = max(16, round(60 * scale))
+    sub_size = max(12, round(42 * scale))
+    margin_l = round(72 * scale_w)
+    name_mv = round(190 * scale)
+    sub_mv = round(118 * scale)
+    styles = (
+        f"Style: LowerName,DejaVu Sans,{name_size},&H00FFFFFF,"
+        f"&H00FFFFFF,&H00000000,&H96101418,-1,0,0,0,100,100,0,0,3,"
+        f"14,0,1,{margin_l},{margin_l},{name_mv},1\n"
+        f"Style: LowerSub,DejaVu Sans,{sub_size},&H00D8D5CC,"
+        f"&H00D8D5CC,&H00000000,&H96101418,0,0,0,0,100,100,0,0,3,"
+        f"12,0,1,{margin_l},{margin_l},{sub_mv},1\n"
+    )
+    end = _caption_ass_time(LOWER_THIRD_SECONDS)
+    events = (
+        f"Dialogue: 1,0:00:00.50,{end},LowerName,,0,0,0,,"
+        f"{{\\fad(220,260)}}{_caption_ass_escape(lower_third['name'])}\n"
+    )
+    if lower_third.get("sub"):
+        events += (
+            f"Dialogue: 1,0:00:00.50,{end},LowerSub,,0,0,0,,"
+            f"{{\\fad(220,260)}}"
+            f"{_caption_ass_escape(lower_third['sub'])}\n"
+        )
+    return styles, events
+
+
+def build_captions_ass(words: list, width: int, height: int,
+                       style: str = VIDEO_CAPTION_STYLE_DEFAULT,
+                       lower_third: dict = None) -> str:
     """The ASS subtitle file for one finished video: the Shorts
     lane's caption style (DejaVu Sans bold, white with a heavy
     black outline, bottom center, low on the frame), with the
     size, outline and margins scaled from the 1080x1920 shorts
-    frame to this video's own dimensions."""
+    frame to this video's own dimensions. The style pick
+    (classic, karaoke, pop) changes how the words move, and a
+    lower third rides along when the job carries one: with no
+    words and a lower third, the file holds the lower third
+    alone."""
+    if style not in VIDEO_CAPTION_STYLES:
+        style = VIDEO_CAPTION_STYLE_DEFAULT
     scale = (height or 1920) / 1920.0
     font_size = max(14, round(72 * scale))
     outline = max(1, round(5 * scale))
     margin_v = round(300 * scale)
     margin_lr = round(60 * (width or 1080) / 1080.0)
+    primary = "&H0000FFFF" if style == "karaoke" else "&H00FFFFFF"
+    lt_styles = ""
+    lt_events = ""
+    if lower_third:
+        lt_styles, lt_events = _lower_third_ass(
+            width, height, lower_third)
     header = (
         "[Script Info]\n"
         "ScriptType: v4.00+\n"
@@ -13714,21 +14325,32 @@ def build_captions_ass(words: list, width: int, height: int) -> str:
         "Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, "
         "BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, "
         "MarginV, Encoding\n"
-        f"Style: Captions,DejaVu Sans,{font_size},&H00FFFFFF,"
+        f"Style: Captions,DejaVu Sans,{font_size},{primary},"
         f"&H00FFFFFF,&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,"
         f"{outline},0,2,{margin_lr},{margin_lr},{margin_v},1\n"
+        f"{lt_styles}"
         "\n"
         "[Events]\n"
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, "
         "MarginV, Effect, Text\n"
     )
-    body = "".join(
-        f"Dialogue: 0,{_caption_ass_time(start)},"
-        f"{_caption_ass_time(end)},Captions,,0,0,0,,"
-        f"{_caption_ass_escape(text)}\n"
-        for start, end, text in caption_events(words)
-    )
-    return header + body
+    if style == "karaoke":
+        events = _karaoke_events(words)
+    else:
+        events = caption_events(words)
+    body = ""
+    for start, end, text in events:
+        if style == "karaoke":
+            pass  # words were escaped as they were tagged
+        elif style == "pop":
+            text = ("{\\fscx55\\fscy55\\t(0,170,\\fscx100\\fscy100)}"
+                    + _caption_ass_escape(text))
+        else:
+            text = _caption_ass_escape(text)
+        body += (
+            f"Dialogue: 0,{_caption_ass_time(start)},"
+            f"{_caption_ass_time(end)},Captions,,0,0,0,,{text}\n")
+    return header + body + lt_events
 
 
 def _process_file(raw_path: Path, out_path: Path, watermark: bool, bed_path=None,
@@ -15246,6 +15868,43 @@ APP_HTML = (
         <label>Smaller line under it</label>
         <input id="mf-sting-subline" type="text" maxlength="120" placeholder="One short line says the rest">
       </div>
+      <div id="motion-fields-explainer" style="display:none">
+        <label>Headline</label>
+        <input id="mf-expl-headline" type="text" maxlength="90" placeholder="The one thing to remember">
+        <label>Your points</label>
+        <textarea id="mf-expl-points" rows="4" maxlength="1100" placeholder="First point, short and plain"></textarea>
+        <p class="muted">Write one point on each row. Use one to four points. The headline lands first, then each point arrives under it.</p>
+      </div>
+      <div id="motion-fields-kinetic" style="display:none">
+        <label>Your lines</label>
+        <textarea id="mf-kinetic-words" rows="6" maxlength="300" placeholder="Short lines, a few words each"></textarea>
+        <p class="muted">Write one line on each row. Use two to six lines, each under 42 characters. Every line fills the screen on its own, and the last one lands in your accent color.</p>
+      </div>
+      <div id="motion-fields-intro" style="display:none">
+        <label>Name or words for the intro</label>
+        <input id="mf-intro-headline" type="text" maxlength="90" placeholder="Your name or your big words">
+        <label>Smaller line under it</label>
+        <input id="mf-intro-subline" type="text" maxlength="120" placeholder="One short line says the rest">
+        <p class="muted">The name holds on screen at the end, so the video you put after it starts under your name.</p>
+      </div>
+      <div id="motion-fields-outro" style="display:none">
+        <label>Name or words for the end card</label>
+        <input id="mf-outro-headline" type="text" maxlength="90" placeholder="Your name or your big words">
+        <label>Smaller line under it</label>
+        <input id="mf-outro-subline" type="text" maxlength="120" placeholder="One short line says the rest">
+        <label>Button words at the end</label>
+        <input id="mf-outro-cta" type="text" maxlength="40" placeholder="Book now">
+        <p class="muted">The card holds on your name at the end of your video.</p>
+      </div>
+      <div id="motion-fields-chart" style="display:none">
+        <label>Chart title</label>
+        <input id="mf-chart-title" type="text" maxlength="90" placeholder="Bookings by month">
+        <label>Your numbers</label>
+        <textarea id="mf-chart-data" rows="6" maxlength="2000" placeholder="January, 120"></textarea>
+        <p class="muted">One point on each row, like January, 120. Use two to twelve points. A header row is fine, it gets skipped.</p>
+        <label>Or load a CSV file</label>
+        <input id="mf-chart-file" type="file" accept=".csv,text/csv,text/plain">
+      </div>
       <label>Accent color</label>
       <input id="mf-color" type="color" value="#6366f1" style="width:90px;height:44px;padding:2px">
       <p class="muted">Free for everyone. Free accounts count it toward their five free clips. Paid accounts can make 20 a day.</p>
@@ -15377,6 +16036,7 @@ APP_HTML = (
     <select id="short-visuals">
       <option value="stock" selected>Stock footage</option>
       <option value="ai">AI pictures</option>
+      <option value="overlay">B-roll overlays</option>
     </select>
     <div id="short-style-wrap" style="display:none">
       <label>Picture style</label>
@@ -15442,8 +16102,20 @@ APP_HTML = (
       <option value="classic" selected>Classic</option>
       <option value="big">Big</option>
       <option value="quiet">Quiet</option>
+      <option value="karaoke">Karaoke</option>
+      <option value="pop">Pop</option>
       <option value="none">No captions</option>
     </select>
+    <p class="muted">Karaoke lights each word up as it is spoken. Pop makes each line of captions spring in.</p>
+    <label>Lower third name (optional)</label>
+    <input id="short-lt-name" type="text" maxlength="60" placeholder="A name or headline for the open">
+    <label>Lower third smaller line (optional)</label>
+    <input id="short-lt-sub" type="text" maxlength="80" placeholder="The line under the name">
+    <p class="muted">The lower third sits low on the frame for the first seconds, with or without captions.</p>
+    <label style="font-weight:400;display:block">
+      <input type="checkbox" id="short-beat-sync" style="width:auto;margin:0 6px 0 0">
+      Cut on the beat</label>
+    <p class="muted">Each scene runs to the next beat of the music, so the cuts land on the beat.</p>
     <p class="muted" id="short-note">Free shorts count toward the five free clips on a free account. Paid accounts can make 20 a day.</p>
     <div id="botcheck5"></div>
     <p id="short-msg"></p>
@@ -15656,6 +16328,18 @@ APP_HTML = (
         <input type="checkbox" id="captions" style="width:auto;margin:0 6px 0 0">
         Add captions</label>
       <p class="muted">Captions are written into the video.</p>
+      <label>Caption style</label>
+      <select id="caption-style">
+        <option value="classic" selected>Classic</option>
+        <option value="karaoke">Karaoke</option>
+        <option value="pop">Pop</option>
+      </select>
+      <p class="muted">Karaoke lights each word up as it is spoken. Pop makes each line of captions spring in.</p>
+      <label>Lower third name (optional)</label>
+      <input id="lower-third-name" type="text" maxlength="60" placeholder="A name or headline for the open">
+      <label>Lower third smaller line (optional)</label>
+      <input id="lower-third-sub" type="text" maxlength="80" placeholder="The line under the name">
+      <p class="muted">The lower third sits low on the frame for the first seconds, with or without captions.</p>
 
       <p class="group-label">Details</p>
       <label>Anything to avoid (optional)</label>
@@ -16917,8 +17601,35 @@ function isHouseModel(id) { return HOUSE_MODEL_IDS.includes(id); }
 // entries, ahead of the paid models.
 const MOTION_TEMPLATES = [
   { id: 'story', name: 'Animated story short' },
-  { id: 'sting', name: 'Logo sting' }
+  { id: 'sting', name: 'Logo sting' },
+  { id: 'explainer', name: 'Explainer' },
+  { id: 'explainer_pop', name: 'Explainer pop' },
+  { id: 'explainer_energy', name: 'Explainer energy' },
+  { id: 'kinetic', name: 'Kinetic type' },
+  { id: 'intro', name: 'Logo intro' },
+  { id: 'outro', name: 'Logo outro' },
+  { id: 'chart', name: 'Data video' }
 ];
+// Which field block each motion pick shows in the composer.
+const MOTION_BLOCKS = {
+  story: 'motion-fields-story', sting: 'motion-fields-sting',
+  explainer: 'motion-fields-explainer',
+  explainer_pop: 'motion-fields-explainer',
+  explainer_energy: 'motion-fields-explainer',
+  kinetic: 'motion-fields-kinetic', intro: 'motion-fields-intro',
+  outro: 'motion-fields-outro', chart: 'motion-fields-chart'
+};
+const MOTION_NOTES = {
+  story: 'A little animated town tells your story, with music made for it. It renders free, so it can take a while to start.',
+  sting: 'Your words open the show inside a ring of light. It renders free, so it can take a while to start.',
+  explainer: 'A calm explainer. Your headline lands first, then each point arrives under it. It renders free, so it can take a while to start.',
+  explainer_pop: 'A bouncy explainer. Each point lands as a pill with a spring. It renders free, so it can take a while to start.',
+  explainer_energy: 'A loud, fast explainer for big claims. It renders free, so it can take a while to start.',
+  kinetic: 'Your lines, one at a time, filling the whole screen. The last line lands in your accent color. It renders free, so it can take a while to start.',
+  intro: 'Your name inside a ring of light, and it holds at the end so your content can start under it. It renders free, so it can take a while to start.',
+  outro: 'An end card that holds on your name, your line and your button words. It renders free, so it can take a while to start.',
+  chart: 'Your numbers become a bar chart that grows on screen. Paste them or load a CSV file. It renders free, so it can take a while to start.'
+};
 function isMotionTemplate(id) { return MOTION_TEMPLATES.some(t => t.id === id); }
 function moneyC(c) { return '$' + (c / 100).toFixed(2); }
 function buildCatalog() {
@@ -17107,8 +17818,10 @@ function applyMotionUI() {
     $('more-opts'), $('segments-note')];
   for (const el of bits) if (el) el.style.display = motion ? 'none' : '';
   if (motion) {
-    $('motion-fields-story').style.display = m === 'story' ? '' : 'none';
-    $('motion-fields-sting').style.display = m === 'sting' ? '' : 'none';
+    for (const id of Object.values(MOTION_BLOCKS))
+      $(id).style.display = 'none';
+    const block = MOTION_BLOCKS[m];
+    if (block) $(block).style.display = '';
   }
   return motion;
 }
@@ -17203,9 +17916,8 @@ function updateModelUI() {
     for (const id of ['length-api', 'length-house', 'lane-wrap', 'house-more', 'resolution-wrap', 'aspect-wrap', 'api-opts', 'motion-opts']) {
       $(id).style.display = 'none';
     }
-    $('model-note').textContent = motion === 'story'
-      ? 'A little animated town tells your story, with music made for it. It renders free, so it can take a while to start.'
-      : 'Your words open the show inside a ring of light. It renders free, so it can take a while to start.';
+    $('model-note').textContent = MOTION_NOTES[motion]
+      || 'It renders free, so it can take a while to start.';
     $('house-price').textContent = '';
     genLabel(null);
     applyModelGates();
@@ -17268,6 +17980,15 @@ function updateModelUI() {
   updateHousePrice();
 }
 $('model').addEventListener('change', updateModelUI);
+// The data video's CSV load: the file's text becomes the
+// numbers box, and the server parses it the same either way.
+$('mf-chart-file').addEventListener('change', () => {
+  const f = $('mf-chart-file').files[0];
+  if (!f) return;
+  const reader = new FileReader();
+  reader.onload = () => { $('mf-chart-data').value = String(reader.result || '').slice(0, 2000); };
+  reader.readAsText(f);
+});
 $('duration').addEventListener('change', fetchQuote);
 $('resolution').addEventListener('change', fetchQuote);
 $('aspect').addEventListener('change', () => {
@@ -17377,9 +18098,25 @@ function buildCreate() {
     if (model === 'story') {
       payload.title = $('mf-story-title').value;
       payload.lines = $('mf-story-lines').value;
-    } else {
+    } else if (model === 'sting') {
       payload.headline = $('mf-sting-headline').value;
       payload.subline = $('mf-sting-subline').value;
+    } else if (model === 'intro') {
+      payload.headline = $('mf-intro-headline').value;
+      payload.subline = $('mf-intro-subline').value;
+    } else if (model === 'outro') {
+      payload.headline = $('mf-outro-headline').value;
+      payload.subline = $('mf-outro-subline').value;
+      payload.cta = $('mf-outro-cta').value;
+    } else if (model === 'kinetic') {
+      payload.words = $('mf-kinetic-words').value;
+    } else if (model === 'chart') {
+      payload.title = $('mf-chart-title').value;
+      payload.data = $('mf-chart-data').value;
+    } else {
+      // The three explainer styles share one field block.
+      payload.headline = $('mf-expl-headline').value;
+      payload.points = $('mf-expl-points').value;
     }
     return { kind: 'motion', endpoint: '/api/templates', botId: 'botcheck2',
       msgId: 'job-msg', body: payload };
@@ -17410,6 +18147,9 @@ function buildCreate() {
         speech_script: $('speech').disabled ? '' : $('speech').value,
         speech_voice: $('speech').disabled ? '' : $('speech-voice').value,
         captions: $('captions').checked,
+        caption_style: $('caption-style').value,
+        lower_third_name: $('lower-third-name').value.trim(),
+        lower_third_sub: $('lower-third-sub').value.trim(),
         effect: selectedEffect || undefined,
         ...startFields, end_image_png_b64: selectedEffect ? null : endImageB64,
         aspect_ratio: $('aspect').value, segments: selectedEffect ? 1 : Number($('segments').value),
@@ -17419,6 +18159,9 @@ function buildCreate() {
         speech_script: $('speech').disabled ? '' : $('speech').value,
         speech_voice: $('speech').disabled ? '' : $('speech-voice').value,
         captions: $('captions').checked,
+        caption_style: $('caption-style').value,
+        lower_third_name: $('lower-third-name').value.trim(),
+        lower_third_sub: $('lower-third-sub').value.trim(),
         aspect_ratio: $('aspect').value,
         duration_seconds: Number($('duration').value), resolution: $('resolution').value,
         ...startFields, ...camera, ...detailFields, ...motionFields, ...charFields, ...cloneFields };
@@ -18269,8 +19012,9 @@ $('short-clone-ref').addEventListener('change', () => {
   reader.readAsDataURL(f);
 });
 function shortShowVisuals() {
+  const v = $('short-visuals').value;
   $('short-style-wrap').style.display =
-    $('short-visuals').value === 'ai' ? '' : 'none';
+    (v === 'ai' || v === 'overlay') ? '' : 'none';
 }
 $('short-visuals').addEventListener('change', shortShowVisuals);
 async function loadShortsConfig() {
@@ -18318,8 +19062,11 @@ function buildShort() {
   const payload = { voice: $('short-voice').value,
     visuals: $('short-visuals').value,
     music: $('short-music').value,
-    caption_style: $('short-captions').value };
-  if (payload.visuals === 'ai') payload.style = $('short-style').value;
+    caption_style: $('short-captions').value,
+    lower_third_name: $('short-lt-name').value.trim(),
+    lower_third_sub: $('short-lt-sub').value.trim(),
+    beat_sync: $('short-beat-sync').checked };
+  if (payload.visuals === 'ai' || payload.visuals === 'overlay') payload.style = $('short-style').value;
   if (payload.voice === 'clone' && shortCloneRefB64) {
     payload.clone_reference_audio_b64 = shortCloneRefB64;
     payload.clone_reference_text = $('short-clone-ref-text').value.trim();

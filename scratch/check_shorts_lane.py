@@ -202,8 +202,29 @@ check("Dialogue:" in ass and "The ocean covers most" in ass,
 evil = shorts.build_captions_ass(["A {brace} test.", "Second {x} line."],
                                  [(0.0, 1.0), (1.35, 1.0)])
 check("{brace}" not in evil, "caption braces are escaped")
-check(set(shorts.CAPTION_STYLES) == {"classic", "big", "quiet", "none"},
-      "the caption looks are classic, big, quiet, and no captions")
+check(set(shorts.CAPTION_STYLES) == {"classic", "big", "quiet", "none",
+                                     "karaoke", "pop"},
+      "the caption looks are classic, big, quiet, karaoke, pop, and no captions")
+kara_ass = shorts.build_captions_ass(lines, timings, style="karaoke")
+check("{\\kf" in kara_ass and "&H0000FFFF" in kara_ass,
+      "the karaoke look fills each word as it is spoken")
+pop_ass = shorts.build_captions_ass(lines, timings, style="pop")
+check("{\\fscx55\\fscy55\\t(0,170,\\fscx100\\fscy100)}" in pop_ass,
+      "the pop look scales each caption chunk in")
+LT = {"name": "Jane Doe", "sub": "Owner, Riverside Park"}
+lt_ass = shorts.build_captions_ass(lines, timings, style="none",
+                                   lower_third=LT)
+check("Dialogue: 0," not in lt_ass and "LowerName" in lt_ass
+      and "Jane Doe" in lt_ass,
+      "a lower third rides a no captions short on its own")
+lt_classic = shorts.build_captions_ass(lines, timings, lower_third=LT)
+check("Dialogue: 0," in lt_classic
+      and lt_classic.index("Dialogue: 1,") > lt_classic.index("Dialogue: 0,"),
+      "the lower third is appended after the caption dialogues")
+check(shorts.snap_durations_to_beat([3.2, 4.0, 0.5], 120) == [3.5, 4.0, 0.5],
+      "scene lengths snap up to whole beats")
+check(shorts.snap_durations_to_beat([3.2], 0) == [3.2],
+      "a zero tempo leaves scene lengths alone")
 check(shorts.CAPTION_STYLES["none"]["label"] == "No captions",
       "the no captions look carries its plain name")
 none_ass = shorts.build_captions_ass(lines, timings, style="none")
@@ -465,6 +486,21 @@ check('"music_styles"' in lane,
       "the config offers the music choices")
 check('"short_caption_style"' in lane and "CAPTION_STYLES" in lane,
       "creation takes, validates, and records the caption style")
+check('"short_lower_third": lower_third,' in lane
+      and '"short_beat_sync": beat_sync,' in lane,
+      "creation records the lower third and the beat sync pick")
+check('"overlay"' in lane and '("stock", "ai", "overlay")' in lane,
+      "creation accepts the B-roll overlays pictures choice")
+check('id="short-lt-name"' in SRC and 'id="short-lt-sub"' in SRC
+      and 'id="short-beat-sync"' in SRC,
+      "the shorts form carries the lower third inputs and the beat sync box")
+check('<option value="overlay">B-roll overlays</option>' in SRC,
+      "the pictures picker offers B-roll overlays")
+check("lower_third_name: $('short-lt-name').value.trim()" in SRC
+      and "beat_sync: $('short-beat-sync').checked" in SRC,
+      "the submit sends the lower third and the beat sync pick")
+check(all("bpm" in entry for entry in app.SHORTS_MUSIC_STYLES.values()),
+      "every music choice carries its tempo for the beat sync")
 check('"caption_styles"' in lane,
       "the config offers the caption styles")
 check("short_parent" in SRC,
@@ -496,6 +532,16 @@ check("build_captions_ass" in processor, "the runner times captions")
 check('!= "none"' in processor and "ass_path = None" in processor,
       "the runner writes no captions file for the no captions "
       "pick, so the assembly burns no captions in")
+check("lower_third=job.get(\"short_lower_third\")" in processor,
+      "the runner passes the job's lower third to the captions builder")
+check("snap_durations_to_beat" in processor
+      and "short_beat_sync" in processor,
+      "the runner snaps scene lengths to the beat when the pick is on")
+check("scene_durations=scene_durations" in processor,
+      "the narration track is built against the scene lengths")
+check("overlays=overlay_specs" in processor
+      and '"overlay-ai"' in processor and '"short_broll"' in processor,
+      "the runner fetches B-roll per line and lays it over the scenes")
 check("assemble_short" in processor, "the runner assembles the short")
 check("_short_word_check" in processor,
       "the runner word checks the finished short")
