@@ -2080,15 +2080,21 @@ def image_quote(owner: bool = False) -> dict:
 # uncensored lanes' 1.9 cents, so the customer price is that
 # basis marked up once by the frontier minimum, debited once
 # per job that uses cloning, never per line. The owner pays
-# the route's true raw cost, $0.
+# the route's true raw cost, $0. The marked-up figure
+# resolves through the shared customer rounding path like
+# every other customer debit (Jack, 2026-11-23: 1.25x
+# rounded UP, never a cent short), so the customer price is
+# 3 cents, not the 2 cents plain rounding gave before.
 VOICE_CLONE_RAW_CENTS = 1.9
 
 
 def voice_clone_price_cents(owner: bool = False) -> int:
     """The integer cents one job using voice cloning debits:
     the nominal basis marked up once by the frontier minimum
-    (2 cents), or the true raw cost for the owner ($0 on the
-    Kaggle route)."""
+    and rounded up through the shared customer path
+    (1.9 x 1.25 = 2.375, so 3 cents), or the true raw cost
+    for the owner ($0 on the Kaggle route)."""
     if owner:
         return 0
-    return int(round(VOICE_CLONE_RAW_CENTS * FRONTIER_MIN_MARKUP))
+    return customer_debit_cents(
+        VOICE_CLONE_RAW_CENTS * FRONTIER_MIN_MARKUP)

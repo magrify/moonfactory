@@ -532,7 +532,7 @@ def _short_ai_scenes(job: dict, lines: list):
 def _clone_debit_once(parent: dict) -> bool:
     """Take the one-time voice cloning charge for a parent job
     (pricing.voice_clone_price_cents: the nominal basis marked
-    up once, 2 cents; the owner pays the Kaggle route's true
+    up once, 3 cents; the owner pays the Kaggle route's true
     raw cost, $0, so his stamp is 0 and nothing moves). Runs
     at module level because the shorts processor, which runs
     outside the web layer, debits through the same path; the
