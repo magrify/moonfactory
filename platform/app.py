@@ -1154,10 +1154,10 @@ MODELS = [
     {"id": "vidu_q2", "label": "Vidu Q2", "paid_only": True},
     # Follow-up wiring pass (2026-11-16): Vidu Q3 opens on its
     # first published per-second route; Runway Gen-4.5 wires
-    # direct. Vidu Q4, Seedance 2.5 Flash and PixVerse V6 are
-    # wired but price-paused (their supplier publishes only
-    # per-run "from" prices, never a per-second rate), exactly
-    # like Vidu Q2.
+    # direct. Vidu Q4, Seedance 2.5 Flash and PixVerse V6 were
+    # wired but price-paused until 2026-11-23, when the VidLab
+    # route gave each a published per-second rate and unpaused
+    # them (MODEL_PROVIDER below).
     {"id": "vidu_q3", "label": "Vidu Q3", "paid_only": True},
     {"id": "vidu_q4", "label": "Vidu Q4", "paid_only": True},
     {"id": "seedance25_flash", "label": "Seedance 2.5 Flash", "paid_only": True},
@@ -1210,6 +1210,32 @@ MODELS = [
     # license reads "unknown"; the lane ships dark and
     # unpromoted, named here like every other shelf entry.
     {"id": "ltx25_unc", "label": "LTX 2.5 Uncensored", "paid_only": True},
+    # VidLab lanes (2026-11-23, Jack's order): the models
+    # Moonfactory does not have yet, each its own entry under
+    # its plain model name, all served by the VidLab route
+    # (MODEL_PROVIDER below). VidLab's wallet is unfunded, so
+    # the lanes fail clean with holds released until Jack
+    # funds it, exactly like the fal lanes at $0.
+    {"id": "vidlab15", "label": "VidLab 1.5", "paid_only": True},
+    {"id": "vidlab2", "label": "VidLab 2", "paid_only": True},
+    {"id": "vidra3", "label": "Vidra 3.0", "paid_only": True},
+    {"id": "seedance25_boost", "label": "Seedance 2.5 Boost", "paid_only": True},
+    {"id": "wan25", "label": "Wan 2.5", "paid_only": True},
+    {"id": "wan26", "label": "Wan 2.6", "paid_only": True},
+    {"id": "wan26_flash", "label": "Wan 2.6 Flash", "paid_only": True},
+    {"id": "wan27", "label": "Wan 2.7", "paid_only": True},
+    {"id": "kling26_std", "label": "Kling 2.6 Standard", "paid_only": True},
+    {"id": "kling_o1", "label": "Kling O1", "paid_only": True},
+    {"id": "hailuo23_fast", "label": "Hailuo 2.3 Fast", "paid_only": True},
+    {"id": "minimax_h3_max", "label": "MiniMax H3 Max", "paid_only": True},
+    {"id": "vidu_q3_pro", "label": "Vidu Q3 Pro", "paid_only": True},
+    {"id": "vidu_q3_turbo", "label": "Vidu Q3 Turbo", "paid_only": True},
+    {"id": "vidu_q3_mix", "label": "Vidu Q3 Mix", "paid_only": True},
+    {"id": "skyreels_v4_fast", "label": "SkyReels V4 Fast", "paid_only": True},
+    {"id": "skyreels_v4_std", "label": "SkyReels V4 Standard", "paid_only": True},
+    {"id": "seedance15pro", "label": "Seedance 1.5 Pro", "paid_only": True},
+    {"id": "seedance10pro_fast", "label": "Seedance 1.0 Pro Fast", "paid_only": True},
+    {"id": "pixverse_v6_max", "label": "PixVerse V6 Max", "paid_only": True},
 ]
 MODEL_LABELS = {m["id"]: m["label"] for m in MODELS}
 DEFAULT_MODEL = "wan2.2"
@@ -1412,6 +1438,13 @@ PER_SECOND_MODELS = (
     "seedance2fast_unc", "seedance2mini_unc", "seedance15pro_unc",
     "ltx23_unc", "ltx23_lora_unc",
     "wan_motion",
+    # VidLab lanes (2026-11-23).
+    "vidlab15", "vidlab2", "vidra3", "seedance25_boost", "wan25",
+    "wan26", "wan26_flash", "wan27", "kling26_std", "kling_o1",
+    "hailuo23_fast", "minimax_h3_max", "vidu_q3_pro",
+    "vidu_q3_turbo", "vidu_q3_mix", "skyreels_v4_fast",
+    "skyreels_v4_std", "seedance15pro", "seedance10pro_fast",
+    "pixverse_v6_max",
 )
 # Which supplier serves each per-second model. Internal only: the
 # picker, the pricing page, and every error show model names, never
@@ -1431,9 +1464,16 @@ MODEL_PROVIDER = {
     "wan3_prime": "cometapi",
     "seedance": "beatapi",
     "kling3": "kie",
-    "kling4": "kie",
+    # Kling 4.0 rerouted to VidLab 2026-11-23: VidLab's
+    # $0.135 / $0.20 per second undercuts Kie's $0.1425 /
+    # $0.2125. The Kie submit path stays wired as the spare.
+    "kling4": "vidlab",
     "seedance2": "beatapi",
-    "seedance2_fast": "kie",
+    # Seedance 2.0 Fast rerouted to VidLab 2026-11-23 the
+    # same way ($0.05 / $0.11 vs Kie's $0.059 / $0.124); the
+    # VidLab route takes no reference video or audio, so the
+    # lane is image-references-only (IMAGE_REFS_ONLY_MODELS).
+    "seedance2_fast": "vidlab",
     "seedance2_mini": "kie",
     "omni12": "kie",
     "omni11": "beatapi",
@@ -1453,10 +1493,37 @@ MODEL_PROVIDER = {
     "pika22": "fal",
     "vidu_q2": "fal",
     "vidu_q3": "novita",
-    "vidu_q4": "wavespeed",
-    "seedance25_flash": "wavespeed",
-    "pixverse_v6": "wavespeed",
+    # Vidu Q4, Seedance 2.5 Flash and PixVerse V6 moved from
+    # their price-paused WaveSpeed wiring to VidLab
+    # 2026-11-23, which publishes per-second rates for all
+    # three; the WaveSpeed submit paths stay wired as spares.
+    "vidu_q4": "vidlab",
+    "seedance25_flash": "vidlab",
+    "pixverse_v6": "vidlab",
     "runway_gen45": "runway",
+    # VidLab lanes (2026-11-23): every model below is served
+    # by the VidLab route; its catalog ids live in
+    # VIDLAB_VIDEO_MODELS.
+    "vidlab15": "vidlab",
+    "vidlab2": "vidlab",
+    "vidra3": "vidlab",
+    "seedance25_boost": "vidlab",
+    "wan25": "vidlab",
+    "wan26": "vidlab",
+    "wan26_flash": "vidlab",
+    "wan27": "vidlab",
+    "kling26_std": "vidlab",
+    "kling_o1": "vidlab",
+    "hailuo23_fast": "vidlab",
+    "minimax_h3_max": "vidlab",
+    "vidu_q3_pro": "vidlab",
+    "vidu_q3_turbo": "vidlab",
+    "vidu_q3_mix": "vidlab",
+    "skyreels_v4_fast": "vidlab",
+    "skyreels_v4_std": "vidlab",
+    "seedance15pro": "vidlab",
+    "seedance10pro_fast": "vidlab",
+    "pixverse_v6_max": "vidlab",
     # Uncensored lanes (2026-11-17): cheapest route per model
     # across the three uncensored suppliers (route rule).
     "wan22_unc": "spicyapi",
@@ -1507,6 +1574,7 @@ PROVIDER_KEY_ENV = {
     "wiro": "WIRO_API_KEY",
     "cloudflare": "CLOUDFLARE_API_TOKEN",
     "ovhcloud": "OVH_AI_API_KEY",
+    "vidlab": "VIDLAB_API_KEY",
 }
 # Per-resolution route overrides: Seedance 2.5's cheapest route
 # is a different supplier at 480p/720p (CometAPI) than at 1080p
@@ -1609,11 +1677,53 @@ LANE_AUDIO = {
     "vidu_q3": {"native_speech": True, "native_audio": True,
                 "note": "Vidu Q3 native audio incl. speech; audio on in the wired payload"},
     "vidu_q4": {"native_speech": True, "native_audio": True,
-                "note": "Vidu Q4 native audio incl. speech; generate_audio on; lane price-paused"},
+                "note": "Vidu Q4 native audio incl. speech; the VidLab route publishes no audio switch, so the model's own audio mode applies"},
     "seedance25_flash": {"native_speech": True, "native_audio": True,
-                         "note": "Seedance native audio incl. dialogue; generate_audio on; lane price-paused"},
+                         "note": "Seedance native audio incl. dialogue; generate_audio on"},
     "pixverse_v6": {"native_speech": False, "native_audio": True,
-                    "note": "PixVerse native audio is music/SFX-led; lane price-paused"},
+                    "note": "PixVerse native audio is music/SFX-led; generate_audio on; priced at the with-audio rate"},
+    # VidLab lanes (2026-11-23): audio capability follows each
+    # model's published inputs on the VidLab route.
+    "vidlab15": {"native_speech": True, "native_audio": True,
+                 "note": "Talking Video mode speaks the job's spoken line natively (the submit sends it as the model's script input); a plain prompt makes a silent-led clip with music in post"},
+    "vidlab2": {"native_speech": False, "native_audio": False,
+                "note": "no audio mode selected on the wired route; music and voice run in post"},
+    "vidra3": {"native_speech": False, "native_audio": True,
+               "note": "generate_audio on; native audio is music/SFX-led; speech unconfirmed"},
+    "seedance25_boost": {"native_speech": True, "native_audio": True,
+                         "note": "Seedance native audio incl. dialogue; generate_audio on"},
+    "wan25": {"native_speech": False, "native_audio": False,
+              "note": "silent on the wired route; music and voice run in post"},
+    "wan26": {"native_speech": False, "native_audio": False,
+              "note": "silent on the wired route; music and voice run in post"},
+    "wan26_flash": {"native_speech": False, "native_audio": True,
+                    "note": "generate_audio on; native audio is music/SFX-led; speech unconfirmed"},
+    "wan27": {"native_speech": False, "native_audio": False,
+              "note": "silent on the wired route; music and voice run in post"},
+    "kling26_std": {"native_speech": False, "native_audio": False,
+                    "note": "silent on the wired route; music and voice run in post"},
+    "kling_o1": {"native_speech": False, "native_audio": False,
+                 "note": "silent on the wired route; music and voice run in post"},
+    "hailuo23_fast": {"native_speech": False, "native_audio": False,
+                      "note": "silent on the wired route, like Hailuo 2.3; music and voice run in post"},
+    "minimax_h3_max": {"native_speech": False, "native_audio": True,
+                       "note": "H3 family native audio; speech unconfirmed on the wired route, so talking content rides the voiceover path"},
+    "vidu_q3_pro": {"native_speech": False, "native_audio": False,
+                    "note": "no audio mode published on the wired route; music and voice run in post"},
+    "vidu_q3_turbo": {"native_speech": False, "native_audio": False,
+                      "note": "no audio mode published on the wired route; music and voice run in post"},
+    "vidu_q3_mix": {"native_speech": False, "native_audio": False,
+                    "note": "no audio mode published on the wired route; music and voice run in post"},
+    "skyreels_v4_fast": {"native_speech": False, "native_audio": False,
+                         "note": "silent on the wired route; music and voice run in post"},
+    "skyreels_v4_std": {"native_speech": False, "native_audio": False,
+                        "note": "silent on the wired route; music and voice run in post"},
+    "seedance15pro": {"native_speech": False, "native_audio": False,
+                      "note": "the wired route publishes no audio switch; music and voice run in post"},
+    "seedance10pro_fast": {"native_speech": False, "native_audio": False,
+                           "note": "silent on the wired route; music and voice run in post"},
+    "pixverse_v6_max": {"native_speech": False, "native_audio": True,
+                        "note": "PixVerse native audio is music/SFX-led; generate_audio on; priced at the with-audio rate"},
     "runway_gen45": {"native_speech": False, "native_audio": False,
                      "note": "Gen-4.5 is silent; its maker sells audio as separate models"},
     # Uncensored lanes (2026-11-17): audio capability follows
@@ -1682,14 +1792,14 @@ def lip_sync_applies(model: str, speech_script) -> bool:
 URL_RESULT_PROVIDERS = (
     "fal", "beatapi", "kie", "cometapi", "piapi", "openrouter",
     "novita", "wavespeed", "eachlabs", "runway", "vidu", "minimax",
-    "spicyapi", "hotapi", "wiro",
+    "spicyapi", "hotapi", "wiro", "vidlab",
 )
 # Suppliers polled through mirror_api_status (fal and BeatAPI keep
 # their original mirror functions).
 API_POLL_PROVIDERS = (
     "kie", "cometapi", "piapi", "openrouter", "novita",
     "wavespeed", "eachlabs", "runway", "vidu", "minimax",
-    "spicyapi", "hotapi", "wiro",
+    "spicyapi", "hotapi", "wiro", "vidlab",
 )
 # Bounded poll lifetimes, in seconds from job creation (the
 # universal safety net, 2026-11-17). The SpicyAPI lesson: a
@@ -2367,7 +2477,9 @@ MODEL_DURATION_BOUNDS = {
     "ltx25": (6, 20),
     "ltx25_fast": (6, 20),
     "vidu_q3": (1, 16),
-    "vidu_q4": (3, 16),
+    # Vidu Q4's VidLab route accepts 3 to 15 seconds (the
+    # WaveSpeed wiring's 16 second top no longer governs).
+    "vidu_q4": (3, 15),
     # Vidu Q2 takes 1 to 10 seconds, whole seconds, default 5
     # (Vidu's API model map and Q2 text-to-video reference,
     # read 2026-11-17). It previously fell through to the
@@ -2375,8 +2487,22 @@ MODEL_DURATION_BOUNDS = {
     # model cannot make (verification pass, 2026-11-17).
     "vidu_q2": (1, 10),
     "seedance25_flash": (4, 30),
-    "pixverse_v6": (1, 15),
     "runway_gen45": (2, 10),
+    # VidLab lanes (2026-11-23), from VidLab's own catalog
+    # parameter bounds; stepped models live in
+    # MODEL_DURATION_STEPS below.
+    "vidlab2": (5, 15),
+    "vidra3": (4, 30),
+    "seedance25_boost": (4, 30),
+    "wan27": (3, 15),
+    "minimax_h3_max": (5, 15),
+    "vidu_q3_pro": (3, 15),
+    "vidu_q3_turbo": (3, 15),
+    "vidu_q3_mix": (3, 15),
+    "skyreels_v4_fast": (3, 15),
+    "skyreels_v4_std": (3, 15),
+    "seedance15pro": (4, 12),
+    "seedance10pro_fast": (2, 12),
     # Uncensored lanes (2026-11-17), from each route's own
     # published schema or model page.
     "wan22_unc": (5, 5),
@@ -2435,6 +2561,21 @@ MODEL_DURATION_STEPS = {
     # Wan 2.2 Spicy LoRA accepts exactly 5 or 8 seconds (its
     # own page: anything else is a validation error).
     "wan22_lora_unc": (5, 8),
+    # VidLab lanes (2026-11-23) whose catalogs publish fixed
+    # duration steps: VidLab 1.5 makes only 10-second clips;
+    # PixVerse V6 and V6 Max take 5, 8 or 10; the Wan 2.5 /
+    # 2.6 family takes its listed steps; Kling 2.6 Standard
+    # and Kling O1 take 5 or 10; Hailuo 2.3 Fast takes 6 or
+    # 10, like its sibling.
+    "vidlab15": (10,),
+    "pixverse_v6": (5, 8, 10),
+    "pixverse_v6_max": (5, 8, 10),
+    "wan25": (5, 10),
+    "wan26": (5, 10, 15),
+    "wan26_flash": (5, 10, 15),
+    "kling26_std": (5, 10),
+    "kling_o1": (5, 10),
+    "hailuo23_fast": (6, 10),
 }
 # The length rule (Jack, 2026-11-17, refined the same day):
 # the picker lists each model's REAL native lengths, never a
@@ -2484,14 +2625,29 @@ CHAIN_CONTINUATION_MODELS = PER_SECOND_MODELS
 # 30 seconds combined.
 MODEL_REF_CAPS = {
     "seedance": (30, 10, 10),
-    "seedance25_flash": (30, 10, 10),
+    # Seedance 2.5 Flash's VidLab route publishes 10 images /
+    # 5 videos / 5 audios (the BytePlus figures its old wiring
+    # carried do not govern this route).
+    "seedance25_flash": (10, 5, 5),
     "seedance2": (9, 3, 3),
     "seedance2_fast": (9, 3, 3),
     "seedance2_mini": (9, 3, 3),
     "veo3": (3, 0, 0),
     "veo3_fast": (3, 0, 0),
-    "kling4": (10, 5, 3),
+    # Kling 4.0's VidLab route publishes 1 image and 1 video
+    # input and no audio inputs (Kling's own higher published
+    # limits governed the Kie route, not this one).
+    "kling4": (1, 1, 0),
     "kling3_omni": (10, 5, 5),
+    # VidLab lanes (2026-11-23), from each model's published
+    # input caps on the route.
+    "seedance25_boost": (30, 10, 10),
+    "vidra3": (30, 10, 10),
+    "wan27": (1, 1, 0),
+    "kling_o1": (4, 0, 0),
+    "minimax_h3_max": (4, 0, 0),
+    "vidu_q3_mix": (4, 0, 0),
+    "vidu_q4": (4, 0, 0),
     # Grok Imagine Video 1.5 reference mode takes up to 7
     # reference images and no reference video or audio (fal's
     # own Grok Imagine page and xAI's docs, read 2026-11-17);
@@ -2504,6 +2660,8 @@ MODEL_REF_CAPS = {
 MODEL_REF_VIDEO_SECONDS_CAP = {
     "seedance": 30.0,
     "seedance25_flash": 30.0,
+    "seedance25_boost": 30.0,
+    "vidra3": 30.0,
     # Motion transfer's reference video is the product: up to
     # the model's own 30 second driving limit.
     "wan_motion": 30.0,
@@ -2720,13 +2878,14 @@ RESOLUTION_ORDER = ("480p", "720p", "1080p", "2K", "4K")
 # job never transmits.
 SIZE_PICKER_SINGLE = {
     "kling3": ("4K",),
-    "kling4": ("720p",),
     "omni12": ("720p",),
     "veo3_lite": ("720p",),
     "happyhorse": ("720p",),
-    "seedance2_fast": ("480p",),
     "seedance2_mini": ("480p",),
 }
+# Kling 4.0 and Seedance 2.0 Fast left this table 2026-11-23:
+# their VidLab submit sends the resolution on every job, so
+# every priced tier is a real choice again.
 
 
 def offered_resolutions(model: str, rates: dict) -> list:
@@ -2804,10 +2963,153 @@ TEXT_IMAGE_ONLY_MODELS = (
     # every route (xAI's docs, read 2026-11-17); no reference
     # mode exists for the model.
     "grok15_lite",
+    # VidLab lanes (2026-11-23) whose published parameter sets
+    # have no reference inputs: a prompt or a start image only.
+    "vidlab15", "vidlab2", "wan25", "wan26", "kling26_std",
+    "vidu_q3_pro", "vidu_q3_turbo", "skyreels_v4_fast",
+    "skyreels_v4_std", "seedance15pro", "seedance10pro_fast",
+    "pixverse_v6_max",
 )
 # Models that accept references but only still images: their
 # supplier schemas have no reference video or audio inputs.
-IMAGE_REFS_ONLY_MODELS = ("grok", "grok15", "happyhorse")
+IMAGE_REFS_ONLY_MODELS = (
+    "grok", "grok15", "happyhorse",
+    # VidLab lanes (2026-11-23): Kling O1 and MiniMax H3 Max
+    # take reference images only; Vidu Q4 takes start images
+    # only; Seedance 2.0 Fast's VidLab route takes start, end
+    # and reference images but no reference video or audio
+    # (its Kie route took them; the reroute narrows the lane).
+    "kling_o1", "minimax_h3_max", "vidu_q4", "seedance2_fast",
+)
+VIDLAB_BASE = "https://vidlab.ai"
+# The VidLab route's per-model submit shape (2026-11-23):
+# the catalog id each platform model posts to, plus which of
+# the published inputs the submit sends. Read from VidLab's
+# own catalog (GET /v1/models) the day of the wiring.
+#   slug:         the VidLab model id.
+#   res_map:      platform tier -> the supplier's resolution
+#                 value where it differs (default: the tier
+#                 lowercased, so "4K" posts as "4k").
+#   no_resolution / no_duration: the model publishes no such
+#                 input (a flat-price or fixed-length model).
+#   audio:        True sends generate_audio=true (the lane's
+#                 priced basis includes audio); absent sends
+#                 nothing.
+#   end_image:    the model publishes an end_image input.
+#   video_input:  "videos" or "video": how a reference video
+#                 is sent; absent means the route takes none.
+#   audio_inputs: the model publishes reference audio inputs.
+#   seed:         the model publishes a seed input.
+#   text_script:  the model takes the spoken line as a text
+#                 input (VidLab 1.5's Talking Video mode).
+#   rate_variants: platform tier -> the catalog price variant
+#                 key the lane's seeded rate came from, used
+#                 by the scheduled rate refresh.
+VIDLAB_VIDEO_MODELS = {
+    "kling4": {"slug": "kling-4.0", "video_input": "video",
+               "rate_variants": {"720p": "720p", "1080p": "1080p"}},
+    "seedance2_fast": {"slug": "seedance-2.0-fast",
+                       "end_image": True, "seed": True,
+                       "rate_variants": {"480p": "480p",
+                                         "720p": "720p"}},
+    "seedance25_flash": {"slug": "seedance-2.5-flash",
+                         "audio": True, "end_image": True,
+                         "video_input": "videos",
+                         "audio_inputs": True, "seed": True,
+                         "rate_variants": {"480p": "480p",
+                                           "720p": "720p"}},
+    "pixverse_v6": {"slug": "pixverse-v6", "audio": True,
+                    "end_image": True, "seed": True,
+                    "rate_variants": {"720p": "720p+audio",
+                                      "1080p": "1080p+audio"}},
+    "vidu_q4": {"slug": "vidu-q4-preview", "seed": True,
+                "rate_variants": {"480p": "540p", "720p": "720p",
+                                  "1080p": "1080p"}},
+    "vidlab15": {"slug": "vidlab-video-flash",
+                 "no_resolution": True, "no_duration": True,
+                 "text_script": True,
+                 "rate_variants": {"720p": "default"}},
+    "vidlab2": {"slug": "vidlab-video-2", "end_image": True,
+                "seed": True,
+                "rate_variants": {"720p": "720p", "1080p": "1080p"}},
+    "vidra3": {"slug": "vidra-3.0", "audio": True,
+               "end_image": True, "video_input": "videos",
+               "audio_inputs": True, "seed": True,
+               "rate_variants": {"480p": "480p", "720p": "720p",
+                                 "1080p": "1080p", "4K": "4k"}},
+    "seedance25_boost": {"slug": "seedance-2.5-boost",
+                         "audio": True, "end_image": True,
+                         "video_input": "videos",
+                         "audio_inputs": True, "seed": True,
+                         "rate_variants": {"1080p": "1080p"}},
+    "wan25": {"slug": "wan-2.5", "seed": True,
+              "rate_variants": {"480p": "480p", "720p": "720p",
+                                "1080p": "1080p"}},
+    "wan26": {"slug": "wan-2.6", "seed": True,
+              "rate_variants": {"720p": "720p", "1080p": "1080p"}},
+    "wan26_flash": {"slug": "wan-2.6-flash", "audio": True,
+                    "seed": True,
+                    "rate_variants": {"720p": "720p+audio",
+                                      "1080p": "1080p+audio"}},
+    "wan27": {"slug": "wan-2.7", "end_image": True,
+              "video_input": "video", "seed": True,
+              "rate_variants": {"720p": "720p", "1080p": "1080p"}},
+    "kling26_std": {"slug": "kling-2.6-std",
+                    "no_resolution": True, "seed": True,
+                    "rate_variants": {"720p": "default"}},
+    "kling_o1": {"slug": "kling-o1",
+                 "rate_variants": {"720p": "720p",
+                                   "1080p": "1080p"}},
+    "hailuo23_fast": {"slug": "hailuo-2.3-fast",
+                      "res_map": {"720p": "768p"},
+                      "rate_variants": {"720p": "768p",
+                                        "1080p": "1080p"}},
+    "minimax_h3_max": {"slug": "minimax-h3-max",
+                       "res_map": {"720p": "768p"},
+                       "rate_variants": {"480p": "480p",
+                                         "720p": "768p",
+                                         "1080p": "1080p"}},
+    "vidu_q3_pro": {"slug": "vidu-q3-pro",
+                    "res_map": {"480p": "540p"},
+                    "end_image": True, "seed": True,
+                    "rate_variants": {"480p": "540p",
+                                      "720p": "720p",
+                                      "1080p": "1080p"}},
+    "vidu_q3_turbo": {"slug": "vidu-q3-turbo",
+                      "res_map": {"480p": "540p"},
+                      "end_image": True, "seed": True,
+                      "rate_variants": {"480p": "540p",
+                                        "720p": "720p",
+                                        "1080p": "1080p"}},
+    "vidu_q3_mix": {"slug": "vidu-q3-mix", "seed": True,
+                    "rate_variants": {"720p": "720p",
+                                      "1080p": "1080p"}},
+    "skyreels_v4_fast": {"slug": "skyreels-v4-fast",
+                         "end_image": True,
+                         "rate_variants": {"480p": "480p",
+                                           "720p": "720p",
+                                           "1080p": "1080p"}},
+    "skyreels_v4_std": {"slug": "skyreels-v4-std",
+                        "end_image": True,
+                        "rate_variants": {"480p": "480p",
+                                          "720p": "720p",
+                                          "1080p": "1080p"}},
+    "seedance15pro": {"slug": "seedance-1.5-pro", "seed": True,
+                      "rate_variants": {"480p": "480p",
+                                        "720p": "720p",
+                                        "1080p": "1080p"}},
+    "seedance10pro_fast": {"slug": "seedance-1.0-pro-fast",
+                           "seed": True,
+                           "rate_variants": {"480p": "480p",
+                                             "720p": "720p",
+                                             "1080p": "1080p"}},
+    "pixverse_v6_max": {"slug": "pixverse-v6-max", "audio": True,
+                        "res_map": {"480p": "540p"},
+                        "end_image": True, "seed": True,
+                        "rate_variants": {"480p": "540p+audio",
+                                          "720p": "720p+audio",
+                                          "1080p": "1080p+audio"}},
+}
 FAL_BASE = "https://queue.fal.run"
 FAL_ENDPOINTS = {
     ("wan3", "text"): "alibaba/wan-3.0/text-to-video",
@@ -5289,6 +5591,46 @@ def api():
                 raise RuntimeError("image submit returned no task id")
             job["provider_task_id"] = task_id
             job["provider_socket_token"] = data.get("socketaccesstoken")
+        elif provider == "vidlab":
+            # VidLab image lanes (2026-11-23): the same
+            # generations API as the video lanes. A size key can
+            # carry a shape ("1K-16:9"): the tier goes out as
+            # the resolution and the shape as the aspect ratio,
+            # and the price rides the tier alone, like the
+            # BeatAPI branch. Three key shapes need care: a
+            # flat lane's "square" base sends only the square
+            # ratio; GPT Image 1's keys are quality tiers, not
+            # sizes, and go out as the quality; Midjourney V7's
+            # keys are speed modes and go out as its quality
+            # too. The edit lane sends its source image as the
+            # model's images input. PAYLOAD-UNVERIFIED like the
+            # other shelf branches until a funded job proves it.
+            headers = dict(_api_headers("vidlab"))
+            headers["Idempotency-Key"] = job["id"]
+            tier, _, aspect = size.partition("-")
+            image_input = {"prompt": prompt, "n": 1}
+            if lane.get("edit"):
+                image_input["images"] = [_beatapi_media_url(
+                    source_image, "edit-source")]
+            elif job["image_model"] in ("gpt_image1",
+                                        "midjourney_v7"):
+                image_input["quality"] = tier
+                if aspect:
+                    image_input["aspect_ratio"] = aspect
+            elif tier == "square":
+                image_input["aspect_ratio"] = aspect or "1:1"
+            else:
+                image_input["resolution"] = tier.lower()
+                if aspect:
+                    image_input["aspect_ratio"] = aspect
+            data = _submit_post(
+                job, f"{VIDLAB_BASE}/v1/generations",
+                headers, {"model": endpoint, "input": image_input})
+            gen = data.get("data") or data
+            task_id = gen.get("id")
+            if not task_id:
+                raise RuntimeError("image submit returned no task id")
+            job["provider_task_id"] = task_id
         elif provider == "cloudflare":
             # The free image lanes: a synchronous route that
             # settles the job inside its own submit.
@@ -5505,6 +5847,35 @@ def api():
                             _fail_provider_image(
                                 job, "the image could not be made, nothing was charged")
                     elif state == "task_cancel":
+                        _fail_provider_image(
+                            job, "the image could not be made, nothing was charged")
+                    else:
+                        job["status"] = "running"
+                        jobs[job["id"]] = job
+            elif provider == "vidlab":
+                resp = requests.get(
+                    f"{VIDLAB_BASE}/v1/generations/"
+                    f"{job['provider_task_id']}",
+                    headers=_api_headers("vidlab"), timeout=15)
+                if resp.status_code == 200:
+                    gen = (resp.json() or {}).get("data") or {}
+                    status = str(gen.get("status") or "").lower()
+                    if status == "succeeded":
+                        # The documented result location: the
+                        # generation's outputs list, each entry
+                        # carrying its signed url.
+                        outputs = gen.get("outputs") or []
+                        url = None
+                        if outputs:
+                            first = outputs[0]
+                            url = first.get("url") \
+                                if isinstance(first, dict) else first
+                        if url:
+                            _settle_provider_image(job, url)
+                        else:
+                            _fail_provider_image(
+                                job, "the image came back empty, nothing was charged")
+                    elif status == "failed":
                         _fail_provider_image(
                             job, "the image could not be made, nothing was charged")
                     else:
@@ -5942,12 +6313,12 @@ def api():
             mode = "image"
         else:
             mode = "text"
-        if model == "vidu_q4" and mode == "text" and not for_quote:
-            # Vidu Q4 has no text-to-video mode on any published
-            # route; it animates a start image or references.
-            # Create refuses; a quote still prices the composition
-            # (the lane is price-paused today, so the quote reports
-            # the pause rather than this refusal).
+        if model in ("vidu_q4", "vidu_q3_mix") and mode == "text" \
+                and not for_quote:
+            # Vidu Q4 and Vidu Q3 Mix have no text-to-video mode
+            # on the wired route; they animate a start image or
+            # references. Create refuses; a quote still prices
+            # the composition.
             raise HTTPException(
                 status_code=422,
                 detail="this model needs a start image or reference images",
@@ -5957,7 +6328,13 @@ def api():
                      "seedance2_unc", "seedance2fast_unc",
                      "seedance2mini_unc", "seedance15pro_unc",
                      "ltx23_unc", "ltx23_lora_unc", "wan26_unc",
-                     "wan27_unc") and mode != "image" and not for_quote:
+                     "wan27_unc",
+                     # VidLab image-only lanes (2026-11-23):
+                     # Wan 2.6 Flash and Hailuo 2.3 Fast publish
+                     # images as a REQUIRED input on the route,
+                     # so a job without one cannot be sent.
+                     "wan26_flash", "hailuo23_fast") \
+                and mode != "image" and not for_quote:
             # The uncensored builds' wired supplier publishes an
             # image-to-video endpoint only for them (its catalog,
             # read 2026-11-17): no text or reference mode exists
@@ -7282,11 +7659,10 @@ def api():
         """WaveSpeed v3 predictions: POST /api/v3/{model-path},
         poll GET /api/v3/predictions/{id}/result. Endpoint shapes
         are documented on WaveSpeed's own model pages. The three
-        models wired here are PRICE-PAUSED (no per-second rate is
-        published for them), so this path is unreachable until a
-        rate lands in pricing.py; it is wired now so unpausing is
-        a rate entry, not a rebuild. Where the model generates
-        audio natively, generate_audio is on by default."""
+        models wired here moved to the VidLab route 2026-11-23
+        (WaveSpeed publishes only per-run "from" prices for
+        them, never a per-second rate), so this path is the
+        spare route, kept wired for a flip back."""
         model = job["model"]
         mode = params["mode"]
         paths = {
@@ -8028,6 +8404,131 @@ def api():
         return job
 
     # -- dispatchers -------------------------------------------------------------
+    # -- VidLab ---------------------------------------------------------------
+    def submit_vidlab_job(job: dict, body: dict, params: dict,
+                          prompt: str):
+        """VidLab generations API: POST /v1/generations {model,
+        input} with an Idempotency-Key header, poll
+        GET /v1/generations/{id}. Documented contract
+        (docs.vidlab.ai and the public catalog, read
+        2026-11-23): a 202 answer carries the generation
+        object under data; billing is per second of output,
+        charged only on success, and a failed generation is
+        free. PAYLOAD-UNVERIFIED against the live account: the
+        wallet is unfunded, so no funded call has proven the
+        envelope yet; an unfunded submit fails clean through
+        _submit_failed like every other route. Media inputs
+        ride the shared media host, like the other suppliers'
+        URL inputs. The per-model input shape lives in
+        VIDLAB_VIDEO_MODELS."""
+        model = job["model"]
+        spec = VIDLAB_VIDEO_MODELS[model]
+        mode = params["mode"]
+        inp = {"prompt": prompt}
+        if not spec.get("no_resolution"):
+            res_map = spec.get("res_map") or {}
+            inp["resolution"] = res_map.get(
+                params["resolution"],
+                str(params["resolution"]).lower())
+        if not spec.get("no_duration"):
+            inp["duration"] = params["duration"]
+        inp["aspect_ratio"] = params["aspect_ratio"]
+        if spec.get("audio"):
+            inp["generate_audio"] = True
+        if spec.get("seed") and isinstance(body.get("seed"), int):
+            inp["seed"] = body["seed"]
+        if spec.get("text_script") and params.get("speech_script"):
+            # VidLab 1.5's Talking Video mode: the spoken line
+            # rides as the model's text input (the model caps
+            # it at 400 characters; a longer line is truncated
+            # here rather than refused).
+            inp["text"] = params["speech_script"][:400]
+        try:
+            if mode == "image":
+                inp["images"] = [_beatapi_media_url(
+                    params["start_image"], "first-frame")]
+                if spec.get("end_image") and params.get("end_image"):
+                    inp["end_image"] = _beatapi_media_url(
+                        params["end_image"], "last-frame")
+            elif mode == "reference":
+                if params["reference_image_urls"]:
+                    inp["images"] = [
+                        _beatapi_media_url(u, "reference-image")
+                        for u in params["reference_image_urls"]]
+                if params["reference_video_urls"]:
+                    if spec.get("video_input") == "videos":
+                        inp["videos"] = [
+                            _beatapi_media_url(u, "reference-video")
+                            for u in params["reference_video_urls"]]
+                    elif spec.get("video_input") == "video":
+                        inp["video"] = _beatapi_media_url(
+                            params["reference_video_urls"][0],
+                            "reference-video")
+                if params["reference_audio_urls"] \
+                        and spec.get("audio_inputs"):
+                    inp["audios"] = [
+                        _beatapi_media_url(u, "reference-audio")
+                        for u in params["reference_audio_urls"]]
+        except Exception as exc:
+            _submit_failed(job, f"media upload failed: {exc}")
+        headers = dict(_api_headers("vidlab"))
+        # One key per job segment: a chained length's segments
+        # are separate generations, and a failed generation
+        # needs a fresh key before it can be retried.
+        headers["Idempotency-Key"] = (
+            f"{job['id']}-{int(job.get('chain_index') or 0)}")
+        payload = {"model": spec["slug"], "input": inp}
+        cap = float(job.get("cap_raw_cents") or 0)
+        if cap > 0:
+            # The per-call spend cap the API offers: this call
+            # can never bill past the job's held cap.
+            payload["max_cost_usd"] = round(cap / 100.0, 2)
+        data = _submit_post(job, f"{VIDLAB_BASE}/v1/generations",
+                            headers, payload)
+        gen = data.get("data") or data
+        task_id = gen.get("id")
+        if not task_id:
+            _submit_failed(job, "submit returned no generation id")
+        job["provider_task_id"] = task_id
+        jobs[job["id"]] = job
+
+    def mirror_vidlab_status(job: dict) -> dict:
+        if not _poll_gate(job):
+            return job
+        try:
+            resp = requests.get(
+                f"{VIDLAB_BASE}/v1/generations/"
+                f"{job['provider_task_id']}",
+                headers=_api_headers("vidlab"), timeout=15)
+            if resp.status_code == 200:
+                data = resp.json() or {}
+                gen = data.get("data") or data
+                status = str(gen.get("status") or "").lower()
+                if status == "succeeded":
+                    outputs = gen.get("outputs") or []
+                    url = None
+                    if outputs:
+                        first = outputs[0]
+                        url = first.get("url") \
+                            if isinstance(first, dict) else first
+                    price = gen.get("price_usd")
+                    cost = round(float(price) * 100.0, 2) \
+                        if isinstance(price, (int, float)) else None
+                    if url:
+                        _poll_done(job, url, cost_cents=cost)
+                    else:
+                        _poll_retry_or_fail(job)
+                elif status == "failed":
+                    _poll_fail(job, str(gen.get("error"))[:200])
+                elif status in ("queued", "running"):
+                    job["status"] = "running"
+                    jobs[job["id"]] = job
+                else:
+                    _note_unparsed(job, "vidlab", status, gen)
+        except Exception:
+            pass
+        return job
+
     def submit_api_job(job: dict, body: dict, params: dict, prompt: str,
                        base: str):
         """Dispatch one per-second job to the supplier recorded on
@@ -8062,6 +8563,8 @@ def api():
             submit_hotapi_job(job, body, params, prompt)
         elif provider == "wiro":
             submit_wiro_job(job, body, params, prompt)
+        elif provider == "vidlab":
+            submit_vidlab_job(job, body, params, prompt)
         else:
             submit_fal_job(job, body, params, prompt, base)
 
@@ -8094,6 +8597,8 @@ def api():
             return mirror_hotapi_status(job)
         if provider == "wiro":
             return mirror_wiro_status(job)
+        if provider == "vidlab":
+            return mirror_vidlab_status(job)
         return job
 
 
@@ -13349,6 +13854,38 @@ def refresh_provider_rates():
                 }
         except Exception:
             continue
+
+    # VidLab publishes its whole catalog as JSON at a public
+    # endpoint (no key): GET /v1/models returns every model's
+    # per-variant prices. Read opportunistically (2026-11-23):
+    # only lanes whose serving route for a tier is VidLab take
+    # the read, mapped through each spec's rate_variants, so a
+    # rerouted lane's live rate tracks its own supplier exactly
+    # like the fal reads above. Image lanes do not ride this
+    # table (their prices read pricing.py directly).
+    try:
+        resp = _requests.get(
+            f"{VIDLAB_BASE}/v1/models",
+            headers={"User-Agent": "Mozilla/5.0"}, timeout=30)
+        if resp.status_code == 200:
+            catalog = {}
+            for entry in (resp.json() or {}).get("data") or []:
+                if isinstance(entry, dict) and entry.get("id"):
+                    catalog[entry["id"]] = entry.get("prices") or {}
+            for model, spec in VIDLAB_VIDEO_MODELS.items():
+                prices = catalog.get(spec["slug"]) or {}
+                pairs = {}
+                for tier, variant in (
+                        spec.get("rate_variants") or {}).items():
+                    if provider_for(model, tier) != "vidlab":
+                        continue
+                    usd = prices.get(variant)
+                    if isinstance(usd, (int, float)) and usd > 0:
+                        pairs[tier] = round(float(usd) * 100, 3)
+                if pairs:
+                    found[model] = pairs
+    except Exception:
+        pass
 
     required = {"wan3", "seedance"}
     if not required.issubset(found):

@@ -517,7 +517,8 @@ check('body.get("start_image_job_id")' in _quote_ep
 check("_api_job_params(body, model, for_quote=True)" in _quote_ep,
       "the quote endpoint prices with for_quote")
 check('and mode != "image" and not for_quote:' in SRC
-      and 'and mode == "text" and not for_quote:' in SRC,
+      and '"vidu_q4", "vidu_q3_mix") and mode == "text"' in SRC
+      and "and not for_quote:" in SRC,
       "the start image refusals are create-only")
 check("if for_quote and not inputs_ready:" in SRC,
       "the motion lane prices from the length menu until its inputs exist")
@@ -571,8 +572,8 @@ check(app.offered_resolutions(
     == ["4K"],
     "kling3 sells only the tier its submit transmits")
 check(app.offered_resolutions(
-    "kling4", {"kling4": {"720p": 1, "1080p": 1}}) == ["720p"],
-    "a lane whose submit sends no size sells its cheapest tier only")
+    "kling4", {"kling4": {"720p": 1, "1080p": 1}}) == ["720p", "1080p"],
+    "kling4 offers both tiers since the VidLab submit sends the size")
 check(app.offered_resolutions("hailuo23", {"hailuo23": {"720p": 1}})
       == ["720p"],
     "a single size model offers its one size")

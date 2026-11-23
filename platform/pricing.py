@@ -267,20 +267,16 @@ PROVIDER_RATES_CENTS_PER_SECOND = {
     # verified 2026-11-16; none of these lanes carries a measured
     # Higgsfield effective, so frontier_lane() sells them at the
     # hard minimum (cost x 1.25) with can_undercut unanswered.
-    # Kling 4.0 via Kie (follow-up pass, 2026-11-16; round-2
-    # cost correction, same day): Kie's own model page
-    # (kie.ai/kling-4-0) prices keyframe-to-video and
-    # reference-to-video WITHOUT a video input at 28.5 credits
-    # ($0.1425/s) at 720p and 42.5 credits ($0.2125/s) at 1080p.
-    # The $0.085/s figure seeded in the follow-up pass is Kie's
-    # WITH-reference-video rate, which is per BILLED second over
-    # input + output seconds (output x 2 when the input is no
-    # longer than the output), not per output second; the lane's
-    # standard job shapes (text, keyframe) bill at the no-input
-    # rates, so those are the cost basis. Settlement still uses
-    # Kie's reported consumeCredits where one exists. BeatAPI's
-    # with-input rates (18.0 / 28.0) are in DISPLACED_RATES below.
-    "kling4": {"720p": 14.25, "1080p": 21.25},
+    # Kling 4.0 via VidLab (rerouted 2026-11-23, Jack's order:
+    # VidLab is the cheapest verified route): VidLab's own
+    # catalog (GET /v1/models, read 2026-11-23) prices kling-4.0
+    # at $0.135/s at 720p and $0.20/s at 1080p, below Kie's
+    # no-input rates ($0.1425 / $0.2125, in DISPLACED_RATES
+    # below as kling4_kie). Settlement uses the provider's own
+    # reported charge (the generation's price_usd), never this
+    # estimate. BeatAPI's with-input rates (18.0 / 28.0) are in
+    # DISPLACED_RATES below.
+    "kling4": {"720p": 13.5, "1080p": 20.0},
     # Kling 3.0 Omni via Kie (follow-up pass, 2026-11-16): from
     # $0.0755/s (the from-price does not split standard/pro;
     # carried flat pending console confirmation). fal's with-audio
@@ -328,7 +324,14 @@ PROVIDER_RATES_CENTS_PER_SECOND = {
     # is seeded at the no-video rates. Reference mode WITH a
     # video bills the with-video rate over input+output seconds;
     # that shape is not separately seeded (flagged, audit doc).
-    "seedance2_fast": {"480p": 5.9, "720p": 12.4},
+    # Seedance 2.0 Fast via VidLab (rerouted 2026-11-23):
+    # VidLab's catalog prices seedance-2.0-fast at $0.05/s at
+    # 480p and $0.11/s at 720p, below Kie's no-video rates
+    # ($0.059 / $0.124, in DISPLACED_RATES below as
+    # seedance2_fast_kie). The VidLab route takes start/end
+    # images and reference images only (no reference video or
+    # audio), so the lane is image-references-only in app.py.
+    "seedance2_fast": {"480p": 5.0, "720p": 11.0},
     # Seedance 2.0 Mini via Kie (follow-up pass, 2026-11-16):
     # from $0.012/s, carried flat on the same basis. Silent model
     # on every route. BeatAPI's with-input rates are in
@@ -566,14 +569,93 @@ PROVIDER_RATES_CENTS_PER_SECOND = {
     # ($1.15 per 5 s = $0.23/s) tiers wired 2026-11-17,
     # parity pass, at the supplier's own tier labels.
     "wan3pro_unc": {"1080p": 18.0, "2K": 20.0, "4K": 23.0},
-    # Vidu Q4, PixVerse V6 and Seedance 2.5 Flash are wired via
-    # WaveSpeed in app.py but deliberately carry NO rate here:
-    # WaveSpeed publishes only per-run "from" prices for them
-    # (Q4 from $0.095/run, PixVerse from $0.04/run; the Flash
-    # per-second figure is not published on its model page), and
-    # a per-run price cannot seed a per-second lane without
-    # inventing a rate. They price-pause like Vidu Q2 until a
-    # per-second price is published.
+    # --- VidLab wiring (2026-11-23, Jack's order). Every rate
+    # below is VidLab's own catalog price (GET /v1/models, read
+    # 2026-11-23), converted to cents per second. The platform
+    # refresh re-reads VidLab's public catalog on the same
+    # schedule and keeps these lanes' live rates fresh (app.py).
+    # Settlement uses the provider's own reported charge (the
+    # generation's price_usd), never this estimate.
+    # VidLab 1.5: flat $0.02/s at any length; the model makes
+    # fixed 10-second clips at one size, carried at the 720p
+    # tier (app.py restricts the lane to 10 s and 720p).
+    "vidlab15": {"720p": 2.0},
+    # VidLab 2: $0.221/s at 720p, $0.377/s at 1080p.
+    "vidlab2": {"720p": 22.1, "1080p": 37.7},
+    # Vidra 3.0: $0.10 / $0.23 / $0.57 / $1.54 per second at
+    # 480p / 720p / 1080p / 4k (its 2k tier at $1.40 is not
+    # sold; the platform has no 2K video tier on this lane).
+    "vidra3": {"480p": 10.0, "720p": 23.0, "1080p": 57.0,
+               "4K": 154.0},
+    # Seedance 2.5 Boost: 1080p only at $0.27/s.
+    "seedance25_boost": {"1080p": 27.0},
+    # Seedance 2.5 Flash via VidLab: $0.085/s at 480p,
+    # $0.185/s at 720p. This UNPAUSES the lane: it was wired
+    # via WaveSpeed with no published per-second rate (see the
+    # closing note this block replaced); VidLab publishes one.
+    "seedance25_flash": {"480p": 8.5, "720p": 18.5},
+    # PixVerse V6 via VidLab, UNPAUSED the same way: carried
+    # at the WITH-AUDIO rates ($0.05/s at 720p, $0.10/s at
+    # 1080p; the silent rates are $0.04 / $0.08) because the
+    # submit sends generate_audio=true, the lane's shipped
+    # shape. Its 540p tier is not sold on this lane.
+    "pixverse_v6": {"720p": 5.0, "1080p": 10.0},
+    # PixVerse V6 Max via VidLab, with-audio basis like its
+    # sibling: $0.05 / $0.07 / $0.13 per second at its 540p /
+    # 720p / 1080p tiers; the platform's 480p tier maps to the
+    # supplier's 540p tier in the submit (app.py).
+    "pixverse_v6_max": {"480p": 5.0, "720p": 7.0, "1080p": 13.0},
+    # Vidu Q4 Preview via VidLab, UNPAUSED the same way:
+    # $0.06 / $0.12 / $0.13 per second at its 540p / 720p /
+    # 1080p tiers; the platform's 480p tier maps to 540p.
+    "vidu_q4": {"480p": 6.0, "720p": 12.0, "1080p": 13.0},
+    # Wan 2.5 via VidLab: $0.05 / $0.08 / $0.13 per second.
+    "wan25": {"480p": 5.0, "720p": 8.0, "1080p": 13.0},
+    # Wan 2.6 via VidLab: $0.07/s at 720p, $0.11/s at 1080p.
+    "wan26": {"720p": 7.0, "1080p": 11.0},
+    # Wan 2.6 Flash via VidLab, WITH-AUDIO basis: $0.05/s at
+    # 720p, $0.07/s at 1080p (silent is $0.03 / $0.05); the
+    # submit sends generate_audio=true.
+    "wan26_flash": {"720p": 5.0, "1080p": 7.0},
+    # Wan 2.7 via VidLab: $0.09/s at 720p, $0.14/s at 1080p.
+    "wan27": {"720p": 9.0, "1080p": 14.0},
+    # Kling 2.6 Standard via VidLab: flat $0.05/s, one size,
+    # carried at the 720p tier.
+    "kling26_std": {"720p": 5.0},
+    # Kling O1 via VidLab: $0.09/s at 720p, $0.12/s at 1080p.
+    "kling_o1": {"720p": 9.0, "1080p": 12.0},
+    # Hailuo 2.3 Fast via VidLab: $0.04/s at its 768p tier
+    # (the platform's 720p tier maps to it in the submit),
+    # $0.06/s at 1080p.
+    "hailuo23_fast": {"720p": 4.0, "1080p": 6.0},
+    # MiniMax H3 Max via VidLab (the HOSTED API route; the
+    # H3 weights license does not govern hosted API terms):
+    # $0.05 / $0.08 / $0.16 per second at 480p / its 768p tier
+    # (platform 720p) / 1080p.
+    "minimax_h3_max": {"480p": 5.0, "720p": 8.0, "1080p": 16.0},
+    # Vidu Q3 Pro via VidLab: $0.07 / $0.15 / $0.16 per second
+    # at its 540p (platform 480p) / 720p / 1080p tiers.
+    "vidu_q3_pro": {"480p": 7.0, "720p": 15.0, "1080p": 16.0},
+    # Vidu Q3 Turbo via VidLab: $0.04 / $0.06 / $0.07.
+    "vidu_q3_turbo": {"480p": 4.0, "720p": 6.0, "1080p": 7.0},
+    # Vidu Q3 Mix via VidLab: $0.13/s at 720p, $0.15/s at
+    # 1080p (reference-images model; no 540p tier published).
+    "vidu_q3_mix": {"720p": 13.0, "1080p": 15.0},
+    # SkyReels V4 Fast via VidLab: $0.08 / $0.11 / $0.28.
+    "skyreels_v4_fast": {"480p": 8.0, "720p": 11.0, "1080p": 28.0},
+    # SkyReels V4 Standard via VidLab: $0.11 / $0.14 / $0.35.
+    "skyreels_v4_std": {"480p": 11.0, "720p": 14.0, "1080p": 35.0},
+    # Seedance 1.5 Pro via VidLab (the moderated model; the
+    # uncensored build stays on SpicyAPI): $0.03 / $0.06 /
+    # $0.14 per second. This route publishes no audio switch,
+    # so the lane is silent-with-voiceover here (LANE_AUDIO).
+    "seedance15pro": {"480p": 3.0, "720p": 6.0, "1080p": 14.0},
+    # Seedance 1.0 Pro Fast via VidLab: $0.015 / $0.03 /
+    # $0.06 per second.
+    "seedance10pro_fast": {"480p": 1.5, "720p": 3.0, "1080p": 6.0},
+    # Vidu Q2 still deliberately carries NO rate (see its note
+    # above the VidLab block): no published per-second price
+    # anywhere, VidLab included (it lists no Vidu Q2).
 }
 
 # Fallback supplier data, kept for the record and never shown to
@@ -670,6 +752,11 @@ DISPLACED_RATES_CENTS_PER_SECOND = {
     # the lane stays on HotAPI and these stay for the record.
     "minimax_h3_unc_spicyapi": {"480p": 3.8, "720p": 8.4,
                                 "1080p": 15.2},
+    # Kie routes displaced 2026-11-23 when the Kling 4.0 and
+    # Seedance 2.0 Fast lanes moved to cheaper VidLab primaries
+    # (the Kie submit paths stay wired in app.py as spares).
+    "kling4_kie": {"720p": 14.25, "1080p": 21.25},
+    "seedance2_fast_kie": {"480p": 5.9, "720p": 12.4},
 }
 
 # Resolutions each per-second model can actually be ordered at.
@@ -698,9 +785,6 @@ MODEL_RESOLUTIONS = {
     # from 720p on every route (see the rate entry above).
     "grok15_lite": ("480p", "720p"),
     "vidu_q3": ("480p", "720p"),
-    "vidu_q4": ("720p", "1080p"),
-    "seedance25_flash": ("480p", "720p"),
-    "pixverse_v6": ("720p", "1080p"),
     "runway_gen45": ("720p", "1080p"),
     "wan22_unc": ("480p", "720p"),
     "wan3_unc": ("480p", "720p", "1080p"),
@@ -719,6 +803,32 @@ MODEL_RESOLUTIONS = {
     "ltx23_unc": ("480p", "720p", "1080p"),
     "ltx23_lora_unc": ("480p", "720p", "1080p"),
     "wan_motion": ("720p",),
+    # VidLab lanes (2026-11-23): the tiers each lane sells.
+    # vidu_q4 gains its 480p tier here (VidLab publishes the
+    # 540p rate the platform tier maps to).
+    "vidlab15": ("720p",),
+    "vidlab2": ("720p", "1080p"),
+    "vidra3": ("480p", "720p", "1080p", "4K"),
+    "seedance25_boost": ("1080p",),
+    "seedance25_flash": ("480p", "720p"),
+    "pixverse_v6": ("720p", "1080p"),
+    "pixverse_v6_max": ("480p", "720p", "1080p"),
+    "vidu_q4": ("480p", "720p", "1080p"),
+    "wan25": ("480p", "720p", "1080p"),
+    "wan26": ("720p", "1080p"),
+    "wan26_flash": ("720p", "1080p"),
+    "wan27": ("720p", "1080p"),
+    "kling26_std": ("720p",),
+    "kling_o1": ("720p", "1080p"),
+    "hailuo23_fast": ("720p", "1080p"),
+    "minimax_h3_max": ("480p", "720p", "1080p"),
+    "vidu_q3_pro": ("480p", "720p", "1080p"),
+    "vidu_q3_turbo": ("480p", "720p", "1080p"),
+    "vidu_q3_mix": ("720p", "1080p"),
+    "skyreels_v4_fast": ("480p", "720p", "1080p"),
+    "skyreels_v4_std": ("480p", "720p", "1080p"),
+    "seedance15pro": ("480p", "720p", "1080p"),
+    "seedance10pro_fast": ("480p", "720p", "1080p"),
 }
 PROVIDER_RATE_STALE_SECONDS = 24 * 3600
 
@@ -1281,11 +1391,16 @@ IMAGE_LANES = {
         "raw_cents": {"1K": 1.6, "2K": 1.8, "4K": 3.5},
     },
     "nano_banana_pro": {
-        "label": "Nano Banana Pro · $$$", "provider": "beatapi",
-        "endpoint": "google/nano-banana-pro",
-        # BeatAPI's own model page (read 2026-11-17): 1K $0.05,
-        # 2K $0.05, 4K $0.10. The 4K tier was not wired before.
-        "raw_cents": {"1K": 5.0, "2K": 5.0, "4K": 10.0},
+        "label": "Nano Banana Pro · $$$", "provider": "vidlab",
+        "endpoint": "nano-banana-pro",
+        # Rerouted to VidLab 2026-11-23 (cheapest route):
+        # VidLab's catalog prices it at $0.04 per image at 1K
+        # and 2K and $0.08 at 4K, under BeatAPI's $0.05 / $0.05
+        # / $0.10 (BeatAPI route kept in app.py as the spare).
+        # VidLab publishes seven aspect ratios for the model;
+        # the lane's aspect set narrows to those in
+        # IMAGE_ASPECTS below.
+        "raw_cents": {"1K": 4.0, "2K": 4.0, "4K": 8.0},
     },
     "nano_banana_2": {
         "label": "Nano Banana 2 · $", "provider": "beatapi",
@@ -1478,6 +1593,214 @@ IMAGE_LANES = {
         "free": True, "picker_order": 4,
         "raw_cents": {"1024x1024": 0.0},
     },
+    # --- VidLab image lanes (2026-11-23, Jack's order: the
+    # models Moonfactory does not have yet, wired via VidLab
+    # as the cheap route). Every price is VidLab's own catalog
+    # figure (GET /v1/models, read 2026-11-23); the endpoint
+    # is the VidLab model id the submit sends. Customer price
+    # is raw x FRONTIER_MIN_MARKUP via image_lane_price, the
+    # owner pays raw. Lanes whose maker publishes no
+    # resolution tiers sell one flat size keyed "square" (the
+    # model's aspect ratios ride IMAGE_ASPECTS below).
+    "ugc_image1": {
+        "label": "VidLab UGC Image 1 · $$$$", "provider": "vidlab",
+        "endpoint": "ugc-image-1",
+        # VidLab's own UGC image model: $0.09 flat per image.
+        "raw_cents": {"square": 9.0},
+    },
+    "nano_banana": {
+        "label": "Nano Banana · $$", "provider": "vidlab",
+        "endpoint": "nano-banana",
+        # $0.03 flat per image (the original Nano Banana; the
+        # Pro and 2.x lanes are separate entries).
+        "raw_cents": {"square": 3.0},
+    },
+    "nano_banana2_lite": {
+        "label": "Nano Banana 2 Lite · $", "provider": "vidlab",
+        "endpoint": "nano-banana-2-lite",
+        "raw_cents": {"1K": 2.0},
+    },
+    "seedream55": {
+        # The moderated Seedream 5.5 (the uncensored build
+        # above stays on Wiro): $0.016 at 1k and 1.5k, $0.028
+        # at 2k on VidLab, under Wiro's $0.028 / $0.028 /
+        # $0.043 for the same tiers.
+        "label": "Seedream 5.5 · $", "provider": "vidlab",
+        "endpoint": "seedream-5.5",
+        "raw_cents": {"1K": 1.6, "1.5K": 1.6, "2K": 2.8},
+    },
+    "seedream5pro": {
+        # The moderated Seedream 5.0 Pro (uncensored build
+        # stays on SpicyAPI): $0.04 flat across 1k / 1.5k /
+        # 2k on VidLab.
+        "label": "Seedream 5.0 Pro · $$$", "provider": "vidlab",
+        "endpoint": "seedream-5.0-pro",
+        "raw_cents": {"1K": 4.0, "1.5K": 4.0, "2K": 4.0},
+    },
+    "seedream50_lite": {
+        "label": "Seedream 5.0 Lite · $$$", "provider": "vidlab",
+        "endpoint": "seedream-5.0-lite",
+        # 4k only, $0.04 per image.
+        "raw_cents": {"4K": 4.0},
+    },
+    "seedream50_flash": {
+        "label": "Seedream 5.0 Flash · $", "provider": "vidlab",
+        "endpoint": "seedream-5.0-flash",
+        "raw_cents": {"square": 2.0},
+    },
+    "seedream45": {
+        "label": "Seedream 4.5 · $$$", "provider": "vidlab",
+        "endpoint": "seedream-4.5",
+        "raw_cents": {"square": 4.0},
+    },
+    "seedream40": {
+        "label": "Seedream 4.0 · $$", "provider": "vidlab",
+        "endpoint": "seedream-4.0",
+        "raw_cents": {"square": 2.9},
+    },
+    "gpt_image2": {
+        "label": "GPT Image 2 · $$", "provider": "vidlab",
+        "endpoint": "gpt-image-2",
+        # $0.03 per image at every tier on VidLab.
+        "raw_cents": {"1K": 3.0, "2K": 3.0, "4K": 3.0},
+    },
+    "gpt_image1": {
+        # GPT Image 1 prices by quality tier, not size:
+        # low $0.02, medium $0.06, high $0.20. The size keys
+        # are the quality values the submit sends.
+        "label": "GPT Image 1 · $", "provider": "vidlab",
+        "endpoint": "gpt-image-1",
+        "raw_cents": {"low": 2.0, "medium": 6.0, "high": 20.0},
+    },
+    "gpt_image25_flare": {
+        "label": "GPT Image 2.5 Flare · $", "provider": "vidlab",
+        "endpoint": "gpt-image-2.5-flare",
+        "raw_cents": {"1K": 2.0, "2K": 2.0, "4K": 3.0},
+    },
+    "gpt_image25_sunburst": {
+        "label": "GPT Image 2.5 Sunburst · $", "provider": "vidlab",
+        "endpoint": "gpt-image-2.5-sunburst",
+        "raw_cents": {"1K": 2.0, "2K": 2.0, "4K": 3.0},
+    },
+    "flux2_pro": {
+        "label": "Flux 2 Pro · $$", "provider": "vidlab",
+        "endpoint": "flux-2-pro",
+        # Priced per megapixel tier: $0.03 / $0.05 / $0.06 /
+        # $0.08 at 1mp / 2mp / 3mp / 4mp.
+        "raw_cents": {"1MP": 3.0, "2MP": 5.0, "3MP": 6.0,
+                      "4MP": 8.0},
+    },
+    "flux2_flex": {
+        "label": "Flux 2 Flex · $$$", "provider": "vidlab",
+        "endpoint": "flux-2-flex",
+        "raw_cents": {"1MP": 5.0, "2MP": 10.0, "3MP": 15.0,
+                      "4MP": 20.0},
+    },
+    "flux2_max": {
+        "label": "Flux 2 Max · $$$", "provider": "vidlab",
+        "endpoint": "flux-2-max",
+        "raw_cents": {"1MP": 7.0, "2MP": 10.0, "3MP": 13.0,
+                      "4MP": 16.0},
+    },
+    "flux3_image": {
+        "label": "Flux 3 · $$$", "provider": "vidlab",
+        "endpoint": "flux-3",
+        # $0.05 at 1k, $0.07 at 1.5k, $0.10 at 2k, $0.61 at
+        # 4k. The 768-square tier duplicates the 1k price and
+        # is not sold.
+        "raw_cents": {"1K": 5.0, "1.5K": 7.0, "2K": 10.0,
+                      "4K": 61.0},
+    },
+    "flux3_klein": {
+        "label": "Flux 3 Klein · $", "provider": "vidlab",
+        "endpoint": "flux-3-klein",
+        "raw_cents": {"1K": 1.0, "1.5K": 2.0, "2K": 2.0,
+                      "4K": 4.0},
+    },
+    "flux_kontext_pro": {
+        "label": "Flux Kontext Pro · $$$", "provider": "vidlab",
+        "endpoint": "flux-kontext-pro",
+        "raw_cents": {"square": 4.0},
+    },
+    "midjourney_v7": {
+        # Midjourney V7 prices by speed mode, not size: relax
+        # $0.06, fast $0.07, turbo $0.13. The size keys are
+        # the mode values the submit sends as its quality.
+        "label": "Midjourney V7 · $$$", "provider": "vidlab",
+        "endpoint": "midjourney-v7",
+        "raw_cents": {"relax": 6.0, "fast": 7.0, "turbo": 13.0},
+    },
+    "qwen_image20": {
+        "label": "Qwen Image 2.0 · $$", "provider": "vidlab",
+        "endpoint": "qwen-image-2.0",
+        "raw_cents": {"square": 3.0},
+    },
+    "qwen_image20_pro": {
+        "label": "Qwen Image 2.0 Pro · $$$", "provider": "vidlab",
+        "endpoint": "qwen-image-2.0-pro",
+        "raw_cents": {"square": 7.0},
+    },
+    "qwen_image30": {
+        "label": "Qwen Image 3.0 · $$", "provider": "vidlab",
+        "endpoint": "qwen-image-3.0",
+        "raw_cents": {"1K": 3.0, "2K": 3.0},
+    },
+    "qwen_image30_pro": {
+        "label": "Qwen Image 3.0 Pro · $$$", "provider": "vidlab",
+        "endpoint": "qwen-image-3.0-pro",
+        "raw_cents": {"1K": 4.0, "2K": 8.0},
+    },
+    "wan27_image": {
+        "label": "Wan 2.7 Image · $$", "provider": "vidlab",
+        "endpoint": "wan-2.7-image",
+        "raw_cents": {"square": 3.0},
+    },
+    "wan27_image_pro": {
+        "label": "Wan 2.7 Image Pro · $$$", "provider": "vidlab",
+        "endpoint": "wan-2.7-image-pro",
+        "raw_cents": {"square": 7.0},
+    },
+    "mai_image26": {
+        "label": "MAI Image 2.6 · $$$", "provider": "vidlab",
+        "endpoint": "mai-image-2.6",
+        "raw_cents": {"1K": 4.0, "2K": 9.0},
+    },
+    "mai_image26_flash": {
+        "label": "MAI Image 2.6 Flash · $", "provider": "vidlab",
+        "endpoint": "mai-image-2.6-flash",
+        "raw_cents": {"1K": 2.0, "2K": 5.0},
+    },
+    "hunyuan_image35": {
+        "label": "Hunyuan Image 3.5 Preview · $$",
+        "provider": "vidlab",
+        "endpoint": "hunyuan-image-3.5-preview",
+        "raw_cents": {"1K": 3.0, "2K": 3.0, "4K": 4.0},
+    },
+    "grok_imagine_image": {
+        "label": "Grok Imagine Image · $", "provider": "vidlab",
+        "endpoint": "grok-imagine-image",
+        "raw_cents": {"1K": 2.0, "2K": 2.0},
+    },
+    "grok_imagine_image20": {
+        "label": "Grok Imagine Image 2.0 · $", "provider": "vidlab",
+        "endpoint": "grok-imagine-image-2.0",
+        "raw_cents": {"1K": 2.0, "1.5K": 2.0, "2K": 2.0},
+    },
+    "grok_imagine_image20_quality": {
+        "label": "Grok Imagine Image 2.0 Quality · $$$",
+        "provider": "vidlab",
+        "endpoint": "grok-imagine-image-2.0-quality",
+        "raw_cents": {"1K": 5.0, "2K": 7.0},
+    },
+    "grok_imagine15_edit": {
+        # An EDIT model: one source image plus an instruction,
+        # $0.02 flat. Like the Qwen edit lane, the output keeps
+        # the source image's size, so the only size is "match".
+        "label": "Grok Imagine 1.5 Edit · $", "provider": "vidlab",
+        "endpoint": "grok-imagine-1.5-edit",
+        "edit": True,
+        "raw_cents": {"match": 2.0},
+    },
 }
 
 
@@ -1514,6 +1837,61 @@ IMAGE_SIZE_LABELS = {
     # than inventing pixel dimensions for someone else's
     # photograph.
     "stock": {"large": "Large"},
+    # VidLab lanes (2026-11-23): tier dims follow the same
+    # published square presets as the families above; the
+    # word keys name what the key actually chooses (a quality
+    # tier, a speed mode, a megapixel count, or the square
+    # base of a flat lane).
+    "nano_banana": {"square": "Square"},
+    "nano_banana2_lite": {"1K": "1024 x 1024"},
+    "seedream55": {"1K": "1024 x 1024", "1.5K": "1536 x 1536",
+                   "2K": "2048 x 2048"},
+    "seedream5pro": {"1K": "1024 x 1024", "1.5K": "1536 x 1536",
+                     "2K": "2048 x 2048"},
+    "seedream50_lite": {"4K": "4096 x 4096"},
+    "seedream50_flash": {"square": "Square"},
+    "seedream45": {"square": "Square"},
+    "seedream40": {"square": "Square"},
+    "gpt_image2": {"1K": "1024 x 1024", "2K": "2048 x 2048",
+                   "4K": "4096 x 4096"},
+    "gpt_image1": {"low": "Low quality", "medium": "Medium quality",
+                   "high": "High quality"},
+    "gpt_image25_flare": {"1K": "1024 x 1024", "2K": "2048 x 2048",
+                          "4K": "4096 x 4096"},
+    "gpt_image25_sunburst": {"1K": "1024 x 1024",
+                             "2K": "2048 x 2048",
+                             "4K": "4096 x 4096"},
+    "flux2_pro": {"1MP": "1 megapixel", "2MP": "2 megapixels",
+                  "3MP": "3 megapixels", "4MP": "4 megapixels"},
+    "flux2_flex": {"1MP": "1 megapixel", "2MP": "2 megapixels",
+                   "3MP": "3 megapixels", "4MP": "4 megapixels"},
+    "flux2_max": {"1MP": "1 megapixel", "2MP": "2 megapixels",
+                  "3MP": "3 megapixels", "4MP": "4 megapixels"},
+    "flux3_image": {"1K": "1024 x 1024", "1.5K": "1536 x 1536",
+                    "2K": "2048 x 2048", "4K": "4096 x 4096"},
+    "flux3_klein": {"1K": "1024 x 1024", "1.5K": "1536 x 1536",
+                    "2K": "2048 x 2048", "4K": "4096 x 4096"},
+    "flux_kontext_pro": {"square": "Square"},
+    "midjourney_v7": {"relax": "Relax speed", "fast": "Fast speed",
+                      "turbo": "Turbo speed"},
+    "qwen_image20": {"square": "Square"},
+    "qwen_image20_pro": {"square": "Square"},
+    "qwen_image30": {"1K": "1024 x 1024", "2K": "2048 x 2048"},
+    "qwen_image30_pro": {"1K": "1024 x 1024", "2K": "2048 x 2048"},
+    "wan27_image": {"square": "Square"},
+    "wan27_image_pro": {"square": "Square"},
+    "mai_image26": {"1K": "1024 x 1024", "2K": "2048 x 2048"},
+    "mai_image26_flash": {"1K": "1024 x 1024", "2K": "2048 x 2048"},
+    "hunyuan_image35": {"1K": "1024 x 1024", "2K": "2048 x 2048",
+                        "4K": "4096 x 4096"},
+    "grok_imagine_image": {"1K": "1024 x 1024", "2K": "2048 x 2048"},
+    "grok_imagine_image20": {"1K": "1024 x 1024",
+                             "1.5K": "1536 x 1536",
+                             "2K": "2048 x 2048"},
+    "grok_imagine_image20_quality": {"1K": "1024 x 1024",
+                                     "2K": "2048 x 2048"},
+    "grok_imagine15_edit": {"match": "Same size as your image"},
+    "ugc_image1": {"square": "Square"},
 }
 
 
@@ -1546,11 +1924,54 @@ IMAGE_ASPECTS = {
     "nano_banana_2": ("16:9", "9:16", "4:3", "3:4", "3:2", "2:3",
                       "4:5", "5:4", "21:9", "4:1", "1:4", "8:1",
                       "1:8"),
-    "nano_banana_pro": ("16:9", "9:16", "4:3", "3:4", "3:2", "2:3",
-                        "4:5", "5:4", "21:9"),
+    # Nano Banana Pro rerouted to VidLab 2026-11-23: VidLab
+    # publishes only these six non-square ratios for the
+    # model, so the lane's set narrows from BeatAPI's nine.
+    "nano_banana_pro": ("16:9", "9:16", "4:3", "3:4", "3:2", "2:3"),
     "seedream5pro_unc": ("16:9", "9:16", "4:3", "3:4", "3:2", "2:3",
                          "4:5", "5:4", "21:9", "9:21", "2:1", "1:2",
                          "3:1", "1:3"),
+    # VidLab image lanes (2026-11-23): every VidLab image
+    # model publishes the same seven aspect ratios (1:1 plus
+    # these six), except Seedream 5.5, which adds 21:9, 2:1
+    # and 1:2, and GPT Image 1, which publishes only 2:3 and
+    # 3:2 beside its square. The edit lane takes no aspects.
+    "ugc_image1": ("16:9", "9:16", "4:3", "3:4", "3:2", "2:3"),
+    "nano_banana": ("16:9", "9:16", "4:3", "3:4", "3:2", "2:3"),
+    "nano_banana2_lite": ("16:9", "9:16", "4:3", "3:4", "3:2", "2:3"),
+    "seedream55": ("16:9", "9:16", "4:3", "3:4", "3:2", "2:3",
+                   "21:9", "2:1", "1:2"),
+    "seedream5pro": ("16:9", "9:16", "4:3", "3:4", "3:2", "2:3"),
+    "seedream50_lite": ("16:9", "9:16", "4:3", "3:4", "3:2", "2:3"),
+    "seedream50_flash": ("16:9", "9:16", "4:3", "3:4", "3:2", "2:3"),
+    "seedream45": ("16:9", "9:16", "4:3", "3:4", "3:2", "2:3"),
+    "seedream40": ("16:9", "9:16", "4:3", "3:4", "3:2", "2:3"),
+    "gpt_image2": ("16:9", "9:16", "4:3", "3:4", "3:2", "2:3"),
+    "gpt_image1": ("2:3", "3:2"),
+    "gpt_image25_flare": ("16:9", "9:16", "4:3", "3:4", "3:2", "2:3"),
+    "gpt_image25_sunburst": ("16:9", "9:16", "4:3", "3:4", "3:2",
+                             "2:3"),
+    "flux2_pro": ("16:9", "9:16", "4:3", "3:4", "3:2", "2:3"),
+    "flux2_flex": ("16:9", "9:16", "4:3", "3:4", "3:2", "2:3"),
+    "flux2_max": ("16:9", "9:16", "4:3", "3:4", "3:2", "2:3"),
+    "flux3_image": ("16:9", "9:16", "4:3", "3:4", "3:2", "2:3"),
+    "flux3_klein": ("16:9", "9:16", "4:3", "3:4", "3:2", "2:3"),
+    "flux_kontext_pro": ("16:9", "9:16", "4:3", "3:4", "3:2", "2:3"),
+    "midjourney_v7": ("16:9", "9:16", "4:3", "3:4", "3:2", "2:3"),
+    "qwen_image20": ("16:9", "9:16", "4:3", "3:4", "3:2", "2:3"),
+    "qwen_image20_pro": ("16:9", "9:16", "4:3", "3:4", "3:2", "2:3"),
+    "qwen_image30": ("16:9", "9:16", "4:3", "3:4", "3:2", "2:3"),
+    "qwen_image30_pro": ("16:9", "9:16", "4:3", "3:4", "3:2", "2:3"),
+    "wan27_image": ("16:9", "9:16", "4:3", "3:4", "3:2", "2:3"),
+    "wan27_image_pro": ("16:9", "9:16", "4:3", "3:4", "3:2", "2:3"),
+    "mai_image26": ("16:9", "9:16", "4:3", "3:4", "3:2", "2:3"),
+    "mai_image26_flash": ("16:9", "9:16", "4:3", "3:4", "3:2", "2:3"),
+    "hunyuan_image35": ("16:9", "9:16", "4:3", "3:4", "3:2", "2:3"),
+    "grok_imagine_image": ("16:9", "9:16", "4:3", "3:4", "3:2", "2:3"),
+    "grok_imagine_image20": ("16:9", "9:16", "4:3", "3:4", "3:2",
+                             "2:3"),
+    "grok_imagine_image20_quality": ("16:9", "9:16", "4:3", "3:4",
+                                     "3:2", "2:3"),
 }
 
 for _lane_id, _aspects in IMAGE_ASPECTS.items():

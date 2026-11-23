@@ -65,7 +65,8 @@ check(app.ref_caps_for("seedance2") == (9, 3, 3), "Seedance 2.0 caps 9/3/3")
 check(app.ref_caps_for("seedance2_fast") == (9, 3, 3), "Seedance 2.0 Fast caps")
 check(app.ref_caps_for("veo3") == (3, 0, 0), "Veo 3.1 caps 3 images only")
 check(app.ref_caps_for("veo3_fast") == (3, 0, 0), "Veo 3.1 Fast caps")
-check(app.ref_caps_for("kling4") == (10, 5, 3), "Kling 4.0 caps 10/5/3")
+check(app.ref_caps_for("kling4") == (1, 1, 0),
+      "Kling 4.0 caps 1/1/0 on the VidLab route (2026-11-23 reroute)")
 check(app.ref_caps_for("kling3_omni") == (10, 5, 5), "Kling 3.0 Omni caps")
 check(app.ref_caps_for("wan3") == (10, 5, 5), "unverified lanes keep platform cap")
 check(app.MODEL_REF_VIDEO_SECONDS_CAP["seedance"] == 30.0,
@@ -146,7 +147,8 @@ for mid in app.PER_SECOND_MODELS:
         check(res in rates, f"{mid} missing a rate for {res}")
 
 # --- image shelf (item 1) ------------------------------------------
-check(len(pricing.IMAGE_LANES) == 14, "image shelf has 14 lanes")
+check(len(pricing.IMAGE_LANES) == 47,
+      "image shelf has 47 lanes (33 VidLab lanes added 2026-11-23)")
 check(pricing.IMAGE_LANES["krea2_verite"]["provider"] == "kaggle-comfy"
       and pricing.IMAGE_LANES["krea2_verite"]["endpoint"] == "krea2-verite"
       and pricing.IMAGE_LANES["krea2_verite"].get("uncensored") is True,
@@ -185,10 +187,10 @@ cf_raw, cf_debit = pricing.image_lane_price("flux2_klein4b", "1024x1024")
 check(cf_raw == 0.0 and cf_debit == 0.0,
       "the Cloudflare free lanes price at $0 raw and $0 customer")
 raw, debit = pricing.image_lane_price("nano_banana_pro", "1K")
-check(raw == 5.0 and abs(debit - 6.25) < 1e-9,
-      "Nano Banana Pro: raw $0.05, customer $0.0625 (under Higgsfield $0.098)")
+check(raw == 4.0 and abs(debit - 5.0) < 1e-9,
+      "Nano Banana Pro: raw $0.04, customer $0.05 (under Higgsfield $0.098)")
 raw_o, debit_o = pricing.image_lane_price("nano_banana_pro", "1K", owner=True)
-check(debit_o == raw_o == 5.0, "owner pays raw on the image shelf")
+check(debit_o == raw_o == 4.0, "owner pays raw on the image shelf")
 check(pricing.IMAGE_LANES["zimage_unc"]["endpoint"]
       == "alibaba/z-image-spicy/text-to-image", "Z-Image slug from the catalog")
 check(pricing.IMAGE_LANES["zimage_pro_unc"]["endpoint"]

@@ -127,6 +127,11 @@ MIRROR_PINS = {
         '"succeeded"', "_spicyapi_result_url", '"tasklist"',
         '"task_postprocess_end"', 'get("media")', 'get("images")',
     ],
+    "mirror_vidlab_status": [
+        '"succeeded"', '"failed"', '"queued"', '"running"',
+        '_note_unparsed(job, "vidlab"', 'get("outputs")',
+        '"price_usd"',
+    ],
 }
 
 for fname, tokens in MIRROR_PINS.items():
