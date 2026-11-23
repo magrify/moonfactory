@@ -580,6 +580,15 @@ def _clone_refund_if_unsuccessful(parent_id: str) -> None:
         user["balance_cents"] = int(user.get("balance_cents", 0)) + charge
         users[f"id:{user['id']}"] = user
         users[f"email:{user['email']}"] = user
+    if parent.get("clone_folded_cents"):
+        # Folded jobs (Jack, 2026-11-23) took the clone price
+        # inside the creation charge, so the refunded amount
+        # comes back out of the record's charged figure too:
+        # a later full restore of that figure then returns
+        # exactly what is still held, never the clone price
+        # a second time.
+        parent["charged_cents"] = max(
+            0, int(parent.get("charged_cents") or 0) - charge)
     parent["clone_charge_refunded"] = True
     jobs[parent_id] = parent
 
@@ -911,6 +920,14 @@ def process_short_job(job_id: str):
         if job.get("voiceover_status") != "ready":
             job["voiceover_status"] = "unavailable"
         jobs[job_id] = job
+        # A folded clone charge (taken at creation, Jack
+        # 2026-11-23) goes back whenever no line of this
+        # short was ever cloned, so a failure before or at
+        # the narration stage charges nothing, as the error
+        # above says. The helper re-reads the record saved
+        # just above, so it runs after that save. Idempotent,
+        # and a no-op when a clone child did succeed.
+        _clone_refund_if_unsuccessful(job_id)
         data_volume.commit()
 
 
@@ -4907,6 +4924,17 @@ def api():
                 billed - float(job.get("reference_video_seconds") or 0.0))
             raw += lip_raw
             job["lipsync_cost_cents"] = round(lip_raw, 2)
+        if job.get("clone_in_price"):
+            # Voice cloning (fold, Jack 2026-11-23): the clone
+            # price was folded into the quote, the hold and the
+            # cap at creation, so the settle carries its raw
+            # basis here exactly as the estimate did; the
+            # customer side joins the balance debit below. Jobs
+            # created before the fold carry no stamp and keep
+            # the old stage debit untouched.
+            raw += pricing.VOICE_CLONE_RAW_CENTS
+            job["clone_cost_cents"] = round(
+                pricing.VOICE_CLONE_RAW_CENTS, 2)
         cap = float(job.get("cap_raw_cents") or raw)
         settled_raw = min(raw, cap)
         job["billed_seconds"] = billed
@@ -4935,7 +4963,17 @@ def api():
                         billed - float(
                             job.get("reference_video_seconds") or 0.0),
                         owner=bool(owner.get("is_owner")))
-                    debit = int(debit) + int(math.ceil(lip_debit))
+                    debit = int(debit) + pricing.customer_debit_cents(
+                        lip_debit)
+                if job.get("clone_in_price"):
+                    # The folded clone price (see the raw side
+                    # above): part of the one generate price the
+                    # user saw, settled here so the hold refund
+                    # does not hand it back; the clone refund
+                    # helper returns it separately when no clone
+                    # is ever delivered.
+                    debit = int(debit) + pricing.voice_clone_price_cents(
+                        owner=bool(owner.get("is_owner")))
                 debit = min(debit, int(hold))
                 refund = int(hold) - debit
                 if refund > 0:
@@ -6430,7 +6468,8 @@ def api():
             "end_image": end_image,
         }
 
-    def _quote_for(user: dict, model: str, params: dict) -> dict:
+    def _quote_for(user: dict, model: str, params: dict,
+                   voice_clone: bool = False) -> dict:
         """The exact quote for a per-second job (design s.3 step 1,
         s.5): the included-budget debit or the balance charge, and
         which one this account would actually pay, before anything
@@ -6471,6 +6510,7 @@ def api():
             params["reference_video_seconds"], rate_table()["rates"],
             owner=is_owner(user),
             lip_sync=lip_sync_applies(model, params.get("speech_script")),
+            voice_clone=voice_clone,
         )
         remaining = included_budget_remaining(user)
         ceiling_ok = ceiling_allows(user, est["cap_raw_cents"])
@@ -6544,7 +6584,9 @@ def api():
         if model in PER_SECOND_MODELS:
             if not is_paid(user):
                 raise HTTPException(status_code=403, detail="model switching is a paid feature")
-            return _quote_for(user, model, _api_job_params(body, model, for_quote=True))
+            return _quote_for(
+                user, model, _api_job_params(body, model, for_quote=True),
+                voice_clone=(body.get("speech_voice") or "") == CLONE_VOICE_ID)
         return {
             "model": model,
             "model_label": MODEL_LABELS[model],
@@ -8624,6 +8666,7 @@ def api():
             params["reference_video_seconds"], rate_table()["rates"],
             owner=is_owner(user),
             lip_sync=lip_sync_applies(model, speech_script),
+            voice_clone=(speech_voice == CLONE_VOICE_ID),
         )
         if not ceiling_allows(user, est["cap_raw_cents"]):
             attempt_auto_reload(user, reload_state)
@@ -8752,6 +8795,17 @@ def api():
         # the stamp is belt and braces for any other surface.
         if job_is_nsfw(job):
             job["gallery_public"] = False
+        if speech_voice == CLONE_VOICE_ID:
+            # Voice cloning (fold, Jack 2026-11-23): the clone
+            # price is already inside the estimate, the hold and
+            # the ceiling above, so the voice stage's debit
+            # helper sees the charge as taken and never debits
+            # a second time; the refund helper still returns
+            # this amount in full when no clone is delivered.
+            job["clone_in_price"] = True
+            job["clone_charged"] = True
+            job["clone_charge_cents"] = pricing.voice_clone_price_cents(
+                owner=is_owner(user))
         jobs[job["id"]] = job
         _store_clone_reference(job, clone_reference,
                                clone_reference_text)
@@ -9155,6 +9209,17 @@ def api():
         used_budget = 0.0
         job_cost_cents = 0.0
         is_free_job = False
+        # Voice cloning (fold, Jack 2026-11-23): the clone
+        # price joins the one generate price on the balance
+        # rail below, charged here at creation instead of
+        # surfacing at the voice stage; the included rail
+        # keeps the stage debit it has always used, and the
+        # free path never reaches a clone pick (speech is a
+        # paid feature, checked above).
+        clone_add = (pricing.voice_clone_price_cents(
+            owner=is_owner(user))
+            if speech_voice == CLONE_VOICE_ID else 0)
+        clone_folded = False
         if user["plan"] == "free" and not is_paid(user):
             if lane != "draft":
                 raise HTTPException(status_code=403, detail="the free plan covers the Draft lane only")
@@ -9200,6 +9265,12 @@ def api():
             else:
                 price = pricing.job_price_cents(
                     lane, owner=is_owner(user)) * segments
+                if clone_add:
+                    # The folded clone price (see above): the
+                    # balance check and the charge both carry
+                    # the one generate price the button showed.
+                    price += clone_add
+                    clone_folded = True
                 # The owner never balance blocks (Jack, 2026-11-17):
                 # no reload attempt and no refusal; the charge below
                 # is taken from his balance whatever it holds.
@@ -9347,6 +9418,16 @@ def api():
         # the stamp is belt and braces for any other surface.
         if job_is_nsfw(job):
             job["gallery_public"] = False
+        if clone_folded:
+            # The clone price rode inside the creation charge
+            # (see the price fold above): the voice stage's
+            # debit helper sees the charge as taken, and the
+            # refund helper returns it, folded figure adjusted,
+            # when no clone is ever delivered.
+            job["clone_in_price"] = True
+            job["clone_charged"] = True
+            job["clone_charge_cents"] = clone_add
+            job["clone_folded_cents"] = clone_add
         jobs[job["id"]] = job
         _store_clone_reference(job, clone_reference,
                                clone_reference_text)
@@ -9463,13 +9544,20 @@ def api():
                 raise HTTPException(status_code=400, detail="pick a size this model makes")
             raw, debit = pricing.image_lane_price(
                 str(body["image_model"]), size, owner=is_owner(user))
+            # The quote names the exact integer cents creation
+            # will charge, through the one shared rounding path
+            # (Jack, 2026-11-23): the displayed price and the
+            # charge cannot disagree, and a customer's fractional
+            # 1.25x figure rounds up, never a cent short.
+            charge = pricing.image_lane_charge_cents(
+                str(body["image_model"]), size, owner=is_owner(user))
             return {
-                "price_cents": round(debit, 2),
+                "price_cents": charge,
                 "raw_cost_cents": raw,
                 "paid_only": not bool(lane.get("free")),
                 "ceiling_ok": (
                     True if is_owner(user) else ceiling_allows(user, raw)),
-                "balance_ok": int(user.get("balance_cents", 0)) >= int(round(debit)),
+                "balance_ok": int(user.get("balance_cents", 0)) >= charge,
             }
         return {
             **pricing.image_quote(owner=is_owner(user)),
@@ -9651,7 +9739,13 @@ def api():
                 raise HTTPException(
                     status_code=402,
                     detail=reload_fail_detail(reload_state, "this image would pass what you have paid in. Top up first"))
-            charge = int(round(debit))
+            # The charge is the quote's figure, through the one
+            # shared rounding path (Jack, 2026-11-23): a
+            # customer's fractional 1.25x debit rounds UP to the
+            # next whole cent, never a cent short; the owner
+            # pays the provider's raw price untouched.
+            charge = pricing.image_lane_charge_cents(
+                lane_id, size, owner=is_owner(user))
             # The owner never balance blocks (Jack, 2026-11-17):
             # no reload attempt and no refusal; the charge below
             # is taken from his balance whatever it holds.
@@ -11745,6 +11839,8 @@ x_api_key: str = Header(default="")):
                 for voice in ALL_SPEECH_VOICES
             ],
             "default_voice": DEFAULT_SPEECH_VOICE,
+            "voice_clone_price_cents": pricing.voice_clone_price_cents(
+                owner=is_owner(user)),
             "paid": is_paid(user),
             "topic_available": shorts.script_routes_configured(),
             "draft_models": llm_providers.draft_model_options(),
@@ -11927,6 +12023,32 @@ x_api_key: str = Header(default="")):
                 raise HTTPException(
                     status_code=429,
                     detail="you have made your free shorts for today, the rest wait until tomorrow")
+        # Voice cloning (fold, Jack 2026-11-23): the short
+        # itself is free, so the clone pick's price is the
+        # whole generate price: it is charged here at
+        # creation, part of the one price the button shows,
+        # instead of surfacing at the narration stage. The
+        # clone pick is a paid feature (the voice gate
+        # above), so this only ever runs for paying accounts;
+        # the owner pays the route's true raw cost, $0. The
+        # refund helper returns the amount in full when no
+        # line of the short is ever cloned.
+        clone_add = (pricing.voice_clone_price_cents(
+            owner=is_owner(user))
+            if voice == CLONE_VOICE_ID else 0)
+        if clone_add:
+            reload_state = {}
+            if int(user.get("balance_cents", 0)) < clone_add:
+                attempt_auto_reload(user, reload_state)
+            if int(user.get("balance_cents", 0)) < clone_add:
+                raise HTTPException(
+                    status_code=402,
+                    detail=reload_fail_detail(
+                        reload_state,
+                        f"voice cloning costs {clone_add} cents of prepaid balance, top up first"))
+            user["balance_cents"] = (
+                int(user.get("balance_cents", 0)) - clone_add)
+            save_user(user)
         display = topic or lines[0]
         job = {
             "id": pysecrets.token_hex(8),
@@ -11945,7 +12067,7 @@ x_api_key: str = Header(default="")):
             "stage": SHORTS_STAGES[0],
             "error": None,
             "created_at": _now(),
-            "charged_cents": 0,
+            "charged_cents": clone_add,
             "short_topic": topic or None,
             "short_draft_model": draft_model,
             "short_target_seconds": target_seconds,
@@ -11970,6 +12092,15 @@ x_api_key: str = Header(default="")):
             "free_tier": is_free_job,
             "music_prompt": None,
         }
+        if voice == CLONE_VOICE_ID:
+            # The folded clone charge (see above): the
+            # narration loop's debit helper sees the charge
+            # as taken at creation, and the refund helper
+            # returns it when no line is ever cloned.
+            job["clone_in_price"] = True
+            job["clone_charged"] = True
+            job["clone_charge_cents"] = clone_add
+            job["clone_folded_cents"] = clone_add
         jobs[job["id"]] = job
         _store_clone_reference(job, clone_reference,
                                clone_reference_text)
@@ -15878,6 +16009,13 @@ function syncCloneOpts() {
   $('clone-opts').style.display = on ? '' : 'none';
 }
 $('speech-voice').addEventListener('change', syncCloneOpts);
+$('speech-voice').addEventListener('change', () => {
+  // The clone pick folds its price into the one generate
+  // price (Jack, 2026-11-23), so a voice change re-prices
+  // both the API quote and the house price line.
+  fetchQuote();
+  updateHousePrice();
+});
 $('clone-ref').addEventListener('change', () => {
   const f = $('clone-ref').files[0];
   if (!f) { cloneRefB64 = null; return; }
@@ -16590,7 +16728,8 @@ async function fetchQuote() {
   const seq = ++quoteSeq;
   const want = { model: $('model').value,
     duration_seconds: Number($('duration').value), resolution: $('resolution').value,
-    speech_script: ($('speech') && !$('speech').disabled) ? $('speech').value : '' };
+    speech_script: ($('speech') && !$('speech').disabled) ? $('speech').value : '',
+    speech_voice: ($('speech') && !$('speech').disabled) ? $('speech-voice').value : '' };
   // The quote validates the same composition the create will
   // send, start image included. The image only models refuse
   // a text mode quote outright, so leaving the image out made
@@ -16931,20 +17070,28 @@ function updateHousePrice() {
     genLabel(null);
     return;
   }
+  // The clone pick folds its one time price into the
+  // generate price (Jack, 2026-11-23): once per job, never
+  // per segment, and $0 on the owner session whose pricing
+  // payload carries the at cost figure.
+  const cloneAdd = (pricingData.voice_clone_price_cents
+    && !$('speech-voice').disabled
+    && $('speech-voice').value === 'clone')
+    ? pricingData.voice_clone_price_cents : 0;
   if (selectedEffect) {
-    el.textContent = 'It costs ' + moneyC(jp.effects || 0) +
+    el.textContent = 'It costs ' + moneyC((jp.effects || 0) + cloneAdd) +
       ' from your balance for this effect video. Creator members pay from their included budget instead.';
-    genLabel(jp.effects || null);
+    genLabel((jp.effects || 0) + cloneAdd || null);
     return;
   }
   const segs = Number($('segments').value) || 1;
   const per = $('model').value === 'wan22_uncut' ? (jp.nsfw || 0)
     : $('model').value === 'ltx25_unc' ? (jp.ltx_unc || 0)
     : $('lane').value === 'production' ? (jp.production || 0) : (jp.draft || 0);
-  el.textContent = 'It costs ' + moneyC(per * segs) + ' from your balance for ' +
+  el.textContent = 'It costs ' + moneyC(per * segs + cloneAdd) + ' from your balance for ' +
     segs + (segs === 1 ? ' segment' : ' segments') + ' at ' + moneyC(per) +
     ' per segment. Creator members pay from their included budget instead.';
-  genLabel(per * segs);
+  genLabel(per * segs + cloneAdd);
 }
 // Motion picks swap the whole composer: the generation controls
 // (start image, prompt, lengths, more options) step aside and
@@ -17010,6 +17157,7 @@ function showShortsForm() {
   $('model-note').textContent = 'Faceless shorts are free. They count toward the five free clips on a free account, and paid accounts can make 20 a day.';
   $('quote').textContent = '';
   $('create').textContent = 'Make it for free';
+  syncShortCloneOpts();
   applyModelGates();
 }
 // Short drama swaps the composer the same way: the storyboard
@@ -18098,6 +18246,16 @@ function syncShortCloneOpts() {
   const on = !$('short-voice').disabled
     && $('short-voice').value === 'clone';
   $('short-clone-opts').style.display = on ? '' : 'none';
+  // The short is free and the clone price is its whole
+  // generate price (Jack, 2026-11-23): the button carries
+  // that one price while the pick is on, and goes back to
+  // the free label when it is not. The owner price is $0,
+  // so his button keeps the free label.
+  if ($('model').value === SHORTS_ID) {
+    const c = (shortCfg && shortCfg.voice_clone_price_cents) || 0;
+    $('create').textContent = (on && c)
+      ? 'Generate · $' + (c / 100).toFixed(2) : 'Make it for free';
+  }
 }
 $('short-voice').addEventListener('change', syncShortCloneOpts);
 $('short-clone-ref').addEventListener('change', () => {

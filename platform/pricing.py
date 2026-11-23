@@ -1115,18 +1115,35 @@ def frontier_lane(model: str, resolution: str, rates=None,
     }
 
 
+def customer_debit_cents(amount: float) -> int:
+    """The one rounding path for a customer's final debit
+    (Jack, 2026-11-23): a fractional cent figure rounds UP to
+    the next whole cent, never down, so the charged price is
+    never a cent short of the figure the price was built from
+    (for a standard lane, 1.25x raw cost). The quote, the
+    creation estimate and the settle all resolve a customer
+    debit through this function, so the displayed price and
+    the charged price cannot disagree. The hairline epsilon
+    keeps a mathematically whole figure that floats a hair
+    above itself (59.000000000001) from rounding up a phantom
+    cent; a figure a hair below whole (58.999999999999) still
+    rounds up to the whole cent it names."""
+    import math
+
+    return int(math.ceil(float(amount) - 1e-9))
+
+
 def per_second_balance_debit_cents(model: str, resolution: str,
                                    billed_seconds: float, rates=None,
                                    owner: bool = False) -> int:
     """What a per-second job charges prepaid balance: the Amendment 3
-    sell rate for the lane times the billed seconds, rounded up.
-    The owner pays raw cost instead (owner pricing exemption)."""
-    import math
-
+    sell rate for the lane times the billed seconds, rounded up
+    through the shared customer rounding path. The owner pays
+    raw cost instead (owner pricing exemption)."""
     sell = frontier_lane(
         model, resolution, rates, owner=owner
     )["sell_cents_per_second"]
-    return math.ceil(sell * float(billed_seconds))
+    return customer_debit_cents(sell * float(billed_seconds))
 
 
 def production_cost_per_second() -> float:
@@ -1159,7 +1176,8 @@ def per_second_lane_cost_cents(model: str, resolution: str, rates=None) -> float
 
 def per_second_estimate(model: str, resolution: str, output_seconds: float,
                         reference_video_seconds: float = 0.0, rates=None,
-                        owner: bool = False, lip_sync: bool = False) -> dict:
+                        owner: bool = False, lip_sync: bool = False,
+                        voice_clone: bool = False) -> dict:
     """The exact quote for a per-second-lane job (amended Rule 3):
     raw cost, the balance debit at the Amendment 3 sell rate, and
     the hold caps. The included-budget side is untouched by the
@@ -1168,7 +1186,16 @@ def per_second_estimate(model: str, resolution: str, output_seconds: float,
     hold cap both resolve to cost (owner pricing exemption). When
     the job carries speech on a lane that does not speak natively,
     the built-in lip sync stage's cost folds in on the output
-    seconds (never on reference seconds)."""
+    seconds (never on reference seconds). The balance debit is a
+    whole number of cents: every component resolves through the
+    shared customer rounding path, exactly as the settle
+    recomputes it, so the quote and the charge cannot disagree.
+    When the job picks voice cloning, the one-time clone price
+    folds into the quote, the caps and the debit the same way
+    (Jack, 2026-11-23: part of the one generate price, never a
+    separate fee); its raw basis joins the raw cost so the
+    included-budget side carries it too. The owner pays the
+    clone route's true raw cost, $0."""
     import math
 
     billed = float(output_seconds) + float(reference_video_seconds)
@@ -1179,7 +1206,10 @@ def per_second_estimate(model: str, resolution: str, output_seconds: float,
     if lip_sync:
         lip_raw, lip_debit = lip_sync_costs(output_seconds, owner=owner)
         raw += lip_raw
-        debit += lip_debit
+        debit += customer_debit_cents(lip_debit)
+    if voice_clone:
+        raw += VOICE_CLONE_RAW_CENTS
+        debit += voice_clone_price_cents(owner=owner)
     sell = frontier_lane(
         model, resolution, rates, owner=owner
     )["sell_cents_per_second"]
@@ -1191,6 +1221,9 @@ def per_second_estimate(model: str, resolution: str, output_seconds: float,
         "lip_sync_cents": (
             lip_sync_costs(output_seconds, owner=owner)[0]
             if lip_sync else 0.0),
+        "voice_clone_cents": (
+            voice_clone_price_cents(owner=owner)
+            if voice_clone else 0),
         "cap_raw_cents": raw * HOLD_TOLERANCE,
         "cap_balance_cents": math.ceil(
             max(sell * billed, debit) * HOLD_TOLERANCE),
@@ -1240,6 +1273,7 @@ def public_pricing(owner: bool = False) -> dict:
             "price_cents": image_price_cents(owner),
             "measured_cost_cents": IMAGE_MEASURED_COST_CENTS,
         },
+        "voice_clone_price_cents": voice_clone_price_cents(owner),
         "per_second_rates_cents": PROVIDER_RATES_CENTS_PER_SECOND,
         "post_cost_cents_per_second": POST_COST_CENTS_PER_SECOND,
         "frontier_min_markup": FRONTIER_MIN_MARKUP,
@@ -2012,6 +2046,23 @@ def image_lane_price(model: str, size: str, owner: bool = False):
         # comparable uncensored lanes.
         return 0.0, 0.0
     return raw, (raw if owner else raw * FRONTIER_MIN_MARKUP)
+
+
+def image_lane_charge_cents(model: str, size: str,
+                            owner: bool = False) -> int:
+    """The final integer cents one shelf image debits, through
+    the one shared rounding path (Jack, 2026-11-23): the image
+    quote endpoint returns this figure and image creation
+    charges this figure, so the displayed price and the charge
+    cannot disagree. A customer pays the 1.25x figure rounded
+    UP whenever it lands on a fraction, never a cent short;
+    the owner pays the provider's raw price exactly as
+    image_lane_price returns it (whole cents on every lane,
+    so his rounding is the identity it has always been)."""
+    _raw, debit = image_lane_price(model, size, owner=owner)
+    if owner:
+        return int(round(debit))
+    return customer_debit_cents(debit)
 
 
 def image_quote(owner: bool = False) -> dict:
