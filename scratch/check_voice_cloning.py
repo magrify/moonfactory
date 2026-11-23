@@ -72,9 +72,8 @@ check(app.CLONE_WAIT_SECONDS >= 900,
 # The price: nominal basis marked up once, owner at raw $0.
 check(pricing.VOICE_CLONE_RAW_CENTS == 1.9,
       "voice clone raw basis drifted from the comparable lanes")
-check(pricing.voice_clone_price_cents() == 3,
-      "customer clone price is not basis x frontier minimum "
-      "rounded up (3 cents)")
+check(pricing.voice_clone_price_cents() == 2,
+      "customer clone price is not basis x frontier minimum (2 cents)")
 check(pricing.voice_clone_price_cents(owner=True) == 0,
       "owner clone price is not the Kaggle raw cost ($0)")
 

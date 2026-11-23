@@ -170,8 +170,8 @@ for model, tiers in pricing.PROVIDER_RATES_CENTS_PER_SECOND.items():
                         # The 1.25x floor covers the rate
                         # components (the lane and lip sync).
                         # The clone piece is a defined flat
-                        # product price, the 3 cents Jack set
-                        # on 2026-11-23, pinned exactly by
+                        # product price, the 2 cents Jack named
+                        # in the fold order, pinned exactly by
                         # the intended figure below and the
                         # estimate delta checks, not re-derived
                         # from its raw basis here.
@@ -217,11 +217,11 @@ for owner in (False, True):
               - pricing.VOICE_CLONE_RAW_CENTS) < 1e-9,
           f"clone fold: raw basis missing from the estimate "
           f"(owner={owner})")
-check(pricing.voice_clone_price_cents() == 3,
-      "clone price moved off 3 cents")
+check(pricing.voice_clone_price_cents() == 2,
+      "clone price moved off 2 cents")
 check(pricing.voice_clone_price_cents(owner=True) == 0,
       "owner clone price is not $0")
-check(pricing.public_pricing()["voice_clone_price_cents"] == 3,
+check(pricing.public_pricing()["voice_clone_price_cents"] == 2,
       "pricing payload does not carry the customer clone price")
 check(pricing.public_pricing(owner=True)["voice_clone_price_cents"] == 0,
       "pricing payload does not carry the owner clone price")
