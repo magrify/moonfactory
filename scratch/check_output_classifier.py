@@ -316,6 +316,275 @@ for field in ("output_nsfw_score", "output_flagged",
     check(field not in func_src("public_gallery_item"),
           f"public_gallery_item exposes {field}")
 
+# =========================================================================
+# The input side (Jack, 2026-11-24): the same classifier judges
+# the still pictures a job takes IN at creation. The verdict
+# stamps the record (input_nsfw_score / input_flagged /
+# input_classifier / input_classified_at, or input_classifier_
+# error for an unjudged set) and splits by lane:
+#
+# - REGULAR lane: a flagged upload refuses creation (no job, no
+#   charge, no dispatch — the refusal is raised before the
+#   hold, pinned in source below), and an upload set that could
+#   not be judged refuses too (fail closed).
+# - UNCENSORED lane: neither ever refuses; the verdict stamps
+#   and the gallery bars do the rest.
+# - The gallery: a flagged input verdict keeps the generation
+#   out on EVERY lane, stacked on the uncensored image-input
+#   bar. A clean input verdict changes nothing. A job with NO
+#   input verdict (no judgeable picture in, or an unjudged set
+#   on an uncensored lane) is judged by the other signals
+#   alone — the input side never fails the gallery closed,
+#   deliberately unlike the output side. That asymmetry is
+#   pinned below, on purpose.
+# =========================================================================
+
+IN_CLEAN = {"input_nsfw_score": 0.04, "input_flagged": False,
+            "input_classifier": app.OUTPUT_CLASSIFIER_ID,
+            "input_classified_at": NEW}
+IN_FLAGGED = {"input_nsfw_score": 0.91, "input_flagged": True,
+              "input_classifier": app.OUTPUT_CLASSIFIER_ID,
+              "input_classified_at": NEW}
+IN_ERRORED = {"input_classifier": app.OUTPUT_CLASSIFIER_ID,
+              "input_classified_at": NEW,
+              "input_classifier_error": "weights missing"}
+
+# A flagged upload keeps the generation out of the gallery on
+# every lane, even with a clean prompt and a clean output
+# verdict — and rejudges legacy records that carry the stamp.
+check(gallery_visible(job(**CLEAN, **IN_FLAGGED)) is False,
+      "regular job with a flagged input verdict lists")
+check(gallery_visible(job(lane="wan22_uncut", model="wan22_uncut",
+                          **CLEAN, **IN_FLAGGED)) is False,
+      "uncensored job with a flagged input verdict lists")
+check(gallery_visible(job(created_at=OLD, **IN_FLAGGED)) is False,
+      "legacy job with a flagged input verdict lists")
+# The two bars agree on an uncensored lane: an image-input job
+# there is out by the standing bar AND by the verdict bar.
+check(gallery_visible(job(lane="seedance25_unc",
+                          model="seedance25_unc",
+                          has_start_image=True,
+                          **CLEAN, **IN_FLAGGED)) is False,
+      "uncensored image-input job with a flagged input lists")
+# A clean input verdict changes nothing anywhere.
+check(gallery_visible(job(**CLEAN, **IN_CLEAN)) is True,
+      "regular job with a clean input verdict hides")
+check(gallery_visible(job(lane="wan22_uncut", model="wan22_uncut",
+                          **CLEAN, **IN_CLEAN)) is True,
+      "uncensored job with a clean input verdict hides")
+# THE DELIBERATE ASYMMETRY: an input set that could not be
+# judged (error stamp, no score) on an uncensored lane does
+# NOT hide the job — the output verdict still gates it — while
+# a post-change job with no OUTPUT verdict hides above. The
+# input side never fails the gallery closed.
+check(gallery_visible(job(lane="wan22_uncut", model="wan22_uncut",
+                          **CLEAN, **IN_ERRORED)) is True,
+      "uncensored job with an unjudged input set hides: the "
+      "input side failed the gallery closed")
+check(gallery_visible(job(**ERRORED, **IN_CLEAN)) is False,
+      "the output side stopped failing closed (see the "
+      "asymmetry pin above)")
+
+# -- classify_input_images, with the scoring seam stubbed -----------------
+
+real_session = app._output_classifier
+real_bytes_score = app._classifier_bytes_score
+try:
+    app._output_classifier = lambda: object()  # noqa: E731
+    state = {"scores": {}, "default": 0.1, "error": None}
+
+    def stub_bytes_score(data, session=None):
+        if state["error"] is not None:
+            raise state["error"]
+        return state["scores"].get(data, state["default"])
+
+    app._classifier_bytes_score = stub_bytes_score
+
+    import base64 as _b64
+
+    def b64(raw):
+        return _b64.b64encode(raw).decode()
+
+    def data_url(raw):
+        return "data:image/png;base64," + b64(raw)
+
+    # No uploads at all: no verdict.
+    check(app.classify_input_images() is None,
+          "a job with no inputs earned an input verdict")
+    # Remote reference URLs only: no verdict (the named gap —
+    # the platform never fetches them at creation).
+    check(app.classify_input_images(
+        data_urls=("https://example.com/ref.png",)) is None,
+        "a remote-URL-only job earned an input verdict")
+    # One clean base64 upload: a clean verdict at its score.
+    v = app.classify_input_images(b64_images=(b64(b"clean"),))
+    check(v == {"score": 0.1, "flagged": False},
+          f"clean upload verdict wrong: {v}")
+    # The max governs across several uploads, in either slot.
+    state["scores"] = {b"one": 0.2, b"two": 0.88, b"three": 0.3}
+    v = app.classify_input_images(
+        b64_images=(b64(b"one"),),
+        data_urls=(data_url(b"two"), data_url(b"three")))
+    check(v == {"score": 0.88, "flagged": True},
+          f"max-across-uploads verdict wrong: {v}")
+    state["scores"] = {}
+    # A score at the threshold flags (>=), same as the output.
+    state["default"] = app.OUTPUT_NSFW_FLAG_THRESHOLD
+    v = app.classify_input_images(b64_images=(b64(b"edge"),))
+    check(v["flagged"] is True,
+          "an input score at the threshold does not flag")
+    state["default"] = 0.1
+    # A bare base64 picture (the drama carry frame's shape) is
+    # judged; a short string is not a picture and is skipped.
+    long_raw = bytes(range(256)) * 2
+    v = app.classify_input_images(data_urls=(b64(long_raw),))
+    check(v == {"score": 0.1, "flagged": False},
+          f"bare base64 picture verdict wrong: {v}")
+    # A scoring failure leaves the whole set unjudged.
+    state["error"] = RuntimeError("weights missing")
+    v = app.classify_input_images(b64_images=(b64(b"clean"),))
+    check(v["score"] is None and "weights missing" in v["error"],
+          f"a classifier failure was not an unjudged verdict: {v}")
+    state["error"] = None
+    # One unreadable picture leaves the whole set unjudged too:
+    # never a partial clean.
+    def picky_bytes_score(data, session=None):
+        if data == b"broken":
+            raise RuntimeError("cannot identify image file")
+        return 0.1
+
+    app._classifier_bytes_score = picky_bytes_score
+    v = app.classify_input_images(
+        b64_images=(b64(b"fine"), b64(b"broken")))
+    check(v["score"] is None and "cannot identify" in v["error"],
+          f"a partly unreadable set was judged clean: {v}")
+    app._classifier_bytes_score = stub_bytes_score
+    # An undecodable payload is unjudged, not a crash.
+    v = app.classify_input_images(
+        data_urls=("data:image/png;base64,abc",))
+    check(v is not None and v["score"] is None,
+          f"an undecodable upload crashed or judged: {v}")
+finally:
+    app._output_classifier = real_session
+    app._classifier_bytes_score = real_bytes_score
+
+# -- stamp_input_verdict ---------------------------------------------------
+
+rec = {"id": "in1"}
+app.stamp_input_verdict(rec, {"score": 0.91, "flagged": True})
+check(rec.get("input_nsfw_score") == 0.91
+      and rec.get("input_flagged") is True
+      and rec.get("input_classifier") == app.OUTPUT_CLASSIFIER_ID
+      and rec.get("input_classified_at"),
+      "a flagged input verdict was not stamped")
+rec = {"id": "in2"}
+app.stamp_input_verdict(rec, {"score": None, "error": "boom"})
+check(rec.get("input_nsfw_score") is None
+      and "input_flagged" not in rec
+      and rec.get("input_classifier_error") == "boom",
+      "an unjudged set was stamped as a verdict")
+rec = {"id": "in3"}
+app.stamp_input_verdict(rec, None)
+check(not any(k.startswith("input_") for k in rec),
+      "a job with no inputs was stamped")
+
+# -- input_gate_refusal: the lane split ------------------------------------
+
+REG = {"model": "wan3", "lane": "wan3"}
+UNC = {"model": "wan22_uncut", "lane": "wan22_uncut"}
+FLAGV = {"score": 0.91, "flagged": True}
+CLEANV = {"score": 0.1, "flagged": False}
+ERRORV = {"score": None, "error": "weights missing"}
+
+# Flagged + regular refuses, with the lane-fit message, and
+# the message carries no score and no class name.
+r = app.input_gate_refusal(REG, FLAGV)
+check(r == app.INPUT_REFUSAL_FLAGGED,
+      "flagged upload on a regular lane does not refuse")
+check("0.91" not in r and "score" not in r.lower(),
+      "the flagged refusal echoes a score")
+# Unjudged + regular refuses too (fail closed), try-again words.
+check(app.input_gate_refusal(REG, ERRORV)
+      == app.INPUT_REFUSAL_UNJUDGED,
+      "unjudged upload on a regular lane does not refuse")
+# Flagged or unjudged + uncensored never refuses: legal NSFW
+# is the lane's purpose and the job generates.
+check(app.input_gate_refusal(UNC, FLAGV) is None,
+      "flagged upload on an uncensored lane refuses creation")
+check(app.input_gate_refusal(UNC, ERRORV) is None,
+      "unjudged upload on an uncensored lane refuses creation")
+# Clean, or nothing to judge, never refuses anywhere.
+check(app.input_gate_refusal(REG, CLEANV) is None,
+      "clean upload on a regular lane refuses")
+check(app.input_gate_refusal(REG, None) is None,
+      "a job with no inputs refuses on a regular lane")
+# The split follows the platform's uncensored scope, image
+# edit lanes included.
+check(app.input_gate_refusal(
+    {"image_model": "qwen_edit_unc", "lane": "image",
+     "model": "qwen_edit_unc"}, FLAGV) is None,
+      "flagged source on the uncensored edit lane refuses")
+check(app.input_gate_refusal(
+    {"image_model": "seedream40", "lane": "image",
+     "model": "seedream40"}, FLAGV)
+    == app.INPUT_REFUSAL_FLAGGED,
+    "flagged source on a regular edit lane does not refuse")
+# The refusal is NOT the illegal gate: its source never
+# touches the refusal records or the suspension ladder.
+_gr = func_src("input_gate_refusal")
+check("refusals" not in _gr and "suspended" not in _gr
+      and "record_illegal_refusal" not in _gr,
+      "the input refusal writes to the illegal-gate records")
+
+# -- the input wiring -------------------------------------------------------
+
+for fn in ("create_api_job", "create_job", "create_image",
+           "create_drama"):
+    src = func_src(fn)
+    check("classify_input_images" in src
+          and "input_gate_refusal" in src
+          and "stamp_input_verdict" in src,
+          f"{fn} does not judge, gate and stamp its uploads")
+check("classify_input_images" in func_src("_drama_create_shot_job")
+      and "stamp_input_verdict" in func_src("_drama_create_shot_job"),
+      "drama shot children do not take their own input stamps")
+
+# The refusal lands before the money on every gated path.
+_api = func_src("create_api_job")
+check(_api.index("input_gate_refusal")
+      < _api.index("Hold the cap before the provider call"),
+      "the api-job input refusal lands after the hold")
+_img = func_src("create_image")
+check(_img.index("input_gate_refusal")
+      < _img.index('user["balance_cents"] = '
+                   'int(user.get("balance_cents", 0)) - charge'),
+      "the image input refusal lands after the charge")
+_job = func_src("create_job")
+check(_job.index("return create_api_job(")
+      < _job.index("input_gate_refusal")
+      < _job.index("u = usage(user)"),
+      "the house input refusal is not between the per-second "
+      "dispatch and the charge section")
+_drm = func_src("create_drama")
+check(_drm.index("input_gate_refusal")
+      < _drm.index("_drama_hold_rails"),
+      "the drama input refusal lands after the hold rails")
+
+check("input_flagged" in _gv,
+      "gallery_visible does not read the input verdict")
+
+# -- the input verdict never reaches a public payload ----------------------
+
+for field in ("input_nsfw_score", "input_flagged",
+              "input_classifier", "input_classified_at",
+              "input_classifier_error"):
+    check(field not in func_src("public_job"),
+          f"public_job exposes {field}")
+    check(field not in func_src("public_gallery_item"),
+          f"public_gallery_item exposes {field}")
+    check(field not in func_src("gallery_list"),
+          f"gallery_list exposes {field}")
+
 if failures:
     print("OUTPUT CLASSIFIER CHECKS FAILED:")
     for f in failures:

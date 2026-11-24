@@ -628,6 +628,165 @@ def classify_job_output(job: dict, path=None) -> None:
               f"{job.get('id')}: {exc}")
 
 
+# ---------------------------------------------------------------------------
+# Input classifier (Jack, 2026-11-24): the output classifier's
+# model also judges the still pictures a job takes IN at
+# creation — the uploaded start and end frames, an edit lane's
+# source picture, and reference pictures carried as data URLs —
+# everywhere the platform actually holds the picture's bytes at
+# creation. The verdict stamps the job record (input_nsfw_score,
+# input_flagged, input_classifier, input_classified_at) and has
+# exactly two effects, split by lane:
+#
+# - On a REGULAR lane it is a creation gate: a flagged upload
+#   refuses creation before any charge, hold or dispatch, and
+#   an upload set that could not be judged refuses too (fail
+#   closed — an unjudged upload does not generate on a regular
+#   lane). The refusal is a lane-fit refusal, not an
+#   illegal-content refusal: it writes no record to
+#   moonfactory-refusals and never touches the suspension
+#   ladder; it is logged in the app log only.
+# - On an UNCENSORED lane it never refuses: legal NSFW is the
+#   lane's purpose, the verdict stamps, and the gallery bars
+#   (the uncensored image-input bar and the verdict bar in
+#   gallery_visible) do the rest.
+#
+# Remote reference URLs (http/https) are never fetched at
+# creation, so they are never judged: a job whose only inputs
+# ride as remote URLs carries no input verdict at all. A job
+# with no input verdict is judged for the gallery by the other
+# signals alone — the input side never fails the gallery
+# closed, deliberately unlike the output side, whose verdict
+# gates new jobs' listing.
+# ---------------------------------------------------------------------------
+
+INPUT_REFUSAL_FLAGGED = (
+    "This image can not be used with this model. "
+    "The uncensored models can work with images like this.")
+INPUT_REFUSAL_UNJUDGED = (
+    "We could not check that image just now. "
+    "Try uploading it again.")
+
+
+def _classifier_bytes_score(data: bytes, session=None) -> float:
+    """The nsfw probability of one picture held as bytes: it is
+    written to a scratch file and read by the same scoring seam
+    the finished-file verdicts use."""
+    with tempfile.NamedTemporaryFile(
+            suffix=".png", delete=False) as fh:
+        fh.write(data)
+        tmp_path = fh.name
+    try:
+        return _classifier_image_score(tmp_path, session)
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+
+
+def _input_image_bytes(b64_images=(), data_urls=()) -> list:
+    """Decode the judgeable input pictures a create call holds
+    as bytes: raw base64 pictures (the uploaded start and end
+    frames) and data URLs (an edit lane's source, a drama
+    entity's uploaded picture, a bare base64 picture riding a
+    reference list in the drama carry frame's shape). Remote
+    http(s) URLs are skipped, never fetched. A payload that
+    does not decode raises: a picture that cannot be read
+    cannot be judged, and the caller stamps the set unjudged
+    rather than guessing."""
+    out = []
+    for raw in b64_images or ():
+        if raw:
+            out.append(base64.b64decode(raw))
+    for raw in data_urls or ():
+        if not raw or not isinstance(raw, str):
+            continue
+        if raw.startswith("data:image/"):
+            payload = raw.split(",", 1)[1] if "," in raw else ""
+            out.append(base64.b64decode(payload))
+        elif "://" not in raw and len(raw) > 200:
+            out.append(base64.b64decode(raw))
+    return out
+
+
+def classify_input_images(b64_images=(), data_urls=()):
+    """Judge the still pictures a job takes in at creation,
+    with the output classifier's model and threshold. Returns
+    None when the job carries no judgeable input picture at
+    all (no uploads, or only remote reference URLs). Otherwise
+    a verdict dict: {"score": the worst probability across
+    every input picture, "flagged": the score reached
+    OUTPUT_NSFW_FLAG_THRESHOLD} — the max governs, the same
+    rule as a video's sampled frames. When any one picture
+    could not be judged (weights unavailable, an unreadable
+    picture), the verdict is {"score": None, "error": ...}:
+    one unjudged picture leaves the whole set unjudged, never
+    a partial clean."""
+    try:
+        pictures = _input_image_bytes(b64_images, data_urls)
+    except Exception as exc:  # noqa: BLE001
+        return {"score": None,
+                "error": f"input decode failed: {exc}"[:300]}
+    if not pictures:
+        return None
+    try:
+        session = _output_classifier()
+        score = max(
+            _classifier_bytes_score(picture, session)
+            for picture in pictures)
+    except Exception as exc:  # noqa: BLE001
+        return {"score": None, "error": str(exc)[:300]}
+    return {"score": round(float(score), 4),
+            "flagged": bool(
+                score >= OUTPUT_NSFW_FLAG_THRESHOLD)}
+
+
+def stamp_input_verdict(job: dict, verdict) -> None:
+    """Carry a classify_input_images verdict onto the job
+    record: input_nsfw_score, input_flagged, input_classifier,
+    input_classified_at — or, for an unjudged set,
+    input_classifier_error in place of a score. A None verdict
+    (the job took no judgeable picture in) stamps nothing."""
+    if verdict is None:
+        return
+    job["input_classifier"] = OUTPUT_CLASSIFIER_ID
+    job["input_classified_at"] = _now()
+    if verdict.get("error"):
+        job["input_classifier_error"] = verdict["error"]
+        print(f"input classifier failed for job "
+              f"{job.get('id')}: {verdict['error']}")
+    else:
+        job["input_nsfw_score"] = verdict["score"]
+        job["input_flagged"] = verdict["flagged"]
+
+
+def input_gate_refusal(probe: dict, verdict):
+    """The creation refusal for uploads (Jack, 2026-11-24),
+    as the user-facing message to refuse with, or None when
+    creation proceeds. On a REGULAR lane a flagged upload
+    refuses, and an unjudged upload set refuses too (fail
+    closed). On an uncensored lane neither ever refuses.
+    `probe` is any dict job_is_uncensored reads — the
+    model/lane pair is enough — so the split follows the
+    platform's one standing definition of the uncensored
+    scope. The refusal is logged here, in the app log only:
+    no refusal record, no suspension count, ever."""
+    if verdict is None or job_is_uncensored(probe):
+        return None
+    if verdict.get("error"):
+        print(f"input gate refused a regular-lane creation "
+              f"(model {probe.get('model') or probe.get('lane')}): "
+              f"unjudged upload: {verdict['error']}")
+        return INPUT_REFUSAL_UNJUDGED
+    if verdict.get("flagged"):
+        print(f"input gate refused a regular-lane creation "
+              f"(model {probe.get('model') or probe.get('lane')}): "
+              f"flagged upload")
+        return INPUT_REFUSAL_FLAGGED
+    return None
+
+
 def write_job_tombstone(job: dict) -> None:
     """Retain the minimal deletion tombstone for a job about to
     be deleted, so its content fingerprint survives the job
@@ -10410,6 +10569,25 @@ def api():
             prompt, music_prompt, speech_script,
             clone_reference_text)
         params = _api_job_params(body, model)
+        # The input classifier (Jack, 2026-11-24): the start
+        # and end frames ride as base64 in the body and
+        # reference pictures carried as data URLs (a drama
+        # entity's uploaded picture) ride in the reference
+        # list — bytes the platform holds at creation, so they
+        # are judged here. Remote reference URLs are never
+        # fetched at creation and stay unjudged. On a regular
+        # lane a flagged or unjudged upload refuses now,
+        # before the quote, the hold and the submit; on an
+        # uncensored lane the verdict only stamps the record
+        # below.
+        input_verdict = classify_input_images(
+            b64_images=(params.get("start_image"),
+                        params.get("end_image")),
+            data_urls=params.get("reference_image_urls"))
+        refusal = input_gate_refusal(
+            {"model": model, "lane": model}, input_verdict)
+        if refusal:
+            raise HTTPException(status_code=400, detail=refusal)
         reload_state = {}
         state = api_lane_state(model)
         if state["paused"]:
@@ -10562,6 +10740,7 @@ def api():
         # surface.
         if job_is_nsfw(job):
             job["gallery_public"] = False
+        stamp_input_verdict(job, input_verdict)
         if speech_voice == CLONE_VOICE_ID:
             # Voice cloning (fold, Jack 2026-11-23): the clone
             # price is already inside the estimate, the hold and
@@ -10995,6 +11174,20 @@ def api():
                 clone_reference_text=clone_reference_text,
                 created_ip=client_ip(request),
             )
+        # The input classifier (Jack, 2026-11-24): the house
+        # record keeps the start and end frames themselves, so
+        # they are judged here — the lane is final, and no
+        # charge or dispatch has happened yet. (Per-second
+        # picks returned through create_api_job above, which
+        # judges the same frames on its own path.) On a regular
+        # lane a flagged or unjudged upload refuses; the
+        # uncensored house lanes only stamp the record below.
+        input_verdict = classify_input_images(
+            b64_images=(start_image, end_image))
+        refusal = input_gate_refusal(
+            {"model": model, "lane": lane}, input_verdict)
+        if refusal:
+            raise HTTPException(status_code=400, detail=refusal)
         u = usage(user)
         charged = 0
         used_included = 0.0
@@ -11216,6 +11409,7 @@ def api():
         # surface.
         if job_is_nsfw(job):
             job["gallery_public"] = False
+        stamp_input_verdict(job, input_verdict)
         if clone_folded:
             # The clone price rode inside the creation charge
             # (see the price fold above): the voice stage's
@@ -11542,6 +11736,7 @@ def api():
                         detail="no stock photo matches that description. Try a few different words")
                 stock_pick = stock_found[0]
             source_image = None
+            input_verdict = None
             if lane.get("edit"):
                 # Edit lanes take one source image alongside the
                 # instruction: an https URL or an uploaded data
@@ -11562,6 +11757,22 @@ def api():
                 # fails clean at its submit instead of silently
                 # dropping the source image.
                 klein_on_kaggle = False
+            # The input classifier (Jack, 2026-11-24): an edit
+            # lane's source picture is judged at creation when
+            # the platform holds its bytes (an uploaded data
+            # URL). An https source is a remote URL the platform
+            # never fetches at creation, so it stays unjudged
+            # and stamps nothing. On a regular edit lane a
+            # flagged or unjudged source refuses here, before
+            # the price and the charge below; on an uncensored
+            # edit lane the verdict only stamps.
+            input_verdict = classify_input_images(
+                data_urls=(source_image,))
+            refusal = input_gate_refusal(
+                {"image_model": lane_id, "lane": "image",
+                 "model": lane_id}, input_verdict)
+            if refusal:
+                raise HTTPException(status_code=400, detail=refusal)
             raw, debit = pricing.image_lane_price(
                 lane_id, size, owner=is_owner(user))
             reload_state = {}
@@ -11605,6 +11816,7 @@ def api():
                 # bar reads this (job_has_image_input).
                 "has_source_image": bool(source_image),
             }
+            stamp_input_verdict(job, input_verdict)
             user["balance_cents"] = int(user.get("balance_cents", 0)) - charge
             save_user(user)
             jobs[job_id] = job
@@ -14284,6 +14496,15 @@ x_api_key: str = Header(default="")):
             "drama_shot_id": shot["id"],
             "gallery_public": False,
         }
+        # The shot child takes its own input stamp from the
+        # same reference pictures (the entity uploads ride as
+        # data URLs; the carried frame rides as bare base64),
+        # the way its output stamp lands on the child at
+        # finishing. No refusal here: the episode's creation
+        # was the gate, and a child is an internal step of an
+        # accepted episode.
+        stamp_input_verdict(job, classify_input_images(
+            data_urls=params.get("reference_image_urls")))
         jobs[job["id"]] = job
         shot["child_job_id"] = job["id"]
         shot["status"] = "making"
@@ -14678,6 +14899,26 @@ x_api_key: str = Header(default="")):
             person["reference_urls"] = _drama_entity_refs(user, person)
         entities["place"]["reference_urls"] = \
             _drama_entity_refs(user, entities["place"])
+        # The input classifier (Jack, 2026-11-24): a confirmed
+        # entity picture the user uploaded rides its reference
+        # list as a data URL — bytes the platform holds at
+        # creation — so the set is judged here and the verdict
+        # stamps the episode below. Hosted character pictures
+        # are remote URLs and stay unjudged. The drama lane is
+        # a regular lane, so a flagged or unjudged upload
+        # refuses now, before the hold; the shot children take
+        # their own stamps from the same pictures when they
+        # are made.
+        entity_refs = []
+        for person in entities["people"]:
+            entity_refs += person.get("reference_urls") or []
+        entity_refs += entities["place"].get("reference_urls") or []
+        input_verdict = classify_input_images(data_urls=entity_refs)
+        refusal = input_gate_refusal(
+            {"model": drama.DRAMA_MODEL_ID,
+             "lane": drama.DRAMA_MODEL_ID}, input_verdict)
+        if refusal:
+            raise HTTPException(status_code=400, detail=refusal)
         limit = CONCURRENCY_PAID if is_paid(user) else CONCURRENCY_FREE
         in_flight = 0
         for key in list(jobs.keys()):
@@ -14769,6 +15010,7 @@ x_api_key: str = Header(default="")):
             "episode_title": rec["title"],
             "stage": "Making shot 1 of 4",
         }
+        stamp_input_verdict(parent, input_verdict)
         jobs[parent["id"]] = parent
         rec["entities"] = entities
         rec["shots"] = shots
@@ -14942,6 +15184,12 @@ x_api_key: str = Header(default="")):
     # still gets the delivery). Clean prompt plus clean verdict
     # lists, uncensored lanes included: there is no blanket lane
     # ban anywhere in this rule.
+    # The same classifier also judges the pictures a job took
+    # IN at creation (Jack, 2026-11-24): the input verdict
+    # stamps the record, a flagged upload keeps the generation
+    # out of the gallery on every lane, and on regular lanes a
+    # flagged or unjudged upload refuses creation outright
+    # (see classify_input_images and input_gate_refusal).
 
     def gallery_visible(job: dict) -> bool:
         # Finished images list alongside finished clips (Jack,
@@ -14993,6 +15241,23 @@ x_api_key: str = Header(default="")):
         if job.get("output_nsfw_score") is None \
                 and float(job.get("created_at") or 0) \
                 >= OUTPUT_CLASSIFIER_SINCE:
+            return False
+        # The input classifier's verdict (Jack, 2026-11-24): a
+        # generation built on an uploaded picture the
+        # classifier flagged never lists either, on ANY lane —
+        # the verdict-based form of the image-input bar,
+        # reaching the regular lanes the uncensored-only bar
+        # above does not. (On regular lanes a flagged upload
+        # refuses creation outright, so this bar is what the
+        # verdict does on uncensored lanes and on any record
+        # stamped before the refusal existed.) A clean input
+        # verdict changes nothing, and a job carrying no input
+        # verdict — it took no judgeable picture in, or its
+        # uploads could not be judged on an uncensored lane —
+        # is judged by the other signals alone: the input side
+        # never fails the gallery closed, deliberately unlike
+        # the output side above.
+        if job.get("input_flagged"):
             return False
         if job.get("gallery_public") is False \
                 and not job_is_uncensored(job):
