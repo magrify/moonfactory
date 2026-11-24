@@ -261,8 +261,14 @@ def setup_kokoro():
     distribution, but 0.7.16 requires misaki>=0.7.16 and
     its misaki list tops out at 0.7.4, so the lockstep
     0.7.4 pair is the newest resolvable set); 0.7.4's
-    KPipeline is the same API the Modal recipe calls."""
-    pip_install_checked(["kokoro==0.7.4", "soundfile", "numpy"])
+    KPipeline is the same API the Modal recipe calls. The
+    spacy floor rides along because the speech tree pulls
+    spacy in and Kaggle's Python is 3.13: only spacy 3.8
+    and up ships wheels for it, and anything older falls
+    to a source build that cannot run there (the second
+    proof session died on exactly that)."""
+    pip_install_checked(["kokoro==0.7.4", "spacy>=3.8",
+                         "soundfile", "numpy"])
     kokoro_pipeline("af_heart")
     log("Kokoro ready")
 
