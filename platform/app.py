@@ -9903,10 +9903,18 @@ def api():
             (j for j in mine if j["status"] in ("queued", "running")),
             key=lambda j: j["created_at"])
         positions = {j["id"]: i + 1 for i, j in enumerate(active)}
-        return {"jobs": [
-            public_job(j, queue_position=positions.get(j["id"]))
-            for j in mine[:50]
-        ]}
+        views = []
+        for j in mine[:50]:
+            view = public_job(j, queue_position=positions.get(j["id"]))
+            # The delete confirm words itself by whether the
+            # item really lists in the public gallery (Jack,
+            # 2026-11-23), so the stamp is gallery_visible's own
+            # verdict, read here rather than inside public_job:
+            # the serializer stays free of gallery rules and the
+            # owner's library keeps showing every job.
+            view["in_gallery"] = gallery_visible(j)
+            views.append(view)
+        return {"jobs": views}
 
     @web.get("/api/jobs/{job_id}")
     def get_job(job_id: str, request: Request,
@@ -18455,7 +18463,7 @@ async function loadJobs() {
       if (j.status === 'error' && j.kind === 'drama' && j.drama_state === 'paused') html +=
         '<br><button class="btn secondary" data-drama-resume="' + j.id + '">Try that shot again</button>';
       if (j.status === 'done' || j.status === 'error') html +=
-        '<br><button class="btn secondary" data-del="' + j.id + '">Delete</button>';
+        '<br><button class="btn secondary" data-del="' + j.id + '" data-delkind="' + (j.kind || 'generation') + '" data-ingallery="' + (j.in_gallery ? '1' : '0') + '">Delete</button>';
       if (activeJob) active = true;
       div.innerHTML = html; box.appendChild(div);
     }
@@ -18529,7 +18537,15 @@ $('jobs').addEventListener('click', async e => {
   }
   const b = e.target.closest('[data-del]');
   if (!b) return;
-  if (!confirm('Delete this video? It is removed from your studio and from the gallery.')) return;
+  // The gallery words only show when the item is really in the
+  // public gallery (Jack, 2026-11-23). NSFW generations never
+  // list there, so their confirm must not claim it. The pick
+  // rides on in_gallery, the gallery_visible verdict the server
+  // stamps on every job it sends here.
+  const noun = b.dataset.delkind === 'image' ? 'image' : 'video';
+  const ask = 'Delete this ' + noun + '? It is removed from your studio' +
+    (b.dataset.ingallery === '1' ? ' and from the gallery' : '') + '.';
+  if (!confirm(ask)) return;
   try { await api('/api/jobs/' + b.dataset.del, { method: 'DELETE' }); loadJobs(); }
   catch (err) { alert(err.message); }
 });

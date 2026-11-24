@@ -161,10 +161,17 @@ check('job["gallery_public"] = False' in func_src("_queue_krea2_on_kaggle"),
       "the public gallery")
 
 # -- the owner's own views are untouched ----------------------------------
+# Refined 2026-11-23 for the delete confirm (Jack): list_jobs may
+# READ the verdict once, as the read-only in_gallery stamp the
+# confirm words itself by. It still never filters on it: every
+# owned job lists, and no other gallery reference may appear.
 
-check("gallery_visible" not in func_src("list_jobs")
-      and "job_is_nsfw" not in func_src("list_jobs"),
-      "the owner's job list now filters on gallery rules")
+_lj = func_src("list_jobs")
+check("job_is_nsfw" not in _lj
+      and _lj.count("gallery_visible(j)") == 1
+      and 'view["in_gallery"] = gallery_visible(j)' in _lj,
+      "the owner's job list now filters on gallery rules (only "
+      "the read-only in_gallery stamp may read gallery_visible)")
 check("gallery_visible" not in func_src("public_job")
       and "job_is_nsfw" not in func_src("public_job"),
       "public_job now filters on gallery rules")
