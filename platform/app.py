@@ -15614,7 +15614,8 @@ _CSS = """
      links in a wrapping flex row with even gaps and real tap
      targets, instead of two spans squeezed onto one row. */
   footer{max-width:960px;margin:0 auto;padding:36px 24px 48px;border-top:1px solid var(--line);color:var(--faint);font-size:14px;display:flex;flex-direction:column;align-items:flex-start;gap:18px}
-  .foot-brand{font-weight:700;font-size:15px;color:var(--gray);letter-spacing:-.01em}
+  .foot-brand{font-weight:700;font-size:15px;color:var(--gray);letter-spacing:-.01em;display:inline-flex;align-items:center;gap:8px}
+  .foot-brand svg{flex:none;display:block}
   .foot-links{display:flex;flex-wrap:wrap;gap:12px 28px}
   .foot-links a{color:var(--faint);text-decoration:none;padding:6px 0}
   .foot-links a:hover{color:var(--ink)}
@@ -15783,7 +15784,7 @@ _INFO_HEADER = """<header>
   <nav><a href="/gallery">Gallery</a><a href="/app">Studio</a></nav>
 </header>"""
 
-_INFO_FOOTER = """<footer><span class="foot-brand">Moonfactory</span><nav class="foot-links"><a href="/help">Help</a><a href="/terms">Terms</a><a href="/privacy">Privacy</a><a href="/acceptable-use">Acceptable use</a><a href="/support">Support</a></nav></footer>"""
+_INFO_FOOTER = """<footer><span class="foot-brand"><svg width="20" height="20" viewBox="0 0 48 48" aria-hidden="true"><path fill="#818cf8" d="M23.3 8A16 16 0 1 0 32.6 37.5A16.5 16.5 0 0 1 23.3 8Z"/><path fill="#f5d67a" stroke="#f5d67a" stroke-width="1.6" stroke-linejoin="round" d="M24 18.5L24 27.5L31.5 23Z"/></svg>Moonfactory</span><nav class="foot-links"><a href="/help">Help</a><a href="/terms">Terms</a><a href="/privacy">Privacy</a><a href="/acceptable-use">Acceptable use</a><a href="/support">Support</a></nav></footer>"""
 
 
 def _info_page(title: str, description: str, body: str) -> str:
@@ -17773,7 +17774,7 @@ APP_HTML = (
   </div>
 </div>
 </main>
-<footer><span class="foot-brand">Moonfactory</span><nav class="foot-links"><a href="/gallery">Gallery</a><a href="/help">Help</a><a href="/terms">Terms</a><a href="/privacy">Privacy</a><a href="/acceptable-use">Acceptable use</a><a href="/support">Support</a></nav></footer>
+<footer><span class="foot-brand"><svg width="20" height="20" viewBox="0 0 48 48" aria-hidden="true"><path fill="#818cf8" d="M23.3 8A16 16 0 1 0 32.6 37.5A16.5 16.5 0 0 1 23.3 8Z"/><path fill="#f5d67a" stroke="#f5d67a" stroke-width="1.6" stroke-linejoin="round" d="M24 18.5L24 27.5L31.5 23Z"/></svg>Moonfactory</span><nav class="foot-links"><a href="/gallery">Gallery</a><a href="/help">Help</a><a href="/terms">Terms</a><a href="/privacy">Privacy</a><a href="/acceptable-use">Acceptable use</a><a href="/support">Support</a></nav></footer>
 <script>
 const $ = id => document.getElementById(id);
 let cfg = { pow_required: true, pow_difficulty_bits: 18, turnstile_site_key: null };
@@ -20734,7 +20735,7 @@ GALLERY_HTML = (
 </div>
 <div class="grid" id="items"><p class="muted">Loading...</p></div>
 </main>
-<footer><span class="foot-brand">Moonfactory</span><nav class="foot-links"><a href="/app">Studio</a><a href="/help">Help</a><a href="/terms">Terms</a><a href="/privacy">Privacy</a><a href="/acceptable-use">Acceptable use</a><a href="/support">Support</a></nav></footer>
+<footer><span class="foot-brand"><svg width="20" height="20" viewBox="0 0 48 48" aria-hidden="true"><path fill="#818cf8" d="M23.3 8A16 16 0 1 0 32.6 37.5A16.5 16.5 0 0 1 23.3 8Z"/><path fill="#f5d67a" stroke="#f5d67a" stroke-width="1.6" stroke-linejoin="round" d="M24 18.5L24 27.5L31.5 23Z"/></svg>Moonfactory</span><nav class="foot-links"><a href="/app">Studio</a><a href="/help">Help</a><a href="/terms">Terms</a><a href="/privacy">Privacy</a><a href="/acceptable-use">Acceptable use</a><a href="/support">Support</a></nav></footer>
 <script>
 async function loadGallery() {
   const box = document.getElementById('items');
