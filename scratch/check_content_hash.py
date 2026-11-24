@@ -13,6 +13,18 @@ For illegal-content removals a legal hold keeps the full
 18 U.S.C. 2258A(b) case file instead, and the creating request's
 IP is now stamped on the job record at creation (created_ip).
 
+The hold's preservation is fully automated (Jack, 2026-11-24):
+placing a hold seals the original file and a JSON copy of the
+case record under the vault public key (PyNaCl SealedBox) and
+uploads the ciphertext to the dedicated private R2 bucket
+moonfactory-legal-holds; a verified export on a removal deletes
+the plaintext from the platform volume; a daily sweep destroys
+vaulted content one year past the CyberTipline confirmation
+date unless a law-enforcement hold flag is set. The vault
+transport is faked here (a dict bucket), the seal is real
+(a throwaway keypair), and the app itself never holds the
+private key.
+
 No Modal, no network, no generation: the stamp, tombstone and
 hold helpers are extracted from platform/app.py and exercised
 against fixture files and fake Dict stores, the public gallery
@@ -22,11 +34,15 @@ placement of every call site is asserted in app.py source.
 Run:  ~/workspace/sinclip/modal-venv/bin/python scratch/check_content_hash.py
 """
 import ast
+import base64
+import datetime
 import hashlib
 import json
 import sys
 import tempfile
 from pathlib import Path
+
+from nacl.public import PrivateKey, SealedBox
 
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT / "platform"))
@@ -229,6 +245,48 @@ check("content_sha256" not in func_src("gallery_visible"),
       "gallery_visible never touches the fingerprint: hiding is display-only")
 
 # ------------------------------------------------------------------
+# Vault fixtures: a throwaway keypair (the production private key
+# lives only in the Modal secret and is never used here), a dict
+# standing in for the R2 bucket, and a fake volume.
+# ------------------------------------------------------------------
+
+TEST_PRIV = PrivateKey.generate()
+TEST_PUB_B64 = base64.b64encode(bytes(TEST_PRIV.public_key)).decode()
+seal = exec_func("_vault_seal", {
+    "base64": base64, "LEGAL_HOLD_VAULT_PUBLIC_KEY": TEST_PUB_B64,
+})
+
+
+def unseal(data: bytes) -> bytes:
+    return SealedBox(TEST_PRIV).decrypt(data)
+
+
+class FakeVolume:
+    def __init__(self):
+        self.commits = 0
+
+    def commit(self):
+        self.commits += 1
+
+
+vault_store = {}
+
+
+def fake_vault_put(key, data):
+    vault_store[key] = bytes(data)
+    return len(data)
+
+
+export_main = exec_func("_legal_hold_vault_export", {
+    "legal_holds": fake_holds, "FILES_DIR": FILES, "json": json,
+    "_now": lambda: 1700000099, "_vault_put": fake_vault_put,
+    "_vault_seal": seal, "data_volume": FakeVolume(),
+    "LEGAL_HOLD_VAULT_BUCKET": "moonfactory-legal-holds",
+    "LEGAL_HOLD_ENCRYPTION":
+        "PyNaCl SealedBox (XSalsa20-Poly1305), per-object ephemeral key",
+})
+
+# ------------------------------------------------------------------
 # 8. Legal hold: the full 2258A(b) case file, surviving deletion
 # ------------------------------------------------------------------
 
@@ -255,6 +313,7 @@ place_hold = exec_func("place_legal_hold", {
     "users": fake_users, "jobs": fake_jobs, "legal_holds": fake_holds,
     "FILES_DIR": FILES, "stamp_content_hash": stamp,
     "json": json, "_now": lambda: 1700000099,
+    "_legal_hold_vault_export": export_main,
 })
 place_hold(hold_job, "admin_gallery_remove")
 hold = fake_holds.get("job0030")
@@ -283,10 +342,17 @@ check(hold and "cybertipline_report_number" in hold
       "the hold has fields for the CyberTipline number and NCMEC date")
 
 # A repeat hold appends to the action log instead of replacing it.
+# Each placement now appends three entries for this file-less job:
+# the hold itself, the records-only vault note, and the vault
+# export entry.
 place_hold(hold_job, "admin_gallery_remove")
-check(len(fake_holds["job0030"]["actions"]) == 2
+check(len(fake_holds["job0030"]["actions"]) == 6
       and fake_holds["job0030"]["held_at"] == 1700000099,
       "a repeat hold appends to the action log and keeps the first held_at")
+check(fake_holds["job0030"].get("vault", {}).get("record_key")
+      == "holds/job0030/record.enc"
+      and fake_holds["job0030"]["vault"]["content_key"] is None,
+      "the file-less hold exported its case record to the vault")
 
 # Deleting the job leaves the hold untouched (and the tombstone too).
 del fake_jobs["job0030"]
@@ -396,6 +462,211 @@ check('"created_ip": job.get("created_ip")' in func_src("_short_ai_scenes"),
 check(SRC.count("created_ip=client_ip(request)") == 2,
       "both create_api_job call sites pass the request IP "
       "(video create route and drama retake route)")
+
+# ------------------------------------------------------------------
+# 11. Automated vault: seal round-trip, export on hold, failure
+#     keeps plaintext, and the daily destruction sweep
+# ------------------------------------------------------------------
+
+# The seal round-trips and the ciphertext carries no plaintext.
+sealed = seal(ORIGINAL)
+check(ORIGINAL not in sealed and b"original-generation" not in sealed,
+      "sealed vault bytes contain no plaintext")
+check(unseal(sealed) == ORIGINAL,
+      "decryption with the private key round-trips the original bytes")
+check(len(base64.b64decode(
+    "e/4t/ns06gyW6El3HblluZ/0bar82GSSMF2ru6TtYFA=")) == 32
+    and "e/4t/ns06gyW6El3HblluZ/0bar82GSSMF2ru6TtYFA=" in SRC,
+    "the pinned vault public key in app.py is a real 32-byte key")
+check("LEGAL_HOLD_PRIVATE_KEY" not in SRC,
+      "the app never reads the vault private key: it cannot decrypt")
+
+holds2 = {}
+store2 = {}
+volume2 = FakeVolume()
+
+
+def fake_put2(key, data):
+    store2[key] = bytes(data)
+    return len(data)
+
+
+export2 = exec_func("_legal_hold_vault_export", {
+    "legal_holds": holds2, "FILES_DIR": FILES, "json": json,
+    "_now": lambda: 1700000200, "_vault_put": fake_put2,
+    "_vault_seal": seal, "data_volume": volume2,
+    "LEGAL_HOLD_VAULT_BUCKET": "moonfactory-legal-holds",
+    "LEGAL_HOLD_ENCRYPTION":
+        "PyNaCl SealedBox (XSalsa20-Poly1305), per-object ephemeral key",
+})
+jobs2 = {}
+place2 = exec_func("place_legal_hold", {
+    "users": fake_users, "jobs": jobs2, "legal_holds": holds2,
+    "FILES_DIR": FILES, "stamp_content_hash": stamp,
+    "json": json, "_now": lambda: 1700000200,
+    "_legal_hold_vault_export": export2,
+})
+
+# A removal hold on a job with a file: the file and the case
+# record land in the vault as ciphertext, and the verified
+# export takes the plaintext off the volume.
+vault_path = FILES / "job0050.mp4"
+vault_path.write_bytes(ORIGINAL)
+job50 = {"id": "job0050", "user_id": "user-7", "kind": "video",
+         "status": "done", "model": "wan2.2", "lane": "wan2.2",
+         "prompt": "the vaulted prompt", "created_at": 1700000100,
+         "content_sha256": sha(ORIGINAL),
+         "created_ip": "192.0.2.55"}
+jobs2["job0050"] = job50
+place2(job50, "admin_gallery_remove")
+hold50 = holds2.get("job0050") or {}
+check(hold50.get("vault", {}).get("bucket")
+      == "moonfactory-legal-holds",
+      "the hold record names the vault bucket")
+check(hold50.get("vault", {}).get("content_key")
+      == "holds/job0050/content.enc"
+      and hold50["vault"]["record_key"] == "holds/job0050/record.enc",
+      "the hold record carries the vault object keys")
+check(hold50.get("vault", {}).get("content_sha256") == sha(ORIGINAL)
+      and "SealedBox" in (hold50.get("vault", {}).get("encryption")
+                          or ""),
+      "the hold record carries the fingerprint and encryption method")
+check(store2.get("holds/job0050/content.enc") is not None
+      and ORIGINAL not in store2["holds/job0050/content.enc"],
+      "the vaulted content object is ciphertext, not the file")
+check(unseal(store2["holds/job0050/content.enc"]) == ORIGINAL,
+      "the vaulted content decrypts back to the original file")
+record_copy = json.loads(unseal(store2["holds/job0050/record.enc"]))
+check(record_copy["job"]["prompt"] == "the vaulted prompt"
+      and record_copy["account"]["email"] == "casefile@example.com"
+      and record_copy["content_sha256"] == sha(ORIGINAL),
+      "the vaulted record decrypts to the full case file")
+check(not vault_path.exists() and volume2.commits >= 1,
+      "a verified export on a removal deletes the plaintext file")
+check(any(a.get("action") == "vault export"
+          for a in hold50.get("actions") or []),
+      "the export is written into the hold's action log")
+
+# A failed upload keeps the plaintext and logs the failure.
+holds3 = {}
+
+
+def boom_put(key, data):
+    raise RuntimeError("simulated upload failure")
+
+
+export3 = exec_func("_legal_hold_vault_export", {
+    "legal_holds": holds3, "FILES_DIR": FILES, "json": json,
+    "_now": lambda: 1700000300, "_vault_put": boom_put,
+    "_vault_seal": seal, "data_volume": FakeVolume(),
+    "LEGAL_HOLD_VAULT_BUCKET": "moonfactory-legal-holds",
+    "LEGAL_HOLD_ENCRYPTION":
+        "PyNaCl SealedBox (XSalsa20-Poly1305), per-object ephemeral key",
+})
+fail_path = FILES / "job0051.mp4"
+fail_path.write_bytes(ORIGINAL)
+holds3["job0051"] = {
+    "job_id": "job0051", "job": {"id": "job0051", "kind": "video"},
+    "account": {}, "content_sha256": sha(ORIGINAL), "actions": [],
+}
+export3({"id": "job0051", "kind": "video"}, True)
+check(fail_path.exists(),
+      "a failed vault upload leaves the plaintext file in place")
+check(holds3["job0051"].get("vault") is None
+      and any(a.get("action") == "vault export failed"
+              for a in holds3["job0051"]["actions"]),
+      "a failed vault upload is logged on the hold and sets no vault")
+
+# The destruction sweep: only the eligible hold is destroyed.
+due_fn = exec_func("_hold_destruction_due", {"datetime": datetime})
+check(due_fn({"ncmec_confirmation_date": "2024-02-29",
+              "destruction_state": "pending",
+              "vault": {"content_key": "k"}},
+             datetime.date(2025, 3, 1)) is True
+      and due_fn({"ncmec_confirmation_date": "2024-02-29",
+                  "destruction_state": "pending",
+                  "vault": {"content_key": "k"}},
+                 datetime.date(2025, 2, 28)) is False,
+      "a February 29 confirmation runs one year to February 28")
+
+sweep_store = {}
+
+
+def fake_delete_sweep(key):
+    sweep_store.pop(key, None)
+
+
+holds4 = {}
+
+
+def mk_hold(jid, conf, state="pending", le=False, vault=True,
+            report="CT-123"):
+    entry = {
+        "job_id": jid, "actions": [],
+        "ncmec_confirmation_date": conf,
+        "cybertipline_report_number": report,
+        "destruction_state": state,
+        "law_enforcement_hold": le,
+        "vault": None,
+    }
+    if vault:
+        entry["vault"] = {
+            "bucket": "moonfactory-legal-holds",
+            "content_key": f"holds/{jid}/content.enc",
+            "record_key": f"holds/{jid}/record.enc",
+        }
+        sweep_store[f"holds/{jid}/content.enc"] = b"c"
+        sweep_store[f"holds/{jid}/record.enc"] = b"r"
+    holds4[jid] = entry
+
+
+mk_hold("due1", "2025-01-01")
+mk_hold("notyet", "2025-06-01")
+mk_hold("leflag", "2024-01-01", le=True)
+mk_hold("noconf", None)
+mk_hold("donestate", "2024-01-01", state="destroyed")
+mk_hold("novault", "2024-01-01", vault=False)
+sweep = exec_func("sweep_legal_hold_destructions", {
+    "legal_holds": holds4, "_vault_delete": fake_delete_sweep,
+    "_hold_destruction_due": due_fn, "_now": lambda: 1767225600,
+    "datetime": datetime,
+})
+destroyed = sweep(today=datetime.date(2026, 1, 2))
+check(destroyed == ["due1"],
+      f"the sweep destroys only the eligible hold (got {destroyed})")
+check("holds/due1/content.enc" not in sweep_store
+      and "holds/due1/record.enc" not in sweep_store,
+      "the due hold's vault objects are deleted")
+check(holds4["due1"]["destruction_state"] == "destroyed"
+      and holds4["due1"].get("content_destroyed_at") == 1767225600
+      and any(a.get("action") == "vault content destroyed"
+              and a.get("cybertipline_report_number") == "CT-123"
+              for a in holds4["due1"]["actions"]),
+      "the destruction is logged on the retained hold record")
+for jid in ("notyet", "leflag", "noconf", "donestate"):
+    check(f"holds/{jid}/content.enc" in sweep_store
+          and holds4[jid]["destruction_state"]
+          == ("destroyed" if jid == "donestate" else "pending"),
+          f"the sweep never touches the {jid} hold")
+check(holds4["novault"]["destruction_state"] == "pending",
+      "a hold with no vaulted content is never swept")
+
+# Vault pins: bucket, schedule, hookup, and non-exposure.
+check('LEGAL_HOLD_VAULT_BUCKET = "moonfactory-legal-holds"' in SRC,
+      "the vault bucket is the dedicated moonfactory-legal-holds")
+check("def legal_hold_destruction_sweep" in SRC
+      and "modal.Period(days=1)" in SRC,
+      "the destruction sweep runs daily inside the app")
+check("_legal_hold_vault_export(" in func_src("place_legal_hold")
+      and 'trigger == "admin_gallery_remove"'
+      in func_src("place_legal_hold"),
+      "placing a hold runs the vault export, plaintext removal "
+      "gated on the removal trigger")
+check('"pynacl"' in SRC, "the app image installs pynacl")
+for name in ("public_gallery_item", "gallery_list", "list_jobs",
+             "public_job"):
+    check("vault" not in func_src(name),
+          f"{name} exposes no vault data")
 
 # ------------------------------------------------------------------
 

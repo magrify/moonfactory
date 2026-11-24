@@ -33,6 +33,7 @@ cached on the moonfactory-data Volume.
 """
 
 import base64
+import datetime
 import hashlib
 import hmac
 import json
@@ -74,7 +75,7 @@ legal_holds = modal.Dict.from_name("moonfactory-legal-holds", create_if_missing=
 image = (
     modal.Image.debian_slim(python_version="3.12")
     .apt_install("ffmpeg", "fonts-dejavu-core")
-    .pip_install("fastapi[standard]", "requests", "stripe")
+    .pip_install("fastapi[standard]", "requests", "stripe", "pynacl")
     .add_local_file(str(Path(__file__).parent / "pricing.py"), "/platform/pricing.py")
     .add_local_file(
         str(Path(__file__).parent.parent
@@ -452,7 +453,11 @@ def place_legal_hold(job: dict, trigger: str, note: str = "") -> None:
     Hold records live outside the jobs Dict, are exempt from
     ordinary user deletion, and are never exposed in any
     user-facing or public payload. A hold failure never blocks
-    the removal that triggered it."""
+    the removal that triggered it. Placing a hold also runs the
+    automated vault export (see _legal_hold_vault_export): the
+    case material seals itself into the private vault bucket
+    with no human step, and on a removal the verified export
+    takes the plaintext off this volume."""
     try:
         if job.get("status") == "done" \
                 and not job.get("content_sha256"):
@@ -506,9 +511,346 @@ def place_legal_hold(job: dict, trigger: str, note: str = "") -> None:
             "ncmec_confirmation_date":
                 existing.get("ncmec_confirmation_date"),
             "sibling_job_ids": siblings,
+            "vault": existing.get("vault"),
+            "destruction_state":
+                existing.get("destruction_state") or "pending",
+            "law_enforcement_hold":
+                bool(existing.get("law_enforcement_hold")),
+            "content_destroyed_at":
+                existing.get("content_destroyed_at"),
         }
+        # The automated vault export: the case material seals
+        # itself into the private R2 vault, and on a removal the
+        # verified export takes the plaintext off this volume.
+        # It never raises and never blocks the removal that
+        # placed the hold.
+        _legal_hold_vault_export(
+            job,
+            remove_plaintext=(trigger == "admin_gallery_remove"))
     except Exception as exc:  # noqa: BLE001
         print(f"legal hold failed for job {job.get('id')}: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# Automated legal-hold vault (Jack, 2026-11-24: "I want it
+# automated, I don't wanna have to do anything"). When a legal
+# hold is placed, the case material leaves this app by itself:
+# the original file and a JSON copy of the case record are sealed
+# under the vault public key (PyNaCl SealedBox) and uploaded to
+# the dedicated private Cloudflare R2 bucket below. Ciphertext
+# is the only thing that ever leaves the app. The matching
+# private key sits in the moonfactory-providers Modal secret and
+# is NEVER read by this app, so even a compromised app cannot
+# decrypt the vault; decryption happens offline, only if law
+# enforcement ever needs the material. Once an upload is
+# verified by readback, a removal-triggered hold deletes the
+# plaintext from the data volume, so no readable copy stays on
+# Modal. A daily sweep destroys vaulted content once its
+# one-year preservation period (18 U.S.C. 2258A(h), as extended
+# by the REPORT Act of 2024) has run, provided a CyberTipline
+# confirmation date is on the record and no law-enforcement hold
+# flag is set; the case record (the log) is retained after the
+# content is destroyed. A failed export never loses material:
+# the hold stands, the plaintext stays, and the failure is
+# written into the hold's action log.
+# ---------------------------------------------------------------------------
+
+LEGAL_HOLD_VAULT_BUCKET = "moonfactory-legal-holds"
+LEGAL_HOLD_VAULT_PUBLIC_KEY = \
+    "e/4t/ns06gyW6El3HblluZ/0bar82GSSMF2ru6TtYFA="
+LEGAL_HOLD_ENCRYPTION = (
+    "PyNaCl SealedBox (XSalsa20-Poly1305), per-object ephemeral key")
+
+
+def _vault_seal(data: bytes) -> bytes:
+    """Seal bytes for the legal-hold vault under the vault public
+    key. A SealedBox is anonymous with a per-message ephemeral
+    key: only the holder of the private key (in the Modal secret,
+    never in this app) can open the result."""
+    from nacl.public import PublicKey, SealedBox
+
+    box = SealedBox(PublicKey(
+        base64.b64decode(LEGAL_HOLD_VAULT_PUBLIC_KEY)))
+    return box.encrypt(data)
+
+
+def _vault_object_url(key: str) -> str:
+    account = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")
+    if not account:
+        raise RuntimeError("legal hold vault: no Cloudflare account id")
+    return ("https://api.cloudflare.com/client/v4/accounts/"
+            f"{account}/r2/buckets/{LEGAL_HOLD_VAULT_BUCKET}"
+            f"/objects/{key}")
+
+
+def _vault_headers() -> dict:
+    token = os.environ.get("LEGAL_HOLD_R2_TOKEN", "")
+    if not token:
+        raise RuntimeError("legal hold vault: no R2 token configured")
+    return {"Authorization": f"Bearer {token}"}
+
+
+def _vault_put(key: str, data: bytes) -> int:
+    """Upload ciphertext to the vault bucket and verify it by
+    readback: a streaming GET whose Content-Length must equal
+    the uploaded length. Returns the verified size. Raises on
+    any mismatch, so a caller never treats an unverified upload
+    as stored."""
+    import requests
+
+    url = _vault_object_url(key)
+    resp = requests.put(url, headers=_vault_headers(), data=data,
+                        timeout=300)
+    if resp.status_code != 200:
+        raise RuntimeError(
+            f"legal hold vault: PUT {key} answered {resp.status_code}")
+    with requests.get(url, headers=_vault_headers(), stream=True,
+                      timeout=300) as got:
+        if got.status_code != 200:
+            raise RuntimeError(
+                f"legal hold vault: readback of {key} answered "
+                f"{got.status_code}")
+        size = int(got.headers.get("Content-Length") or -1)
+    if size != len(data):
+        raise RuntimeError(
+            f"legal hold vault: readback size {size} != uploaded "
+            f"{len(data)} for {key}")
+    return size
+
+
+def _vault_size(key: str):
+    """The stored size of a vault object, or None when it is not
+    there. A streaming GET reads only the headers."""
+    import requests
+
+    with requests.get(_vault_object_url(key),
+                      headers=_vault_headers(), stream=True,
+                      timeout=120) as got:
+        if got.status_code == 404:
+            return None
+        if got.status_code != 200:
+            raise RuntimeError(
+                f"legal hold vault: size check of {key} answered "
+                f"{got.status_code}")
+        return int(got.headers.get("Content-Length") or -1)
+
+
+def _vault_delete(key: str) -> None:
+    """Delete a vault object and verify it is gone."""
+    import requests
+
+    url = _vault_object_url(key)
+    resp = requests.delete(url, headers=_vault_headers(), timeout=120)
+    if resp.status_code not in (200, 204):
+        raise RuntimeError(
+            f"legal hold vault: DELETE {key} answered "
+            f"{resp.status_code}")
+    if _vault_size(key) is not None:
+        raise RuntimeError(
+            f"legal hold vault: {key} still present after DELETE")
+
+
+def _legal_hold_vault_export(job: dict, remove_plaintext: bool) -> None:
+    """The automated export half of a legal hold (see the vault
+    block above). Runs inside place_legal_hold and never raises:
+    any failure is written into the hold's action log and leaves
+    every plaintext byte exactly where it was."""
+    job_id = job.get("id")
+    uploaded = []
+    try:
+        hold = legal_holds.get(job_id)
+        if not hold:
+            return
+        original = FILES_DIR / (
+            f"{job_id}.png" if job.get("kind") == "image"
+            else f"{job_id}.mp4")
+        file_bytes = None
+        if original.is_file():
+            file_bytes = original.read_bytes()
+        record_payload = json.dumps({
+            "job": hold.get("job"),
+            "account": hold.get("account"),
+            "content_sha256": hold.get("content_sha256"),
+            "held_at": hold.get("held_at"),
+            "trigger": hold.get("trigger"),
+            "sibling_job_ids": hold.get("sibling_job_ids"),
+            "cybertipline_report_number":
+                hold.get("cybertipline_report_number"),
+            "ncmec_confirmation_date":
+                hold.get("ncmec_confirmation_date"),
+        }, default=str).encode()
+        content_key = None
+        content_size = None
+        if file_bytes is not None:
+            content_key = f"holds/{job_id}/content.enc"
+            content_size = _vault_put(content_key,
+                                      _vault_seal(file_bytes))
+            uploaded.append(content_key)
+        record_key = f"holds/{job_id}/record.enc"
+        record_size = _vault_put(record_key,
+                                 _vault_seal(record_payload))
+        uploaded.append(record_key)
+        hold = legal_holds.get(job_id) or hold
+        actions = list(hold.get("actions") or [])
+        if file_bytes is None:
+            actions.append({
+                "action": "vault export: records only",
+                "note": "the original file was already gone when "
+                        "the hold was placed",
+                "at": _now(),
+            })
+        actions.append({
+            "action": "vault export",
+            "bucket": LEGAL_HOLD_VAULT_BUCKET,
+            "content_key": content_key,
+            "content_bytes": content_size,
+            "record_key": record_key,
+            "record_bytes": record_size,
+            "at": _now(),
+        })
+        hold["vault"] = {
+            "bucket": LEGAL_HOLD_VAULT_BUCKET,
+            "content_key": content_key,
+            "record_key": record_key,
+            "content_sha256": hold.get("content_sha256"),
+            "encryption": LEGAL_HOLD_ENCRYPTION,
+            "exported_at": _now(),
+        }
+        hold["actions"] = actions
+        legal_holds[job_id] = hold
+        if remove_plaintext and file_bytes is not None:
+            for path in (FILES_DIR / f"{job_id}.mp4",
+                         FILES_DIR / f"{job_id}.web.mp4",
+                         FILES_DIR / f"{job_id}.raw.mp4",
+                         FILES_DIR / f"{job_id}.png",
+                         FILES_DIR / f"{job_id}.jpg",
+                         FILES_DIR / "beds" / f"{job_id}.wav"):
+                try:
+                    path.unlink(missing_ok=True)
+                except Exception:
+                    pass
+            data_volume.commit()
+            hold = legal_holds.get(job_id) or hold
+            actions = list(hold.get("actions") or [])
+            actions.append({
+                "action": "plaintext removed from the platform "
+                          "volume after verified vault export",
+                "at": _now(),
+            })
+            hold["actions"] = actions
+            legal_holds[job_id] = hold
+    except Exception as exc:  # noqa: BLE001
+        print(f"legal hold vault export failed for job {job_id}: {exc}")
+        try:
+            hold = legal_holds.get(job_id)
+            if hold:
+                actions = list(hold.get("actions") or [])
+                actions.append({
+                    "action": "vault export failed",
+                    "error": str(exc)[:300],
+                    "partial_upload_keys": uploaded or None,
+                    "note": "plaintext left in place; nothing deleted",
+                    "at": _now(),
+                })
+                hold["actions"] = actions
+                legal_holds[job_id] = hold
+        except Exception:
+            pass
+
+
+def _hold_destruction_due(hold: dict, today) -> bool:
+    """Whether a hold's vaulted content is due for destruction:
+    a CyberTipline confirmation date is on the record, vaulted
+    content exists, the destruction state is still pending, no
+    law-enforcement hold flag is set, and today is past the
+    confirmation date plus one year (the 2258A(h) preservation
+    period). Holds without a confirmation date are never due."""
+    if not hold or hold.get("law_enforcement_hold"):
+        return False
+    if not hold.get("vault"):
+        return False
+    if hold.get("destruction_state") != "pending":
+        return False
+    conf = hold.get("ncmec_confirmation_date")
+    if not conf:
+        return False
+    try:
+        conf_date = datetime.date.fromisoformat(str(conf)[:10])
+    except ValueError:
+        return False
+    try:
+        due = conf_date.replace(year=conf_date.year + 1)
+    except ValueError:
+        # A February 29 confirmation runs to February 28.
+        due = conf_date.replace(year=conf_date.year + 1, day=28)
+    return today > due
+
+
+def sweep_legal_hold_destructions(today=None) -> list:
+    """Destroy the vaulted content of every due hold (see
+    _hold_destruction_due): both ciphertext objects are deleted
+    and each deletion verified, the destruction is appended to
+    the hold's action log with its CyberTipline report number,
+    and the hold RECORD (the case log) is retained. A failure on
+    one hold is logged on that hold and never stops the sweep."""
+    if today is None:
+        today = datetime.datetime.now(datetime.timezone.utc).date()
+    destroyed = []
+    for key in list(legal_holds.keys()):
+        hold = legal_holds.get(key)
+        if not _hold_destruction_due(hold, today):
+            continue
+        try:
+            vault = hold.get("vault") or {}
+            for obj_key in (vault.get("content_key"),
+                            vault.get("record_key")):
+                if obj_key:
+                    _vault_delete(obj_key)
+            actions = list(hold.get("actions") or [])
+            actions.append({
+                "action": "vault content destroyed",
+                "method": "deletion of the encrypted vault "
+                          "objects (R2), verified by readback",
+                "cybertipline_report_number":
+                    hold.get("cybertipline_report_number"),
+                "at": _now(),
+            })
+            hold["actions"] = actions
+            hold["destruction_state"] = "destroyed"
+            hold["content_destroyed_at"] = _now()
+            legal_holds[key] = hold
+            destroyed.append(key)
+        except Exception as exc:  # noqa: BLE001
+            print(f"legal hold destruction failed for {key}: {exc}")
+            try:
+                hold = legal_holds.get(key) or hold
+                actions = list(hold.get("actions") or [])
+                actions.append({
+                    "action": "vault destruction failed",
+                    "error": str(exc)[:300],
+                    "at": _now(),
+                })
+                hold["actions"] = actions
+                legal_holds[key] = hold
+            except Exception:
+                pass
+    return destroyed
+
+
+@app.function(
+    image=image,
+    secrets=[modal.Secret.from_name("moonfactory-providers")],
+    schedule=modal.Period(days=1),
+    timeout=900,
+)
+def legal_hold_destruction_sweep():
+    """Daily: destroy vaulted legal-hold content whose one-year
+    preservation period has run (see sweep_legal_hold_destructions).
+    Holds without a CyberTipline confirmation date, and holds
+    flagged for law enforcement, are never touched."""
+    destroyed = sweep_legal_hold_destructions()
+    print(f"legal hold destruction sweep: {len(destroyed)} destroyed")
+    return destroyed
 
 
 def _short_word_check(job: dict, out_path: Path):
