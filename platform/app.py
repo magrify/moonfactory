@@ -20032,7 +20032,7 @@ APP_HTML = (
       <input id="short-clone-ref-text" type="text" maxlength="300" placeholder="type the words spoken in the clip if you know them">
     </div>
     <label>Music</label>
-    <select id="short-music">
+    <select id="short-music" autocomplete="off">
       <option value="none" selected>No music</option>
       <option value="custom">Custom, your own description</option>
       <option value="house">Dreamy ambient</option>
@@ -23300,6 +23300,17 @@ function shortShowMusicCustom() {
     $('short-music').value === 'custom' ? '' : 'none';
 }
 $('short-music').addEventListener('change', shortShowMusicCustom);
+// The pick starts on no music on every fresh page load, set
+// here in script and not left to the markup alone: a phone
+// browser restores a select's last chosen value across
+// reloads and ignores the preselected option, so a returning
+// visitor who once picked a style, or the custom pick, would
+// land on it again instead of the no music start (Jack,
+// 2026-11-24). A creation restored after sign in fires from
+// its stored body, never from this form, so this reset cannot
+// disturb a parked pick coming back.
+$('short-music').value = 'none';
+shortShowMusicCustom();
 // The script box placeholder names the unit the split pick
 // cuts on, so the two never disagree (Jack, 2026-11-23: with
 // the pick on sentences the box still talked about lines).

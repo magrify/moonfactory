@@ -768,6 +768,18 @@ check("function shortShowMusicCustom()" in SRC
       "the custom words box opens on the custom pick")
 check("$('short-music')" in SRC,
       "the submit sends the music choice")
+check("$('short-music').value = 'none';" in SRC
+      and SRC.index("$('short-music').value = 'none';")
+      > SRC.index("function shortShowMusicCustom()"),
+      "the picker is reset to no music in script at form "
+      "init, not only preselected in the markup, so a phone "
+      "browser restoring the last pick cannot land on a "
+      "style or the custom pick (Jack, 2026-11-24)")
+check("shortShowMusicCustom();" in SRC,
+      "the init reset syncs the custom words box to hidden")
+check('id="short-music" autocomplete="off"' in pane,
+      "the music picker also opts out of browser form "
+      "restoration in its markup")
 check('<label>Opening title (optional)</label>' in pane
       and '<label>Smaller line under it (optional)</label>'
       in pane,
