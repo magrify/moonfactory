@@ -123,6 +123,53 @@ for ch in (":", ";", "-", "‐", "‑", "–", "—"):
     check(ch not in aup_body,
           f"acceptable use body text contains a forbidden {ch!r}")
 
+# -- Terms v2 hardening (Jack, 2026-11-23): the strongest lawful
+# clause set, layered so Texas law cannot void it --
+check("Section 230 of the Communications Decency Act" in TERMS,
+      "terms lost the Section 230 reservation of rights")
+check("512(m)" in TERMS and "shall be construed to condition" in TERMS,
+      "terms lost the DMCA 512(m) no duty to monitor statement")
+check("does not limit any duty that applies once we obtain actual "
+      "knowledge" in TERMS,
+      "terms lost the actual knowledge carve out on no monitoring")
+check("Time limit for bringing claims" in TERMS
+      and "within one year after the claim accrues" in TERMS
+      and "permanently barred" in TERMS and "16.070" in TERMS,
+      "terms lost the layered one year / Texas 16.070 claim limit")
+check("WAIVE ANY RIGHT TO A TRIAL BY JURY" in TERMS,
+      "terms lost the express conspicuous jury trial waiver")
+check("American Arbitration Association" in TERMS
+      and "responsible for our reasonable attorneys' fees" in TERMS
+      and "batches of up to 25 claimants" in TERMS,
+      "terms lost the AAA, fee shifting, or mass filing terms")
+check("Office of Foreign Assets Control" in TERMS,
+      "terms lost the sanctions and export control clause")
+check("grounds for immediate termination" in TERMS,
+      "terms lost circumvention as a terminating violation")
+check("you bear all risk of any use you make of Output" in TERMS,
+      "terms lost the output risk allocation")
+check("consent of every real person depicted, named, or imitated"
+      in TERMS,
+      "terms lost the warranty covering all inputs and uploads")
+check("EXTENDS TO CLAIMS ARISING IN WHOLE OR IN PART FROM THE "
+      "NEGLIGENCE" in TERMS,
+      "terms lost the express negligence indemnity extension")
+check("costs of responding to subpoenas" in TERMS,
+      "terms lost indemnity coverage of legal process costs")
+check("fails of its essential purpose" in TERMS,
+      "terms lost the essential purpose limitation language")
+check("reformed to the minimum extent necessary" in TERMS
+      and "any attempt to do so is void" in TERMS
+      and "beyond our reasonable control" in TERMS
+      and "intended third-party beneficiaries of those sections"
+      in TERMS and "without posting a bond" in TERMS
+      and "Notices to us under these Terms must be sent to Magrify "
+      "LLC" in TERMS,
+      "terms lost a v2 general provision (reformation, assignment, "
+      "force majeure, beneficiaries, injunctions, notices)")
+check("full trade ban" in AUP and "We do not check every prompt" in AUP,
+      "acceptable use lost the v2 sanctions or no check lines")
+
 # -- Privacy: aligned with the Terms, not contradicting them --
 check("never appear in the gallery" in PRIVACY,
       "privacy lost the uncensored gallery exception")

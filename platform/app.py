@@ -15319,6 +15319,11 @@ Terms.</li>
 licenses, consents, and permissions needed for everything you supply
 as Input, including the likeness, voice, and personal data of any
 real person who appears or is depicted in it.</li>
+<li>These warranties cover every kind of Input, including prompts
+and scripts that name or describe a real person and any image,
+video, or audio you upload. You warrant that you have the consent
+of every real person depicted, named, or imitated in your Input
+for the use you are making of them.</li>
 <li>As between you and us, you keep your ownership rights in your
 Input, and we assign to you whatever right, title, and interest we
 may hold in your Output, subject to your compliance with these
@@ -15330,8 +15335,16 @@ deliver your Content, and to send your prompts and media to the
 model provider you picked so it can perform the generation, and to
 display your finished clips in the public gallery as described in
 Section 8.</li>
-<li>Do not rely on Output as professional advice of any kind. Review
-Output yourself before you use or publish it.</li>
+<li>Do not rely on Output as professional advice of any kind.</li>
+<li>Output is generated at your direction and is not reviewed,
+approved, or endorsed by Moonfactory before it reaches you. Output
+may be inaccurate or offensive, and it can be unlawful if you
+misuse it. You must review every Output before you use, publish,
+sell, or share it, and <strong>you bear all risk of any use you
+make of Output</strong>, including any harm or liability that
+follows from publishing or distributing it. You may not use Output
+that relates to a real person to make decisions that could have a
+legal or material impact on that person.</li>
 </ul>
 
 <h2>4. The blanket rule: nothing illegal</h2>
@@ -15395,7 +15408,9 @@ person.</li>
 <ul>
 <li>Attempting to bypass, disable, or evade plan limits, payment,
 age gates, gallery exclusions, prompt screening, or any other safety
-or enforcement system.</li>
+or enforcement system. Circumvention is itself a material violation
+of these Terms and grounds for immediate termination, without
+notice, under Section 14.</li>
 <li>Creating accounts to evade a suspension or termination (ban
 evasion), abusing the free tier, or interfering with the service's
 operation.</li>
@@ -15403,6 +15418,16 @@ operation.</li>
 about its source, including presenting generated output as human-made
 or as genuine footage of real events where that deception could
 cause harm.</li>
+</ul>
+<p><strong>Sanctions and export controls</strong></p>
+<ul>
+<li>You must comply with all applicable sanctions and export
+control laws, including those administered by the U.S. Office of
+Foreign Assets Control (OFAC). You may not use Moonfactory from,
+or for the benefit of anyone in, a country or territory subject to
+a comprehensive U.S. embargo, and you may not use Moonfactory if
+you are on any U.S. government restricted-party list, including
+the Specially Designated Nationals and Blocked Persons List.</li>
 </ul>
 
 <h2>6. Child safety: zero tolerance</h2>
@@ -15420,6 +15445,19 @@ for this category.</p>
 <li>We do not pre-screen all Content, and we are not obligated to
 monitor the service. Nothing in these Terms makes us the author,
 editor, or publisher of your Content.</li>
+<li>That statement does not limit any duty that applies once we
+obtain actual knowledge of specific unlawful Content or receive a
+valid legal notice, including our reporting duties under Section 6
+and our notice-and-removal duties under applicable law, and we act
+on those duties as Sections 6 and 10 describe.</li>
+<li>Moonfactory is a provider of an interactive computer service.
+Content supplied by users is information provided by another
+information content provider, not by Moonfactory. We reserve all
+rights, protections, and immunities under Section 230 of the
+Communications Decency Act (47 U.S.C. § 230), including the
+protection for good-faith decisions to restrict access to, or
+remove, material, and under 17 U.S.C. § 512. Nothing in these
+Terms waives or limits those protections.</li>
 <li>We may, at any time and in our sole discretion, with or without
 notice: review, scan, or moderate Content using automated tools
 (including prompt screening) and human review; refuse a generation;
@@ -15520,6 +15558,14 @@ files a court action.</li>
 <li><strong>Repeat infringer policy.</strong> We terminate, in
 appropriate circumstances, the accounts of users who are repeat
 infringers.</li>
+<li><strong>No duty to monitor.</strong> Consistent with 17 U.S.C.
+§ 512(m), nothing in this section shall be construed to condition
+the applicability of subsections (a) through (d) of 17 U.S.C.
+§ 512 on Moonfactory monitoring its service or affirmatively
+seeking facts indicating infringing activity. If our conduct in a
+particular case does not qualify for a limitation on liability
+under 17 U.S.C. § 512, that does not bear adversely on any other
+defense available to us, consistent with 17 U.S.C. § 512(l).</li>
 </ul>
 <p><strong>Designated agent.</strong> DMCA notices and
 counter-notices go to our designated agent:</p>
@@ -15544,6 +15590,13 @@ anything you publish, sell, or distribute with it; (c) your
 violation of these Terms or of any applicable law; or (d) your
 violation of any right of any third party. This obligation survives
 termination of your account and of these Terms.</p>
+<p>YOU AGREE THAT THIS INDEMNITY EXTENDS TO CLAIMS ARISING IN
+WHOLE OR IN PART FROM THE NEGLIGENCE OF ANY INDEMNIFIED PARTY,
+BUT NOT FROM ITS GROSS NEGLIGENCE OR WILLFUL MISCONDUCT.</p>
+<p>Your indemnity also covers our reasonable costs of responding
+to subpoenas, court orders, government inquiries, and other legal
+process that arise out of your Content or your use of the
+service.</p>
 
 <h2>12. Warranty disclaimer</h2>
 <p>The service is provided &quot;as is&quot; and &quot;as
@@ -15556,7 +15609,8 @@ Content will be accurate, lawful, or preserved. We do not control or
 direct what users create, and we are not responsible for their
 actions or conduct, online or offline, or for any Content they
 generate or share, including offensive, inappropriate, obscene,
-unlawful, or otherwise objectionable Content.</p>
+unlawful, or otherwise objectionable Content. Any reliance on
+Output is at your own risk.</p>
 
 <h2>13. Limitation of liability</h2>
 <p>To the fullest extent permitted by law: (a) we will not be liable
@@ -15568,26 +15622,69 @@ advised of the possibility of such damages; and (b) our total
 aggregate liability for any claim about the service is limited to
 the greater of what you paid us in the 3 months before the claim or
 $100. Nothing in these Terms limits liability that cannot be limited
-by law.</p>
+by law. The limitations and exclusions in this section apply even
+if any limited remedy fails of its essential purpose, and they are
+a fundamental basis of the bargain between you and us.</p>
 
 <h2>14. Termination</h2>
 <p>You may stop using Moonfactory and delete your account at any
 time. We may suspend or terminate your access at any time, with or
 without notice, under Section 7 or for any other reason permitted by
-law. Sections 3, 6, 7, 10, 11, 12, 13, 15, and 16 survive
+law. Sections 3, 6, 7, 10, 11, 12, 13, 15, 16, 17, and 19 survive
 termination.</p>
 
 <h2>15. Arbitration and class action waiver</h2>
+<p><strong>Informal resolution first.</strong> Before filing any
+claim in arbitration or in court, you must send us a written notice
+describing the claim and the relief you seek, to
+<a href="mailto:support@magrify.com">support@magrify.com</a> or to
+the address in Section 19, and both sides will try in good faith to
+resolve it informally for 30 days. The time limit in Section 17 is
+paused during that 30-day period. If the claim is not resolved,
+either side may start arbitration as this section provides.</p>
 <p>Disputes arising out of or relating to these Terms or the service
-will be resolved by binding, individual arbitration administered in
-Dallas County, Texas, rather than in court. You and Magrify LLC each
-waive any right to a jury trial and to participate in a class
-action, class arbitration, or other representative proceeding. You
-may opt out of this arbitration agreement within 30 days of first
-accepting these Terms by written notice to
+will be resolved by binding, individual arbitration administered by
+the American Arbitration Association (AAA) under its Consumer
+Arbitration Rules, in Dallas County, Texas, rather than in court.
+The Federal Arbitration Act governs the interpretation and
+enforcement of this section. The arbitrator, and not any court, has
+exclusive authority to decide disputes about the arbitrability of a
+claim and about the interpretation or enforceability of this
+section, except that a court decides disputes about the class
+action waiver below.</p>
+<p><strong>Jury trial waiver.</strong> YOU AND MAGRIFY LLC
+KNOWINGLY AND IRREVOCABLY WAIVE ANY RIGHT TO A TRIAL BY JURY IN ANY
+ACTION, PROCEEDING, OR COUNTERCLAIM ARISING OUT OF OR RELATING TO
+THESE TERMS OR THE SERVICE, WHETHER OR NOT THE DISPUTE IS SUBJECT
+TO ARBITRATION.</p>
+<p><strong>Class action waiver.</strong> You and Magrify LLC each
+waive any right to participate in a class action, class arbitration,
+consolidated action, or other representative proceeding, and claims
+may be brought only in an individual capacity. If the class action
+waiver in this section is held unenforceable for a claim, that
+claim must be severed and brought in the courts described in
+Section 16, and the rest of this section continues to apply to all
+other claims.</p>
+<p><strong>Claims brought in violation of this section.</strong> If
+you file a claim in court, or as part of a class or representative
+proceeding, in violation of this section, and we must ask a court
+or arbitrator to enforce this section, you will be responsible for
+our reasonable attorneys' fees and costs of doing so, to the extent
+permitted by law.</p>
+<p><strong>Mass filings.</strong> If 25 or more arbitration demands
+raising substantially similar claims are filed by or through the
+same or coordinated counsel within 90 days, the demands will be
+administered in batches of up to 25 claimants, each batch as a
+single arbitration with one arbitrator and one set of fees, and
+later batches will be stayed pending resolution of earlier
+batches.</p>
+<p>You may opt out of this arbitration agreement within 30 days of
+first accepting these Terms by written notice to
 <a href="mailto:support@magrify.com">support@magrify.com</a>. Claims
 for child-safety reporting, DMCA matters, and requests for
-injunctive relief are not subject to this section.</p>
+injunctive relief are not subject to this section. Individual
+claims that qualify for small claims court in Dallas County, Texas
+may be brought there instead of in arbitration.</p>
 
 <h2>16. Governing law</h2>
 <p>These Terms are governed by the laws of the State of Texas and
@@ -15597,21 +15694,82 @@ will be brought exclusively in the state or federal courts located
 in Dallas County, Texas, and you consent to personal jurisdiction
 there.</p>
 
-<h2>17. Changes to these Terms</h2>
+<h2>17. Time limit for bringing claims</h2>
+<p>To the fullest extent permitted by law, any claim or cause of
+action arising out of or relating to these Terms or the service
+must be commenced within one year after the claim accrues, and any
+claim not commenced within that period is permanently barred and
+waived. A claim accrues when you knew, or reasonably should have
+known, of the facts giving rise to it. If a court holds that a
+one-year period is not permitted for a particular claim, including
+under Section 16.070 of the Texas Civil Practice and Remedies
+Code, then that claim must be commenced within two years after it
+accrues, or within the shortest period the law allows for it,
+whichever is longer. This section does not shorten any period that
+the law does not allow to be shortened.</p>
+
+<h2>18. Changes to these Terms</h2>
 <p>We can update these Terms and will note the date above when we
 do. If a change is material, we will take reasonable steps to point
 it out on the service. Continued use after an update means you
 accept it.</p>
 
-<h2>18. General</h2>
-<p>If any part of these Terms is held unenforceable, the rest
-remains in effect. These Terms, together with the
+<h2>19. General</h2>
+<p><strong>Severability and reformation.</strong> If any part of
+these Terms is held unenforceable, that part will be reformed to
+the minimum extent necessary to make it enforceable or, if it
+cannot be reformed, severed, and the rest of these Terms remains in
+full effect.</p>
+<p><strong>Entire agreement.</strong> These Terms, together with the
 <a href="/privacy">Privacy Policy</a> and the
 <a href="/acceptable-use">Acceptable Use Policy</a>, are the entire
-agreement between you and us about the service. Our failure to
-enforce a provision is not a waiver of it. You may not assign these
-Terms; we may assign them in connection with a sale or
-reorganization of the business.</p>
+agreement between you and us about the service and replace any
+earlier agreements or understandings about it. You have not relied
+on any statement about the service that is not written in these
+Terms.</p>
+<p><strong>No waiver.</strong> Our failure to enforce a provision is
+not a waiver of it or of any other provision, and no waiver is
+effective unless it is in writing and signed by us.</p>
+<p><strong>Assignment.</strong> You may not assign or transfer these
+Terms, or any right or obligation under them, and any attempt to do
+so is void. We may assign these Terms, and any right or obligation
+under them, freely, including to an affiliate or in connection with
+a merger, acquisition, reorganization, or sale of all or part of
+our business, without notice to you or your consent.</p>
+<p><strong>Force majeure.</strong> We are not liable for any delay
+or failure to perform that results from causes beyond our
+reasonable control, including acts of God, fire, flood, war,
+terrorism, embargo, government action, labor disputes, and failures
+of power, networks, hosting, or model providers.</p>
+<p><strong>No third-party beneficiaries.</strong> There are no
+third-party beneficiaries of these Terms, except that the people
+and entities protected by Sections 11, 12, and 13, including our
+owners, members, managers, officers, employees, contractors,
+agents, licensors, and model providers, are intended third-party
+beneficiaries of those sections.</p>
+<p><strong>Injunctive relief.</strong> You agree that a breach or
+threatened breach of Sections 4, 5, or 6 would cause harm that
+money cannot fully repair, and that we are entitled to seek
+injunctive relief and other equitable relief for those sections,
+without posting a bond, in addition to any other remedy. To the
+fullest extent permitted by law, you agree that your remedies for
+any claim are limited to monetary damages subject to Section 13,
+and you waive any right to injunctive or declaratory relief that
+would shut down, suspend, or materially interfere with the
+operation of the service for other users.</p>
+<p><strong>Interpretation.</strong> Headings are for convenience
+only and do not affect interpretation. &quot;Including&quot; means
+&quot;including without limitation.&quot; No rule of construction
+will be applied against either side as the drafter of these Terms.
+References to a law include that law as amended and any successor
+law.</p>
+<p><strong>Notices.</strong> Notices to us under these Terms must be
+sent to Magrify LLC, 539 W Commerce St, Suite 4805, Dallas, TX
+75208, and by email to
+<a href="mailto:support@magrify.com">support@magrify.com</a>, and are
+effective when received. Notices to you may be sent to the email
+address on your account or posted on the service, and are effective
+when sent or posted.</p>
 <p>Questions about these Terms:
 <a href="mailto:support@magrify.com">support@magrify.com</a> or the
 <a href="/support">support page</a>.</p>
@@ -15647,9 +15805,15 @@ never agreed to.</li>
 <li>Adult content belongs only on the models marked Uncensored. You
 must be 18 or older to use them. Adult content that breaks any rule
 above is still banned there.</li>
+<li>No using Moonfactory from a country the United States has
+placed under a full trade ban.</li>
 <li>No working around the limits, the prices, the age gates, or the
-safety checks. No new accounts to dodge a ban.</li>
+safety checks. No new accounts to dodge a ban. Working around a
+safety check or an age gate ends your account at once.</li>
 </ul>
+<p>We do not check every prompt and every finished piece before it
+reaches you. Finding bad content later does not make it
+allowed.</p>
 <p>You are responsible for what you ask Moonfactory to make and for
 what you do with it after. Moonfactory is a tool. What gets made
 with it is on the person who asked for it.</p>
