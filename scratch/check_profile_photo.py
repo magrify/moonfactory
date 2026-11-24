@@ -13,6 +13,18 @@ Rules pinned here:
   upload scanning seam). A flagged photo is refused and
   never stored or shown; an unjudgeable photo is refused
   too (fail closed, the regular lane upload rule).
+- The classifier judges the PROCESSED photo, the normalized
+  256x256 JPEG that is literally what gets stored and
+  shown, never the raw upload (phone fix, Jack, 2026-11-24:
+  scoring a full size multi-megabyte phone photo inline in
+  the async handler hung the request until the webview gave
+  up with "Load failed"). The decode, process, and scoring
+  run in the threadpool, off the event loop, through
+  judge_profile_photo.
+- When the upload fetch itself dies with no response at
+  all, the dialog shows a plain retry message instead of
+  the raw browser error text; a server refusal's own detail
+  still shows unchanged.
 - Removing the photo deletes the file and clears the
   version stamp, so the account is back to its initial
   letter everywhere.
@@ -120,16 +132,100 @@ for msg in (app.PROFILE_PHOTO_FLAGGED, app.PROFILE_PHOTO_UNJUDGED,
     check(":" not in msg and ";" not in msg,
           f"photo refusal copy breaks the copy rules: {msg!r}")
 
+# -- the judging seam: processed bytes in, and a full size
+# phone photo end to end (the "Load failed" fix) --------------
+import time  # noqa: E402
+
+real_session = app._output_classifier
+real_bytes_score = app._classifier_bytes_score
+seen = {}
+try:
+    app._output_classifier = lambda: object()  # noqa: E731
+
+    def recording_score(data, session=None):
+        seen["bytes"] = data
+        return 0.01
+
+    app._classifier_bytes_score = recording_score
+
+    raw = png_bytes((800, 600))
+    jpeg, verdict = app.judge_profile_photo(raw)
+    check(seen.get("bytes") == jpeg,
+          "the classifier did not receive the processed JPEG bytes")
+    check(seen.get("bytes") != raw,
+          "the classifier received the raw upload bytes")
+    check(verdict == {"score": 0.01, "flagged": False},
+          f"clean judged photo verdict wrong: {verdict}")
+    check(app.profile_photo_refusal(verdict) is None,
+          "a clean judged photo is refused")
+
+    # A 4000x3000 noise JPEG, the shape of a real phone photo:
+    # several megabytes in, judged as its small stored form,
+    # and filed by the same store step the endpoint runs.
+    import numpy as np
+
+    noise = np.random.default_rng(7).integers(
+        0, 256, size=(3000, 4000, 3), dtype=np.uint8)
+    buf = io.BytesIO()
+    Image.fromarray(noise).save(buf, "JPEG", quality=85)
+    big = buf.getvalue()
+    check(len(big) > 3 * 1024 * 1024,
+          f"the synthetic phone photo is not several MB: {len(big)}")
+    check(len(big) < app.PROFILE_PHOTO_MAX_BYTES,
+          "the synthetic phone photo would hit the size cap "
+          f"itself: {len(big)}")
+    start = time.time()
+    jpeg, verdict = app.judge_profile_photo(big)
+    elapsed = time.time() - start
+    check(seen.get("bytes") == jpeg,
+          "the big photo was not judged as its stored form")
+    check(len(jpeg) < 200 * 1024,
+          f"the judged form of the big photo is not small: {len(jpeg)}")
+    check(app.profile_photo_refusal(verdict) is None,
+          "the clean big photo is refused")
+    import tempfile
+
+    real_files_dir = app.FILES_DIR
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            app.FILES_DIR = Path(td)
+            dest = app.save_profile_photo_file("biguser", jpeg)
+            stored = dest.read_bytes()
+    finally:
+        app.FILES_DIR = real_files_dir
+    check(stored == jpeg, "the stored photo is not the judged JPEG")
+    with Image.open(io.BytesIO(stored)) as im:
+        check(im.format == "JPEG" and im.size == (256, 256),
+              f"the stored big photo is wrong: {im.format} {im.size}")
+    print(f"big photo: {len(big) / 1e6:.1f} MB in, "
+          f"{len(jpeg) / 1e3:.0f} KB stored, "
+          f"{elapsed:.1f}s judged end to end")
+finally:
+    app._output_classifier = real_session
+    app._classifier_bytes_score = real_bytes_score
+
 # -- endpoint wiring, pinned in source -------------------------
 up = func_src("set_profile_photo")
 check(bool(up), "set_profile_photo endpoint not found")
 check('@web.post("/api/me/photo")' in SRC,
       "the photo upload route is not registered")
 check("require_user" in up, "the upload route does not require sign in")
-check(up.index("process_profile_photo")
-      < up.index("classify_input_images")
-      < up.index("tmp.write_bytes"),
-      "the upload does not judge the photo before storing it")
+judge = func_src("judge_profile_photo")
+check(bool(judge), "judge_profile_photo helper not found")
+check(judge.index("process_profile_photo")
+      < judge.index("classify_input_images"),
+      "the photo is not processed before it is judged")
+check("b64encode(jpeg)" in judge,
+      "the classifier is not judging the processed JPEG bytes")
+check("b64encode(data)" not in judge
+      and "b64encode(data)" not in up,
+      "the classifier is still being fed the raw upload bytes")
+check("run_in_threadpool" in up and "judge_profile_photo" in up,
+      "the upload does not run its heavy work in the threadpool")
+check(up.index("judge_profile_photo")
+      < up.index("profile_photo_refusal")
+      < up.index("save_profile_photo_file"),
+      "the upload does not judge, decide, and only then store")
 check("profile_photo_refusal" in up,
       "the upload does not run the refusal decision")
 check('user["avatar_version"]' in up,
@@ -200,6 +296,12 @@ check("item.avatar_url" in SRC and "gavatar" in SRC,
       "gallery cards do not render the creator photo")
 check("Hide my clips from the public gallery" in panel,
       "the gallery toggle lost its wording")
+check("That upload did not go through. Check your connection "
+      "and try again." in SRC,
+      "a network level upload failure does not show the plain "
+      "retry message")
+check("catch (netErr)" in SRC,
+      "the upload fetch is not guarded for a network failure")
 
 if failures:
     print(f"FAIL ({len(failures)})")

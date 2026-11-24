@@ -1188,6 +1188,36 @@ def profile_photo_refusal(verdict):
     return None
 
 
+def judge_profile_photo(data: bytes):
+    """Process an uploaded profile photo and judge the exact
+    bytes that will be stored, returning (jpeg, verdict). The
+    classifier sees the normalized 256x256 JPEG, never the raw
+    upload: the public picture is the picture that gets judged,
+    and a multi-megabyte phone photo never reaches the model
+    at full size. Raises ValueError when the upload does not
+    decode as a real picture. Both halves are synchronous CPU
+    work, so the endpoint runs this in the threadpool, off the
+    event loop: judging a full size phone photo inline once
+    hung the request until the phone webview gave up on it
+    (Jack's "Load failed", 2026-11-24)."""
+    jpeg = process_profile_photo(data)
+    verdict = classify_input_images(
+        b64_images=[base64.b64encode(jpeg).decode()])
+    return jpeg, verdict
+
+
+def save_profile_photo_file(user_id: str, jpeg: bytes) -> Path:
+    """Write the account's stored profile photo atomically: a
+    temp file beside the destination, replaced into place, so
+    a reader never sees a half written photo."""
+    dest = profile_photo_path(user_id)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_suffix(".tmp.jpg")
+    tmp.write_bytes(jpeg)
+    tmp.replace(dest)
+    return dest
+
+
 def write_job_tombstone(job: dict) -> None:
     """Retain the minimal deletion tombstone for a job about to
     be deleted, so its content fingerprint survives the job
@@ -6324,6 +6354,7 @@ def _worker_headers() -> dict:
 def api():
     import requests
     from fastapi import Cookie, FastAPI, File, Header, HTTPException, Request, UploadFile
+    from fastapi.concurrency import run_in_threadpool
     from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
 
     web = FastAPI(title="Moonfactory")
@@ -7334,10 +7365,14 @@ def api():
         picture. The order is the safety order: the bytes are
         size capped, decoded and normalized, and judged by the
         input classifier BEFORE anything is stored, so a refused
-        photo never lands on the volume and never shows. A kept
-        photo replaces the account's one stored file, and the
-        version stamp on the record moves, which is what makes
-        the new photo appear everywhere at once."""
+        photo never lands on the volume and never shows. The
+        judging runs on the processed bytes (the exact picture
+        that will be stored and shown) in the threadpool, off
+        the event loop, so a full size phone photo can neither
+        stall the request nor wedge the container while it is
+        scored. A kept photo replaces the account's one stored
+        file, and the version stamp on the record moves, which
+        is what makes the new photo appear everywhere at once."""
         user = require_user(request, mf_session)
         if _rate_limited("avatar", user["id"], 6):
             raise HTTPException(status_code=429,
@@ -7347,20 +7382,15 @@ def api():
             raise HTTPException(status_code=413,
                                 detail=PROFILE_PHOTO_TOO_LARGE)
         try:
-            jpeg = process_profile_photo(data)
+            jpeg, verdict = await run_in_threadpool(
+                judge_profile_photo, data)
         except ValueError:
             raise HTTPException(status_code=422,
                                 detail=PROFILE_PHOTO_NOT_IMAGE)
-        verdict = classify_input_images(
-            b64_images=[base64.b64encode(data).decode()])
         refusal = profile_photo_refusal(verdict)
         if refusal:
             raise HTTPException(status_code=422, detail=refusal)
-        dest = profile_photo_path(user["id"])
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        tmp = dest.with_suffix(".tmp.jpg")
-        tmp.write_bytes(jpeg)
-        tmp.replace(dest)
+        save_profile_photo_file(user["id"], jpeg)
         data_volume.commit()
         user["avatar_version"] = \
             int(user.get("avatar_version") or 0) + 1
@@ -22135,7 +22165,12 @@ $('photo-file').addEventListener('change', async () => {
   try {
     msg('profile-msg', 'Uploading your photo...', '');
     const fd = new FormData(); fd.append('file', f);
-    const r = await fetch('/api/me/photo', { method: 'POST', body: fd });
+    let r;
+    try {
+      r = await fetch('/api/me/photo', { method: 'POST', body: fd });
+    } catch (netErr) {
+      throw new Error('That upload did not go through. Check your connection and try again.');
+    }
     const q = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(q.detail || ('HTTP ' + r.status));
     currentUser.avatar_url = q.avatar_url;
