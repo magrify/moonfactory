@@ -75,6 +75,7 @@ tombstones = modal.Dict.from_name("moonfactory-tombstones", create_if_missing=Tr
 legal_holds = modal.Dict.from_name("moonfactory-legal-holds", create_if_missing=True)
 refusals = modal.Dict.from_name("moonfactory-refusals", create_if_missing=True)
 user_jobs = modal.Dict.from_name("moonfactory-user-jobs", create_if_missing=True)
+acceptances = modal.Dict.from_name("moonfactory-acceptances", create_if_missing=True)
 
 # -- per-user job index (perf pass 3, Jack 2026-11-24) -------------------
 # Finding one user's jobs used to be a walk over EVERY record
@@ -1079,6 +1080,48 @@ def legal_acceptance_stamp(body):
     return {"accepted_at": _now(), "legal_version": LEGAL_VERSION}
 
 
+# ---------------------------------------------------------------------------
+# Acceptance log (Jack, 2026-11-24): every checkbox a user
+# ticks that carries legal weight leaves a record here, kept
+# for the platform's own evidence. The log is append only: a
+# dedicated Dict keyed by user id holds that account's events
+# in order, an event is only ever appended, and no code path
+# edits or deletes an entry. The fast stamp fields on the
+# user record (terms_accepted_at, legal_version,
+# adult_confirmed_at) stay exactly as they are and stay what
+# the gates read; this log is the evidence trail behind them.
+# Only real acceptances are recorded: a refused, unchecked,
+# or failed attempt writes nothing.
+# ---------------------------------------------------------------------------
+
+ACCEPTANCE_SIGNUP_LEGAL = "signup_legal"
+ACCEPTANCE_ADULT_18_PLUS = "adult_18_plus"
+
+
+def record_acceptance(user, kind, legal_version=None):
+    """Append one acceptance event for an account and return
+    it. The entry carries the user id, the account email as it
+    stands at the moment of acceptance, the event kind, the
+    legal version where one applies, and the server time. A
+    failed write is logged to the app log and never raised:
+    the acceptance itself already happened and its stamp is
+    on the user record."""
+    entry = {
+        "user_id": (user or {}).get("id"),
+        "email": (user or {}).get("email"),
+        "kind": kind,
+        "legal_version": legal_version,
+        "at": _now(),
+    }
+    try:
+        events = list(acceptances.get(user["id"]) or [])
+        events.append(entry)
+        acceptances[user["id"]] = events
+    except Exception as exc:  # noqa: BLE001
+        print(f"acceptance log write failed: {exc}")
+    return entry
+
+
 def profile_photo_path(user_id: str) -> Path:
     """The one stored profile photo for an account."""
     return FILES_DIR / "avatars" / f"{user_id}.jpg"
@@ -1945,7 +1988,7 @@ def _short_bed_for_job(job: dict):
     returns None. Any audio stage failure falls back to the
     house bed and flags the job record, so delivery never
     breaks on the music stage."""
-    style = job.get("short_music") or "house"
+    style = job.get("short_music") or "none"
     if style == "none":
         return None
     if style == SHORTS_CUSTOM_MUSIC:
@@ -2143,7 +2186,7 @@ def process_short_job(job_id: str):
             # against the same lengths below, so the voice
             # pads out and stays locked to the picture.
             bpm = (SHORTS_MUSIC_STYLES.get(
-                job.get("short_music") or "house") or {}).get(
+                job.get("short_music") or "none") or {}).get(
                     "bpm") or 100
             scene_durations = shorts.snap_durations_to_beat(
                 scene_durations, bpm)
@@ -3152,6 +3195,46 @@ def job_is_uncensored(job: dict) -> bool:
     return bool(image_lane.get("uncensored"))
 
 
+# ---------------------------------------------------------------------------
+# The 18+ gate (Jack, 2026-11-24): the uncensored scope, the
+# same job_is_uncensored definition the upload scanning uses,
+# is adults only. The first time an account creates in that
+# scope it confirms once, in place at the Generate moment;
+# the confirmation stamps the account and is never asked
+# again. Regular lanes never see any of this. The server
+# refuses an unstamped account on an in-scope creation
+# before any quote, hold, charge, free count, or dispatch,
+# so a client that skips the in-place confirmation still
+# creates nothing.
+# ---------------------------------------------------------------------------
+
+ADULT_CONFIRMATION_REQUIRED = (
+    "Confirm you are 18 years old or older before using this model.")
+
+
+def adult_gate_refusal(user, probe):
+    """The refusal message for an in-scope creation by an
+    account without the 18+ stamp, or None when the creation
+    proceeds: out of scope, or already confirmed. `probe` is
+    any dict job_is_uncensored reads, the same model and lane
+    pair the upload scanning judges at creation."""
+    if not job_is_uncensored(probe):
+        return None
+    if (user or {}).get("adult_confirmed_at"):
+        return None
+    return ADULT_CONFIRMATION_REQUIRED
+
+
+def stamp_adult_confirmation(user):
+    """Write the one time 18+ stamp on an account. The stamp
+    is written once: an account that already carries it keeps
+    its original time, and this returns False."""
+    if user.get("adult_confirmed_at"):
+        return False
+    user["adult_confirmed_at"] = _now()
+    return True
+
+
 def job_has_image_input(job: dict) -> bool:
     """Whether the job took an uploaded image as an input: a
     start or end frame, reference images, or an edit source.
@@ -3798,6 +3881,10 @@ SHORTS_STAGES = (
 # user describes the music in their own words: it carries no
 # fixed caption, and its bed is made per job from the job's
 # music prompt, the _bed_for_job pattern (2026-11-24).
+# The default pick is No music (Jack, 2026-11-24): the form
+# preselects it, and every server-side fallback for a short
+# with no stored pick resolves to "none" as well. Explicit
+# picks and stored styles are never rewritten.
 SHORTS_MUSIC_STYLES = {
     "house": {"label": "Dreamy ambient", "caption": "", "bpm": 96},
     "calm": {"label": "Calm piano",
@@ -6281,6 +6368,10 @@ def api():
             # it to drop the bot check wall for the owner
             # account only (Jack, 2026-11-21).
             "is_owner": is_owner(user),
+            # The 18+ stamp (Jack, 2026-11-24): the studio
+            # reads it to run the one time confirmation in
+            # place before an uncensored scope creation fires.
+            "adult_confirmed": bool(user.get("adult_confirmed_at")),
             # The access model (Jack, 2026-11-16; surfaces merged
             # 2026-11-19): there is one composer surface, Create,
             # for every account, and it is the page's first paint.
@@ -6832,6 +6923,11 @@ def api():
         if pending:
             user["pending_create"] = pending
         save_user(user)
+        # The acceptance log (Jack, 2026-11-24): the sign-up
+        # acceptance joins the append only evidence trail,
+        # behind the stamp fields on the record above.
+        record_acceptance(user, ACCEPTANCE_SIGNUP_LEGAL,
+                          legal_version=acceptance["legal_version"])
         token = pysecrets.token_urlsafe(32)
         token_hash = hashlib.sha256(token.encode()).hexdigest()
         meta[f"verify:{token_hash}"] = {"user_id": user["id"], "expires": _now() + 24 * 3600}
@@ -6932,6 +7028,26 @@ def api():
         if pending:
             save_user(user)
         return {"pending_create": pending}
+
+    @web.post("/api/me/adult-confirm")
+    async def adult_confirm(request: Request,
+                            mf_session: str = Cookie(default="")):
+        """The one time 18+ confirmation (Jack, 2026-11-24).
+        Only an explicit true confirms: the account is stamped
+        (the stamp itself is written once, by
+        stamp_adult_confirmation) and the confirmation joins
+        the acceptance log. Anything else is refused and
+        records nothing."""
+        user = require_user(request, mf_session)
+        body = await request.json()
+        if not isinstance(body, dict) \
+                or body.get("adult_confirm") is not True:
+            raise HTTPException(status_code=422,
+                                detail="tick the box to confirm")
+        stamp_adult_confirmation(user)
+        save_user(user)
+        record_acceptance(user, ACCEPTANCE_ADULT_18_PLUS)
+        return {"status": "ok", "user": public_user(user)}
 
     @web.post("/api/me/handle")
     async def set_handle(request: Request, mf_session: str = Cookie(default="")):
@@ -11130,6 +11246,13 @@ def api():
             user, model, created_ip,
             prompt, music_prompt, speech_script,
             clone_reference_text)
+        # The 18+ gate (Jack, 2026-11-24), before the quote,
+        # the hold, and the submit, on the same model pair the
+        # input classifier judges below.
+        adult_refusal = adult_gate_refusal(
+            user, {"model": model, "lane": model})
+        if adult_refusal:
+            raise HTTPException(status_code=403, detail=adult_refusal)
         params = _api_job_params(body, model)
         # The input classifier (Jack, 2026-11-24): the start
         # and end frames ride as base64 in the body and
@@ -11418,6 +11541,17 @@ def api():
             user, model, client_ip(request),
             prompt, music_prompt, speech_script,
             clone_reference_text)
+        # The 18+ gate (Jack, 2026-11-24): an uncensored scope
+        # pick refuses an account without the one time
+        # confirmation, here before any quote, hold, charge,
+        # free count, or dispatch on either create path below
+        # (the per-second path checks again inside
+        # create_api_job, which is also where the drama retake
+        # route enters).
+        adult_refusal = adult_gate_refusal(
+            user, {"model": model, "lane": lane})
+        if adult_refusal:
+            raise HTTPException(status_code=403, detail=adult_refusal)
         # Captions (Jack's call, 2026-11-18): a generation time
         # opt in, either checked or not. The finishing stage
         # burns word timed captions into the delivered file when
@@ -12231,6 +12365,16 @@ def api():
                 raise HTTPException(
                     status_code=400,
                     detail=f"this image model makes {', '.join(lane['raw_cents'])} images")
+            # The 18+ gate (Jack, 2026-11-24): an uncensored
+            # image lane refuses an account without the one
+            # time confirmation, here before the free count,
+            # the stock search, the price, and the charge on
+            # every shelf path below.
+            adult_refusal = adult_gate_refusal(
+                user, {"image_model": lane_id, "lane": "image",
+                       "model": lane_id})
+            if adult_refusal:
+                raise HTTPException(status_code=403, detail=adult_refusal)
             if free_lane:
                 if user["plan"] == "free" and not is_paid(user):
                     if free_jobs_total(user) >= FREE_CLIPS_TOTAL:
@@ -12737,7 +12881,7 @@ def api():
                 or DEFAULT_SPEECH_VOICE,
                 "visuals": parent.get("short_visuals") or "stock",
                 "style": parent.get("short_style") or "",
-                "music": parent.get("short_music") or "house",
+                "music": parent.get("short_music") or "none",
                 "music_prompt": parent.get("music_prompt") or "",
                 "caption_style":
                     parent.get("short_caption_style") or "",
@@ -15001,7 +15145,7 @@ x_api_key: str = Header(default="")):
                     detail="pick one of the picture styles on the list")
         else:
             style = ""
-        music = (body.get("music") or "house").strip()
+        music = (body.get("music") or "none").strip()
         if music not in SHORTS_MUSIC_STYLES:
             raise HTTPException(
                 status_code=422,
@@ -18972,6 +19116,18 @@ APP_HTML = (
   built is saved to your account and starts once you are verified.</p>
 </div>
 
+<div id="adult-gate" class="card" style="display:none;max-width:640px;margin-left:auto;margin-right:auto">
+  <h2>One quick check</h2>
+  <p class="muted">This model is for adults only. Confirm once and your
+  account never has to stop for it again.</p>
+  <p><label for="adult-confirm"><input type="checkbox" id="adult-confirm" style="width:auto;margin:0 6px 0 0">I confirm I am 18 years old or older.</label></p>
+  <p>
+    <button class="btn" id="adult-continue" type="button">Continue</button>
+    <button class="btn secondary" id="adult-cancel" type="button">Not now</button>
+  </p>
+  <p id="adult-msg"></p>
+</div>
+
 <div id="studio">
   <div class="tabs"><div class="seg">
     <button class="btn" id="tab-create">Create</button>
@@ -19502,9 +19658,9 @@ APP_HTML = (
     </div>
     <label>Music</label>
     <select id="short-music">
-      <option value="none">No music</option>
+      <option value="none" selected>No music</option>
       <option value="custom">Custom, your own description</option>
-      <option value="house" selected>Dreamy ambient</option>
+      <option value="house">Dreamy ambient</option>
       <option value="calm">Calm piano</option>
       <option value="upbeat">Upbeat pop</option>
       <option value="cinematic">Cinematic strings</option>
@@ -20030,7 +20186,12 @@ async function botFields(containerId) {
 function renderBotChecks() {
   if (botExempt) return;
   if (cfg.turnstile_site_key && window.turnstile) {
-    for (const id of ['botcheck', 'botcheck2', 'botcheck3', 'botcheck4', 'botcheck5', 'botcheck6']) {
+    // The sign-in dialog's container (botcheck) is NOT in
+    // this list: its check is deferred to the Create account
+    // press (botFieldsOnSubmit below), so the dialog opens
+    // with nothing verifying in it and nothing able to hang
+    // at "Verifying..." while the user is still typing.
+    for (const id of ['botcheck2', 'botcheck3', 'botcheck4', 'botcheck5', 'botcheck6']) {
       if (!document.getElementById(id)) continue;
       botWidgets[id] = turnstile.render('#' + id, {
         sitekey: cfg.turnstile_site_key,
@@ -20054,6 +20215,71 @@ function dropBotChecks() {
     const el = document.getElementById(id);
     if (el) el.innerHTML = '';
   }
+}
+// Deferred bot check for the sign-in dialog (Jack,
+// 2026-11-24). The dialog renders no widget when it opens:
+// the old shape rendered the widget into the still-hidden
+// dialog at page load, where the challenge could sit at
+// "Verifying..." indefinitely, worst in phone in-app
+// browsers, and the submit then waited on a token that was
+// never coming. Now the widget is rendered with execution
+// held back and is executed only at the moment Create
+// account is pressed, as part of that submit; the token it
+// produces goes to the server exactly as before, and the
+// server still refuses a signup whose token is missing or
+// fails verification. Sign in carries no bot check today
+// (rate limits only) and still does not. The owner
+// exemption is untouched: botExempt short-circuits here
+// exactly as in botFields. When Turnstile is not
+// configured, the proof-of-work path runs at submit time,
+// as it always did.
+async function botFieldsOnSubmit(containerId) {
+  if (botExempt) return {};
+  if (!cfg.turnstile_site_key) return await solvePow();
+  // The Turnstile script loads async; if it has not landed
+  // yet, wait briefly for it. If it never arrives, hand
+  // back an empty token and let the server decide, the
+  // same end state as a widget that never produced one.
+  for (let i = 0; i < 20 && !window.turnstile; i++) {
+    await new Promise(res => setTimeout(res, 150));
+  }
+  if (!window.turnstile) return { turnstile_token: '' };
+  return await new Promise(resolve => {
+    let settled = false;
+    const finish = fields => {
+      if (!settled) { settled = true; resolve(fields); }
+    };
+    let wid = botWidgets[containerId];
+    if (wid === undefined) {
+      try {
+        wid = turnstile.render('#' + containerId, {
+          sitekey: cfg.turnstile_site_key,
+          execution: 'execute',
+          callback: token => {
+            if (token) {
+              botHandedOut[containerId] = true;
+              finish({ turnstile_token: token });
+            }
+          },
+          'error-callback': () => finish({ turnstile_token: '' }),
+        });
+        botWidgets[containerId] = wid;
+      } catch (e) { finish({ turnstile_token: '' }); return; }
+    } else if (botHandedOut[containerId]) {
+      // Tokens are single-use: a widget whose token was
+      // already handed to a submit starts over before it
+      // executes again.
+      try { turnstile.reset(wid); } catch (e) {}
+    }
+    try { turnstile.execute(wid); } catch (e) {
+      finish({ turnstile_token: '' });
+      return;
+    }
+    // Never hold the submit open forever: if the challenge
+    // cannot complete, the submit proceeds with no token
+    // and the server refuses it, as it does today.
+    setTimeout(() => finish({ turnstile_token: '' }), 20000);
+  });
 }
 async function api(path, opts) {
   const r = await fetch(path, opts);
@@ -20378,7 +20604,7 @@ $('signup').onclick = async () => {
     // sets the autocomplete its own flow needs (audit F3).
     $('password').autocomplete = 'new-password';
     spinMsg('auth-msg', 'Working on the bot check...');
-    const bot = await botFields('botcheck');
+    const bot = await botFieldsOnSubmit('botcheck');
     const payload = { email: $('email').value, password: $('password').value, accept_terms: $('accept-terms').checked, ...bot };
     // A creation built while signed out rides the sign-up: it
     // is stored on the new account and fires on the verified
@@ -20485,6 +20711,56 @@ function pendingOkText(d) {
     return 'Your episode is being made. It shows up in your videos below as one video when it is done.';
   return '';
 }
+// The 18+ gate (Jack, 2026-11-24): the uncensored scope
+// asks once, in place at the Generate moment, before the bot
+// check and before anything submits. The scope reads the
+// same uncensored flags /api/config serves for the picker.
+// A signed out build parks at sign in first and reaches this
+// only when the creation fires signed in, so the
+// confirmation lands after sign in and email verification,
+// and the parked creation waits on it rather than being
+// lost. The server refuses an unstamped account on its own,
+// so skipping this panel still creates nothing.
+let adultGateResolve = null;
+function modelIsUncensored(id) {
+  const m = (cfg.models || []).find(x => x.id === id);
+  return !!(m && m.uncensored);
+}
+function imageModelIsUncensored(id) {
+  const m = (cfg.image_models || []).find(x => x.id === id);
+  return !!(m && m.uncensored);
+}
+async function ensureAdultConfirmed(inScope) {
+  if (!inScope) return true;
+  if (!currentUser) return true;
+  if (currentUser.adult_confirmed) return true;
+  return new Promise(resolve => {
+    adultGateResolve = resolve;
+    $('adult-confirm').checked = false;
+    msg('adult-msg', '');
+    $('adult-gate').style.display = '';
+    $('adult-gate').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+}
+function settleAdultGate(ok) {
+  $('adult-gate').style.display = 'none';
+  const r = adultGateResolve;
+  adultGateResolve = null;
+  if (r) r(ok);
+}
+$('adult-cancel').onclick = () => settleAdultGate(false);
+$('adult-continue').onclick = async () => {
+  if (!$('adult-confirm').checked) {
+    msg('adult-msg', 'Tick the box to continue.', 'err');
+    return;
+  }
+  try {
+    const r = await api('/api/me/adult-confirm', { method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ adult_confirm: true }) });
+    if (r.user) currentUser = r.user;
+    settleAdultGate(true);
+  } catch (e) { msg('adult-msg', e.message, 'err'); }
+};
 async function fireCreate(d) {
   // The image flow holds its own button inside its own
   // function, for the shape of its own wait. The lanes
@@ -20506,6 +20782,11 @@ async function fireCreate(d) {
   const btn = $('create');
   btnBusy(btn, 'Starting...');
   try {
+    if (d.kind === 'video'
+        && !(await ensureAdultConfirmed(modelIsUncensored(d.body.model)))) {
+      msg(d.msgId, 'Nothing was made. Confirm you are 18 years old or older to use this model.', 'err');
+      return;
+    }
     msg(d.msgId, 'Working on the bot check...');
     btnLabel(btn, 'Working on the bot check...');
     if (d.needsTplUpload) {
@@ -22975,6 +23256,10 @@ async function fireImage(d) {
   btnBusy(btn, 'Starting...');
   let r;
   try {
+    if (!(await ensureAdultConfirmed(imageModelIsUncensored(d.body.image_model)))) {
+      msg('job-msg', 'Nothing was made. Confirm you are 18 years old or older to use this model.', 'err');
+      return;
+    }
     msg('job-msg', 'Working on the bot check...');
     btnLabel(btn, 'Working on the bot check...');
     const bot = await botFields('botcheck2');

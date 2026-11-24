@@ -739,9 +739,18 @@ check(music_order == [
     "epic", "synthwave", "tropical",
 ], "the picker leads with No music and the custom pick, then "
    "the platform bed and the styles (Jack, 2026-11-24)")
-check('<option value="house" selected>Dreamy ambient</option>'
-      in pane,
-      "the platform bed pick carries its dreamy ambient name")
+check('<option value="none" selected>No music</option>' in pane,
+      "no music is the preselected pick (Jack, 2026-11-24)")
+check('<option value="house">Dreamy ambient</option>' in pane,
+      "the platform bed pick carries its dreamy ambient name "
+      "and no longer carries the default")
+check('(body.get("music") or "none")' in SRC,
+      "a short created with no music pick defaults to no music "
+      "on the server")
+check('"music": parent.get("short_music") or "none"' in SRC,
+      "a retried short with no stored style defaults to no music")
+check('job.get("short_music") or "none"' in SRC,
+      "the bed lookup falls back to no music, never the house bed")
 check('<option value="custom">Custom, your own description'
       '</option>' in pane,
       "the music picker offers the custom pick")
