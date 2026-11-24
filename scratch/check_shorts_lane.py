@@ -649,6 +649,37 @@ check(split_values == set(shorts.SPLIT_MODES),
       "the split picker offers exactly the split choices")
 check("payload.split" in SRC,
       "the submit sends the split choice")
+# The script box placeholder follows the split pick (Jack,
+# 2026-11-23: with the pick on sentences the box still talked
+# about lines). One wording per split choice, each following
+# the plain copy rule, and the box opens on the auto wording
+# because auto is the default pick.
+split_placeholders = {
+    "auto": "Write your script here. It is split into scenes "
+            "for you. The voice reads it exactly as written.",
+    "lines": "One line for each scene. The voice reads it "
+             "exactly as written.",
+    "sentences": "Write your script here. Each sentence "
+                 "becomes its own scene. The voice reads it "
+                 "exactly as written.",
+    "paragraphs": "One paragraph for each scene. The voice "
+                  "reads it exactly as written.",
+}
+for mode, wording in split_placeholders.items():
+    check(f"{mode}: '{wording}'" in SRC,
+          f"the placeholder map carries the {mode} wording")
+    check(all(mark not in wording for mark in (":", ";", "-")),
+          f"the {mode} placeholder follows the plain copy rule")
+check('placeholder="' + split_placeholders["auto"] + '"' in pane,
+      "the script box opens on the auto placeholder, "
+      "the default pick's wording")
+check("function syncShortSplitHint()" in SRC,
+      "the split hint sync lives in the studio")
+check("$('short-split').addEventListener('change', "
+      "syncShortSplitHint)" in SRC,
+      "changing the split pick refreshes the script box placeholder")
+check("syncShortSplitHint();" in shorts_swap,
+      "showing the shorts form syncs the placeholder to the pick")
 check('id="short-music"' in pane, "the form carries the music picker")
 music_select = pane.split('id="short-music"', 1)[1].split(
     '</select>', 1)[0]
@@ -747,6 +778,46 @@ if _estimate_results is not None:
         "About 1 minute 1 second of speaking.",
     ], "the served estimate reads empty, 75, 150, 270, 3 and 153 "
        "words at the planning pace, singular seconds included")
+# The split hint sync, run for real the same way: the map and
+# the function are lifted out of the served page and executed
+# in node against every split choice, plus an unknown one,
+# which must fall back to the auto wording.
+_map_start = app.APP_HTML.find("const SHORT_SPLIT_PLACEHOLDERS")
+_sync_start = app.APP_HTML.find("function syncShortSplitHint")
+_sync_end = app.APP_HTML.find("\n}", _sync_start)
+_sync_src = app.APP_HTML[_map_start:_sync_end + 3]
+_sync_harness = (
+    "const store = { 'short-split': { value: 'auto' },"
+    " 'short-script': { placeholder: '' } };\n"
+    "const $ = (id) => store[id];\n"
+    + _sync_src + "\n"
+    "const out = {};\n"
+    "for (const mode of ['auto', 'lines', 'sentences', "
+    "'paragraphs', 'bogus']) {\n"
+    "  store['short-split'].value = mode;\n"
+    "  syncShortSplitHint();\n"
+    "  out[mode] = store['short-script'].placeholder;\n"
+    "}\n"
+    "console.log(JSON.stringify(out));\n"
+)
+with tempfile.NamedTemporaryFile(
+        "w", suffix=".js", delete=False) as _fh:
+    _fh.write(_sync_harness)
+    _sync_path = _fh.name
+try:
+    _sync_out = subprocess.run(
+        ["node", _sync_path], capture_output=True, text=True,
+        timeout=60)
+    _sync_results = json.loads(_sync_out.stdout)
+except Exception as exc:  # noqa: BLE001 - a failed run is a failure
+    _sync_results = None
+    check(False, f"the served split hint sync runs in node: {exc}")
+if _sync_results is not None:
+    _expected_sync = dict(split_placeholders)
+    _expected_sync["bogus"] = split_placeholders["auto"]
+    check(_sync_results == _expected_sync,
+          "the served sync sets the placeholder from the split "
+          "pick for every choice, auto wording on an unknown one")
 check(";" not in pane.split("<p class=\"muted\">")[1].split("</p>")[0],
       "form copy follows the plain copy rule")
 

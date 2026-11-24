@@ -15907,7 +15907,7 @@ APP_HTML = (
       </div>
       <label>Accent color</label>
       <input id="mf-color" type="color" value="#6366f1" style="width:90px;height:44px;padding:2px">
-      <p class="muted">Free for everyone. Free accounts count it toward their five free clips. Paid accounts can make 20 a day.</p>
+      <p class="muted">Free for everyone. Free accounts count it toward their five free clips.</p>
     </div>
     <p class="muted" id="model-note"></p>
     <p class="muted" id="segments-note"></p>
@@ -15951,7 +15951,7 @@ APP_HTML = (
     </div>
     <label>Accent color</label>
     <input id="tpl-color" type="color" value="#6366f1" style="width:90px;height:44px;padding:2px">
-    <p class="muted" id="tpl-note">Free titles count toward the five free clips on a free account. Paid accounts can make 20 a day.</p>
+    <p class="muted" id="tpl-note">Free titles count toward the five free clips on a free account.</p>
     <div id="botcheck4"></div>
     <p id="tpl-msg"></p>
     </div>
@@ -15960,7 +15960,7 @@ APP_HTML = (
     <p class="muted">Make a short with a voice telling the story over stock footage or AI pictures, with captions and music built in. These are free. They run on our own computers, so one can take a few minutes.</p>
     <div id="short-script-wrap">
       <label>Your script</label>
-      <textarea id="short-script" rows="8" maxlength="2200" placeholder="One line for each scene. The voice reads it exactly as written."></textarea>
+      <textarea id="short-script" rows="8" maxlength="2200" placeholder="Write your script here. It is split into scenes for you. The voice reads it exactly as written."></textarea>
       <p class="muted" id="short-script-length-note">Your video length is estimated from your script length.</p>
       <p class="muted" id="short-script-estimate"></p>
       <label>Improve my script</label>
@@ -16116,7 +16116,7 @@ APP_HTML = (
       <input type="checkbox" id="short-beat-sync" style="width:auto;margin:0 6px 0 0">
       Cut on the beat</label>
     <p class="muted">Each scene runs to the next beat of the music, so the cuts land on the beat.</p>
-    <p class="muted" id="short-note">Free shorts count toward the five free clips on a free account. Paid accounts can make 20 a day.</p>
+    <p class="muted" id="short-note">Free shorts count toward the five free clips on a free account.</p>
     <div id="botcheck5"></div>
     <p id="short-msg"></p>
     </div>
@@ -17847,7 +17847,7 @@ function showTitleCardForm() {
     $('api-opts'), $('house-price'), $('botcheck2')];
   for (const el of hide) if (el) el.style.display = 'none';
   $('segments-note').textContent = '';
-  $('model-note').textContent = 'Title cards are free. They count toward the five free clips on a free account, and paid accounts can make 20 a day.';
+  $('model-note').textContent = 'Title cards are free. They count toward the five free clips on a free account.';
   $('quote').textContent = '';
   $('create').textContent = 'Make it for free';
   applyModelGates();
@@ -17871,6 +17871,7 @@ function showShortsForm() {
   $('quote').textContent = '';
   $('create').textContent = 'Make it for free';
   syncShortCloneOpts();
+  syncShortSplitHint();
   applyModelGates();
 }
 // Short drama swaps the composer the same way: the storyboard
@@ -19017,6 +19018,25 @@ function shortShowVisuals() {
     (v === 'ai' || v === 'overlay') ? '' : 'none';
 }
 $('short-visuals').addEventListener('change', shortShowVisuals);
+// The script box placeholder names the unit the split pick
+// cuts on, so the two never disagree (Jack, 2026-11-23: with
+// the pick on sentences the box still talked about lines).
+// The pick defaults to auto, and the textarea in the form
+// carries the auto wording so first paint agrees before
+// this runs.
+const SHORT_SPLIT_PLACEHOLDERS = {
+  auto: 'Write your script here. It is split into scenes for you. The voice reads it exactly as written.',
+  lines: 'One line for each scene. The voice reads it exactly as written.',
+  sentences: 'Write your script here. Each sentence becomes its own scene. The voice reads it exactly as written.',
+  paragraphs: 'One paragraph for each scene. The voice reads it exactly as written.'
+};
+function syncShortSplitHint() {
+  $('short-script').placeholder =
+    SHORT_SPLIT_PLACEHOLDERS[$('short-split').value]
+    || SHORT_SPLIT_PLACEHOLDERS.auto;
+}
+$('short-split').addEventListener('change', syncShortSplitHint);
+syncShortSplitHint();
 async function loadShortsConfig() {
   try {
     const r = await api('/api/shorts/config');
