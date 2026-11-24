@@ -74,6 +74,28 @@ def exec_func(name, namespace):
     return ns[name]
 
 
+# place_legal_hold reads sibling ids off the per-user job
+# index (perf pass 3), so its namespaces carry the index
+# helpers and their stores.
+INDEX_FUNCS = [
+    "_job_index_entry", "_index_job", "_unindex_job",
+    "_job_index_ensure", "_user_job_index", "_indexed_records",
+    "_indexed_active_records", "_prune_active",
+]
+
+
+def index_ns(jobs):
+    ns = {
+        "jobs": jobs, "user_jobs": {}, "meta": {},
+        "JOB_INDEX_ALL_KEY": "__all__",
+        "JOB_INDEX_GLOBAL_CAP": 2500,
+        "JOB_INDEX_FLAG": "job_index:v1",
+    }
+    for name in INDEX_FUNCS:
+        exec(func_src(name), ns)
+    return ns
+
+
 # ------------------------------------------------------------------
 # Fixture stores and helpers, extracted from app.py
 # ------------------------------------------------------------------
@@ -310,6 +332,7 @@ fake_users["id:user-7"] = {
     "handle": "casefile", "verified": True,
 }
 place_hold = exec_func("place_legal_hold", {
+    **index_ns(fake_jobs),
     "users": fake_users, "jobs": fake_jobs, "legal_holds": fake_holds,
     "FILES_DIR": FILES, "stamp_content_hash": stamp,
     "json": json, "_now": lambda: 1700000099,
@@ -501,6 +524,7 @@ export2 = exec_func("_legal_hold_vault_export", {
 })
 jobs2 = {}
 place2 = exec_func("place_legal_hold", {
+    **index_ns(jobs2),
     "users": fake_users, "jobs": jobs2, "legal_holds": holds2,
     "FILES_DIR": FILES, "stamp_content_hash": stamp,
     "json": json, "_now": lambda: 1700000200,

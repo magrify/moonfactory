@@ -73,9 +73,21 @@ class Req:
         self.query_params = params
 
 
+INDEX_FUNCS = [
+    "_job_index_entry", "_index_job", "_unindex_job",
+    "_job_index_ensure", "_user_job_index", "_indexed_records",
+    "_indexed_active_records", "_prune_active",
+]
+
+
 def run_list_jobs(jobs, params):
     ns = {
         "jobs": jobs,
+        "user_jobs": {},
+        "meta": {},
+        "JOB_INDEX_ALL_KEY": app.JOB_INDEX_ALL_KEY,
+        "JOB_INDEX_GLOBAL_CAP": app.JOB_INDEX_GLOBAL_CAP,
+        "JOB_INDEX_FLAG": app.JOB_INDEX_FLAG,
         "require_user": lambda request, mf_session: {"id": "u1"},
         "mirror_status": lambda j: j,
         "public_job": lambda j, queue_position=None: {
@@ -85,6 +97,8 @@ def run_list_jobs(jobs, params):
         "Cookie": lambda default="": default,
         "Request": object,
     }
+    for name in INDEX_FUNCS:
+        exec(func_src(name), ns)
     exec(func_src("list_jobs"), ns)
     return ns["list_jobs"](Req(params), "")
 

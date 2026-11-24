@@ -84,7 +84,9 @@ def base_ns():
             "COMFY_QUEUED_LIMIT_SECONDS", "COMFY_RUNNING_LIMIT_SECONDS",
             "COMFY_DEAD_HEARTBEAT_SECONDS", "COMFY_DEAD_JOB_MIN_AGE_SECONDS",
             "WORKER_BASE", "DEFAULT_MODEL", "job_is_nsfw",
-            "prompt_is_nsfw", "job_is_uncensored", "_now"):
+            "prompt_is_nsfw", "job_is_uncensored", "_now",
+            "JOB_INDEX_ALL_KEY", "JOB_INDEX_GLOBAL_CAP",
+            "JOB_INDEX_FLAG"):
         if hasattr(app_module, name):
             ns[name] = getattr(app_module, name)
     ns.setdefault("URL_RESULT_PROVIDERS", set())
@@ -100,6 +102,12 @@ def exec_all(ns, names):
             exec(src, ns)
     return ns
 
+
+INDEX_FUNCS = [
+    "_job_index_entry", "_index_job", "_unindex_job",
+    "_job_index_ensure", "_user_job_index", "_indexed_records",
+    "_indexed_active_records", "_prune_active",
+]
 
 MIRROR_FUNCS = [
     "_poll_gate", "mirror_fal_status", "mirror_beatapi_status",
@@ -186,6 +194,7 @@ def bench_list():
     triggers = {"count": 0}
     ns.update({
         "jobs": jobs,
+        "user_jobs": CountingDict(),
         "users": {"id:u1": {"id": "u1", "plan": "creator"}},
         "meta": CountingDict(),
         "dramas": CountingDict(),
@@ -208,6 +217,7 @@ def bench_list():
         "lane_audio": lambda model: {"native_speech": False},
     })
     exec_all(ns, MIRROR_FUNCS)
+    exec_all(ns, INDEX_FUNCS)
     exec_all(ns, ["is_paid", "gallery_visible", "public_job",
                   "list_jobs"])
     mirror_calls = {"count": 0}
@@ -223,13 +233,19 @@ def bench_list():
 
     times = []
     result = None
-    for _ in range(5):
+    for run in range(5):
         jobs.gets = 0
         jobs.writes = 0
         mirror_calls["count"] = 0
         start = time.perf_counter()
         result = ns["list_jobs"](Req(), "")
         times.append(time.perf_counter() - start)
+        if run == 0:
+            # The first call ever pays the one-time index
+            # backfill walk; every later call reads the index.
+            print(f"[list recent] first call (backfill): "
+                  f"store gets {jobs.gets}, "
+                  f"mirror calls {mirror_calls['count']}")
     print(f"[list recent] mean {sum(times) / len(times) * 1000:.1f} ms "
           f"runs {[round(t * 1000) for t in times]}")
     print(f"[list recent] payload jobs {len(result['jobs'])} "
@@ -277,6 +293,7 @@ def bench_gallery():
     }
     ns.update({
         "jobs": jobs,
+        "user_jobs": CountingDict(),
         "users": users,
         "meta": CountingDict(),
         "requests": RecordingRequests(),
@@ -290,6 +307,7 @@ def bench_gallery():
                            "building_since": 0.0},
         "GALLERY_CACHE_SECONDS": 30,
     })
+    exec_all(ns, INDEX_FUNCS)
     exec_all(ns, ["is_paid", "display_handle", "gallery_visible",
                   "gallery_file_ready", "public_gallery_item",
                   "_gallery_build", "_gallery_refresh",

@@ -127,7 +127,7 @@ for name in ("_clone_debit_once", "_clone_refund_if_unsuccessful",
     check(callable(getattr(app, name, None)), f"{name} missing")
 check('"kind": "voice_clone"' in SRC,
       "clone children do not carry the voice_clone kind")
-check('not job.get("clone_parent")' in SRC,
+check('not j.get("clone_parent")' in SRC,
       "clone children are not hidden from the library list")
 check(SRC.count('"voice_clone"))') >= 3,
       "clone children are not excluded from the in-flight counters")

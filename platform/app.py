@@ -74,6 +74,178 @@ outbox = modal.Dict.from_name("moonfactory-outbox", create_if_missing=True)
 tombstones = modal.Dict.from_name("moonfactory-tombstones", create_if_missing=True)
 legal_holds = modal.Dict.from_name("moonfactory-legal-holds", create_if_missing=True)
 refusals = modal.Dict.from_name("moonfactory-refusals", create_if_missing=True)
+user_jobs = modal.Dict.from_name("moonfactory-user-jobs", create_if_missing=True)
+
+# -- per-user job index (perf pass 3, Jack 2026-11-24) -------------------
+# Finding one user's jobs used to be a walk over EVERY record
+# in the jobs store: list(jobs.keys()) plus a jobs.get per key,
+# and a Modal Dict get is a per-key remote call, so the studio's
+# boot call paid ~1,000 remote gets before it could cut its
+# three-plus-three. The index keeps, per user, one entry:
+# {"ids": [[job_id, created_at, kind, top_level], ...] newest
+# first, "active": [job_id, ...]}, plus one global entry under
+# JOB_INDEX_ALL_KEY with the newest top-level facts for the
+# gallery build. Facts in an entry are the immutable ones
+# (creation time, kind, parentage); status is always read from
+# the record itself. Creation hooks (_index_job at every store
+# of a new record) and the delete path (_unindex_job) keep it
+# current; _job_index_ensure builds it once from the existing
+# store, merging rather than overwriting so a creation that
+# lands mid-build survives. Reads tolerate ids whose records
+# are gone (a deletion that raced the build) by pruning them.
+JOB_INDEX_ALL_KEY = "__all__"
+JOB_INDEX_GLOBAL_CAP = 2500
+JOB_INDEX_FLAG = "job_index:v1"
+
+
+def _job_index_entry(job: dict) -> list:
+    return [job["id"], float(job.get("created_at") or 0),
+            job.get("kind"),
+            0 if (job.get("short_parent") or job.get("drama_parent")
+                  or job.get("clone_parent")) else 1]
+
+
+def _index_job(job: dict):
+    """Record a freshly stored job in the index. Idempotent:
+    re-calling for an existing job (a drama resume reopens its
+    episode) only restores its active membership."""
+    uid = job.get("user_id")
+    if not uid or not job.get("id"):
+        return
+    entry = _job_index_entry(job)
+    ent = user_jobs.get(uid) or {"ids": [], "active": []}
+    ids = ent.get("ids") or []
+    if job["id"] not in {e[0] for e in ids}:
+        ids.insert(0, entry)
+        ent["ids"] = ids
+    active = ent.get("active") or []
+    if job.get("status") in ("queued", "running") \
+            and job["id"] not in active:
+        active.append(job["id"])
+        ent["active"] = active
+    user_jobs[uid] = ent
+    if entry[3]:
+        gent = user_jobs.get(JOB_INDEX_ALL_KEY) or {"ids": []}
+        gids = gent.get("ids") or []
+        if job["id"] not in {e[0] for e in gids}:
+            gids.insert(0, entry)
+            del gids[JOB_INDEX_GLOBAL_CAP:]
+            gent["ids"] = gids
+            user_jobs[JOB_INDEX_ALL_KEY] = gent
+
+
+def _unindex_job(uid, job_id):
+    if not uid or not job_id:
+        return
+    ent = user_jobs.get(uid)
+    if ent:
+        ent["ids"] = [e for e in (ent.get("ids") or [])
+                      if e[0] != job_id]
+        ent["active"] = [a for a in (ent.get("active") or [])
+                         if a != job_id]
+        user_jobs[uid] = ent
+    gent = user_jobs.get(JOB_INDEX_ALL_KEY)
+    if gent:
+        gids = [e for e in (gent.get("ids") or [])
+                if e[0] != job_id]
+        if len(gids) != len(gent.get("ids") or []):
+            gent["ids"] = gids
+            user_jobs[JOB_INDEX_ALL_KEY] = gent
+
+
+def _job_index_ensure():
+    """One-time backfill: build every per-user entry and the
+    global list from the existing store in a single walk, then
+    set the flag so no walk ever runs again. Merges with any
+    entries the creation hooks already wrote (a job created
+    while the build walked keeps its place), and a second
+    builder racing the first writes the same shape."""
+    if meta.get(JOB_INDEX_FLAG):
+        return
+    walked = {}
+    for key in list(jobs.keys()):
+        job = jobs.get(key)
+        if not job or not job.get("id"):
+            continue
+        entry = _job_index_entry(job)
+        uid = job.get("user_id")
+        if uid:
+            slot = walked.setdefault(
+                uid, {"ids": [], "active": []})
+            slot["ids"].append(entry)
+            if job.get("status") in ("queued", "running"):
+                slot["active"].append(job["id"])
+        if entry[3]:
+            walked.setdefault(JOB_INDEX_ALL_KEY,
+                              {"ids": []})["ids"].append(entry)
+    for uid, slot in walked.items():
+        existing = user_jobs.get(uid) or {"ids": [], "active": []}
+        seen = {e[0] for e in slot["ids"]}
+        merged = slot["ids"] + [
+            e for e in (existing.get("ids") or [])
+            if e[0] not in seen]
+        merged.sort(key=lambda e: e[1], reverse=True)
+        if uid == JOB_INDEX_ALL_KEY:
+            del merged[JOB_INDEX_GLOBAL_CAP:]
+            user_jobs[uid] = {"ids": merged}
+        else:
+            active = list(slot["active"])
+            for a in existing.get("active") or []:
+                if a not in active:
+                    active.append(a)
+            user_jobs[uid] = {"ids": merged, "active": active}
+    meta[JOB_INDEX_FLAG] = True
+
+
+def _user_job_index(user_id: str) -> dict:
+    """The caller's index entry, backfilling the whole index
+    on first touch. A user with no entry after the backfill
+    has no jobs; the empty entry is NOT written here, so a
+    later first creation still starts from _index_job."""
+    _job_index_ensure()
+    return user_jobs.get(user_id) or {"ids": [], "active": []}
+
+
+def _indexed_records(user_id: str, job_ids) -> list:
+    """Fetch records for index ids, pruning ids whose records
+    are gone from both the id list and the active set."""
+    records = []
+    dead = []
+    for jid in job_ids:
+        job = jobs.get(jid)
+        if job:
+            records.append(job)
+        else:
+            dead.append(jid)
+    if dead:
+        ent = user_jobs.get(user_id)
+        if ent:
+            ent["ids"] = [e for e in (ent.get("ids") or [])
+                          if e[0] not in dead]
+            ent["active"] = [a for a in (ent.get("active") or [])
+                             if a not in dead]
+            user_jobs[user_id] = ent
+    return records
+
+
+def _indexed_active_records(user_id: str) -> list:
+    """Records for the user's active set (queued/running at
+    creation, pruned as reads observe them terminal or gone).
+    A superset of the truly active jobs; callers apply their
+    own status predicate to the records, exactly as the old
+    whole-store walks did."""
+    ent = _user_job_index(user_id)
+    return _indexed_records(user_id, list(ent.get("active") or []))
+
+
+def _prune_active(user_id: str, dead_ids):
+    if not dead_ids:
+        return
+    ent = user_jobs.get(user_id)
+    if ent and ent.get("active"):
+        ent["active"] = [a for a in ent["active"]
+                         if a not in dead_ids]
+        user_jobs[user_id] = ent
 
 image = (
     modal.Image.debian_slim(python_version="3.12")
@@ -362,6 +534,7 @@ def process_clip_job(job_id: str):
             classify_job_output(
                 child, files_dir / f"{child_id}.mp4")
             jobs[child_id] = child
+            _index_job(child)
             clip_ids.append(child_id)
         job["clip_ids"] = clip_ids
         job["stage"] = "Done"
@@ -920,13 +1093,13 @@ def place_legal_hold(job: dict, trigger: str, note: str = "") -> None:
                 "handle": owner.get("handle"),
                 "verified": owner.get("verified"),
             }
-        siblings = []
-        for key in list(jobs.keys()):
-            if key == job.get("id"):
-                continue
-            other = jobs.get(key)
-            if other and other.get("user_id") == job.get("user_id"):
-                siblings.append(other["id"])
+        # Sibling ids come off the owner's index entry (perf
+        # pass 3) instead of a whole-store walk.
+        siblings = [
+            e[0] for e in (
+                _user_job_index(job.get("user_id")).get("ids")
+                or [])
+            if e[0] != job.get("id")]
         existing = legal_holds.get(job["id"]) or {}
         actions = list(existing.get("actions") or [])
         actions.append({
@@ -1415,6 +1588,7 @@ def _short_ai_scenes(job: dict, lines: list):
             "short_parent": job["id"],
         }
         jobs[child["id"]] = child
+        _index_job(child)
         children.append(child["id"])
     _wake_comfy_kernel()
     deadline = time.time() + SHORTS_AI_WAIT_SECONDS
@@ -1542,6 +1716,7 @@ def _queue_clone_child(parent: dict, text: str) -> str:
         "plan_at_job": parent.get("plan_at_job"),
     }
     jobs[child["id"]] = child
+    _index_job(child)
     parent.setdefault("clone_children", []).append(child["id"])
     jobs[parent["id"]] = parent
     return child["id"]
@@ -10838,6 +11013,7 @@ def api():
             job["clone_charge_cents"] = pricing.voice_clone_price_cents(
                 owner=is_owner(user))
         jobs[job["id"]] = job
+        _index_job(job)
         _store_clone_reference(job, clone_reference,
                                clone_reference_text)
         # API lane videos count toward the 5 free too (the
@@ -11229,10 +11405,8 @@ def api():
         # list shows each one's position. No serial babysitting.
         limit = CONCURRENCY_PAID if is_paid(user) else CONCURRENCY_FREE
         in_flight = 0
-        for key in list(jobs.keys()):
-            other = jobs.get(key)
-            if (other and other.get("user_id") == user["id"]
-                    and other.get("status") in ("queued", "running")
+        for other in _indexed_active_records(user["id"]):
+            if (other.get("status") in ("queued", "running")
                     and other.get("provider") != "clip"
                     and not other.get("drama_parent")
                     and other.get("kind") not in (
@@ -11506,6 +11680,7 @@ def api():
             job["clone_charge_cents"] = clone_add
             job["clone_folded_cents"] = clone_add
         jobs[job["id"]] = job
+        _index_job(job)
         _store_clone_reference(job, clone_reference,
                                clone_reference_text)
         if on_kaggle:
@@ -11515,27 +11690,21 @@ def api():
     @web.get("/api/jobs")
     def list_jobs(request: Request, mf_session: str = Cookie(default="")):
         user = require_user(request, mf_session)
-        # The store has no per-user index, so finding the
-        # caller's jobs is a walk over every record — but the
-        # walk is only a filter (perf pass 2, Jack 2026-11-24):
-        # records are sorted and cut RAW, and mirror_status
-        # runs solely on the jobs this response returns plus
-        # the caller's active jobs (queue positions are counted
-        # across all of those, and an active job outside the
-        # cut still needs its poll). Terminal history is never
-        # mirrored here: mirroring it on every load was this
-        # endpoint's per-job cost, and a terminal record's
-        # mirror is a no-op by the guard in mirror_status
-        # itself, so nothing observable changes.
-        mine = []
-        for key in list(jobs.keys()):
-            job = jobs.get(key)
-            if job and job.get("user_id") == user["id"] \
-                    and not job.get("short_parent") \
-                    and not job.get("drama_parent") \
-                    and not job.get("clone_parent"):
-                mine.append(job)
-        mine.sort(key=lambda j: j["created_at"], reverse=True)
+        # The caller's jobs come from the per-user index (perf
+        # pass 3, Jack 2026-11-24): the whole-store walk this
+        # endpoint used to run — a jobs.get per record in the
+        # store, each one a remote call — was the studio boot's
+        # real cost, and it is gone. The index facts (newest
+        # first, top-level only) choose the cut and the totals;
+        # only the returned records plus the caller's active
+        # records are fetched, and mirror_status runs solely on
+        # those (queue positions are counted across them, and
+        # an active job outside the cut still needs its poll).
+        # Terminal history is never mirrored here, exactly as
+        # before: a terminal record's mirror is a no-op by the
+        # guard in mirror_status itself.
+        ent = _user_job_index(user["id"])
+        entries = [e for e in (ent.get("ids") or []) if e[3]]
         # Recent mode (Jack, 2026-11-24): the studio homepage
         # opens on the three most recent videos and the three
         # most recent images only, so its payload never carries
@@ -11545,22 +11714,37 @@ def api():
         # knows when a section has more behind its View All
         # link.
         recent = request.query_params.get("recent") == "1"
-        total_videos = sum(1 for j in mine if j.get("kind") != "image")
-        total_images = len(mine) - total_videos
+        total_videos = sum(1 for e in entries if e[2] != "image")
+        total_images = len(entries) - total_videos
         if recent:
-            picked = [j for j in mine if j.get("kind") != "image"][:3]
-            picked += [j for j in mine if j.get("kind") == "image"][:3]
-            picked.sort(key=lambda j: j["created_at"], reverse=True)
+            picked_ids = [e[0] for e in entries
+                          if e[2] != "image"][:3]
+            picked_ids += [e[0] for e in entries
+                           if e[2] == "image"][:3]
         else:
-            picked = mine[:50]
+            picked_ids = [e[0] for e in entries[:50]]
+        picked = _indexed_records(user["id"], picked_ids)
+        picked.sort(key=lambda j: j["created_at"], reverse=True)
+        active_records = _indexed_active_records(user["id"])
         wanted = {j["id"]: j for j in picked}
-        for j in mine:
-            if j["status"] in ("queued", "running"):
+        for j in active_records:
+            if j["status"] in ("queued", "running") \
+                    and not j.get("short_parent") \
+                    and not j.get("drama_parent") \
+                    and not j.get("clone_parent"):
                 wanted[j["id"]] = j
         mirrored = {jid: mirror_status(j)
                     for jid, j in wanted.items()}
+        # The active set keeps an id until a read observes its
+        # record terminal; observing one here retires it, so
+        # the set stays the handful of jobs really in flight.
+        _prune_active(user["id"], {
+            j["id"] for j in active_records
+            if j["id"] in mirrored
+            and mirrored[j["id"]]["status"] not in (
+                "queued", "running")})
         active = sorted(
-            (mirrored[j["id"]] for j in mine
+            (mirrored[j["id"]] for j in wanted.values()
              if j["status"] in ("queued", "running")
              and mirrored[j["id"]]["status"] in ("queued", "running")),
             key=lambda j: j["created_at"])
@@ -11603,13 +11787,18 @@ def api():
         job = mirror_status(job)
         position = None
         if job["status"] in ("queued", "running"):
+            # The caller's active records via the per-user
+            # index (perf pass 3): the whole-store walk this
+            # poll used to run per call is gone; the predicate
+            # and the stored-status basis are unchanged.
             active = sorted(
-                (j for j in (jobs.get(k) for k in list(jobs.keys()))
-                 if j and j.get("user_id") == user["id"]
-                 and not j.get("drama_parent")
+                (j for j in _indexed_active_records(user["id"])
+                 if not j.get("drama_parent")
                  and j["status"] in ("queued", "running")),
                 key=lambda j: j["created_at"])
-            position = [j["id"] for j in active].index(job["id"]) + 1
+            ids = [j["id"] for j in active]
+            if job["id"] in ids:
+                position = ids.index(job["id"]) + 1
         return public_job(job, queue_position=position)
 
     # -- start-image generation (Pass 3) --------------------------------
@@ -11929,6 +12118,7 @@ def api():
             user["balance_cents"] = int(user.get("balance_cents", 0)) - charge
             save_user(user)
             jobs[job_id] = job
+            _index_job(job)
             if stock_pick:
                 job["stock_download_url"] = stock_pick["download_url"]
                 job["stock_page_url"] = stock_pick["page_url"]
@@ -11992,10 +12182,8 @@ def api():
         # an image render is a render.
         limit = CONCURRENCY_PAID if is_paid(user) else CONCURRENCY_FREE
         in_flight = 0
-        for key in list(jobs.keys()):
-            other = jobs.get(key)
-            if (other and other.get("user_id") == user["id"]
-                    and other.get("status") in ("queued", "running")
+        for other in _indexed_active_records(user["id"]):
+            if (other.get("status") in ("queued", "running")
                     and other.get("provider") != "clip"
                     and not other.get("drama_parent")
                     and other.get("kind") not in (
@@ -12092,6 +12280,7 @@ def api():
             "aspect_ratio": aspect,
         }
         jobs[job["id"]] = job
+        _index_job(job)
         _comfy_maybe_trigger()
         return JSONResponse(
             {**public_job(job), "quote": pricing.image_quote(owner=is_owner(user))},
@@ -12108,9 +12297,14 @@ def api():
         root_id = parent.get("retry_of") or parent["id"]
         children = 0
         free_retries = 0
-        for key in list(jobs.keys()):
-            other = jobs.get(key)
-            if other and other.get("retry_of") == root_id:
+        # The retry chain belongs to the parent's owner, so
+        # the count reads the owner's indexed records instead
+        # of walking the whole store (perf pass 3).
+        for other in _indexed_records(
+                user["id"],
+                [e[0] for e in
+                 (_user_job_index(user["id"]).get("ids") or [])]):
+            if other.get("retry_of") == root_id:
                 children += 1
                 if other.get("free_retry"):
                     free_retries += 1
@@ -13202,6 +13396,7 @@ def api():
                             child, FILES_DIR / f"{cid}.mp4")
                     write_job_tombstone(child)
                     del jobs[cid]
+                    _unindex_job(child.get("user_id"), cid)
                 for path in (FILES_DIR / f"{cid}.mp4",
                              FILES_DIR / f"{cid}.raw.mp4",
                              FILES_DIR / f"{cid}.jpg",
@@ -13229,6 +13424,7 @@ def api():
                                   else f"{job_id}.mp4"))
         write_job_tombstone(job)
         del jobs[job_id]
+        _unindex_job(user["id"], job_id)
         _gallery_cache_clear(job_id)
         for path in (FILES_DIR / f"{job_id}.mp4",
                      FILES_DIR / f"{job_id}.web.mp4",
@@ -13502,6 +13698,7 @@ def api():
             "clip_ids": [],
         }
         jobs[job["id"]] = job
+        _index_job(job)
         process_clip_job.spawn(job["id"])
         return JSONResponse({**public_job(job), "quote": q}, status_code=202)
 
@@ -13549,15 +13746,12 @@ def api():
             x_api_key or "", expected)
 
     def _hf_daily_used(user: dict) -> int:
+        # Counted off the per-user index facts (kind and
+        # creation time ride the entry), no record fetches.
         day_start = _now() - (_now() % 86400)
-        used = 0
-        for key in list(jobs.keys()):
-            other = jobs.get(key)
-            if (other and other.get("user_id") == user["id"]
-                    and other.get("kind") == "template"
-                    and float(other.get("created_at") or 0) >= day_start):
-                used += 1
-        return used
+        ent = _user_job_index(user["id"])
+        return sum(1 for e in (ent.get("ids") or [])
+                   if e[2] == "template" and e[1] >= day_start)
 
     @web.get("/api/templates/config")
     def template_config(request: Request, mf_session: str = Cookie(default="")):
@@ -13716,6 +13910,7 @@ def api():
             "music_prompt": None,
         }
         jobs[job["id"]] = job
+        _index_job(job)
         if is_free_job:
             u = usage(user)
             u["free_jobs"] += 1
@@ -14324,15 +14519,12 @@ x_api_key: str = Header(default="")):
     # a voice. A free short is spoken in the standard voice.
 
     def _shorts_daily_used(user: dict) -> int:
+        # Counted off the per-user index facts (kind and
+        # creation time ride the entry), no record fetches.
         day_start = _now() - (_now() % 86400)
-        used = 0
-        for key in list(jobs.keys()):
-            other = jobs.get(key)
-            if (other and other.get("user_id") == user["id"]
-                    and other.get("kind") == "short"
-                    and float(other.get("created_at") or 0) >= day_start):
-                used += 1
-        return used
+        ent = _user_job_index(user["id"])
+        return sum(1 for e in (ent.get("ids") or [])
+                   if e[2] == "short" and e[1] >= day_start)
 
     @web.get("/api/shorts/config")
     def shorts_config(request: Request, mf_session: str = Cookie(default="")):
@@ -14628,6 +14820,7 @@ x_api_key: str = Header(default="")):
             job["clone_charge_cents"] = clone_add
             job["clone_folded_cents"] = clone_add
         jobs[job["id"]] = job
+        _index_job(job)
         _store_clone_reference(job, clone_reference,
                                clone_reference_text)
         if is_free_job:
@@ -14868,6 +15061,7 @@ x_api_key: str = Header(default="")):
         stamp_input_verdict(job, classify_input_images(
             data_urls=params.get("reference_image_urls")))
         jobs[job["id"]] = job
+        _index_job(job)
         shot["child_job_id"] = job["id"]
         shot["status"] = "making"
         dramas[rec["id"]] = rec
@@ -15284,10 +15478,8 @@ x_api_key: str = Header(default="")):
             raise HTTPException(status_code=400, detail=refusal)
         limit = CONCURRENCY_PAID if is_paid(user) else CONCURRENCY_FREE
         in_flight = 0
-        for key in list(jobs.keys()):
-            other = jobs.get(key)
-            if (other and other.get("user_id") == user["id"]
-                    and other.get("status") in ("queued", "running")
+        for other in _indexed_active_records(user["id"]):
+            if (other.get("status") in ("queued", "running")
                     and other.get("provider") != "clip"
                     and not other.get("drama_parent")
                     and other.get("kind") not in (
@@ -15375,6 +15567,7 @@ x_api_key: str = Header(default="")):
         }
         stamp_input_verdict(parent, input_verdict)
         jobs[parent["id"]] = parent
+        _index_job(parent)
         rec["entities"] = entities
         rec["shots"] = shots
         rec["status"] = "making"
@@ -15443,6 +15636,7 @@ x_api_key: str = Header(default="")):
         job["drama_state"] = "making"
         job["stage"] = "Starting again"
         jobs[job["id"]] = job
+        _index_job(job)
         return public_job(job)
 
     @web.post("/api/drama/{job_id}/shots/{shot_index}/retake")
@@ -15801,9 +15995,19 @@ x_api_key: str = Header(default="")):
                 owners[uid] = users.get(f"id:{uid}")
             return owners[uid]
 
+        # Candidates come from the global index entry (perf
+        # pass 3): newest-first top-level facts, so the build
+        # fetches only records that can list and stops once
+        # the page is full, instead of walking and fetching
+        # every record in the store. The verdicts are the
+        # same; children never list (gallery_visible bars the
+        # parented kinds, and the index's global list holds
+        # the same top-level set the walk filtered to).
+        _job_index_ensure()
+        gent = user_jobs.get(JOB_INDEX_ALL_KEY) or {"ids": []}
         items = []
-        for key in list(jobs.keys()):
-            job = jobs.get(key)
+        for entry in gent.get("ids") or []:
+            job = jobs.get(entry[0])
             if not job:
                 continue
             owner = owner_of(job)
@@ -15812,6 +16016,8 @@ x_api_key: str = Header(default="")):
             if gallery_visible(job, owner) \
                     and gallery_file_ready(job):
                 items.append(public_gallery_item(job, owner))
+                if len(items) >= 100:
+                    break
         items.sort(key=lambda i: i["created_at"], reverse=True)
         return items[:100]
 

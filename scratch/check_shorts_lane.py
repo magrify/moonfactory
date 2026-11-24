@@ -505,7 +505,7 @@ check('"caption_styles"' in lane,
       "the config offers the caption styles")
 check("short_parent" in SRC,
       "AI picture jobs carry the short parent mark")
-check('not job.get("short_parent")' in SRC,
+check('not j.get("short_parent")' in SRC,
       "the library skips a short's picture jobs")
 check("gallery_visible" in SRC and 'job.get("short_parent")' in SRC,
       "the gallery skips a short's picture jobs")
