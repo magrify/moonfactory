@@ -3,8 +3,11 @@
 
 Rule: the delete confirm may only claim the item comes out of
 the public gallery when the item is really in it. NSFW
-generations never list in the gallery, so their confirm reads
-studio only. The pick rides on in_gallery, which list_jobs
+generations never list in the gallery (since 2026-11-23 that
+verdict is prompt-judged: an uncensored-lane job whose own
+prompt scans NSFW), so their confirm reads studio only, while
+a clean-prompt uncensored job really is in the gallery and its
+confirm says so. The pick rides on in_gallery, which list_jobs
 stamps onto every job it sends as gallery_visible's own
 verdict, the very function the gallery feed lists by. The noun
 follows the item kind too: images are asked about as images.
@@ -67,7 +70,8 @@ opted_out_owner = {"id": "u-out", "plan": "creator",
 USERS = {f"id:{u['id']}": u
          for u in (free_owner, paid_owner, opted_out_owner)}
 
-gns = {"users": USERS, "is_paid": is_paid, "job_is_nsfw": app.job_is_nsfw}
+gns = {"users": USERS, "is_paid": is_paid, "job_is_nsfw": app.job_is_nsfw,
+       "job_is_uncensored": app.job_is_uncensored}
 exec(func_src("gallery_visible"), gns)
 gallery_visible = gns["gallery_visible"]
 
@@ -84,10 +88,17 @@ def job(**kw):
 # stamp will carry are these verdicts.
 check(gallery_visible(job()) is True,
       "normal done job would not be stamped in_gallery")
-check(gallery_visible(job(lane="nsfw", model="wan22_uncut")) is False,
-      "nsfw lane job would be stamped in_gallery")
-check(gallery_visible(job(lane="wan3_unc", model="wan3_unc")) is False,
-      "uncensored model job would be stamped in_gallery")
+check(gallery_visible(job(lane="nsfw", model="wan22_uncut",
+                          prompt="a nude woman dancing",
+                          user_prompt="a nude woman dancing")) is False,
+      "explicit nsfw lane job would be stamped in_gallery")
+check(gallery_visible(job(lane="wan3_unc", model="wan3_unc",
+                          prompt="an erotic scene",
+                          user_prompt="an erotic scene")) is False,
+      "explicit uncensored model job would be stamped in_gallery")
+check(gallery_visible(job(lane="wan3_unc", model="wan3_unc")) is True,
+      "clean-prompt uncensored model job would not be stamped "
+      "in_gallery (it really lists, so its confirm says so)")
 check(gallery_visible(job(gallery_public=False)) is False,
       "creation stamped job would be stamped in_gallery")
 check(gallery_visible(job(user_id="u-out")) is False,

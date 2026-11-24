@@ -20,7 +20,9 @@ or Kaggle call:
   the paid charge kept as charged_cents (so the house
   restore path refunds it in full), the trigger words
   stamped in front of the user's words, the user's words
-  kept as user_prompt, and the public gallery stamp off;
+  kept as user_prompt, and the public gallery stamp set only
+  when the user's own prompt scans NSFW (prompt-judged since
+  2026-11-23; the stamp statement still rides the queue);
 - the kernel's Krea graph is the proven test graph (int8
   convrot Raw build, Verite LoRA at 0.8, Qwen3VL encoder as
   type krea2, Qwen image VAE, 30 steps at cfg 4.5, euler on

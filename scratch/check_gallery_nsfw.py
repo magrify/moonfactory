@@ -1,19 +1,28 @@
-"""Local checks for the NSFW gallery exclusion (Jack, 2026-11-18).
+"""Local checks for the NSFW gallery exclusion (Jack, 2026-11-18;
+prompt-judged since 2026-11-23).
 
-Rule: if a user makes an NSFW video, it does not show up in the
-public gallery. A job is NSFW for gallery purposes when its lane
-is the house NSFW lane OR its model is one of the uncensored
-catalog models (UNCENSORED_VIDEO_MODELS, the flag /api/config
-serves and the picker renders as the Uncensored marker). Either
-signal excludes, whatever the owner's gallery opt-out setting,
-and the read-level check in gallery_visible covers jobs finished
-before the rule existed. At creation, NSFW jobs are also stamped
-gallery_public False as belt and braces. The owner's own library
-and job views are untouched.
+Rule: if a user makes an NSFW generation, it does not show up
+in the public gallery. Since 2026-11-23 the verdict is judged
+by the user's own prompt, not by the lane: a job is NSFW for
+gallery purposes when it ran on an uncensored lane or build
+(the house NSFW lane, an UNCENSORED_VIDEO_MODELS model, or an
+image lane flagged uncensored: job_is_uncensored sets the
+scope) AND its stored user prompt scans NSFW
+(prompt_is_nsfw). A clean prompt on an uncensored lane lists
+exactly like a regular generation. The read-level check in
+gallery_visible covers jobs finished before the rule existed,
+rejudging them by their stored prompts; their blanket-era
+creation stamps no longer rule them (the stamp still rules
+every non-uncensored job it was set on). At creation, a job
+whose prompt scans NSFW is also stamped gallery_public False
+as belt and braces. The owner's own library and job views are
+untouched. The scan's own word-level behavior is pinned in
+check_prompt_nsfw.py; this file pins the scope signals, the
+gallery wiring, and the stamp mechanics.
 
 No Modal calls, no network: execs the extracted is_paid /
-gallery_visible defs against plain dicts, calls the module's own
-job_is_nsfw, and pins the wiring in source.
+gallery_visible defs against plain dicts, calls the module's
+own classifiers, and pins the wiring in source.
 
 Run:  modal-venv python scratch/check_gallery_nsfw.py
 """
@@ -47,36 +56,66 @@ def func_src(name):
     return ""
 
 
-# -- the classifier, exercised for real ----------------------------------
+# -- the classifiers, exercised for real --------------------------------
 
 job_is_nsfw = app.job_is_nsfw
-check(job_is_nsfw({"lane": "nsfw", "model": "wan22_uncut"}) is True,
-      "nsfw lane job is not classified NSFW")
-check(job_is_nsfw({"lane": "wan3_unc", "model": "wan3_unc"}) is True,
-      "uncensored API model job is not classified NSFW")
-check(job_is_nsfw({"lane": "production", "model": "wan2.2"}) is True,
-      "house Wan 2.2 job is not classified NSFW (the house lane "
-      "carries the uncensored flag: open weights, no moderation)")
-check(job_is_nsfw({"lane": "wan3", "model": "wan3"}) is False,
-      "moderated API model job is classified NSFW")
-check(job_is_nsfw({"lane": "template", "model": "hyperframes"}) is False,
-      "template job is classified NSFW")
-check(job_is_nsfw({"lane": "image", "model": "flux2"}) is False,
-      "image job is classified NSFW")
-check(job_is_nsfw({}) is False, "empty job is classified NSFW")
-check(job_is_nsfw(None) is False, "missing job is classified NSFW")
-check(job_is_nsfw({"lane": "draft"}) is True,
-      "legacy house job with no model field is not classified "
-      "NSFW (it ran the default house model, Wan 2.2)")
-check(job_is_nsfw({"lane": "production"}) is True,
-      "legacy production job with no model field is not "
-      "classified NSFW")
-check(job_is_nsfw({"lane": "clip"}) is False,
-      "clip job with no model field is classified NSFW")
+job_is_uncensored = app.job_is_uncensored
+
+# Scope: the signals that put a job under prompt judging.
+check(job_is_uncensored({"lane": "nsfw", "model": "wan22_uncut"})
+      is True, "nsfw lane job is out of the judged scope")
+check(job_is_uncensored({"lane": "wan3_unc", "model": "wan3_unc"})
+      is True, "uncensored API model job is out of the judged scope")
+check(job_is_uncensored({"lane": "production", "model": "wan2.2"})
+      is True, "house Wan 2.2 job is out of the judged scope "
+      "(the house lane carries the uncensored flag: open "
+      "weights, no moderation)")
+check(job_is_uncensored({"lane": "wan3", "model": "wan3"}) is False,
+      "moderated API model job is in the judged scope")
+check(job_is_uncensored({"lane": "template", "model": "hyperframes"})
+      is False, "template job is in the judged scope")
+check(job_is_uncensored({"lane": "image", "model": "flux2"})
+      is False, "regular image job is in the judged scope")
+check(job_is_uncensored({}) is False,
+      "empty job is in the judged scope")
+check(job_is_uncensored(None) is False,
+      "missing job is in the judged scope")
+check(job_is_uncensored({"lane": "draft"}) is True,
+      "legacy house job with no model field is out of the "
+      "judged scope (it ran the default house model, Wan 2.2)")
+check(job_is_uncensored({"lane": "production"}) is True,
+      "legacy production job with no model field is out of "
+      "the judged scope")
+check(job_is_uncensored({"lane": "clip"}) is False,
+      "clip job with no model field is in the judged scope")
 check("wan22_uncut" in app.UNCENSORED_VIDEO_MODELS,
       "wan22_uncut missing from the uncensored set")
-check("UNCENSORED_VIDEO_MODELS" in func_src("job_is_nsfw"),
-      "job_is_nsfw does not read the config uncensored set")
+check("UNCENSORED_VIDEO_MODELS" in func_src("job_is_uncensored"),
+      "job_is_uncensored does not read the config uncensored set")
+
+# Verdict: in scope, the user's own prompt decides.
+check(job_is_nsfw({"lane": "nsfw", "model": "wan22_uncut",
+                   "user_prompt": "a nude woman dancing"}) is True,
+      "explicit prompt on the nsfw lane is not classified NSFW")
+check(job_is_nsfw({"lane": "nsfw", "model": "wan22_uncut",
+                   "user_prompt": "balloons over a field"}) is False,
+      "clean prompt on the nsfw lane is classified NSFW")
+check(job_is_nsfw({"lane": "wan3_unc", "model": "wan3_unc",
+                   "user_prompt": "an erotic scene"}) is True,
+      "explicit prompt on an uncensored model is not "
+      "classified NSFW")
+check(job_is_nsfw({"lane": "production", "model": "wan2.2",
+                   "user_prompt": "a lighthouse at dusk"}) is False,
+      "clean prompt on house Wan 2.2 is classified NSFW")
+check(job_is_nsfw({"lane": "wan3", "model": "wan3",
+                   "user_prompt": "a nude woman"}) is False,
+      "moderated API model job is classified by the prompt scan")
+check(job_is_nsfw({"lane": "draft",
+                   "user_prompt": "a porn scene"}) is True,
+      "legacy house job with an explicit prompt is not "
+      "classified NSFW")
+check(job_is_nsfw({}) is False, "empty job is classified NSFW")
+check(job_is_nsfw(None) is False, "missing job is classified NSFW")
 
 # -- gallery_visible, exercised for real ---------------------------------
 
@@ -93,36 +132,47 @@ opted_out_owner = {"id": "u-out", "plan": "creator",
 USERS = {f"id:{u['id']}": u
          for u in (free_owner, paid_owner, opted_out_owner)}
 
-gns = {"users": USERS, "is_paid": is_paid, "job_is_nsfw": job_is_nsfw}
+gns = {"users": USERS, "is_paid": is_paid, "job_is_nsfw": job_is_nsfw,
+       "job_is_uncensored": job_is_uncensored}
 exec(func_src("gallery_visible"), gns)
 gallery_visible = gns["gallery_visible"]
 
 
 def job(**kw):
     base = {"status": "done", "user_id": "u-free",
-            "lane": "wan3", "model": "wan3"}
+            "lane": "wan3", "model": "wan3",
+            "user_prompt": "a lighthouse at dusk"}
     base.update(kw)
     return base
 
 
-# NSFW lane job, owner never opted out (free accounts cannot opt
-# out at all): excluded.
-check(gallery_visible(job(lane="nsfw", model="wan22_uncut")) is False,
-      "nsfw lane job is visible in the gallery")
-# Uncensored model job, paid owner, no opt-out: excluded.
+# NSFW lane job with an explicit prompt, owner never opted out
+# (free accounts cannot opt out at all): excluded.
+check(gallery_visible(job(lane="nsfw", model="wan22_uncut",
+                          user_prompt="a nude woman dancing"))
+      is False, "explicit nsfw lane job is visible in the gallery")
+# NSFW lane job with a clean prompt: lists like any other job.
+check(gallery_visible(job(lane="nsfw", model="wan22_uncut"))
+      is True, "clean nsfw lane job does not list in the gallery")
+# Uncensored model job, paid owner, explicit prompt: excluded.
 check(gallery_visible(job(user_id="u-paid", lane="wan3_unc",
-                          model="wan3_unc")) is False,
-      "uncensored model job is visible in the gallery")
+                          model="wan3_unc",
+                          user_prompt="an erotic scene")) is False,
+      "explicit uncensored model job is visible in the gallery")
 # Uncensored model job for an owner who opted out anyway: still
-# excluded (the rule does not depend on the setting either way).
+# excluded (the opt-out hides it whatever the prompt says).
 check(gallery_visible(job(user_id="u-out", lane="seedance2_unc",
                           model="seedance2_unc")) is False,
       "uncensored model job of an opted out owner is visible")
-# House Wan 2.2 job: excluded through the model signal.
-check(gallery_visible(job(lane="production", model="wan2.2")) is False,
-      "house Wan 2.2 job is visible in the gallery")
-# A creation-stamped job is excluded even if its signals were
-# somehow ordinary.
+# House Wan 2.2 job: excluded through the model signal when its
+# prompt is explicit, listed when it is clean.
+check(gallery_visible(job(lane="production", model="wan2.2",
+                          user_prompt="a porn scene")) is False,
+      "explicit house Wan 2.2 job is visible in the gallery")
+check(gallery_visible(job(lane="production", model="wan2.2"))
+      is True, "clean house Wan 2.2 job does not list")
+# A creation-stamped regular job is excluded even if its signals
+# were somehow ordinary.
 check(gallery_visible(job(gallery_public=False)) is False,
       "gallery_public False stamp is not honored")
 # A normal job lists.

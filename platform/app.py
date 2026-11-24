@@ -1359,15 +1359,152 @@ HOUSE_MODEL_PRICING_LANE = {
 }
 
 
-def job_is_nsfw(job: dict) -> bool:
-    """Whether a job is NSFW for public gallery purposes (Jack,
-    2026-11-18): its lane is the house NSFW lane, or its model is
-    one of the uncensored catalog models (the same
-    UNCENSORED_VIDEO_MODELS flag /api/config serves and the
-    studio picker renders as the Uncensored marker). Either
-    signal classifies. Note the set includes the house Wan 2.2
-    itself: the self-hosted lane runs open weights with no
-    provider moderation layer, so its outputs carry the flag."""
+# ---------------------------------------------------------------------------
+# Prompt NSFW scan (Jack, 2026-11-23): gallery placement for an
+# uncensored-lane generation is judged by the user's own prompt,
+# not by the lane. Not every uncensored generation is NSFW, so
+# the blanket lane rule is gone: a clean prompt lists in the
+# public gallery exactly like a regular generation, an explicit
+# one stays out. The scan is rule based and deterministic (word
+# and phrase matching, no external calls, no spend), and it only
+# ever reads the user's raw words (the job's user_prompt, falling
+# back to prompt on records that predate the field), never a
+# server-composed prompt: the Krea 2 Verite lane prepends its
+# trigger words ("verite realism, nsfw, ") to the composed
+# prompt, and scanning that would flag every Krea job ever made.
+# Known limit of the method, accepted with it: the scan reads
+# words, not pictures, so it cannot see an uploaded input image.
+# An image-to-video or image-edit job whose prompt is tame but
+# whose input picture is explicit reads clean here.
+#
+# The word lists live in this one block so they are easy to
+# extend. Matching is whole-token (word boundaries), so ordinary
+# words that merely contain a listed string stay clean: class,
+# assassin, peacock, therapist, cucumber, a sperm whale, a cock
+# crowing at dawn. Borderline anatomy words with common innocent
+# uses (breast, cock, dick, butt, sperm) are deliberately NOT
+# single terms; they flag through the phrases below instead.
+# A light leet decode (0 for o, 3 for e, and friends) and a
+# squeezed pass (all spacing and punctuation removed) cover the
+# common dodges: b00bs, s3x, n u d e, p.o.r.n.
+# ---------------------------------------------------------------------------
+NSFW_PROMPT_TERMS = frozenset({
+    # anatomy and states
+    "penis", "penises", "vagina", "vaginas", "vulva", "clitoris",
+    "testicle", "testicles", "scrotum", "nipple", "nipples",
+    "areola", "areolas", "genitals", "genitalia", "anus",
+    "boobs", "tits", "titties", "pussy", "pussies",
+    "nude", "nudes", "nudity", "naked", "topless", "bottomless",
+    "undressed", "unclothed", "disrobed",
+    # acts and content
+    "sex", "sexual", "sexually", "sexy", "intercourse",
+    "orgasm", "orgasms", "orgasmic", "ejaculate", "ejaculates",
+    "ejaculated", "ejaculation", "ejaculating", "cum", "jizz",
+    "semen", "masturbate", "masturbates", "masturbated",
+    "masturbating", "masturbation", "blowjob", "blowjobs",
+    "handjob", "handjobs", "footjob", "rimjob", "cunnilingus",
+    "fellatio", "fingering", "threesome", "foursome", "orgy",
+    "gangbang", "creampie", "bukkake", "cumshot", "cumshots",
+    "squirt", "squirting", "erection", "erections", "aroused",
+    "arousal", "horny", "erotic", "erotica", "lewd", "smut",
+    "raunchy", "kinky", "fetish", "fetishes", "bdsm", "bondage",
+    "dominatrix", "anal", "deepthroat", "facesitting",
+    "spreadeagle", "striptease", "stripper", "strippers",
+    "upskirt", "downblouse", "cameltoe", "seethrough",
+    "nsfw", "xxx", "hardcore", "softcore", "porn", "porno",
+    "pornographic", "pornography", "hentai", "milf",
+    "dildo", "dildos", "vibrator", "vibrators", "buttplug",
+    "onlyfans", "camgirl", "camgirls",
+    "slut", "sluts", "whore", "whores",
+    # never gallery material, whatever the lane
+    "underage", "jailbait", "loli", "lolita", "shota",
+    "preteen", "preteens", "incest", "bestiality", "zoophilia",
+    "rape", "raping", "rapist", "molested", "molesting",
+})
+
+NSFW_PROMPT_PHRASES = (
+    "full frontal", "frontal nudity", "bare breasts",
+    "bare breast", "exposed breasts", "big boobs", "big tits",
+    "big cock", "hard cock", "big dick", "hard dick",
+    "sex scene", "sex tape", "sex toy", "sex toys",
+    "having sex", "have sex", "has sex", "oral sex", "anal sex",
+    "group sex", "rough sex", "explicit sex", "simulated sex",
+    "sexually explicit", "explicit nudity", "graphic sex",
+    "doggy style", "cowgirl position", "reverse cowgirl",
+    "missionary position", "69 position", "spread legs",
+    "legs spread", "making love", "make love", "deep throat",
+    "face sitting", "sixty nine", "adult film", "adult films",
+    "adult video", "adult content", "adult entertainment",
+    "cam girl", "cam girls", "webcam girl", "lap dance",
+    "strip club", "strip clubs", "erotic massage",
+    "touching herself", "touching himself",
+    "playing with herself", "playing with himself",
+    "pleasuring herself", "pleasuring himself",
+    "in lingerie", "wearing lingerie", "lingerie model",
+    "birthday suit", "in the nude", "in the buff",
+    "butt naked", "buck naked", "fully nude", "completely nude",
+    "totally nude", "fully naked", "completely naked",
+    "naked body", "nude body", "naked woman", "nude woman",
+    "naked women", "nude women", "naked man", "nude man",
+    "naked girl", "nude girl", "blow job", "hand job",
+    "rim job", "cum shot", "hard core", "soft core",
+    "x rated", "rated x", "triple x", "child porn",
+    "sex doll", "blow up doll",
+)
+
+# The squeezed pass: the prompt with every space and punctuation
+# mark removed, checked for a short set of unambiguous strings.
+# This is what catches letter-spaced dodges (n u d e, p.o.r.n).
+# The set stays short and long on purpose: short strings turn up
+# inside innocent words once the spaces are gone (cum inside
+# document, sex inside essex), so those never squeeze-match.
+NSFW_PROMPT_SQUEEZED_TERMS = (
+    "porn", "penis", "vagina", "blowjob", "hardcore",
+    "masturbation", "masturbating", "ejaculate", "ejaculation",
+    "creampie", "bukkake", "hentai", "dildo", "orgasm",
+    "nude", "naked", "nudity", "topless", "childporn",
+    "sexscene", "sextoy", "sextoys", "deepthroat",
+    "facesitting", "spreadeagle", "onlyfans", "camgirl",
+    "analsex", "oralsex",
+)
+
+_PROMPT_LEET = str.maketrans({
+    "0": "o", "1": "i", "3": "e", "4": "a", "5": "s",
+    "7": "t", "@": "a", "$": "s",
+})
+
+
+def prompt_is_nsfw(text) -> bool:
+    """Whether a user's own prompt text reads NSFW under the
+    rule lists above. Deterministic, no calls out. Empty or
+    missing text is clean: there is nothing to judge."""
+    if not text:
+        return False
+    decoded = str(text).lower().translate(_PROMPT_LEET)
+    tokens = re.findall(r"[a-z0-9]+", decoded)
+    if any(tok in NSFW_PROMPT_TERMS for tok in tokens):
+        return True
+    padded = " " + " ".join(tokens) + " "
+    if any(" " + phrase + " " in padded
+           for phrase in NSFW_PROMPT_PHRASES):
+        return True
+    squeezed = "".join(tokens)
+    return any(term in squeezed
+               for term in NSFW_PROMPT_SQUEEZED_TERMS)
+
+
+def job_is_uncensored(job: dict) -> bool:
+    """Whether a job ran on an uncensored lane or build: the
+    house NSFW lane, one of the uncensored catalog video models
+    (the same UNCENSORED_VIDEO_MODELS flag /api/config serves
+    and the studio picker renders as the Uncensored marker, the
+    house Wan 2.2 included: open weights on our own worker, no
+    provider moderation layer), or an image lane whose pricing
+    entry carries the uncensored flag (Krea 2 Verite, the
+    Z-Image uncensored builds, and their shelf kin). This is
+    the SCOPE of the prompt judging, not a verdict: since
+    2026-11-23 an in-scope job is NSFW for gallery purposes
+    only when its own prompt scans NSFW (job_is_nsfw)."""
     if not job:
         return False
     if job.get("lane") == "nsfw":
@@ -1382,7 +1519,30 @@ def job_is_nsfw(job: dict) -> bool:
         # the 2026-11-18 verification bundle: two Nov 16 balloon
         # clips with no model field were still listed).
         model = DEFAULT_MODEL
-    return model in UNCENSORED_VIDEO_MODELS
+    if model in UNCENSORED_VIDEO_MODELS:
+        return True
+    image_lane = pricing.IMAGE_LANES.get(
+        job.get("image_model") or "") or {}
+    return bool(image_lane.get("uncensored"))
+
+
+def job_is_nsfw(job: dict) -> bool:
+    """Whether a job is NSFW for public gallery purposes (Jack,
+    2026-11-18; prompt-judged 2026-11-23): the job ran on an
+    uncensored lane or build (job_is_uncensored) AND the user's
+    own prompt for it scans NSFW (prompt_is_nsfw). The lane
+    alone no longer classifies: not every uncensored generation
+    is NSFW, so a clean prompt is gallery-eligible exactly like
+    a regular generation. The scan reads the record's
+    user_prompt (the words the user typed, kept apart from any
+    server composition), falling back to prompt on records that
+    predate the field. Computed live at read time, so jobs
+    finished under the old blanket lane rule are rejudged by
+    their stored prompts."""
+    if not job_is_uncensored(job):
+        return False
+    return prompt_is_nsfw(
+        job.get("user_prompt") or job.get("prompt") or "")
 
 
 # Picker classes (Jack, 2026-11-19; group labels restyled
@@ -5834,8 +5994,11 @@ def api():
         the proven test prompt used them, with the user's
         own words kept on the record as user_prompt. The
         route's raw cost is $0 on Kaggle, so cost_cents is
-        0. The job is stamped out of the public gallery at
-        creation, the uncensored treatment."""
+        0. The gallery stamp follows the prompt scan (Jack,
+        2026-11-23): a Krea job is stamped out of the public
+        gallery at creation only when the user's own prompt
+        scans NSFW; gallery_visible rejudges live either way,
+        reading user_prompt, never the trigger-led prompt."""
         job["user_prompt"] = job.get("prompt") or ""
         job["prompt"] = ("verite realism, nsfw, "
                          + (job.get("prompt") or ""))
@@ -5850,7 +6013,8 @@ def api():
         job["cost_cents"] = 0.0
         job["included_cost_cents"] = 0
         job["free_tier"] = False
-        job["gallery_public"] = False
+        if job_is_nsfw(job):
+            job["gallery_public"] = False
         job["bytes"] = None
         job["last_poll"] = 0
         jobs[job["id"]] = job
@@ -9232,8 +9396,10 @@ def api():
             "cap_raw_cents": est["cap_raw_cents"],
         }
         # NSFW jobs are stamped not public at creation (Jack,
-        # 2026-11-18): gallery_visible also classifies live, so
-        # the stamp is belt and braces for any other surface.
+        # 2026-11-18; prompt-judged since 2026-11-23, so only a
+        # flagged prompt stamps): gallery_visible also classifies
+        # live, so the stamp is belt and braces for any other
+        # surface.
         if job_is_nsfw(job):
             job["gallery_public"] = False
         if speech_voice == CLONE_VOICE_ID:
@@ -9866,8 +10032,10 @@ def api():
             "partial": False,
         }
         # NSFW jobs are stamped not public at creation (Jack,
-        # 2026-11-18): gallery_visible also classifies live, so
-        # the stamp is belt and braces for any other surface.
+        # 2026-11-18; prompt-judged since 2026-11-23, so only a
+        # flagged prompt stamps): gallery_visible also classifies
+        # live, so the stamp is belt and braces for any other
+        # surface.
         if job_is_nsfw(job):
             job["gallery_public"] = False
         if clone_folded:
@@ -13438,9 +13606,11 @@ x_api_key: str = Header(default="")):
     # (which removes them here), and an admin can remove any item.
     # Opting out is a paid feature (Amendment 3); clips from
     # accounts that have never paid always list. NSFW jobs are
-    # the one hard exception (Jack, 2026-11-18): a job on the
-    # NSFW lane or on an uncensored model never lists, whatever
-    # the owner's setting. See job_is_nsfw.
+    # the one hard exception (Jack, 2026-11-18): a job whose own
+    # prompt scans NSFW never lists, whatever the owner's
+    # setting. Since 2026-11-23 the verdict is prompt-judged,
+    # not lane-judged: an uncensored-lane job with a clean
+    # prompt lists like any other. See job_is_nsfw.
 
     def gallery_visible(job: dict) -> bool:
         # Finished images list alongside finished clips (Jack,
@@ -13460,9 +13630,16 @@ x_api_key: str = Header(default="")):
         # NSFW jobs never list publicly (Jack, 2026-11-18),
         # whatever the owner's opt-out setting: the classification
         # is computed live here, so jobs finished before this rule
-        # existed are covered too. The gallery_public stamp set at
-        # creation is a belt-and-braces copy of the same verdict.
-        if job_is_nsfw(job) or job.get("gallery_public") is False:
+        # existed are covered too, rejudged by their stored
+        # prompts. The creation stamp rules every job it was set
+        # on EXCEPT uncensored-lane jobs: theirs were stamped by
+        # the old blanket lane rule (or copy the prompt verdict),
+        # so for them the live prompt verdict above is the whole
+        # story and a clean prompt lists even under an old stamp.
+        if job_is_nsfw(job):
+            return False
+        if job.get("gallery_public") is False \
+                and not job_is_uncensored(job):
             return False
         owner = users.get(f"id:{job.get('user_id')}")
         if not owner:
