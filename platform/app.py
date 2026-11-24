@@ -68,6 +68,8 @@ jobs = modal.Dict.from_name("moonfactory-jobs", create_if_missing=True)
 dramas = modal.Dict.from_name("moonfactory-dramas", create_if_missing=True)
 meta = modal.Dict.from_name("moonfactory-meta", create_if_missing=True)
 outbox = modal.Dict.from_name("moonfactory-outbox", create_if_missing=True)
+tombstones = modal.Dict.from_name("moonfactory-tombstones", create_if_missing=True)
+legal_holds = modal.Dict.from_name("moonfactory-legal-holds", create_if_missing=True)
 
 image = (
     modal.Image.debian_slim(python_version="3.12")
@@ -349,6 +351,8 @@ def process_clip_job(job_id: str):
                 "free_tier": False,
                 "music_prompt": None,
             }
+            stamp_content_hash(
+                child, files_dir / f"{child_id}.mp4")
             jobs[child_id] = child
             clip_ids.append(child_id)
         job["clip_ids"] = clip_ids
@@ -369,6 +373,142 @@ def process_clip_job(job_id: str):
         jobs[job_id] = job
         _clip_release_hold(job)
         data_volume.commit()
+
+
+# ---------------------------------------------------------------------------
+# Content fingerprints (Jack, 2026-11-24): every finished generation
+# carries the SHA-256 of its stored original file on its job record
+# as content_sha256, stamped by the one helper below at the moment
+# the path's final file lands. A deletion tombstone keeps the
+# fingerprint after the job record and its file are gone.
+# ---------------------------------------------------------------------------
+
+def stamp_content_hash(job: dict, path) -> None:
+    """Stamp a finished generation's content fingerprint onto its
+    job record: the SHA-256 of the canonical stored ORIGINAL file
+    at `path`, the file as it landed from generation or from the
+    finishing stage that assembled it. The web remux
+    (<id>.web.mp4) is a derivative and is never the stamped file:
+    this helper refuses such a path outright, and the remux path
+    (ensure_web_file) never calls it. A hashing failure never
+    blocks a delivery (the word check's rule): the error is
+    logged and the job ships without the stamp. A job whose file
+    is not on disk gets no stamp."""
+    try:
+        p = Path(path)
+        if ".web." in p.name:
+            return
+        if not p.is_file():
+            return
+        digest = hashlib.sha256()
+        with open(p, "rb") as fh:
+            for chunk in iter(lambda: fh.read(1 << 20), b""):
+                digest.update(chunk)
+        job["content_sha256"] = digest.hexdigest()
+        jobs[job["id"]] = job
+    except Exception as exc:  # noqa: BLE001
+        print(f"content hash failed for job {job.get('id')}: {exc}")
+
+
+def write_job_tombstone(job: dict) -> None:
+    """Retain the minimal deletion tombstone for a job about to
+    be deleted, so its content fingerprint survives the job
+    record and the file: job id, account id, creation timestamp,
+    model/lane, and the fingerprint. Only a stamped job leaves
+    one. The tombstone carries no file, no prompt text, and no
+    other content, lives in its own Dict beside the job records,
+    and is never exposed in any user-facing or public payload."""
+    try:
+        digest = job.get("content_sha256")
+        if not digest:
+            return
+        tombstones[job["id"]] = {
+            "id": job["id"],
+            "user_id": job.get("user_id"),
+            "created_at": job.get("created_at"),
+            "model": job.get("model") or job.get("image_model"),
+            "lane": job.get("lane") or job.get("image_model"),
+            "content_sha256": digest,
+        }
+    except Exception as exc:  # noqa: BLE001
+        print(f"tombstone failed for job {job.get('id')}: {exc}")
+
+
+def place_legal_hold(job: dict, trigger: str, note: str = "") -> None:
+    """Place a legal hold on a job removed or confirmed-flagged
+    for illegal content: the FULL case file is retained, the
+    18 U.S.C. 2258A(b) report set, in its own Dict. Kept: a
+    complete copy of the job record (the prompt as typed, the
+    model and lane, every timestamp, the input flags such as
+    has_start_image, the charge data, and the creating request's
+    IP), the account identifiers the user record holds (user id,
+    email, signup timestamp, plan), the content fingerprint, an
+    action log (what triggered the hold, when, and what was done,
+    with fields for the CyberTipline report number and the NCMEC
+    confirmation date, filled when a report is filed), and the
+    ids of the account's other jobs, flagged for hold review.
+    A repeat call appends to the action log instead of replacing
+    the case file, so a restore never evaporates the record.
+    Hold records live outside the jobs Dict, are exempt from
+    ordinary user deletion, and are never exposed in any
+    user-facing or public payload. A hold failure never blocks
+    the removal that triggered it."""
+    try:
+        if job.get("status") == "done" \
+                and not job.get("content_sha256"):
+            # The case file carries the fingerprint even when
+            # the job's own finishing hook never ran for it:
+            # stamp from the stored original first.
+            stamp_content_hash(
+                job, FILES_DIR / (f"{job['id']}.png"
+                                  if job.get("kind") == "image"
+                                  else f"{job['id']}.mp4"))
+        try:
+            job_copy = json.loads(json.dumps(job, default=str))
+        except Exception:
+            job_copy = dict(job)
+        owner = users.get(f"id:{job.get('user_id')}")
+        account = {}
+        if owner:
+            account = {
+                "user_id": owner.get("id"),
+                "email": owner.get("email"),
+                "created_at": owner.get("created_at"),
+                "plan": owner.get("plan"),
+                "handle": owner.get("handle"),
+                "verified": owner.get("verified"),
+            }
+        siblings = []
+        for key in list(jobs.keys()):
+            if key == job.get("id"):
+                continue
+            other = jobs.get(key)
+            if other and other.get("user_id") == job.get("user_id"):
+                siblings.append(other["id"])
+        existing = legal_holds.get(job["id"]) or {}
+        actions = list(existing.get("actions") or [])
+        actions.append({
+            "action": "hold placed",
+            "trigger": trigger,
+            "note": note or None,
+            "at": _now(),
+        })
+        legal_holds[job["id"]] = {
+            "job_id": job["id"],
+            "held_at": existing.get("held_at") or _now(),
+            "trigger": trigger,
+            "job": job_copy,
+            "account": account,
+            "content_sha256": job.get("content_sha256"),
+            "actions": actions,
+            "cybertipline_report_number":
+                existing.get("cybertipline_report_number"),
+            "ncmec_confirmation_date":
+                existing.get("ncmec_confirmation_date"),
+            "sibling_job_ids": siblings,
+        }
+    except Exception as exc:  # noqa: BLE001
+        print(f"legal hold failed for job {job.get('id')}: {exc}")
 
 
 def _short_word_check(job: dict, out_path: Path):
@@ -483,6 +623,7 @@ def _short_ai_scenes(job: dict, lines: list):
             "error": None,
             "bytes": None,
             "created_at": _now(),
+            "created_ip": job.get("created_ip"),
             "charged_cents": 0,
             "free_tier": False,
             "included_cost_cents": 0,
@@ -611,6 +752,7 @@ def _queue_clone_child(parent: dict, text: str) -> str:
         "error": None,
         "bytes": None,
         "created_at": _now(),
+        "created_ip": parent.get("created_ip"),
         "charged_cents": 0,
         "clone_parent": parent["id"],
         "clone_text": text,
@@ -968,6 +1110,10 @@ def process_short_job(job_id: str):
         # processor is the finishing chain for this lane), then
         # the poster is cut from the final file.
         _short_word_check(job, out_path)
+        # The word check may have swapped the delivered file
+        # (its repair splice), so the content fingerprint is
+        # taken only now, over the final bytes.
+        stamp_content_hash(job, out_path)
         try:
             subprocess.run(
                 ["ffmpeg", "-y", "-ss", "0.5", "-i", str(out_path),
@@ -5968,6 +6114,7 @@ def api():
         out_path = FILES_DIR / f"{job['id']}.png"
         out_path.write_bytes(raw)
         data_volume.commit()
+        stamp_content_hash(job, out_path)
         job["bytes"] = len(raw)
         job["status"] = "done"
         job["error"] = None
@@ -6160,6 +6307,7 @@ def api():
         out_path = FILES_DIR / f"{job['id']}.png"
         out_path.write_bytes(raw)
         data_volume.commit()
+        stamp_content_hash(job, out_path)
         job["bytes"] = len(raw)
         job["status"] = "done"
         job["error"] = None
@@ -6361,6 +6509,7 @@ def api():
         out_path = FILES_DIR / f"{job['id']}.png"
         out_path.write_bytes(resp.content)
         data_volume.commit()
+        stamp_content_hash(job, out_path)
         job["bytes"] = len(resp.content)
         owner = users.get(f"id:{job['user_id']}")
         if owner:
@@ -9303,7 +9452,8 @@ def api():
                        captions: bool = False,
                        caption_style: str = VIDEO_CAPTION_STYLE_DEFAULT,
                        lower_third: dict = None,
-                       clone_reference=None, clone_reference_text: str = ""):
+                       clone_reference=None, clone_reference_text: str = "",
+                       created_ip: str = ""):
         """Quote -> hold -> submit, per design s.3. Any failure at or
         before submission leaves an error job with the clean public
         message and the hold fully released: no charge, nothing
@@ -9384,6 +9534,7 @@ def api():
             "error": None,
             "bytes": None,
             "created_at": _now(),
+            "created_ip": created_ip or None,
             "charged_cents": 0,
             "included_seconds": 0.0,
             "budget_cost_cents": 0.0,
@@ -9875,6 +10026,7 @@ def api():
                 caption_style=caption_style, lower_third=lower_third,
                 clone_reference=clone_reference,
                 clone_reference_text=clone_reference_text,
+                created_ip=client_ip(request),
             )
         u = usage(user)
         charged = 0
@@ -10054,6 +10206,7 @@ def api():
             "error": None,
             "bytes": None,
             "created_at": _now(),
+            "created_ip": client_ip(request),
             "charged_cents": charged,
             "free_tier": is_free_job,
             "included_seconds": used_included,
@@ -10450,6 +10603,7 @@ def api():
                 "provider": lane["provider"], "model": lane_id,
                 "prompt": prompt, "status": "running",
                 "created_at": _now(), "last_poll": 0,
+                "created_ip": client_ip(request),
                 "image_raw_cents": raw, "image_charge_cents": charge,
                 "error": None,
                 # Whether the user supplied the source image an
@@ -11258,6 +11412,12 @@ def api():
             # as delivered, repaired track included. Only jobs
             # created with the box checked enter the stage.
             _captions_for_job(job, out_path)
+            # Content fingerprint (2026-11-24): the delivered
+            # file is final at this point, word check and
+            # captions included, so the SHA-256 of this stored
+            # original goes on the record. The web remux derived
+            # from it at serve time is never stamped.
+            stamp_content_hash(job, out_path)
             data_volume.commit()
         return out_path
 
@@ -11380,6 +11540,13 @@ def api():
                 raise HTTPException(status_code=502, detail="finished file is not available yet")
             out_path.write_bytes(resp.content)
             data_volume.commit()
+        if not job.get("content_sha256"):
+            # House image jobs land their file only here (the
+            # worker keeps it until the first fetch), so theirs
+            # is stamped now; shelf and worker-uploaded images
+            # were already stamped when their bytes landed,
+            # which makes this a no-op for them.
+            stamp_content_hash(job, out_path)
         return out_path
 
     @web.get("/api/jobs/{job_id}/file")
@@ -11450,7 +11617,13 @@ def api():
                 _drama_settle_finished(job, rec, fresh)
                 job = jobs.get(job_id) or job
             for cid in child_ids:
-                if jobs.get(cid):
+                child = jobs.get(cid)
+                if child:
+                    if child.get("status") == "done" \
+                            and not child.get("content_sha256"):
+                        stamp_content_hash(
+                            child, FILES_DIR / f"{cid}.mp4")
+                    write_job_tombstone(child)
                     del jobs[cid]
                 for path in (FILES_DIR / f"{cid}.mp4",
                              FILES_DIR / f"{cid}.raw.mp4",
@@ -11467,6 +11640,17 @@ def api():
                 pass
             if rec:
                 del dramas[rec["id"]]
+        if job.get("status") == "done" \
+                and not job.get("content_sha256"):
+            # A done job whose stored original exists but was
+            # never stamped (its finishing hook has not run for
+            # it) is stamped from that file now, so the
+            # tombstone below still carries its fingerprint.
+            stamp_content_hash(
+                job, FILES_DIR / (f"{job_id}.png"
+                                  if job.get("kind") == "image"
+                                  else f"{job_id}.mp4"))
+        write_job_tombstone(job)
         del jobs[job_id]
         for path in (FILES_DIR / f"{job_id}.mp4",
                      FILES_DIR / f"{job_id}.web.mp4",
@@ -11714,6 +11898,7 @@ def api():
             "stage": CLIP_STAGES[0],
             "error": None,
             "created_at": _now(),
+            "created_ip": client_ip(request),
             "charged_cents": 0,
             "source_url": source_url,
             "upload_path": upload_path,
@@ -11928,6 +12113,7 @@ def api():
             "stage": "Waiting for the free renderer",
             "error": None,
             "created_at": _now(),
+            "created_ip": client_ip(request),
             "charged_cents": 0,
             "upload_path": upload_path,
             "source_duration": source_duration,
@@ -12046,6 +12232,7 @@ def api():
             job["duration_seconds"] = round(float(info["duration"]), 2)
         except Exception:
             pass
+        stamp_content_hash(job, out_path)
         job["status"] = "done"
         job["stage"] = None
         jobs[job["id"]] = job
@@ -12394,6 +12581,7 @@ x_api_key: str = Header(default="")):
                     job["gpu_seconds"] = float(exec_seconds)
                 except Exception:
                     pass
+            stamp_content_hash(job, out_path)
             job["status"] = "done"
             jobs[job["id"]] = job
             return {"ok": True, "bytes": len(data)}
@@ -12794,6 +12982,7 @@ x_api_key: str = Header(default="")):
             "stage": SHORTS_STAGES[0],
             "error": None,
             "created_at": _now(),
+            "created_ip": client_ip(request),
             "charged_cents": clone_add,
             "short_topic": topic or None,
             "short_draft_model": draft_model,
@@ -13013,6 +13202,7 @@ x_api_key: str = Header(default="")):
             "error": None,
             "bytes": None,
             "created_at": _now(),
+            "created_ip": parent.get("created_ip"),
             "charged_cents": 0,
             "included_seconds": 0.0,
             "budget_cost_cents": 0.0,
@@ -13152,6 +13342,12 @@ x_api_key: str = Header(default="")):
         if settle:
             _drama_settle_finished(job, rec, user)
             job = jobs.get(job["id"]) or job
+        # The episode file is final here (word check and
+        # captions ran on the join above, and a retake
+        # reassembly lands here too), so its content
+        # fingerprint is (re)stamped before the record
+        # lands as done.
+        stamp_content_hash(job, out)
         job["status"] = "done"
         job["stage"] = None
         job["drama_state"] = "done"
@@ -13465,6 +13661,7 @@ x_api_key: str = Header(default="")):
             "error": None,
             "bytes": None,
             "created_at": _now(),
+            "created_ip": client_ip(request),
             "charged_cents": 0,
             "included_seconds": 0.0,
             "budget_cost_cents": 0.0,
@@ -13627,7 +13824,8 @@ x_api_key: str = Header(default="")):
         }
         resp = create_api_job(
             user, child_body, drama.DRAMA_MODEL_ID,
-            base_url(request), pack, "", None, line, "", False)
+            base_url(request), pack, "", None, line, "", False,
+            created_ip=client_ip(request))
         child_id = json.loads(resp.body)["id"]
         child = jobs.get(child_id)
         child["drama_parent"] = job["id"]
@@ -14359,6 +14557,11 @@ x_api_key: str = Header(default="")):
             raise HTTPException(status_code=404, detail="unknown job")
         job["removed"] = True
         jobs[job_id] = job
+        # An operator removal is the platform's confirmed-flag
+        # act: the full case file goes on legal hold so the
+        # 2258A(b) report set survives whatever happens to the
+        # job record afterwards (see place_legal_hold).
+        place_legal_hold(job, "admin_gallery_remove")
         return {"status": "removed"}
 
     @web.post("/api/admin/gallery/{job_id}/restore")
