@@ -31,9 +31,11 @@ any network, Modal, or Kaggle call:
   kaggle_push with its own slug and meta keys, and the
   kernel ships in both Modal images;
 - the kernel parses and carries the Modal stages' own
-  recipes (the ACE-Step turbo bed parameters, the Kokoro
-  24 kHz voiceover), and the Modal audio app still defines
-  its callables as the uncalled revert path.
+  recipes (the ACE-Step turbo bed parameters, the genuine
+  PyTorch Kokoro voiceover in its own Python 3.12 venv
+  with the ONNX export kept as a labeled fallback), and
+  the Modal audio app still defines its callables as the
+  uncalled revert path.
 
 Run:  modal-venv python scratch/check_audio_kaggle.py
 """
@@ -324,9 +326,18 @@ check("acestep-v15-turbo" in KERNEL and "ACE-Step-1.5" in KERNEL,
 for token in ("duration=10", "inference_steps=8", "bpm=92",
               '"[Instrumental]"', "instrumental=True"):
     check(token in KERNEL, f"the kernel bed recipe lost {token}")
-check("kokoro_onnx" in KERNEL and "kokoro-v1.0.onnx" in KERNEL
-      and "24000" in KERNEL,
-      "the kernel does not carry the Kokoro voiceover recipe")
+check("from kokoro import KPipeline" in KERNEL
+      and "kokoro>=0.9.2" in KERNEL and "24000" in KERNEL,
+      "the kernel does not carry the genuine Kokoro voiceover recipe")
+check('"--python", "3.12"' in KERNEL
+      and "download.pytorch.org/whl/cpu" in KERNEL
+      and "en_core_web_sm-3.8.0" in KERNEL,
+      "the kernel lost the Python 3.12 venv route for the genuine engine")
+check("kokoro_onnx" in KERNEL and "kokoro-v1.0.onnx" in KERNEL,
+      "the kernel lost the ONNX fallback behind the genuine engine")
+check("voiceover engine=pytorch-kokoro" in KERNEL
+      and "voiceover engine=onnx-fallback" in KERNEL,
+      "the kernel does not log which engine made each voiceover")
 for route in ("/api/worker/audio/heartbeat", "/api/worker/audio/jobs/next",
               "/api/worker/audio/jobs/", "/fail"):
     check(route in KERNEL, f"the kernel does not call {route}")
@@ -352,8 +363,9 @@ check('meta["audio:heartbeat_rev"]' in PLATFORM
       "the audio wake does not require a current-revision heartbeat")
 check("X-Audio-Rev" in KERNEL and "Path(__file__).read_bytes()" in KERNEL,
       "the kernel does not report a revision hashed from its own script")
-check("kokoro-onnx" in KERNEL,
-      "the kernel lost the Kokoro ONNX runtime its Python 3.13 can install")
+check("kokoro-onnx" in KERNEL and "_SPEECH_ENGINE" in KERNEL
+      and "setup_kokoro_pytorch" in KERNEL,
+      "the kernel lost the genuine engine or its labeled ONNX fallback")
 check("pip_install_checked" in KERNEL
       and "invalidate_caches" in KERNEL,
       "the kernel lost the checked install or the import cache fix")

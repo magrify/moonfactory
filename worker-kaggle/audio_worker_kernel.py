@@ -11,6 +11,12 @@
 #   instrumental wav out;
 # - voiceovers with Kokoro (Apache-2.0), the platform's
 #   speech stage, speaking one text in one voice at 24 kHz.
+#   The engine is the genuine PyTorch kokoro package, the
+#   Modal stage's own recipe, run as a subprocess under a
+#   Python 3.12 uv venv (the package cannot install on
+#   Kaggle's Python 3.13 at all); the ONNX export of the
+#   same weights stays in the code as a fallback only, and
+#   the log says which engine made each voiceover file.
 #
 # The shape mirrors the voice cloning worker beside it: the
 # platform queues audio_stage child jobs, wakes this kernel
@@ -61,6 +67,19 @@ STARTED = time.time()
 
 ACE_ROOT = WORKING / "acestep"
 ACE_VENV_PYTHON = ACE_ROOT / ".venv" / "bin" / "python"
+
+KOKORO_ROOT = WORKING / "kokoro"
+KOKORO_VENV_PYTHON = KOKORO_ROOT / ".venv" / "bin" / "python"
+KOKORO_HF_HOME = WORKING / "kokoro-hf-cache"
+# misaki's English G2P loads the en_core_web_sm spaCy
+# model and tries to download it at first use through a
+# package installer a uv venv does not carry; the model
+# wheel is installed during setup instead, pinned to the
+# spaCy 3.8 line the kokoro install resolves.
+SPACY_MODEL_WHEEL = (
+    "https://github.com/explosion/spacy-models/releases/"
+    "download/en_core_web_sm-3.8.0/"
+    "en_core_web_sm-3.8.0-py3-none-any.whl")
 
 # The bed recipe, carried over from the Modal audio stage
 # unchanged (modal-worker/audio_app.py GEN_SCRIPT): the
@@ -115,6 +134,37 @@ if not result.success:
     raise RuntimeError(f"ACE-Step generation failed: {result.error}")
 path = result.audios[0]["path"]
 print(f"GENERATED {path}", flush=True)
+'''
+
+# The voiceover recipe, carried over from the Modal audio
+# stage unchanged (modal-worker/audio_app.py
+# VOICEOVER_SCRIPT): the same KPipeline call, the same
+# voice and language selection, the same 24 kHz mono wav,
+# run under the Python 3.12 venv python because the
+# PyTorch kokoro package cannot install on this kernel's
+# Python 3.13. The pipeline chunks the text into sentences
+# itself, exactly as it did on Modal.
+VOICEOVER_SCRIPT = r'''
+import json, sys
+import numpy as np
+import soundfile as sf
+from kokoro import KPipeline
+
+with open("/tmp/vo_params.json") as fh:
+    spec = json.load(fh)
+text = spec["text"]
+voice = spec["voice"] or "af_heart"
+lang = "b" if voice.startswith("b") else "a"
+pipeline = KPipeline(lang_code=lang)
+chunks = []
+for _graphemes, _phonemes, audio in pipeline(text, voice=voice):
+    if audio is not None:
+        chunks.append(np.asarray(audio, dtype=np.float32))
+if not chunks:
+    raise RuntimeError("Kokoro produced no audio")
+data = np.concatenate(chunks) if len(chunks) > 1 else chunks[0]
+sf.write("/tmp/voiceover.wav", data, 24000)
+print(f"VOICEOVER {len(data)} samples", flush=True)
 '''
 
 
@@ -212,6 +262,12 @@ def pip_install_checked(pkgs):
 
 _ACE_READY = False
 _KOKORO_ONNX = None
+# Which speech engine this session speaks with: "pytorch"
+# once the genuine kokoro setup has proven itself, "onnx"
+# when the fallback had to carry the session. Set by
+# setup_kokoro, read by make_voiceover, and named in the
+# log line for every voiceover file.
+_SPEECH_ENGINE = None
 KOKORO_MODEL_URL = ("https://github.com/thewh1teagle/kokoro-onnx"
                     "/releases/download/model-files-v1.0/"
                     "kokoro-v1.0.onnx")
@@ -220,6 +276,34 @@ KOKORO_VOICES_URL = ("https://github.com/thewh1teagle/kokoro-onnx"
                      "voices-v1.0.bin")
 KOKORO_MODEL_PATH = WORKING / "kokoro-v1.0.onnx"
 KOKORO_VOICES_PATH = WORKING / "voices-v1.0.bin"
+
+
+_UV_LOCK = threading.Lock()
+_UV_PATH = None
+
+
+def uv_path() -> str:
+    """The uv binary, installed on first need. Both engine
+    setups want it from their own threads, so the lookup
+    and the install are serialized behind a lock."""
+    global _UV_PATH
+    with _UV_LOCK:
+        if _UV_PATH:
+            return _UV_PATH
+        found = shutil.which("uv")
+        candidate = Path.home() / ".local" / "bin" / "uv"
+        if found is None and candidate.exists():
+            found = str(candidate)
+        if found is None:
+            r = subprocess.run(
+                "curl -LsSf https://astral.sh/uv/install.sh | sh",
+                shell=True, capture_output=True, text=True)
+            if r.returncode != 0 or not candidate.exists():
+                raise RuntimeError(
+                    f"uv install failed: {(r.stderr or '')[-300:]}")
+            found = str(candidate)
+        _UV_PATH = found
+        return found
 
 
 def setup_ace():
@@ -239,15 +323,7 @@ def setup_ace():
                 f"ACE-Step clone failed: {(r.stderr or '')[-300:]}")
     heartbeat()
     if not ACE_VENV_PYTHON.exists():
-        uv = shutil.which("uv")
-        if uv is None:
-            r = subprocess.run(
-                "curl -LsSf https://astral.sh/uv/install.sh | sh",
-                shell=True, capture_output=True, text=True)
-            uv = str(Path.home() / ".local" / "bin" / "uv")
-            if r.returncode != 0 or not Path(uv).exists():
-                raise RuntimeError(
-                    f"uv install failed: {(r.stderr or '')[-300:]}")
+        uv = uv_path()
         r = subprocess.run(
             [uv, "sync"], cwd=str(ACE_ROOT),
             capture_output=True, text=True, timeout=1800)
@@ -273,31 +349,131 @@ def _download(url: str, path: Path):
 
 
 def setup_kokoro():
-    """Install the Kokoro ONNX runtime, fetch the speech
-    weights, and prove a synthesis runs, so a broken
-    speech setup fails the session's setup, not a claimed
-    job. The weights are the same Kokoro-82M model's
-    official ONNX export; the PyTorch kokoro package
-    itself cannot install on Kaggle's Python 3.13 at all
-    (0.7.5 and up declare Requires-Python <3.13, and
-    0.7.4 pins numpy==1.26.4, which has no 3.13 wheels:
-    three proof sessions died inside its dependency
-    tree), so the stage runs the same weights through
-    onnxruntime. The output contract is unchanged: the
-    job's text in the job's voice as a 24 kHz mono wav,
-    the Modal stage's recipe."""
+    """Set up the speech stage. The genuine PyTorch
+    kokoro engine is primary: it is set up first and the
+    session speaks with it. The ONNX runtime is set up
+    only when the genuine setup fails, and the session
+    log says so in plain words; if both fail, the error
+    propagates and claimed voiceover jobs record it."""
+    global _SPEECH_ENGINE
+    try:
+        setup_kokoro_pytorch()
+    except Exception:
+        log("genuine kokoro setup failed: "
+            + traceback.format_exc()[-280:])
+    else:
+        _SPEECH_ENGINE = "pytorch"
+        log("speech engine: pytorch-kokoro (the genuine engine)")
+        return
+    setup_kokoro_onnx()
+    _SPEECH_ENGINE = "onnx"
+    log("speech engine: onnx-fallback (the genuine kokoro "
+        "setup failed; see the error above)")
+
+
+def setup_kokoro_pytorch():
+    """Install the genuine PyTorch kokoro package, the
+    Modal image's own pins (kokoro>=0.9.2, soundfile,
+    numpy), into a Python 3.12 uv venv: the package
+    cannot install on this kernel's Python 3.13 at all
+    (its releases declare Requires-Python <3.13, and the
+    older tree pins numpy==1.26.4, which has no 3.13
+    wheels), so the speech stage runs as a subprocess
+    under the venv python, the same discipline the bed
+    stage uses for ACE-Step. CPU torch goes in first,
+    from PyTorch's CPU wheel index, so the multi-GB CUDA
+    build never lands in the session; Kokoro-82M runs
+    fine on CPU. The spaCy model misaki's English G2P
+    loads is installed from its wheel for the same
+    reason: left to itself it tries to download through
+    a package installer a uv venv does not carry. A proof
+    synthesis through the real subprocess closes the
+    setup, so a broken speech setup fails the session's
+    setup, not a claimed job."""
+    uv = uv_path()
+    if not KOKORO_VENV_PYTHON.exists():
+        KOKORO_ROOT.mkdir(parents=True, exist_ok=True)
+        r = subprocess.run(
+            [uv, "venv", "--python", "3.12",
+             str(KOKORO_ROOT / ".venv")],
+            capture_output=True, text=True, timeout=900)
+        if r.returncode != 0 or not KOKORO_VENV_PYTHON.exists():
+            raise RuntimeError(
+                f"kokoro venv create failed: "
+                f"{(r.stdout + r.stderr)[-280:]}")
+    heartbeat()
+
+    def uv_pip(pkgs, index_url=None):
+        cmd = [uv, "pip", "install", "--python",
+               str(KOKORO_VENV_PYTHON)] + pkgs
+        if index_url:
+            cmd += ["--index-url", index_url]
+        r = subprocess.run(cmd, capture_output=True,
+                           text=True, timeout=1800)
+        log(f"uv pip install {pkgs} -> rc={r.returncode}")
+        if r.returncode != 0:
+            raise RuntimeError(
+                f"uv pip install {pkgs} failed: "
+                f"{(r.stdout + r.stderr)[-280:]}")
+
+    uv_pip(["torch"],
+           index_url="https://download.pytorch.org/whl/cpu")
+    heartbeat()
+    uv_pip(["kokoro>=0.9.2", "soundfile", "numpy"])
+    heartbeat()
+    uv_pip([f"en-core-web-sm @ {SPACY_MODEL_WHEEL}"])
+    made = run_voiceover_script("Hello.", "af_heart")
+    if made.stat().st_size <= 10_000:
+        raise RuntimeError(
+            "Kokoro proof synthesis produced a stub wav")
+    log("Kokoro ready (genuine PyTorch engine)")
+
+
+def run_voiceover_script(text: str, voice: str) -> Path:
+    """Speak one text with the genuine engine: the Modal
+    stage's own script under the 3.12 venv python.
+    Returns the wav it wrote."""
+    Path("/tmp/vo_params.json").write_text(
+        json.dumps({"text": text, "voice": voice}))
+    script_path = Path("/tmp/gen_voiceover.py")
+    script_path.write_text(VOICEOVER_SCRIPT)
+    out_path = Path("/tmp/voiceover.wav")
+    if out_path.exists():
+        out_path.unlink()
+    env = dict(os.environ)
+    env["HF_HOME"] = str(KOKORO_HF_HOME)
+    proc = subprocess.run(
+        [str(KOKORO_VENV_PYTHON), str(script_path)],
+        capture_output=True, text=True,
+        timeout=GEN_TIMEOUT_SECONDS, env=env)
+    print(proc.stdout[-3000:], flush=True)
+    if proc.returncode != 0:
+        print(proc.stderr[-3000:], flush=True)
+        raise RuntimeError(
+            f"Kokoro subprocess failed rc={proc.returncode}")
+    if not out_path.exists() or out_path.stat().st_size <= 44:
+        raise RuntimeError("Kokoro produced no wav")
+    return out_path
+
+
+def setup_kokoro_onnx():
+    """The fallback speech setup: the Kokoro-82M weights'
+    official ONNX export through onnxruntime, the only
+    runtime that installs on this kernel's Python 3.13.
+    Reached only when the genuine engine's setup failed;
+    the session log names it as the fallback."""
     pip_install_checked(["kokoro-onnx", "soundfile", "numpy"])
     _download(KOKORO_MODEL_URL, KOKORO_MODEL_PATH)
     heartbeat()
     _download(KOKORO_VOICES_URL, KOKORO_VOICES_PATH)
-    samples, sr = kokoro_engine().create("Hello.",
-                                         voice="af_heart")
+    samples, sr = kokoro_onnx_engine().create(
+        "Hello.", voice="af_heart")
     if sr != 24000 or samples is None or len(samples) == 0:
         raise RuntimeError("Kokoro ONNX proof synthesis failed")
-    log("Kokoro ready")
+    log("Kokoro ready (ONNX fallback)")
 
 
-def kokoro_engine():
+def kokoro_onnx_engine():
     global _KOKORO_ONNX
     if _KOKORO_ONNX is None:
         from kokoro_onnx import Kokoro
@@ -309,9 +485,10 @@ def kokoro_engine():
 
 def _voiceover_parts(text: str):
     """Split a narration text into sentence-sized parts
-    under the model's per-call phoneme ceiling; the Modal
-    recipe's pipeline chunked the same way and the parts
-    are concatenated back into one wav."""
+    under the model's per-call phoneme ceiling. Only the
+    ONNX fallback needs this: the genuine engine's
+    pipeline chunks the text itself, as it did on Modal.
+    The parts are concatenated back into one wav."""
     import re
 
     parts = []
@@ -371,16 +548,39 @@ def make_bed(job: dict) -> Path:
 
 def make_voiceover(job: dict) -> Path:
     """One Kokoro voiceover: the job's text in the job's
-    voice, 24 kHz mono wav, the Modal stage's recipe."""
+    voice, 24 kHz mono wav. The genuine PyTorch engine
+    speaks it whenever its setup proved itself; the ONNX
+    fallback speaks only in a session whose genuine
+    setup failed. Either way the log line names the
+    engine that made the file."""
     ensure_engine("voiceover")
-    import numpy as np
-    import soundfile as sf
-
     text = (job.get("text") or "").strip()
     voice = job.get("voice") or "af_heart"
     if not text:
         raise ValueError("voiceover text is empty")
-    engine = kokoro_engine()
+    if _SPEECH_ENGINE == "pytorch":
+        made = run_voiceover_script(text, voice)
+        out_path = WORKING / f"voiceover-{job['id']}.wav"
+        shutil.copyfile(made, out_path)
+        log(f"job {job['id']}: voiceover engine=pytorch-kokoro")
+        return out_path
+    if _SPEECH_ENGINE == "onnx":
+        out_path = make_voiceover_onnx(job, text, voice)
+        log(f"job {job['id']}: voiceover engine=onnx-fallback")
+        return out_path
+    raise RuntimeError("the speech engine was never set up")
+
+
+def make_voiceover_onnx(job: dict, text: str,
+                        voice: str) -> Path:
+    """The fallback voiceover: the same weights through
+    onnxruntime, the text chunked by hand under the
+    model's per-call phoneme ceiling because the ONNX
+    wrapper has no pipeline of its own."""
+    import numpy as np
+    import soundfile as sf
+
+    engine = kokoro_onnx_engine()
     lang = "en-gb" if voice.startswith("b") else "en-us"
     chunks = []
     for part in _voiceover_parts(text):
