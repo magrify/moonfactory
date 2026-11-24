@@ -540,9 +540,10 @@ check("gallery_visible" in SRC and 'job.get("short_parent")' in SRC,
 
 processor = SRC.split("def process_short_job", 1)[1].split(
     "# ---------------------------------------------------------------------------\n# Config", 1)[0]
-check('from_name(\n            "sinclip-audio", "generate_voiceover")'
-      in processor or '"sinclip-audio", "generate_voiceover"' in processor,
-      "narration calls the platform Kokoro stage")
+check('"voiceover", {"text": line, "voice": voice}' in processor,
+      "narration calls the platform Kokoro stage through the "
+      "Kaggle audio seam (2026-11-24 audio move; the stage "
+      "itself is pinned by check_audio_kaggle)")
 check("find_stock_clip" in processor, "the runner finds stock per line")
 check("_short_ai_scenes" in processor,
       "the runner can make AI pictures per line")
@@ -554,8 +555,9 @@ check("_wake_comfy_kernel" in SRC,
       "the kernel wake lives at module level for the processors")
 check("_short_bed_for_job" in processor,
       "the runner resolves the picked music bed")
-check("generate_bed" in SRC and "shorts_{style}" in SRC,
-      "named beds ride the platform bed stage, cached by style")
+check("_audio_bytes" in SRC and "shorts_{style}" in SRC,
+      "named beds ride the platform bed stage on the Kaggle "
+      "audio worker, cached by style (2026-11-24 audio move)")
 bed_fn = SRC.split("def _short_custom_bed_for_job", 1)[1].split(
     "def process_short_job", 1)[0]
 check("SHORTS_CUSTOM_MUSIC" in bed_fn

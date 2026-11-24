@@ -266,6 +266,10 @@ image = (
         str(Path(__file__).parent.parent
             / "worker-kaggle" / "voice_worker_kernel.py"),
         "/platform/voice_worker_kernel.py")
+    .add_local_file(
+        str(Path(__file__).parent.parent
+            / "worker-kaggle" / "audio_worker_kernel.py"),
+        "/platform/audio_worker_kernel.py")
     .add_local_file(str(Path(__file__).parent / "clipping.py"), "/platform/clipping.py")
     .add_local_file(str(Path(__file__).parent / "fun_camera.py"), "/platform/fun_camera.py")
     .add_local_file(str(Path(__file__).parent / "llm_providers.py"), "/platform/llm_providers.py")
@@ -313,6 +317,10 @@ clip_image = (
         str(Path(__file__).parent.parent
             / "worker-kaggle" / "voice_worker_kernel.py"),
         "/platform/voice_worker_kernel.py")
+    .add_local_file(
+        str(Path(__file__).parent.parent
+            / "worker-kaggle" / "audio_worker_kernel.py"),
+        "/platform/audio_worker_kernel.py")
     .add_local_file(str(Path(__file__).parent / "clipping.py"), "/platform/clipping.py")
     .add_local_file(str(Path(__file__).parent / "fun_camera.py"), "/platform/fun_camera.py")
     .add_local_file(str(Path(__file__).parent / "llm_providers.py"), "/platform/llm_providers.py")
@@ -1961,12 +1969,8 @@ def _short_custom_bed_for_job(job: dict):
     if bed_file.exists():
         return bed_file
     try:
-        seed = int(hashlib.sha256(
-            job["id"].encode()).hexdigest()[:8], 16) % 90000 + 10000
-        caption = f"{prompt}, instrumental, no vocals"
-        generate_bed = modal.Function.from_name(
-            "sinclip-audio", "generate_bed")
-        data = generate_bed.remote(caption, seed)
+        payload = _bed_payload_for_job(job)
+        data = _audio_bytes("bed", payload, job, BED_WAIT_SECONDS)
         bed_file.parent.mkdir(parents=True, exist_ok=True)
         bed_file.write_bytes(data)
         data_volume.commit()
@@ -2001,10 +2005,11 @@ def _short_bed_for_job(job: dict):
     if bed_file.exists():
         return bed_file
     try:
-        generate_bed = modal.Function.from_name(
-            "sinclip-audio", "generate_bed")
-        data = generate_bed.remote(
-            f"{caption}, instrumental, no vocals", 7)
+        data = _audio_bytes(
+            "bed",
+            {"caption": f"{caption}, instrumental, no vocals",
+             "seed": 7},
+            job, BED_WAIT_SECONDS)
         bed_file.parent.mkdir(parents=True, exist_ok=True)
         bed_file.write_bytes(data)
         data_volume.commit()
@@ -2063,6 +2068,11 @@ def process_short_job(job_id: str):
         lines = list(job.get("short_lines") or [])
         if not lines:
             raise RuntimeError("the job carries no script lines")
+        # Queue the music bed now, before the scene and
+        # narration stages, so a cold Kaggle audio session
+        # warms up while the rest of the short is made; the
+        # bed helper rejoins this same child at assembly.
+        _queue_short_bed_child(job)
         voice = job.get("speech_voice") or DEFAULT_SPEECH_VOICE
         stock_key = shorts._env_value("PEXELS_API_KEY")
 
@@ -2141,8 +2151,6 @@ def process_short_job(job_id: str):
             jobs[job_id] = job
 
         set_stage(SHORTS_STAGES[1])
-        generate_voiceover = modal.Function.from_name(
-            "sinclip-audio", "generate_voiceover")
         line_wavs = []
         line_durations = []
         for i, line in enumerate(lines):
@@ -2164,7 +2172,9 @@ def process_short_job(job_id: str):
                         "the cloned voice could not be made")
                 shutil.copyfile(cloned, wav)
             else:
-                data = generate_voiceover.remote(line, voice)
+                data = _audio_bytes(
+                    "voiceover", {"text": line, "voice": voice},
+                    job, VOICE_WAIT_SECONDS)
                 wav.write_bytes(data)
             duration = shorts.probe(wav)["duration"]
             if duration <= 0:
@@ -4067,6 +4077,238 @@ def _wake_voice_kernel() -> None:
             meta["voice:last_trigger_error"] = detail
     except Exception:
         pass
+
+
+# ---------------------------------------------------------------------------
+# Audio worker (2026-11-24): the ACE-Step music bed stage and
+# the Kokoro voiceover stage run on a Kaggle kernel, the same
+# wake discipline as the voice worker above with its own meta
+# keys and slug. Jack's order: Modal is almost maxed out, so
+# the self-contained audio stages (a caption or a text in, a
+# wav out) move to the free GPU quota like the house lanes
+# and the voice cloning did. The kernel script ships in both
+# Modal images as /platform/audio_worker_kernel.py.
+#
+# A stage request is a child job in the jobs Dict with a
+# deterministic id built from the stage inputs, the same
+# (caption, seed) and (voice, text) keys the Modal audio app
+# cached by: a repeat request rejoins the finished child and
+# costs a file read, never a second render. Callers wait on
+# the child the way the clone wait waits, and every failure
+# (a failed child, a wait that runs out) raises, so the
+# callers' existing fallbacks (the house bed, the
+# voiceover "unavailable" flag) engage exactly as they did
+# when the Modal callable raised. The Modal callables
+# (generate_bed, generate_voiceover in the sinclip-audio
+# app) stay deployed and uncalled as the revert path; the
+# word check and the transcription stage stay on that app,
+# since both run inside the delivery path against the
+# finished audio and are sized for its latency.
+# ---------------------------------------------------------------------------
+
+AUDIO_KERNEL_SLUG = "magrify/moonfactory-audio-worker"
+AUDIO_WORKER_SCRIPT_PATH = Path("/platform/audio_worker_kernel.py")
+AUDIO_HEARTBEAT_STALE_SECONDS = 180
+AUDIO_TRIGGER_MIN_INTERVAL_SECONDS = 180
+# The waits: the CPU processors have an hour and already
+# wait a quarter of it on the Kaggle picture stage, so the
+# bed and the narration waits match that bound; the web
+# finishing chain waits the clone wait's bound.
+BED_WAIT_SECONDS = 1500
+VOICE_WAIT_SECONDS = 1500
+AUDIO_WEB_WAIT_SECONDS = 900
+
+
+def _wake_audio_kernel() -> None:
+    """Wake the audio kernel when a stage waits and no
+    kernel heartbeat is fresh: a version push of the worker
+    script makes Kaggle run it. Throttled exactly like
+    _wake_voice_kernel and never raises: a failed wake
+    leaves the child queued for the next nudge."""
+    try:
+        if _now() - float(meta.get("audio:heartbeat") or 0) \
+                < AUDIO_HEARTBEAT_STALE_SECONDS:
+            return
+        if _now() - float(meta.get("audio:last_trigger") or 0) \
+                < AUDIO_TRIGGER_MIN_INTERVAL_SECONDS:
+            return
+        token = _kaggle_token()
+        if not token:
+            return
+        script_text = AUDIO_WORKER_SCRIPT_PATH.read_text()
+        meta["audio:last_trigger"] = _now()
+        ok, detail = kaggle_push(
+            token, script_text, slug=AUDIO_KERNEL_SLUG,
+            title="Moonfactory Audio Worker",
+            datasets=[HF_KEY_DATASET], gpu=True)
+        if not ok:
+            meta["audio:last_trigger_error"] = detail
+    except Exception:
+        pass
+
+
+def _audio_key(stage: str, payload: dict) -> str:
+    """The cache key a stage's inputs hash to: the bed
+    stage's (caption, seed) pair and the voiceover stage's
+    (voice, text) pair, the same keys the Modal audio app
+    cached its Volume files by."""
+    if stage == "bed":
+        return hashlib.sha256(
+            f"{payload['caption']}|{payload['seed']}".encode()
+        ).hexdigest()[:16]
+    return hashlib.sha256(
+        f"{payload['voice']}|{payload['text']}".encode()
+    ).hexdigest()[:16]
+
+
+def _audio_child_id(stage: str, key: str) -> str:
+    return f"aud-{stage}-{key}"
+
+
+def _audio_child_path(child_id: str) -> Path:
+    return FILES_DIR / "audio_worker" / f"{child_id}.wav"
+
+
+def _queue_audio_child(stage: str, payload: dict, parent):
+    """Queue one audio_stage child for the Kaggle audio
+    worker and wake the kernel. Idempotent by the stage
+    inputs: a child already queued or running is rejoined,
+    a finished child whose file stands is left alone, and
+    a failed or fileless child is queued fresh. Never
+    raises: a queueing failure surfaces later as the
+    wait's own failure, where the callers' fallbacks live."""
+    try:
+        key = _audio_key(stage, payload)
+        child_id = _audio_child_id(stage, key)
+        child = jobs.get(child_id)
+        if child and child.get("status") in ("queued", "running"):
+            _wake_audio_kernel()
+            return child
+        if child and child.get("status") == "done" \
+                and _audio_child_path(child_id).exists():
+            return child
+        child = {
+            "id": child_id,
+            "user_id": (parent or {}).get("user_id"),
+            "worker_job_id": None,
+            "provider": "kaggle-audio",
+            "kind": "audio_stage",
+            "status": "queued",
+            "error": None,
+            "bytes": None,
+            "created_at": _now(),
+            "charged_cents": 0,
+            "audio_stage": stage,
+            "audio_key": key,
+            "audio_parent": (parent or {}).get("id"),
+            **payload,
+        }
+        jobs[child_id] = child
+        _wake_audio_kernel()
+        return child
+    except Exception:
+        return None
+
+
+def _audio_bytes(stage: str, payload: dict, parent,
+                 wait_seconds: int) -> bytes:
+    """Make one audio stage's wav on the Kaggle audio
+    worker and return its bytes: the routed twin of the
+    Modal audio callables this replaces. A finished child
+    hands its file straight back; otherwise the child is
+    queued, the kernel woken, and the record polled. A
+    failed child raises with its recorded error, and a wait
+    that runs out closes the child (so a kernel never makes
+    audio for nobody) and raises, exactly the clone wait's
+    discipline: every caller fallback that caught the Modal
+    callable's failures catches these the same way."""
+    key = _audio_key(stage, payload)
+    child_id = _audio_child_id(stage, key)
+    path = _audio_child_path(child_id)
+    child = jobs.get(child_id) or {}
+    if child.get("status") == "done":
+        try:
+            data_volume.reload()
+        except Exception:
+            pass
+        if path.exists():
+            return path.read_bytes()
+    _queue_audio_child(stage, payload, parent)
+    deadline = time.time() + wait_seconds
+    while time.time() < deadline:
+        child = jobs.get(child_id) or {}
+        if child.get("status") == "done":
+            try:
+                data_volume.reload()
+            except Exception:
+                pass
+            if path.exists():
+                return path.read_bytes()
+            raise RuntimeError(
+                "the audio stage finished without its file")
+        if child.get("status") == "error":
+            raise RuntimeError(
+                child.get("internal_error")
+                or "the audio stage failed")
+        time.sleep(10)
+    child = jobs.get(child_id) or {}
+    if child.get("status") in ("queued", "running"):
+        child["status"] = "error"
+        child["error"] = "the audio wait ended first"
+        child["internal_error"] = "the audio wait ended first"
+        jobs[child_id] = child
+    raise RuntimeError("the audio wait ended first")
+
+
+def _bed_payload_for_job(job: dict):
+    """The bed inputs a job's custom music prompt makes:
+    the prompt with the instrumental close appended and
+    the seed derived from the job id, the _bed_for_job
+    derivation, shared by the finishing chain (which waits
+    on the child) and the completion hook (which queues it
+    early). None when the job carries no music prompt."""
+    prompt = (job.get("music_prompt") or "").strip()
+    if not prompt:
+        return None
+    seed = int(hashlib.sha256(
+        job["id"].encode()).hexdigest()[:8], 16) % 90000 + 10000
+    return {"caption": f"{prompt}, instrumental, no vocals",
+            "seed": seed}
+
+
+def _queue_short_bed_child(job: dict) -> None:
+    """Queue a short's music bed on the Kaggle audio worker
+    at the start of its run, so a cold audio session warms
+    up during the scene and narration stages; the bed
+    helper rejoins this same child at assembly time. The
+    routing mirrors _short_bed_for_job exactly (the custom
+    pick per job, a named style by its fixed caption, the
+    house pick and No music queue nothing). Never raises."""
+    try:
+        style = job.get("short_music") or "house"
+        if style == "none":
+            return
+        if style == SHORTS_CUSTOM_MUSIC:
+            payload = _bed_payload_for_job(job)
+            if payload:
+                _queue_audio_child("bed", payload, job)
+            return
+        caption = (SHORTS_MUSIC_STYLES.get(style) or {}).get(
+            "caption") or ""
+        if not caption:
+            return
+        bed_file = FILES_DIR / "beds" / f"shorts_{style}.wav"
+        if bed_file.exists():
+            return
+        _queue_audio_child(
+            "bed",
+            {"caption": f"{caption}, instrumental, no vocals",
+             "seed": 7},
+            job)
+    except Exception:
+        pass
+
+
 # The house lanes that execute on the Kaggle ComfyUI worker.
 # Every house video lane moved (2026-11-19): the two models
 # (house Wan 2.2 in its Draft, Production and Effects shapes,
@@ -13151,9 +13393,9 @@ def api():
         """The Kokoro voiceover stage (Jack's correction,
         2026-11-16): speak the job's speech_script with Kokoro
         (Apache-2.0, the shippable TTS) and cache the wav per job
-        on the data Volume. The synthesis callable lives in the
-        sinclip-audio app (generate_voiceover in
-        modal-worker/audio_app.py). Since the parallel-audio change
+        on the data Volume. The synthesis runs on the Kaggle
+        audio worker (the _audio_bytes seam), as of the
+        2026-11-24 audio move. Since the parallel-audio change
         (2026-11-16) the synthesis is normally spawned at dispatch
         and only collected here; the synchronous call below remains
         as the fallback for jobs with no spawned call. If the stage
@@ -13198,10 +13440,12 @@ def api():
             jobs[job["id"]] = job
             return None
         try:
-            generate_voiceover = modal.Function.from_name(
-                "sinclip-audio", "generate_voiceover")
-            data = generate_voiceover.remote(
-                script, job.get("speech_voice") or DEFAULT_SPEECH_VOICE)
+            data = _audio_bytes(
+                "voiceover",
+                {"text": script,
+                 "voice": job.get("speech_voice")
+                 or DEFAULT_SPEECH_VOICE},
+                job, AUDIO_WEB_WAIT_SECONDS)
             voice_file.parent.mkdir(parents=True, exist_ok=True)
             voice_file.write_bytes(data)
             job["voiceover_status"] = "ready"
@@ -13420,10 +13664,9 @@ def api():
         if bed_file.exists():
             return bed_file
         try:
-            seed = int(hashlib.sha256(job["id"].encode()).hexdigest()[:8], 16) % 90000 + 10000
-            caption = f"{prompt}, instrumental, no vocals"
-            generate_bed = modal.Function.from_name("sinclip-audio", "generate_bed")
-            data = generate_bed.remote(caption, seed)
+            data = _audio_bytes(
+                "bed", _bed_payload_for_job(job), job,
+                AUDIO_WEB_WAIT_SECONDS)
             bed_file.parent.mkdir(parents=True, exist_ok=True)
             bed_file.write_bytes(data)
             return bed_file
@@ -14606,6 +14849,98 @@ def api():
             _clone_refund_if_unsuccessful(job["clone_parent"])
         return {"ok": True}
 
+    # -- Kaggle audio worker (music beds and voiceovers, 2026-11-24) -----
+    # The ACE-Step bed stage and the Kokoro voiceover stage
+    # run on the Kaggle audio worker kernel (worker-kaggle/
+    # audio_worker_kernel.py), moved off the Modal audio app
+    # on Jack's order (Modal almost maxed out). The worker
+    # authenticates with the same worker key as the other
+    # workers, and the claim shape mirrors theirs: heartbeat,
+    # claim, file, fail. A claimed job is an audio_stage
+    # child (a bed from a caption and seed, or a voiceover
+    # from a text and voice); the file it uploads is the wav,
+    # collected by the waiting caller from the audio_worker
+    # folder on the data Volume.
+
+    def _audio_worker_ok(x_api_key: str = Header(default="")):
+        return _hf_worker_ok(x_api_key)
+
+    @web.post("/api/worker/audio/heartbeat")
+    def audio_heartbeat(x_api_key: str = Header(default="")):
+        if not _audio_worker_ok(x_api_key):
+            raise HTTPException(status_code=401, detail="bad worker key")
+        meta["audio:heartbeat"] = _now()
+        return {"ok": True}
+
+    @web.get("/api/worker/audio/jobs/next")
+    def audio_next_job(x_api_key: str = Header(default="")):
+        if not _audio_worker_ok(x_api_key):
+            raise HTTPException(status_code=401, detail="bad worker key")
+        meta["audio:heartbeat"] = _now()
+        queued = []
+        for key in list(jobs.keys()):
+            other = jobs.get(key)
+            if (other and other.get("kind") == "audio_stage"
+                    and other.get("status") == "queued"):
+                queued.append(other)
+        if not queued:
+            return {"job": None}
+        queued.sort(key=lambda j: j["created_at"])
+        job = queued[0]
+        job["status"] = "running"
+        job["claimed_at"] = _now()
+        jobs[job["id"]] = job
+        return {"job": {
+            "id": job["id"],
+            "stage": job.get("audio_stage") or "",
+            "caption": job.get("caption") or "",
+            "seed": job.get("seed") or 0,
+            "text": job.get("text") or "",
+            "voice": job.get("voice") or "",
+        }}
+
+    @web.post("/api/worker/audio/jobs/{job_id}/file")
+    async def audio_job_file(job_id: str, request: Request,
+                             x_api_key: str = Header(default="")):
+        if not _audio_worker_ok(x_api_key):
+            raise HTTPException(status_code=401, detail="bad worker key")
+        job = jobs.get(job_id)
+        if not job or job.get("kind") != "audio_stage":
+            raise HTTPException(status_code=404, detail="unknown job")
+        if job["status"] != "running":
+            raise HTTPException(
+                status_code=409, detail=f"job status is {job['status']}")
+        data = await request.body()
+        if not data or len(data) > 100 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail="bad file size")
+        out_dir = FILES_DIR / "audio_worker"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_path = out_dir / f"{job_id}.wav"
+        out_path.write_bytes(data)
+        data_volume.commit()
+        job["bytes"] = len(data)
+        job["status"] = "done"
+        jobs[job["id"]] = job
+        return {"ok": True, "bytes": len(data)}
+
+    @web.post("/api/worker/audio/jobs/{job_id}/fail")
+    async def audio_job_fail(job_id: str, request: Request,
+                             x_api_key: str = Header(default="")):
+        if not _audio_worker_ok(x_api_key):
+            raise HTTPException(status_code=401, detail="bad worker key")
+        job = jobs.get(job_id)
+        if not job or job.get("kind") != "audio_stage":
+            raise HTTPException(status_code=404, detail="unknown job")
+        if job["status"] not in ("queued", "running"):
+            raise HTTPException(
+                status_code=409, detail=f"job status is {job['status']}")
+        body = await request.json()
+        job["status"] = "error"
+        job["error"] = "the audio stage could not be made"
+        job["internal_error"] = str(body.get("error") or "")[:300]
+        jobs[job["id"]] = job
+        return {"ok": True}
+
     # -- Kaggle ComfyUI worker (the house lanes, 2026-11-19) --------------
     # The house video lanes and the house image lane run on the
     # Kaggle ComfyUI worker kernel (worker-kaggle/
@@ -14858,6 +15193,16 @@ x_api_key: str = Header(default="")):
             job["partial_reason"] = (
                 request.headers.get("x-comfy-partial-error") or "")[:300]
             _settle_comfy_partial(job)
+        if job.get("music_prompt"):
+            # A paid custom bed starts cooking on the Kaggle
+            # audio worker from this moment, while the owner
+            # is still on their way to the finished file, so
+            # the finishing chain usually collects it warm
+            # instead of paying a cold audio session inside
+            # the delivery wait.
+            payload = _bed_payload_for_job(job)
+            if payload:
+                _queue_audio_child("bed", payload, job)
         job["status"] = "done"
         jobs[job["id"]] = job
         return {"ok": True, "bytes": len(data)}
