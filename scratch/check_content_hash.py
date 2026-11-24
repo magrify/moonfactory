@@ -227,8 +227,10 @@ sys.path.insert(0, str(ROOT / "platform"))
 import pricing  # noqa: E402  (the real pricing module, as other checks use)
 
 display_handle = exec_func("display_handle", {})
+avatar_url = exec_func("avatar_url", {})
 gallery_item = exec_func("public_gallery_item", {
     "users": fake_users, "display_handle": display_handle,
+    "avatar_url": avatar_url,
     "pricing": pricing, "MODEL_LABELS": {}, "DEFAULT_MODEL": "wan2.2",
     "HOUSE_IMAGE_LABEL": "Z-Image Turbo",
 })

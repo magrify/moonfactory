@@ -1021,6 +1021,94 @@ def input_gate_refusal(probe: dict, verdict):
     return None
 
 
+# ---------------------------------------------------------------------------
+# Profile photos (Jack, 2026-11-24): an account can carry one
+# profile photo, uploaded from the Account dialog, shown in the
+# header avatar, the dialog itself, and beside the creator
+# handle on gallery cards — everywhere the handle shows, and
+# nowhere else. The upload is processed on the server: it must
+# be a real picture (decoded and re-encoded, never trusted as
+# sent), center cropped to a square, and no larger than 256 by
+# 256, stored as one JPEG per account on the data volume, a new
+# upload replacing the old file. Before anything is stored the
+# picture runs through the same input classifier as a regular
+# lane upload, with the same fail closed rule: a flagged photo
+# is refused and never stored or shown, and a photo that could
+# not be judged is refused too. Removing the photo deletes the
+# file and returns the account to its initial letter.
+# ---------------------------------------------------------------------------
+
+PROFILE_PHOTO_SIZE = 256
+PROFILE_PHOTO_MAX_BYTES = 10 * 1024 * 1024
+PROFILE_PHOTO_MAX_PIXELS = 64 * 1000 * 1000
+PROFILE_PHOTO_FLAGGED = (
+    "That photo can not be used as a profile photo.")
+PROFILE_PHOTO_UNJUDGED = (
+    "We could not check that photo just now. "
+    "Try uploading it again.")
+PROFILE_PHOTO_NOT_IMAGE = (
+    "That file is not a picture we can use.")
+PROFILE_PHOTO_TOO_LARGE = "That photo file is too large."
+
+
+def profile_photo_path(user_id: str) -> Path:
+    """The one stored profile photo for an account."""
+    return FILES_DIR / "avatars" / f"{user_id}.jpg"
+
+
+def process_profile_photo(data: bytes) -> bytes:
+    """Normalize an uploaded profile photo to its stored form:
+    the picture decoded for real (a file that does not decode
+    raises ValueError), EXIF orientation applied, center
+    cropped to a square, downscaled to at most PROFILE_PHOTO_SIZE
+    on a side, and returned as JPEG bytes. Oversized pixel
+    counts raise too, so a decompression bomb never gets
+    decoded at full size more than once."""
+    import io
+
+    from PIL import Image, ImageOps
+
+    try:
+        with Image.open(io.BytesIO(data)) as probe:
+            width, height = probe.size
+            if width * height > PROFILE_PHOTO_MAX_PIXELS:
+                raise ValueError("too many pixels")
+            probe.verify()
+        with Image.open(io.BytesIO(data)) as img:
+            img = ImageOps.exif_transpose(img).convert("RGB")
+            width, height = img.size
+            side = min(width, height)
+            left = (width - side) // 2
+            top = (height - side) // 2
+            img = img.crop((left, top, left + side, top + side))
+            if side > PROFILE_PHOTO_SIZE:
+                img = img.resize(
+                    (PROFILE_PHOTO_SIZE, PROFILE_PHOTO_SIZE),
+                    Image.LANCZOS)
+            out = io.BytesIO()
+            img.save(out, "JPEG", quality=88)
+            return out.getvalue()
+    except ValueError:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise ValueError(f"unreadable picture: {exc}") from exc
+
+
+def profile_photo_refusal(verdict):
+    """The refusal message for a profile photo's classifier
+    verdict, or None when the photo may be stored. The photo is
+    a public picture, so it is judged like a regular lane
+    upload: flagged refuses, and unjudged refuses too (fail
+    closed). A None verdict cannot come back from a one
+    picture call, but it is treated as unjudged if it ever
+    does, never as clean."""
+    if verdict is None or verdict.get("error"):
+        return PROFILE_PHOTO_UNJUDGED
+    if verdict.get("flagged"):
+        return PROFILE_PHOTO_FLAGGED
+    return None
+
+
 def write_job_tombstone(job: dict) -> None:
     """Retain the minimal deletion tombstone for a job about to
     be deleted, so its content fingerprint survives the job
@@ -6142,6 +6230,17 @@ def api():
             return handle
         return "creator-" + user["id"][:6]
 
+    def avatar_url(user: dict):
+        """The account's profile photo URL, or None when the
+        account has no photo and its initial letter stands. The
+        version in the query is the upload count stamped on the
+        record, so a new photo shows up everywhere at once
+        instead of waiting out a cache."""
+        version = int((user or {}).get("avatar_version") or 0)
+        if version <= 0:
+            return None
+        return f"/api/avatars/{user['id']}?v={version}"
+
     def public_user(user: dict) -> dict:
         budget_used = included_cost_used(user)
         return {
@@ -6166,6 +6265,7 @@ def api():
             "access_surface": "create",
             "surface_label": "Create",
             "handle": display_handle(user),
+            "avatar_url": avatar_url(user),
             "gallery_opt_out": bool(user.get("gallery_opt_out")),
             "past_due": user.get("past_due", False),
             "balance_cents": user.get("balance_cents", 0),
@@ -6828,6 +6928,90 @@ def api():
         user["gallery_opt_out"] = opt_out
         save_user(user)
         return {"gallery_opt_out": opt_out}
+
+    @web.post("/api/me/photo")
+    async def set_profile_photo(request: Request,
+                                file: UploadFile = File(...),
+                                mf_session: str = Cookie(default="")):
+        """Set the account's profile photo from an uploaded
+        picture. The order is the safety order: the bytes are
+        size capped, decoded and normalized, and judged by the
+        input classifier BEFORE anything is stored, so a refused
+        photo never lands on the volume and never shows. A kept
+        photo replaces the account's one stored file, and the
+        version stamp on the record moves, which is what makes
+        the new photo appear everywhere at once."""
+        user = require_user(request, mf_session)
+        if _rate_limited("avatar", user["id"], 6):
+            raise HTTPException(status_code=429,
+                                detail="too many uploads, slow down")
+        data = await file.read(PROFILE_PHOTO_MAX_BYTES + 1)
+        if len(data) > PROFILE_PHOTO_MAX_BYTES:
+            raise HTTPException(status_code=413,
+                                detail=PROFILE_PHOTO_TOO_LARGE)
+        try:
+            jpeg = process_profile_photo(data)
+        except ValueError:
+            raise HTTPException(status_code=422,
+                                detail=PROFILE_PHOTO_NOT_IMAGE)
+        verdict = classify_input_images(
+            b64_images=[base64.b64encode(data).decode()])
+        refusal = profile_photo_refusal(verdict)
+        if refusal:
+            raise HTTPException(status_code=422, detail=refusal)
+        dest = profile_photo_path(user["id"])
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        tmp = dest.with_suffix(".tmp.jpg")
+        tmp.write_bytes(jpeg)
+        tmp.replace(dest)
+        data_volume.commit()
+        user["avatar_version"] = \
+            int(user.get("avatar_version") or 0) + 1
+        if verdict and verdict.get("score") is not None:
+            user["avatar_nsfw_score"] = verdict["score"]
+        save_user(user)
+        return {"avatar_url": avatar_url(user)}
+
+    @web.delete("/api/me/photo")
+    def remove_profile_photo(request: Request,
+                             mf_session: str = Cookie(default="")):
+        """Remove the account's profile photo: the stored file
+        is deleted, the version stamp goes away, and the
+        account is back to its initial letter everywhere."""
+        user = require_user(request, mf_session)
+        try:
+            profile_photo_path(user["id"]).unlink(missing_ok=True)
+        except OSError:
+            pass
+        data_volume.commit()
+        user.pop("avatar_version", None)
+        save_user(user)
+        return {"avatar_url": None}
+
+    @web.get("/api/avatars/{user_id}")
+    def profile_photo(user_id: str):
+        """Serve one account's profile photo. The photo is a
+        public profile picture once set (it rides beside the
+        handle in the public gallery), so the route needs no
+        sign in. The cache is short and the URL carries the
+        upload version, so a changed photo shows up promptly.
+        An account with no photo is a plain 404."""
+        owner = users.get(f"id:{user_id}")
+        if not owner or not int(owner.get("avatar_version") or 0):
+            raise HTTPException(status_code=404,
+                                detail="no profile photo")
+        path = profile_photo_path(user_id)
+        if not path.exists():
+            try:
+                data_volume.reload()
+            except Exception:
+                pass
+        if not path.exists():
+            raise HTTPException(status_code=404,
+                                detail="no profile photo")
+        return FileResponse(
+            path, media_type="image/jpeg",
+            headers={"Cache-Control": "public, max-age=300"})
 
     # -- characters ---------------------------------------------------------
     # Persistent character profiles (Jack's scope call,
@@ -16026,6 +16210,10 @@ x_api_key: str = Header(default="")):
             "id": job["id"],
             "kind": "image" if is_image else "video",
             "handle": display_handle(owner),
+            # The creator's profile photo rides beside the
+            # handle, and only there: it is part of the same
+            # public identity the handle is, never more.
+            "avatar_url": avatar_url(owner),
             "lane": job["lane"],
             "model": model_label,
             "prompt": (job.get("prompt") or "")[:200],
@@ -17372,8 +17560,9 @@ _CSS = """
   header nav a{text-decoration:none;color:var(--gray);font-size:15px}
   header nav a:hover{color:var(--ink)}
   .profile{position:relative}
-  .avatar{width:34px;height:34px;border-radius:50%;background:var(--accent);color:#fff;border:0;padding:0;font:inherit;font-size:15px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center}
+  .avatar{width:34px;height:34px;border-radius:50%;background:var(--accent);color:#fff;border:0;padding:0;font:inherit;font-size:15px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;overflow:hidden}
   .avatar:hover{background:var(--accent-bright)}
+  .avatar img{width:100%;height:100%;object-fit:cover;display:block}
   .menu{position:absolute;right:0;top:calc(100% + 10px);z-index:60;min-width:216px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:8px;box-shadow:0 12px 32px rgba(0,0,0,.5);flex-direction:column}
   .menu a,.menu button{display:block;width:100%;box-sizing:border-box;text-align:left;background:none;border:0;color:var(--ink);font:inherit;font-size:14.5px;padding:9px 10px;border-radius:9px;cursor:pointer;text-decoration:none}
   .menu a:hover,.menu button:hover{background:var(--seg-on)}
@@ -17402,6 +17591,37 @@ _CSS = """
   .panel{background:var(--card);border:1px solid var(--line);border-radius:16px;max-width:560px;width:100%;padding:22px;margin-top:4vh}
   .panel-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
   .panel-close{background:var(--seg-on);color:var(--ink);border:0;width:34px;height:34px;border-radius:50%;font-size:17px;cursor:pointer;line-height:1;flex:none}
+  /* Account dialog (redesign, 2026-11-24): identity first,
+     the photo with the handle and the email as plain muted
+     text under it; plan and money as labeled stat rows, not
+     one run-on sentence; the handle editor as one row group;
+     and the gallery choice as a switch row. */
+  .acct-top{display:flex;align-items:center;gap:16px;margin:12px 0 14px}
+  .acct-photo{width:76px;height:76px;border-radius:50%;background:var(--accent);color:#fff;font-size:30px;font-weight:700;display:flex;align-items:center;justify-content:center;overflow:hidden;flex:none}
+  .acct-photo img{width:100%;height:100%;object-fit:cover;display:block}
+  .acct-handle{font-size:19px;font-weight:700;letter-spacing:-.01em;word-break:break-all}
+  .acct-email{color:var(--faint);font-size:14px;margin-top:2px;word-break:break-all}
+  .acct-photo-row{display:flex;gap:10px;flex-wrap:wrap}
+  .acct-photo-row .btn{padding:9px 16px;font-size:14px}
+  .stat-rows{border:1px solid var(--line);border-radius:14px;padding:2px 16px;margin:16px 0 18px;background:var(--inset)}
+  .stat-row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:11px 0;border-bottom:1px solid var(--line)}
+  .stat-row:last-child{border-bottom:0}
+  .stat-row span{color:var(--faint);font-size:14px}
+  .stat-row b{font-size:15px;font-weight:600;text-align:right}
+  .handle-row{display:flex;gap:10px}
+  .handle-row input{flex:1;margin:0;min-width:0}
+  .handle-row .btn{flex:none}
+  .switch-row{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-top:20px}
+  .switch-title{font-weight:600;font-size:14.5px}
+  .switch{position:relative;display:inline-block;flex:none;width:48px;height:28px;margin:0;cursor:pointer}
+  .switch input{position:absolute;inset:0;opacity:0;width:100%;height:100%;margin:0;padding:0;border:0;cursor:pointer}
+  .switch .track{position:absolute;inset:0;background:var(--seg-on);border-radius:99px;transition:.15s;pointer-events:none}
+  .switch .track::after{content:"";position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#fff;transition:.15s}
+  .switch input:checked + .track{background:var(--accent)}
+  .switch input:checked + .track::after{transform:translateX(20px)}
+  .switch input:disabled{cursor:default}
+  .switch input:disabled + .track{opacity:.45}
+  .switch input:focus-visible + .track{outline:2px solid var(--accent-bright);outline-offset:2px}
   h1{font-size:46px;line-height:1.12;letter-spacing:-.03em;font-weight:800;margin:0}
   h2{font-size:26px;letter-spacing:-.02em;margin:0 0 6px}
   a{color:var(--accent-bright)}
@@ -17477,7 +17697,8 @@ _CSS = """
   .grid{max-width:880px;margin:0 auto;display:grid;grid-template-columns:repeat(3,1fr);gap:22px 16px}
   .tile .frame{aspect-ratio:9/16;border-radius:16px;overflow:hidden;background:var(--card)}
   .tile .frame video,.tile .frame img{width:100%;height:100%;object-fit:cover;border-radius:0}
-  .tile .handle{margin-top:9px;font-size:14px;color:var(--gray)}
+  .tile .handle{margin-top:9px;font-size:14px;color:var(--gray);display:flex;align-items:center;gap:8px}
+  .gavatar{width:22px;height:22px;border-radius:50%;object-fit:cover;flex:none;background:var(--seg-on)}
   .tile .report{margin-top:6px;background:none;border:0;color:var(--faint);font:inherit;font-size:13px;cursor:pointer;padding:0}
   .tile .report:hover{color:var(--ink)}
   .tile .report:disabled{color:var(--faint);cursor:default}
@@ -19612,15 +19833,39 @@ APP_HTML = (
   <div class="overlay" id="panel-account" style="display:none">
     <div class="panel" role="dialog" aria-label="Account">
       <div class="panel-head"><h2>Account</h2><button type="button" class="panel-close" data-close-panel aria-label="Close">×</button></div>
-      <p id="account-email" style="margin:0 0 4px"></p>
-      <p id="account" style="margin-top:0"></p>
-      <label>Public handle (the only name the gallery ever shows)</label>
-      <input id="handle" maxlength="20">
-      <button class="btn secondary" id="save-handle">Save handle</button>
-      <label style="font-weight:400;display:block;margin-top:12px">
-        <input type="checkbox" id="gallery-optout" style="width:auto;margin:0 6px 0 0">
-        Hide my clips from the public gallery</label>
-      <p class="muted" id="gallery-note"></p>
+      <div class="acct-top">
+        <div class="acct-photo" id="account-photo"></div>
+        <div>
+          <div class="acct-handle" id="account-handle"></div>
+          <div class="acct-email" id="account-email"></div>
+        </div>
+      </div>
+      <div class="acct-photo-row">
+        <button class="btn secondary" id="photo-change" type="button">Change photo</button>
+        <button class="btn secondary" id="photo-remove" type="button" style="display:none">Remove photo</button>
+        <input type="file" id="photo-file" accept="image/*" hidden>
+      </div>
+      <p class="muted" style="margin:8px 0 0">Your photo shows beside your handle in the gallery.</p>
+      <div class="stat-rows">
+        <div class="stat-row"><span>Plan</span><b id="stat-plan"></b></div>
+        <div class="stat-row"><span id="stat-mid-label">Free clips used</span><b id="stat-mid"></b></div>
+        <div class="stat-row"><span>Balance</span><b id="stat-balance"></b></div>
+      </div>
+      <p class="muted" id="account-note" style="display:none;margin:0 0 14px"></p>
+      <p class="err" id="account-alert" style="display:none;margin:0 0 14px"></p>
+      <label for="handle">Public handle</label>
+      <p class="muted" style="margin:0 0 6px">The only name the gallery ever shows.</p>
+      <div class="handle-row">
+        <input id="handle" maxlength="20">
+        <button class="btn secondary" id="save-handle">Save handle</button>
+      </div>
+      <div class="switch-row">
+        <div>
+          <div class="switch-title">Hide my clips from the public gallery</div>
+          <div class="muted" id="gallery-note"></div>
+        </div>
+        <label class="switch"><input type="checkbox" id="gallery-optout"><span class="track"></span></label>
+      </div>
       <p id="profile-msg"></p>
     </div>
   </div>
@@ -20494,9 +20739,10 @@ function showStudio(u) {
   $('auth').style.display = 'none'; $('studio').style.display = 'block';
   $('nav-signin').style.display = 'none';
   $('profile').style.display = 'inline-block';
-  $('avatar').textContent = (u.email || '?').trim().charAt(0).toUpperCase();
   $('menu-email').textContent = u.email;
   $('account-email').textContent = u.email;
+  $('account-handle').textContent = u.handle;
+  renderAvatar(u);
   renderAutoReload(u);
   const paidSurface = isPaidSurface();
   $('composer-heading').textContent = 'Create';
@@ -20504,14 +20750,27 @@ function showStudio(u) {
     ? 'The full studio. Every model, custom sound, longer clips.'
     : 'The free plan. Wan 2.2, Draft lane, watermarked. Every other model and the paid features open with any payment.';
   genLabel(null);
-  const inc = u.plan === 'creator'
-    ? ('Included production time, ' + Math.max(0, u.included_seconds_total - u.included_seconds_used).toFixed(0) + 's left of ' + u.included_seconds_total + 's. ')
-    : (u.paid_customer
-      ? 'Pay per video. You pay per clip from your balance, and every paid feature is unlocked. '
-      : ('Free clips, ' + u.free_jobs_used + ' of ' + u.free_jobs_limit + ' used in total. The free plan never refills. '));
-  $('account').textContent = 'Your plan is ' + u.plan + '. ' + inc +
-    'Your prepaid balance is $' + (u.balance_cents / 100).toFixed(2) + '.' +
-    (u.verified ? '' : ' Your email is not verified yet, so creating is off.');
+  // Plan and money as stat rows (redesign, 2026-11-24): each
+  // fact on its own labeled line, never one run-on sentence.
+  $('stat-plan').textContent = u.plan.charAt(0).toUpperCase() + u.plan.slice(1);
+  const note = $('account-note');
+  if (u.plan === 'creator') {
+    $('stat-mid-label').textContent = 'Production time left';
+    $('stat-mid').textContent = Math.max(0, u.included_seconds_total - u.included_seconds_used).toFixed(0) + 's of ' + u.included_seconds_total + 's';
+    note.style.display = 'none'; note.textContent = '';
+  } else if (u.paid_customer) {
+    $('stat-mid-label').textContent = 'Billing';
+    $('stat-mid').textContent = 'Pay per video';
+    note.style.display = ''; note.textContent = 'You pay per clip from your balance, and every paid feature is unlocked.';
+  } else {
+    $('stat-mid-label').textContent = 'Free clips used';
+    $('stat-mid').textContent = u.free_jobs_used + ' of ' + u.free_jobs_limit;
+    note.style.display = ''; note.textContent = 'The free plan never refills.';
+  }
+  $('stat-balance').textContent = '$' + (u.balance_cents / 100).toFixed(2);
+  const alert = $('account-alert');
+  if (u.verified) { alert.style.display = 'none'; alert.textContent = ''; }
+  else { alert.style.display = ''; alert.textContent = 'Your email is not verified yet, so creating is off.'; }
   $('handle').value = u.handle || '';
   const opt = $('gallery-optout');
   const prodOption = document.querySelector('#lane option[value="production"]');
@@ -21170,11 +21429,62 @@ $('motion-url').addEventListener('change', fetchQuote);
 $('motion-seconds').addEventListener('change', fetchQuote);
 $('lane').addEventListener('change', updateHousePrice);
 $('segments').addEventListener('change', updateHousePrice);
+// The profile photo in its three places (redesign,
+// 2026-11-24): the header avatar button and the Account
+// dialog's large circle both render from the same account
+// state, the photo when one is set and the initial letter
+// when none is. The gallery reads its own copy from the
+// feed, so it never needs this.
+function renderAvatar(u) {
+  const letter = (u.email || '?').trim().charAt(0).toUpperCase();
+  const btn = $('avatar');
+  const big = $('account-photo');
+  btn.innerHTML = '';
+  big.innerHTML = '';
+  if (u.avatar_url) {
+    const im = document.createElement('img');
+    im.src = u.avatar_url; im.alt = '';
+    btn.appendChild(im);
+    const bigIm = document.createElement('img');
+    bigIm.src = u.avatar_url; bigIm.alt = '';
+    big.appendChild(bigIm);
+    $('photo-remove').style.display = '';
+  } else {
+    btn.textContent = letter;
+    big.textContent = letter;
+    $('photo-remove').style.display = 'none';
+  }
+}
+$('photo-change').onclick = () => $('photo-file').click();
+$('photo-file').addEventListener('change', async () => {
+  const f = $('photo-file').files[0];
+  if (!f) return;
+  try {
+    msg('profile-msg', 'Uploading your photo...', '');
+    const fd = new FormData(); fd.append('file', f);
+    const r = await fetch('/api/me/photo', { method: 'POST', body: fd });
+    const q = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(q.detail || ('HTTP ' + r.status));
+    currentUser.avatar_url = q.avatar_url;
+    renderAvatar(currentUser);
+    msg('profile-msg', 'Your photo is saved.', 'ok');
+  } catch (e) { msg('profile-msg', e.message, 'err'); }
+  finally { $('photo-file').value = ''; }
+});
+$('photo-remove').onclick = async () => {
+  try {
+    const r = await api('/api/me/photo', { method: 'DELETE' });
+    currentUser.avatar_url = r.avatar_url;
+    renderAvatar(currentUser);
+    msg('profile-msg', 'Your photo is removed.', 'ok');
+  } catch (e) { msg('profile-msg', e.message, 'err'); }
+};
 $('save-handle').onclick = async () => {
   try {
     const r = await api('/api/me/handle', { method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ handle: $('handle').value }) });
     msg('profile-msg', 'Your handle is saved as ' + r.handle, 'ok');
+    $('account-handle').textContent = r.handle;
   } catch (e) { msg('profile-msg', e.message, 'err'); }
 };
 $('gallery-optout').addEventListener('change', async () => {
@@ -22765,7 +23075,15 @@ async function loadGallery() {
         f.appendChild(ph);
       }
       const h = document.createElement('div'); h.className = 'handle';
-      h.textContent = item.handle;
+      if (item.avatar_url) {
+        const av = document.createElement('img');
+        av.className = 'gavatar'; av.src = item.avatar_url; av.alt = '';
+        av.loading = 'lazy'; av.decoding = 'async';
+        h.appendChild(av);
+      }
+      const hs = document.createElement('span');
+      hs.textContent = item.handle;
+      h.appendChild(hs);
       const report = document.createElement('button');
       report.className = 'report'; report.textContent = 'Report';
       report.onclick = async () => {
