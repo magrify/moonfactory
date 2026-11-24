@@ -81,7 +81,7 @@ def run_list_jobs(jobs, params):
         "public_job": lambda j, queue_position=None: {
             "id": j["id"], "kind": j.get("kind"),
             "created_at": j["created_at"]},
-        "gallery_visible": lambda j: True,
+        "gallery_visible": lambda j, owner=None: True,
         "Cookie": lambda default="": default,
         "Request": object,
     }
@@ -360,9 +360,29 @@ check("item.thumb_url || item.file_url" in SRC
       and "item.thumb_url || item.poster_url" in SRC,
       "the gallery grid does not load thumbs first")
 check("GALLERY_CACHE_SECONDS = 30" in SRC
-      and "_gallery_cache_clear()" in func_src("admin_gallery_remove")
-      and "_gallery_cache_clear()" in func_src("delete_job"),
+      and "_gallery_cache_clear(job_id)" in func_src(
+          "admin_gallery_remove")
+      and "_gallery_cache_clear(job_id)" in func_src("delete_job"),
       "the gallery feed cache or its invalidation is missing")
+# Perf pass 2 (Jack, 2026-11-24): no visitor waits on a feed
+# rebuild — a stale feed is served while a background refresh
+# rebuilds it, an admin restore kicks that refresh, and a job
+# that finishes inserts itself into the warm feed from the
+# finishing paths.
+check("_gallery_kick()" in func_src("gallery_list")
+      and "def _gallery_build" in SRC
+      and "def _gallery_refresh" in SRC,
+      "the gallery feed does not serve stale while revalidating")
+check("_gallery_kick()" in func_src("admin_gallery_restore"),
+      "an admin restore does not kick a feed refresh")
+for finisher in ("ensure_processed", "ensure_image_file",
+                 "_settle_provider_image", "_drama_finish_episode",
+                 "hf_job_file", "comfy_job_file",
+                 "_submit_cloudflare_image",
+                 "_submit_ovhcloud_image"):
+    check("_gallery_feed_finished(job)" in func_src(finisher),
+          f"{finisher} does not insert a finished job into "
+          f"the gallery feed")
 check('"/api/jobs/" + j.id + "/thumb"' in SRC.replace(
       "'/api/jobs/' + j.id + '/thumb'", '"/api/jobs/" + j.id + "/thumb"')
       or "/api/jobs/' + j.id + '/thumb" in card_src,

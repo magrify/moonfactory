@@ -182,6 +182,84 @@ hist = func_src("mirror_image_status")
 check("_restore_house_image(job)" in hist,
       "mirror_image_status does not share the house image restore")
 
+# -- terminal records are inert in mirror_status (perf pin,
+# Jack 2026-11-24): a done or errored job must never reach a
+# sub-mirror, a provider call, or a store write from a read
+# path. Every collaborator below raises if it is touched, so
+# the only way through is the terminal guard at the top.
+import time as _time  # noqa: E402
+
+
+def _raiser(name):
+    def _raise(*args, **kwargs):
+        raise AssertionError(f"terminal mirror touched {name}")
+    return _raise
+
+
+class _WriteGuard(dict):
+    writes = 0
+
+    def __setitem__(self, key, value):
+        _WriteGuard.writes += 1
+        super().__setitem__(key, value)
+
+
+_ms_ns = {
+    "jobs": _WriteGuard(),
+    "users": {},
+    "meta": {},
+    "dramas": {},
+    "requests": _raiser("requests"),
+    "_now": _time.time,
+    "_worker_headers": _raiser("_worker_headers"),
+    "WORKER_BASE": "https://worker.invalid",
+    "mirror_drama_status": _raiser("mirror_drama_status"),
+    "mirror_image_status": _raiser("mirror_image_status"),
+    "mirror_provider_image": _raiser("mirror_provider_image"),
+    "mirror_fal_status": _raiser("mirror_fal_status"),
+    "mirror_beatapi_status": _raiser("mirror_beatapi_status"),
+    "mirror_api_status": _raiser("mirror_api_status"),
+    "_fail_stale_job": _raiser("_fail_stale_job"),
+    "_clip_release_hold": _raiser("_clip_release_hold"),
+    "_comfy_maybe_trigger": _raiser("_comfy_maybe_trigger"),
+    "_hf_maybe_trigger": _raiser("_hf_maybe_trigger"),
+    "_poll_limit_for": _raiser("_poll_limit_for"),
+    "API_POLL_PROVIDERS": {"kie", "vidlab"},
+    "CLIP_POLL_LIMIT_SECONDS": 3900,
+    "TEMPLATE_POLL_LIMIT_SECONDS": 3900,
+    "SHORT_POLL_LIMIT_SECONDS": 3900,
+    "COMFY_QUEUED_LIMIT_SECONDS": 3900,
+    "COMFY_RUNNING_LIMIT_SECONDS": 3900,
+    "COMFY_DEAD_HEARTBEAT_SECONDS": 3900,
+    "COMFY_DEAD_JOB_MIN_AGE_SECONDS": 0,
+}
+exec(func_src("mirror_status"), _ms_ns)
+_mirror_status = _ms_ns["mirror_status"]
+check('not in ("queued", "running")' in func_src("mirror_status"),
+      "mirror_status lost its terminal guard")
+for _provider, _kind in (
+        ("clip", "clip_job"), ("hyperframes", "template"),
+        ("shorts", "short"), ("drama", "drama"),
+        ("kaggle-comfy", "generation"), ("fal", "generation"),
+        ("beatapi", "generation"), ("kie", "generation"),
+        (None, "generation"), (None, "image"),
+        ("fal", "image")):
+    for _status in ("done", "error"):
+        _job = {"id": "t1", "user_id": "u1",
+                "provider": _provider, "kind": _kind,
+                "status": _status, "created_at": 1.0,
+                "last_poll": 0.0, "image_model": "shelf-x",
+                "worker_job_id": "w1"}
+        _WriteGuard.writes = 0
+        try:
+            _out = _mirror_status(dict(_job))
+            check(_out == _job and _WriteGuard.writes == 0,
+                  f"terminal {_provider}/{_kind}/{_status} job "
+                  f"was changed or written by mirror_status")
+        except AssertionError as exc:
+            check(False, f"terminal {_provider}/{_kind}/"
+                         f"{_status}: {exc}")
+
 train_poll = func_src("_refresh_character_training")
 check("TRAINING_POLL_LIMIT_SECONDS" in train_poll,
       "character training poll has no time bound")

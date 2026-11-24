@@ -7289,6 +7289,7 @@ def api():
         job["status"] = "done"
         job["error"] = None
         jobs[job["id"]] = job
+        _gallery_feed_finished(job)
 
     def _submit_stock_image(job: dict, prompt: str):
         """Deliver one stock photo job: download the photo
@@ -7483,6 +7484,7 @@ def api():
         job["status"] = "done"
         job["error"] = None
         jobs[job["id"]] = job
+        _gallery_feed_finished(job)
 
     def _submit_provider_image(job: dict, prompt: str,
                                source_image: str = None):
@@ -7692,6 +7694,7 @@ def api():
         job["status"] = "done"
         job["error"] = None
         jobs[job["id"]] = job
+        _gallery_feed_finished(job)
 
     def _fail_provider_image(job: dict, message: str):
         """A failed shelf image refunds its submit-time charge
@@ -7942,6 +7945,18 @@ def api():
         return job
 
     def mirror_status(job: dict) -> dict:
+        # Terminal records are inert (perf pin, Jack 2026-11-24):
+        # every branch below exists to advance or bound a live
+        # job, and each sub-mirror already refuses terminal
+        # records on its own (the shared _poll_gate, the
+        # provider-image early return, the drama driver's own
+        # status check). Returning here makes the property
+        # structural rather than per-branch: a done or errored
+        # job can never trigger a provider call, a store write,
+        # or a kernel nudge from a read path, however many
+        # records a list call walks past.
+        if job.get("status") not in ("queued", "running"):
+            return job
         if job.get("provider") == "clip":
             # Clip jobs run inside process_clip_job, whose runner
             # carries a 3600 second function timeout. A clip job
@@ -11500,6 +11515,18 @@ def api():
     @web.get("/api/jobs")
     def list_jobs(request: Request, mf_session: str = Cookie(default="")):
         user = require_user(request, mf_session)
+        # The store has no per-user index, so finding the
+        # caller's jobs is a walk over every record — but the
+        # walk is only a filter (perf pass 2, Jack 2026-11-24):
+        # records are sorted and cut RAW, and mirror_status
+        # runs solely on the jobs this response returns plus
+        # the caller's active jobs (queue positions are counted
+        # across all of those, and an active job outside the
+        # cut still needs its poll). Terminal history is never
+        # mirrored here: mirroring it on every load was this
+        # endpoint's per-job cost, and a terminal record's
+        # mirror is a no-op by the guard in mirror_status
+        # itself, so nothing observable changes.
         mine = []
         for key in list(jobs.keys()):
             job = jobs.get(key)
@@ -11507,12 +11534,8 @@ def api():
                     and not job.get("short_parent") \
                     and not job.get("drama_parent") \
                     and not job.get("clone_parent"):
-                mine.append(mirror_status(job))
+                mine.append(job)
         mine.sort(key=lambda j: j["created_at"], reverse=True)
-        active = sorted(
-            (j for j in mine if j["status"] in ("queued", "running")),
-            key=lambda j: j["created_at"])
-        positions = {j["id"]: i + 1 for i, j in enumerate(active)}
         # Recent mode (Jack, 2026-11-24): the studio homepage
         # opens on the three most recent videos and the three
         # most recent images only, so its payload never carries
@@ -11530,16 +11553,32 @@ def api():
             picked.sort(key=lambda j: j["created_at"], reverse=True)
         else:
             picked = mine[:50]
+        wanted = {j["id"]: j for j in picked}
+        for j in mine:
+            if j["status"] in ("queued", "running"):
+                wanted[j["id"]] = j
+        mirrored = {jid: mirror_status(j)
+                    for jid, j in wanted.items()}
+        active = sorted(
+            (mirrored[j["id"]] for j in mine
+             if j["status"] in ("queued", "running")
+             and mirrored[j["id"]]["status"] in ("queued", "running")),
+            key=lambda j: j["created_at"])
+        positions = {j["id"]: i + 1 for i, j in enumerate(active)}
         views = []
         for j in picked:
-            view = public_job(j, queue_position=positions.get(j["id"]))
+            job = mirrored[j["id"]]
+            view = public_job(job, queue_position=positions.get(j["id"]))
             # The delete confirm words itself by whether the
             # item really lists in the public gallery (Jack,
             # 2026-11-23), so the stamp is gallery_visible's own
             # verdict, read here rather than inside public_job:
             # the serializer stays free of gallery rules and the
-            # owner's library keeps showing every job.
-            view["in_gallery"] = gallery_visible(j)
+            # owner's library keeps showing every job. The
+            # caller owns every job in this list, so the record
+            # rides along instead of being fetched again per
+            # view.
+            view["in_gallery"] = gallery_visible(job, user)
             views.append(view)
         if recent:
             return {"jobs": views, "recent": True,
@@ -12800,6 +12839,7 @@ def api():
             # A no-op once a score is stamped, and capped after
             # a few attempts, so this costs a dict read per serve.
             classify_job_output(job, out_path)
+            _gallery_feed_finished(job)
         if job.get("provider") == "clip":
             if not out_path.exists():
                 try:
@@ -12935,6 +12975,7 @@ def api():
             # stamped from the same bytes.
             classify_job_output(job, out_path)
             data_volume.commit()
+            _gallery_feed_finished(job)
         return out_path
 
     def _moov_first(path: Path) -> bool:
@@ -13078,6 +13119,7 @@ def api():
         # The gallery verdict rides the same first fetch: a
         # no-op once the record carries a score.
         classify_job_output(job, out_path)
+        _gallery_feed_finished(job)
         return out_path
 
     @web.get("/api/jobs/{job_id}/file")
@@ -13187,7 +13229,7 @@ def api():
                                   else f"{job_id}.mp4"))
         write_job_tombstone(job)
         del jobs[job_id]
-        _gallery_cache_clear()
+        _gallery_cache_clear(job_id)
         for path in (FILES_DIR / f"{job_id}.mp4",
                      FILES_DIR / f"{job_id}.web.mp4",
                      FILES_DIR / f"{job_id}.raw.mp4",
@@ -13786,6 +13828,7 @@ def api():
         job["status"] = "done"
         job["stage"] = None
         jobs[job["id"]] = job
+        _gallery_feed_finished(job)
         return {"ok": True, "bytes": len(data)}
 
     @web.post("/api/worker/hf/jobs/{job_id}/fail")
@@ -14135,6 +14178,7 @@ x_api_key: str = Header(default="")):
             classify_job_output(job, out_path)
             job["status"] = "done"
             jobs[job["id"]] = job
+            _gallery_feed_finished(job)
             return {"ok": True, "bytes": len(data)}
         # Video: the raw render lands where the finishing
         # chain looks for it, then ensure_processed takes the
@@ -14926,6 +14970,7 @@ x_api_key: str = Header(default="")):
         job["stage"] = None
         job["drama_state"] = "done"
         jobs[job["id"]] = job
+        _gallery_feed_finished(job)
         rec["status"] = "done"
         dramas[rec["id"]] = rec
         data_volume.commit()
@@ -15530,7 +15575,7 @@ x_api_key: str = Header(default="")):
     # flagged or unjudged upload refuses creation outright
     # (see classify_input_images and input_gate_refusal).
 
-    def gallery_visible(job: dict) -> bool:
+    def gallery_visible(job: dict, owner=None) -> bool:
         # Finished images list alongside finished clips (Jack,
         # 2026-11-17): an image a customer made is finished work
         # the same way a clip is, under the same rules.
@@ -15601,7 +15646,12 @@ x_api_key: str = Header(default="")):
         if job.get("gallery_public") is False \
                 and not job_is_uncensored(job):
             return False
-        owner = users.get(f"id:{job.get('user_id')}")
+        # Callers that already hold the owner's record (the
+        # gallery build, the owner's own job list) pass it in
+        # and save a store fetch per job (perf pass 2,
+        # 2026-11-24); everyone else gets the fetch as before.
+        if owner is None:
+            owner = users.get(f"id:{job.get('user_id')}")
         if not owner:
             return False
         if is_paid(owner) and owner.get("gallery_opt_out"):
@@ -15635,8 +15685,9 @@ x_api_key: str = Header(default="")):
             return bool(job.get("result_url"))
         return bool(job.get("worker_job_id"))
 
-    def public_gallery_item(job: dict) -> dict:
-        owner = users.get(f"id:{job.get('user_id')}") or {}
+    def public_gallery_item(job: dict, owner=None) -> dict:
+        if owner is None:
+            owner = users.get(f"id:{job.get('user_id')}") or {}
         is_image = job.get("kind") == "image"
         if is_image:
             lane = pricing.IMAGE_LANES.get(
@@ -15704,42 +15755,118 @@ x_api_key: str = Header(default="")):
         # the library the product rule already names.
         return HTMLResponse(LIBRARY_HTML)
 
-    # The gallery feed cache (perf pass, 2026-11-24): the
+    # The gallery feed (perf passes, Jack 2026-11-24): the
     # uncached build walks every job record in the store and
     # rejudges each one, which measured ~11.5s a call on the
-    # live deployment. The rules are unchanged — the same
+    # live deployment, so no visitor ever waits on it. The
+    # built list is served as-is; once it is older than
+    # GALLERY_CACHE_SECONDS the next request still serves it
+    # and kicks a rebuild in the background (stale while
+    # revalidate), and the rebuild swaps the list atomically
+    # when it lands. The rules are unchanged — the same
     # gallery_visible and gallery_file_ready verdicts build
-    # the list — the built list is simply reused for a short
-    # window. Anything that changes what lists (an admin
-    # removal or restore, an owner delete) clears the cache
-    # in the same call, so a removal never lingers here; a
-    # newly finished job appears within the window.
-    _gallery_cache = {"at": 0.0, "items": None}
+    # the list, with each owner's record fetched once per
+    # build instead of once per job. Events that change what
+    # lists act on the cached list in place: an owner delete
+    # or an admin removal drops the item in the same call (a
+    # removal never lingers), an admin restore kicks a
+    # background rebuild, and a job that finishes inserts
+    # itself via _gallery_feed_finished. Only a fresh
+    # container's first request pays the build synchronously.
+    _gallery_cache = {"at": 0.0, "items": None,
+                      "building_since": 0.0}
     GALLERY_CACHE_SECONDS = 30
 
-    def _gallery_cache_clear():
-        _gallery_cache["at"] = 0.0
-        _gallery_cache["items"] = None
+    def _gallery_cache_clear(job_id=None):
+        """Drop one item from the cached feed in place, or
+        the whole feed when no job is named."""
+        if job_id is None:
+            _gallery_cache["at"] = 0.0
+            _gallery_cache["items"] = None
+        elif _gallery_cache["items"] is not None:
+            _gallery_cache["items"] = [
+                item for item in _gallery_cache["items"]
+                if item["id"] != job_id]
 
-    @web.get("/api/gallery")
-    def gallery_list():
-        now = time.time()
-        if _gallery_cache["items"] is not None \
-                and now - _gallery_cache["at"] < GALLERY_CACHE_SECONDS:
-            return {"items": _gallery_cache["items"]}
+    def _gallery_build():
         try:
             data_volume.reload()
         except Exception:
             pass
+        owners = {}
+
+        def owner_of(job):
+            uid = job.get("user_id")
+            if uid not in owners:
+                owners[uid] = users.get(f"id:{uid}")
+            return owners[uid]
+
         items = []
         for key in list(jobs.keys()):
             job = jobs.get(key)
-            if (job and gallery_visible(job)
-                    and gallery_file_ready(job)):
-                items.append(public_gallery_item(job))
+            if not job:
+                continue
+            owner = owner_of(job)
+            if owner is None:
+                continue
+            if gallery_visible(job, owner) \
+                    and gallery_file_ready(job):
+                items.append(public_gallery_item(job, owner))
         items.sort(key=lambda i: i["created_at"], reverse=True)
-        items = items[:100]
-        _gallery_cache["at"] = now
+        return items[:100]
+
+    def _gallery_refresh():
+        try:
+            items = _gallery_build()
+            _gallery_cache["items"] = items
+            _gallery_cache["at"] = time.time()
+        except Exception:
+            pass
+        finally:
+            _gallery_cache["building_since"] = 0.0
+
+    def _gallery_kick():
+        now = time.time()
+        if _gallery_cache["building_since"] \
+                and now - _gallery_cache["building_since"] < 120:
+            return
+        _gallery_cache["building_since"] = now
+        threading.Thread(
+            target=_gallery_refresh, daemon=True).start()
+
+    def _gallery_feed_finished(job):
+        """A job that just landed inserts itself into the
+        warm feed (perf pass, Jack 2026-11-24): the finishing
+        and settle paths call this right after the output
+        classifier stamps the job, the moment it can first
+        list. A cold cache is left alone (the first build
+        picks the job up), a job that fails the same verdicts
+        the build uses is skipped, and a failure here never
+        reaches the finishing path."""
+        try:
+            items = _gallery_cache["items"]
+            if items is None:
+                return
+            if any(item["id"] == job["id"] for item in items):
+                return
+            if gallery_visible(job) and gallery_file_ready(job):
+                items.append(public_gallery_item(job))
+                items.sort(
+                    key=lambda i: i["created_at"], reverse=True)
+                del items[100:]
+        except Exception:
+            pass
+
+    @web.get("/api/gallery")
+    def gallery_list():
+        items = _gallery_cache["items"]
+        if items is not None:
+            if time.time() - _gallery_cache["at"] \
+                    >= GALLERY_CACHE_SECONDS:
+                _gallery_kick()
+            return {"items": items}
+        items = _gallery_build()
+        _gallery_cache["at"] = time.time()
         _gallery_cache["items"] = items
         return {"items": items}
 
@@ -16320,7 +16447,7 @@ x_api_key: str = Header(default="")):
             raise HTTPException(status_code=404, detail="unknown job")
         job["removed"] = True
         jobs[job_id] = job
-        _gallery_cache_clear()
+        _gallery_cache_clear(job_id)
         # An operator removal is the platform's confirmed-flag
         # act: the full case file goes on legal hold so the
         # 2258A(b) report set survives whatever happens to the
@@ -16336,7 +16463,7 @@ x_api_key: str = Header(default="")):
             raise HTTPException(status_code=404, detail="unknown job")
         job["removed"] = False
         jobs[job_id] = job
-        _gallery_cache_clear()
+        _gallery_kick()
         return {"status": "restored"}
 
     return web

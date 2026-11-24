@@ -55,7 +55,8 @@ def func_src(name):
 # (read in list_jobs, not inside public_job: the serializer stays
 # free of gallery rules, as check_gallery_nsfw pins.)
 
-check('view["in_gallery"] = gallery_visible(j)' in func_src("list_jobs"),
+check('view["in_gallery"] = gallery_visible(job, user)'
+      in func_src("list_jobs"),
       "list_jobs does not stamp in_gallery from gallery_visible")
 
 ns = {}

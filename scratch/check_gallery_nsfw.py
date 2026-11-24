@@ -212,10 +212,17 @@ check(gallery_visible(job(removed=True)) is False,
 
 # -- the read paths all run through the one gate --------------------------
 
-for route_fn in ("gallery_list", "gallery_file", "gallery_poster",
+for route_fn in ("gallery_file", "gallery_poster",
                  "report_gallery_item"):
     check("gallery_visible" in func_src(route_fn),
           f"{route_fn} no longer gates on gallery_visible")
+# The feed route serves the built list (perf pass 2,
+# 2026-11-24): its gate is the build, which must run every
+# item through the same verdict.
+check("_gallery_build" in func_src("gallery_list")
+      and "gallery_visible" in func_src("_gallery_build"),
+      "gallery_list no longer gates on gallery_visible "
+      "(via _gallery_build)")
 
 # -- creation stamps -------------------------------------------------------
 
@@ -239,8 +246,8 @@ check('job["gallery_public"] = False' in func_src("_queue_krea2_on_kaggle"),
 
 _lj = func_src("list_jobs")
 check("job_is_nsfw" not in _lj
-      and _lj.count("gallery_visible(j)") == 1
-      and 'view["in_gallery"] = gallery_visible(j)' in _lj,
+      and _lj.count("gallery_visible(job, user)") == 1
+      and 'view["in_gallery"] = gallery_visible(job, user)' in _lj,
       "the owner's job list now filters on gallery rules (only "
       "the read-only in_gallery stamp may read gallery_visible)")
 check("gallery_visible" not in func_src("public_job")
