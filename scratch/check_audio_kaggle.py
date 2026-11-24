@@ -324,7 +324,8 @@ check("acestep-v15-turbo" in KERNEL and "ACE-Step-1.5" in KERNEL,
 for token in ("duration=10", "inference_steps=8", "bpm=92",
               '"[Instrumental]"', "instrumental=True"):
     check(token in KERNEL, f"the kernel bed recipe lost {token}")
-check("KPipeline" in KERNEL and "24000" in KERNEL,
+check("kokoro_onnx" in KERNEL and "kokoro-v1.0.onnx" in KERNEL
+      and "24000" in KERNEL,
       "the kernel does not carry the Kokoro voiceover recipe")
 for route in ("/api/worker/audio/heartbeat", "/api/worker/audio/jobs/next",
               "/api/worker/audio/jobs/", "/fail"):
@@ -351,8 +352,8 @@ check('meta["audio:heartbeat_rev"]' in PLATFORM
       "the audio wake does not require a current-revision heartbeat")
 check("X-Audio-Rev" in KERNEL and "Path(__file__).read_bytes()" in KERNEL,
       "the kernel does not report a revision hashed from its own script")
-check("kokoro==0.7.4" in KERNEL,
-      "the kernel lost the Kokoro pin Kaggle's index can resolve")
+check("kokoro-onnx" in KERNEL,
+      "the kernel lost the Kokoro ONNX runtime its Python 3.13 can install")
 check("pip_install_checked" in KERNEL
       and "invalidate_caches" in KERNEL,
       "the kernel lost the checked install or the import cache fix")

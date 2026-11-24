@@ -211,7 +211,15 @@ def pip_install_checked(pkgs):
 
 
 _ACE_READY = False
-_KOKORO_PIPELINES = {}
+_KOKORO_ONNX = None
+KOKORO_MODEL_URL = ("https://github.com/thewh1teagle/kokoro-onnx"
+                    "/releases/download/model-files-v1.0/"
+                    "kokoro-v1.0.onnx")
+KOKORO_VOICES_URL = ("https://github.com/thewh1teagle/kokoro-onnx"
+                     "/releases/download/model-files-v1.0/"
+                     "voices-v1.0.bin")
+KOKORO_MODEL_PATH = WORKING / "kokoro-v1.0.onnx"
+KOKORO_VOICES_PATH = WORKING / "voices-v1.0.bin"
 
 
 def setup_ace():
@@ -250,36 +258,73 @@ def setup_ace():
     log("ACE-Step ready")
 
 
+def _download(url: str, path: Path):
+    if path.exists() and path.stat().st_size > 1_000_000:
+        return
+    with requests.get(url, stream=True, timeout=900) as resp:
+        if resp.status_code != 200:
+            raise RuntimeError(
+                f"download {url} answered {resp.status_code}")
+        tmp = path.with_suffix(".part")
+        with open(tmp, "wb") as fh:
+            for chunk in resp.iter_content(chunk_size=1 << 20):
+                fh.write(chunk)
+        tmp.rename(path)
+
+
 def setup_kokoro():
-    """Install Kokoro and prove a pipeline builds, so a
-    broken speech setup fails the session's setup, not a
-    claimed job. The weights download from the public
-    Kokoro HF repo on first pipeline creation. The pins
-    are the newest pair Kaggle's package index can
-    resolve (observed 2026-11-24: its Kokoro list tops
-    out at 0.7.16 and answers 0.9.x with no matching
-    distribution, but 0.7.16 requires misaki>=0.7.16 and
-    its misaki list tops out at 0.7.4, so the lockstep
-    0.7.4 pair is the newest resolvable set); 0.7.4's
-    KPipeline is the same API the Modal recipe calls. The
-    spacy floor rides along because the speech tree pulls
-    spacy in and Kaggle's Python is 3.13: only spacy 3.8
-    and up ships wheels for it, and anything older falls
-    to a source build that cannot run there (the second
-    proof session died on exactly that)."""
-    pip_install_checked(["kokoro==0.7.4", "spacy>=3.8",
-                         "soundfile", "numpy"])
-    kokoro_pipeline("af_heart")
+    """Install the Kokoro ONNX runtime, fetch the speech
+    weights, and prove a synthesis runs, so a broken
+    speech setup fails the session's setup, not a claimed
+    job. The weights are the same Kokoro-82M model's
+    official ONNX export; the PyTorch kokoro package
+    itself cannot install on Kaggle's Python 3.13 at all
+    (0.7.5 and up declare Requires-Python <3.13, and
+    0.7.4 pins numpy==1.26.4, which has no 3.13 wheels:
+    three proof sessions died inside its dependency
+    tree), so the stage runs the same weights through
+    onnxruntime. The output contract is unchanged: the
+    job's text in the job's voice as a 24 kHz mono wav,
+    the Modal stage's recipe."""
+    pip_install_checked(["kokoro-onnx", "soundfile", "numpy"])
+    _download(KOKORO_MODEL_URL, KOKORO_MODEL_PATH)
+    heartbeat()
+    _download(KOKORO_VOICES_URL, KOKORO_VOICES_PATH)
+    samples, sr = kokoro_engine().create("Hello.",
+                                         voice="af_heart")
+    if sr != 24000 or samples is None or len(samples) == 0:
+        raise RuntimeError("Kokoro ONNX proof synthesis failed")
     log("Kokoro ready")
 
 
-def kokoro_pipeline(voice: str):
-    lang = "b" if (voice or "").startswith("b") else "a"
-    if lang not in _KOKORO_PIPELINES:
-        from kokoro import KPipeline
+def kokoro_engine():
+    global _KOKORO_ONNX
+    if _KOKORO_ONNX is None:
+        from kokoro_onnx import Kokoro
 
-        _KOKORO_PIPELINES[lang] = KPipeline(lang_code=lang)
-    return _KOKORO_PIPELINES[lang]
+        _KOKORO_ONNX = Kokoro(str(KOKORO_MODEL_PATH),
+                              str(KOKORO_VOICES_PATH))
+    return _KOKORO_ONNX
+
+
+def _voiceover_parts(text: str):
+    """Split a narration text into sentence-sized parts
+    under the model's per-call phoneme ceiling; the Modal
+    recipe's pipeline chunked the same way and the parts
+    are concatenated back into one wav."""
+    import re
+
+    parts = []
+    current = ""
+    for sentence in re.split(r"(?<=[.!?])\s+", text):
+        if current and len(current) + len(sentence) > 400:
+            parts.append(current)
+            current = sentence
+        else:
+            current = f"{current} {sentence}".strip()
+    if current:
+        parts.append(current)
+    return parts or [text]
 
 
 def setup_engines():
@@ -335,11 +380,13 @@ def make_voiceover(job: dict) -> Path:
     voice = job.get("voice") or "af_heart"
     if not text:
         raise ValueError("voiceover text is empty")
-    pipeline = kokoro_pipeline(voice)
+    engine = kokoro_engine()
+    lang = "en-gb" if voice.startswith("b") else "en-us"
     chunks = []
-    for _graphemes, _phonemes, audio in pipeline(text, voice=voice):
-        if audio is not None:
-            chunks.append(np.asarray(audio, dtype=np.float32))
+    for part in _voiceover_parts(text):
+        samples, _sr = engine.create(part, voice=voice, lang=lang)
+        if samples is not None and len(samples):
+            chunks.append(np.asarray(samples, dtype=np.float32))
     if not chunks:
         raise RuntimeError("Kokoro produced no audio")
     data = np.concatenate(chunks) if len(chunks) > 1 else chunks[0]
