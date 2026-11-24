@@ -2245,19 +2245,18 @@ def process_short_job(job_id: str):
         # The No captions pick (Jack, 2026-11-20): no captions
         # file is written and the assembly runs with no
         # subtitles filter, so the finished short carries no
-        # captions at all. The one exception (2026-11-23): a
-        # lower third is its own overlay, so a short with one
-        # still writes the file, holding the lower third alone.
+        # captions at all. (The opening title overlay left
+        # shorts entirely, Jack 2026-11-24; a lower third
+        # stored on an older job record is simply never read.)
         ass_path = None
         caption_style = job.get("short_caption_style") \
             or shorts.CAPTION_STYLE_DEFAULT
-        if caption_style != "none" or job.get("short_lower_third"):
+        if caption_style != "none":
             ass_path = work / "captions.ass"
             ass_path.write_text(
                 shorts.build_captions_ass(
                     lines, timings,
-                    style=caption_style,
-                    lower_third=job.get("short_lower_third")),
+                    style=caption_style),
                 encoding="utf-8")
 
         set_stage(SHORTS_STAGES[3])
@@ -13182,7 +13181,6 @@ def api():
                 "music_prompt": parent.get("music_prompt") or "",
                 "caption_style":
                     parent.get("short_caption_style") or "",
-                "lower_third": parent.get("short_lower_third"),
                 "beat_sync": bool(parent.get("short_beat_sync")),
                 "draft_model": parent.get("short_draft_model") or "",
                 **bot,
@@ -15597,21 +15595,19 @@ x_api_key: str = Header(default="")):
             raise HTTPException(
                 status_code=422,
                 detail="pick one of the caption styles on the list")
-        # The lower third and the beat sync pick (2026-11-23):
-        # the lower third is the same overlay the video form
-        # carries, cleaned by the same helper; beat sync snaps
+        # The beat sync pick (2026-11-23): beat sync snaps
         # the cuts to the picked music's tempo in the runner.
-        lower_third = _clean_lower_third(body)
+        # The opening title fields left the shorts form
+        # entirely (Jack, 2026-11-24), so any lower third
+        # words a stale client still sends are ignored here.
         beat_sync = bool(body.get("beat_sync"))
         # The illegal-content gate again on the finished words
         # (Jack, 2026-11-24): the pasted or written script,
-        # the clone reference line, and the lower third, all
+        # the clone reference line, and the music words, all
         # before any free count or charge below.
         enforce_prompt_gate(
             user, "short", client_ip(request), script_text,
-            clone_reference_text, music_prompt,
-            (lower_third or {}).get("name"),
-            (lower_third or {}).get("sub"))
+            clone_reference_text, music_prompt)
         is_free_job = False
         if not is_paid(user):
             if free_jobs_total(user) >= FREE_CLIPS_TOTAL:
@@ -15683,7 +15679,6 @@ x_api_key: str = Header(default="")):
             else "auto",
             "short_music": music,
             "short_caption_style": caption_style,
-            "short_lower_third": lower_third,
             "short_beat_sync": beat_sync,
             "script_source": script_source,
             "speech_script": " ".join(lines),
@@ -20105,11 +20100,6 @@ APP_HTML = (
       <option value="none">No captions</option>
     </select>
     <p class="muted">Karaoke lights each word up as it is spoken. Pop makes each line of captions spring in.</p>
-    <label>Opening title (optional)</label>
-    <input id="short-lt-name" type="text" maxlength="60" placeholder="Your name or a headline for the open">
-    <label>Smaller line under it (optional)</label>
-    <input id="short-lt-sub" type="text" maxlength="80" placeholder="One short line under the title">
-    <p class="muted">This text sits low on the screen for the first seconds of the video, like the name banner on a news clip. It works with or without captions.</p>
     <label style="font-weight:400;display:block">
       <input type="checkbox" id="short-beat-sync" style="width:auto;margin:0 6px 0 0">
       Cut on the beat</label>
@@ -23418,8 +23408,6 @@ function buildShort() {
     visuals: $('short-visuals').value,
     music: $('short-music').value,
     caption_style: $('short-captions').value,
-    lower_third_name: $('short-lt-name').value.trim(),
-    lower_third_sub: $('short-lt-sub').value.trim(),
     beat_sync: $('short-beat-sync').checked };
   if (payload.visuals === 'ai' || payload.visuals === 'overlay') payload.style = $('short-style').value;
   if (payload.music === 'custom') payload.music_prompt = $('short-music-custom').value.trim();

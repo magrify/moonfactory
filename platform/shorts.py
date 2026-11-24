@@ -1107,8 +1107,7 @@ CAPTION_STYLE_NONE = "none"
 
 
 def build_captions_ass(lines: list, timings: list,
-                       style: str = CAPTION_STYLE_DEFAULT,
-                       lower_third=None) -> str:
+                       style: str = CAPTION_STYLE_DEFAULT) -> str:
     """The ASS subtitle file for one short: bold white words
     with a black outline, low on the frame, in the picked
     caption look (classic is the house shorts style). Burned in
@@ -1121,28 +1120,8 @@ def build_captions_ass(lines: list, timings: list,
     else:
         look = CAPTION_STYLES.get(style) or \
             CAPTION_STYLES[CAPTION_STYLE_DEFAULT]
-    # Lower third: only when a non-empty name is supplied.
-    lt_name = ""
-    lt_sub = ""
-    if lower_third:
-        lt_name = str(lower_third.get("name") or "").strip()
-        lt_sub = str(lower_third.get("sub") or "").strip()
-        if not lt_name:
-            lt_sub = ""
     primary = "&H0000FFFF" if style == "karaoke" else "&H00FFFFFF"
     secondary = "&H00FFFFFF"
-    lower_styles = ""
-    if lt_name:
-        lower_styles = (
-            "Style: LowerName,DejaVu Sans,56,"
-            "&H00FFFFFF,&H00FFFFFF,"
-            "&H00000000,&H96101418,-1,0,0,0,100,100,0,0,3,"
-            "14,0,1,64,60,168,1\n"
-            "Style: LowerSub,DejaVu Sans,40,"
-            "&H00D8D5CC,&H00FFFFFF,"
-            "&H00000000,&H96101418,0,0,0,0,100,100,0,0,3,"
-            "12,0,1,64,60,104,1\n"
-        )
     header = (
         "[Script Info]\n"
         "ScriptType: v4.00+\n"
@@ -1160,27 +1139,13 @@ def build_captions_ass(lines: list, timings: list,
         f"{primary},{secondary},"
         "&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,"
         f"{look['outline']},0,2,60,60,{look['margin_v']},1\n"
-        f"{lower_styles}"
         "\n"
         "[Events]\n"
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, "
         "MarginV, Effect, Text\n"
     )
-    lower_body = ""
-    if lt_name:
-        lower_body = (
-            f"Dialogue: 1,{_ass_time(0.40)},{_ass_time(4.60)},"
-            f"LowerName,,0,0,0,,{{\\fad(220,260)}}"
-            f"{_ass_escape(lt_name)}\n"
-        )
-        if lt_sub:
-            lower_body += (
-                f"Dialogue: 1,{_ass_time(0.40)},{_ass_time(4.60)},"
-                f"LowerSub,,0,0,0,,{{\\fad(220,260)}}"
-                f"{_ass_escape(lt_sub)}\n"
-            )
     if style == CAPTION_STYLE_NONE:
-        return header + lower_body
+        return header
     if style == "karaoke":
         karaoke_events = []
         for placed, line_end in _word_placements(lines, timings):
@@ -1201,7 +1166,7 @@ def build_captions_ass(lines: list, timings: list,
             f"Shorts,,0,0,0,,{text}\n"
             for start, end, text in karaoke_events
         )
-        return header + body + lower_body
+        return header + body
     if style == "pop":
         pop_prefix = "{\\fscx55\\fscy55\\t(0,170,\\fscx100\\fscy100)}"
         body = "".join(
@@ -1209,13 +1174,13 @@ def build_captions_ass(lines: list, timings: list,
             f"0,0,0,,{pop_prefix}{_ass_escape(text)}\n"
             for start, end, text in caption_events(lines, timings)
         )
-        return header + body + lower_body
+        return header + body
     body = "".join(
         f"Dialogue: 0,{_ass_time(start)},{_ass_time(end)},Shorts,,"
         f"0,0,0,,{_ass_escape(text)}\n"
         for start, end, text in caption_events(lines, timings)
     )
-    return header + body + lower_body
+    return header + body
 
 
 # ---------------------------------------------------------------------------

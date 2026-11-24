@@ -224,16 +224,22 @@ check("{\\kf" in kara_ass and "&H0000FFFF" in kara_ass,
 pop_ass = shorts.build_captions_ass(lines, timings, style="pop")
 check("{\\fscx55\\fscy55\\t(0,170,\\fscx100\\fscy100)}" in pop_ass,
       "the pop look scales each caption chunk in")
-LT = {"name": "Jane Doe", "sub": "Owner, Riverside Park"}
-lt_ass = shorts.build_captions_ass(lines, timings, style="none",
-                                   lower_third=LT)
-check("Dialogue: 0," not in lt_ass and "LowerName" in lt_ass
-      and "Jane Doe" in lt_ass,
-      "a lower third rides a no captions short on its own")
-lt_classic = shorts.build_captions_ass(lines, timings, lower_third=LT)
-check("Dialogue: 0," in lt_classic
-      and lt_classic.index("Dialogue: 1,") > lt_classic.index("Dialogue: 0,"),
-      "the lower third is appended after the caption dialogues")
+check(all("LowerName" not in doc and "LowerSub" not in doc
+          for doc in (ass, kara_ass, pop_ass)),
+      "no caption look carries opening title styles, the "
+      "overlay left the shorts builder entirely "
+      "(Jack, 2026-11-24)")
+try:
+    shorts.build_captions_ass(lines, timings,
+                              lower_third={"name": "Jane Doe"})
+    lt_accepted = True
+except TypeError:
+    lt_accepted = False
+check(not lt_accepted,
+      "the captions builder takes no opening title words "
+      "anymore, so nothing can draw the overlay")
+check("lower_third" not in SHORTS_SRC,
+      "the shorts module holds no opening title code at all")
 check(shorts.snap_durations_to_beat([3.2, 4.0, 0.5], 120) == [3.5, 4.0, 0.5],
       "scene lengths snap up to whole beats")
 check(shorts.snap_durations_to_beat([3.2], 0) == [3.2],
@@ -514,19 +520,26 @@ check('"music_prompt": parent.get("music_prompt")' in SRC,
       "a retried short keeps its custom music description")
 check('"short_caption_style"' in lane and "CAPTION_STYLES" in lane,
       "creation takes, validates, and records the caption style")
-check('"short_lower_third": lower_third,' in lane
-      and '"short_beat_sync": beat_sync,' in lane,
-      "creation records the lower third and the beat sync pick")
+check('"short_beat_sync": beat_sync,' in lane,
+      "creation records the beat sync pick")
+check('"short_lower_third"' not in lane,
+      "creation records no opening title on the job, the "
+      "feature left shorts (Jack, 2026-11-24)")
 check('"overlay"' in lane and '("stock", "ai", "overlay")' in lane,
       "creation accepts the B-roll overlays pictures choice")
-check('id="short-lt-name"' in SRC and 'id="short-lt-sub"' in SRC
-      and 'id="short-beat-sync"' in SRC,
-      "the shorts form carries the lower third inputs and the beat sync box")
+check('id="short-beat-sync"' in SRC,
+      "the shorts form carries the beat sync box")
+check('id="short-lt-name"' not in SRC
+      and 'id="short-lt-sub"' not in SRC,
+      "the shorts form carries no opening title inputs "
+      "(Jack, 2026-11-24)")
 check('<option value="overlay">B-roll overlays</option>' in SRC,
       "the pictures picker offers B-roll overlays")
-check("lower_third_name: $('short-lt-name').value.trim()" in SRC
-      and "beat_sync: $('short-beat-sync').checked" in SRC,
-      "the submit sends the lower third and the beat sync pick")
+check("beat_sync: $('short-beat-sync').checked" in SRC,
+      "the submit sends the beat sync pick")
+check("lower_third_name: $('short-lt-name')" not in SRC
+      and "lower_third_sub: $('short-lt-sub')" not in SRC,
+      "the submit sends no opening title words")
 check(all("bpm" in entry for entry in app.SHORTS_MUSIC_STYLES.values()),
       "every music choice carries its tempo for the beat sync")
 check('"caption_styles"' in lane,
@@ -574,8 +587,9 @@ check("build_captions_ass" in processor, "the runner times captions")
 check('!= "none"' in processor and "ass_path = None" in processor,
       "the runner writes no captions file for the no captions "
       "pick, so the assembly burns no captions in")
-check("lower_third=job.get(\"short_lower_third\")" in processor,
-      "the runner passes the job's lower third to the captions builder")
+check("short_lower_third" not in processor,
+      "the runner never reads a stored opening title, so "
+      "one left on an old job record stays inert")
 check("snap_durations_to_beat" in processor
       and "short_beat_sync" in processor,
       "the runner snaps scene lengths to the beat when the pick is on")
@@ -780,18 +794,18 @@ check("shortShowMusicCustom();" in SRC,
 check('id="short-music" autocomplete="off"' in pane,
       "the music picker also opts out of browser form "
       "restoration in its markup")
-check('<label>Opening title (optional)</label>' in pane
+check('<label>Opening title (optional)</label>' not in pane
       and '<label>Smaller line under it (optional)</label>'
-      in pane,
-      "the opening title fields carry their plain names")
+      not in pane,
+      "the opening title fields are gone from the shorts "
+      "form (Jack, 2026-11-24)")
 check('placeholder="Your name or a headline for the open"'
-      in pane
+      not in pane
       and 'placeholder="One short line under the title"'
-      in pane,
-      "the opening title placeholders speak plainly")
-check("like the name banner on a news clip" in pane,
-      "the opening title helper says what the text does "
-      "in plain words")
+      not in pane,
+      "the opening title placeholders went with the fields")
+check("like the name banner on a news clip" not in pane,
+      "the opening title helper text went with the fields")
 check("Lower third" not in pane,
       "no TV jargon is left in the shorts form")
 check('id="short-captions"' in pane,
