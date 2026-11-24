@@ -71,6 +71,7 @@ meta = modal.Dict.from_name("moonfactory-meta", create_if_missing=True)
 outbox = modal.Dict.from_name("moonfactory-outbox", create_if_missing=True)
 tombstones = modal.Dict.from_name("moonfactory-tombstones", create_if_missing=True)
 legal_holds = modal.Dict.from_name("moonfactory-legal-holds", create_if_missing=True)
+refusals = modal.Dict.from_name("moonfactory-refusals", create_if_missing=True)
 
 image = (
     modal.Image.debian_slim(python_version="3.12")
@@ -1996,6 +1997,363 @@ def prompt_is_nsfw(text) -> bool:
     squeezed = "".join(tokens)
     return any(term in squeezed
                for term in NSFW_PROMPT_SQUEEZED_TERMS)
+
+
+# ---------------------------------------------------------------------------
+# Illegal-content gate (Jack, 2026-11-24): creation-time
+# enforcement, a separate system from the gallery scan above.
+# prompt_is_nsfw only ever judged public gallery listing, on
+# uncensored lanes, and blocked nothing. This gate runs at
+# creation on EVERY creation path and lane, before any quote,
+# hold, charge, free count, or dispatch, and refuses the
+# request outright: no job is created. It blocks ILLEGAL
+# content, not adult content: lawful adult prompts on the
+# uncensored lanes pass exactly as before. The categories
+# mirror the shipped Terms section 4: sexual content
+# involving minors, sexual violence and non-consent, and
+# sexual content built on a real person (NCII, deepfakes).
+# Same discipline as the gallery scan: whole-token matching,
+# phrase lists, the light leet decode, and a squeezed pass,
+# so ordinary words that merely contain a listed string stay
+# clean (class, assassin, peacock, therapist, cucumber, a
+# sperm whale, chicken breast, an Essex documentary).
+# Known limit, the same one the gallery scan carries: the
+# gate reads words, not pictures. An uploaded image file
+# itself is never content-scanned (Jack's prompt-based call,
+# 2026-11-23), so an image-input job is judged here on its
+# words alone.
+# ---------------------------------------------------------------------------
+
+ILLEGAL_REFUSAL_MESSAGE = "This request is not allowed on Moonfactory."
+ILLEGAL_SUSPEND_AFTER = 3
+
+# Hard, standalone: words that name sexual content involving
+# minors by themselves, in any prompt, on any lane.
+ILLEGAL_HARD_TERMS = frozenset({
+    "underage", "jailbait", "loli", "lolita", "shota",
+    "preteen", "preteens", "childporn", "csam",
+    "pedo", "pedos", "pedophile", "pedophiles",
+    "paedophile", "paedophiles", "hebephile", "hebephiles",
+})
+
+ILLEGAL_HARD_PHRASES = (
+    "child porn", "child pornography", "kiddie porn",
+    "under 18", "under eighteen", "sex with a child",
+    "sex with children", "sex with a minor", "sex with minors",
+    "sex with a kid", "sexualize a child", "sexualized child",
+    "sexualizing a child", "sexualizing children",
+)
+
+ILLEGAL_HARD_SQUEEZED = (
+    "childporn", "childpornography", "kiddieporn", "jailbait",
+)
+
+# Minor-indicating words: innocent on their own (a kid on a
+# bike, a teenage drama, a baby elephant), hard the moment
+# the prompt also carries a sexual signal, which is the
+# gallery scan's verdict reused as the signal.
+ILLEGAL_MINOR_TERMS = frozenset({
+    "child", "children", "kid", "kids", "minor", "minors",
+    "teen", "teens", "teenage", "teenager", "teenagers",
+    "toddler", "toddlers", "infant", "infants",
+    "baby", "babies", "juvenile", "juveniles",
+    "youngster", "youngsters", "schoolchild", "schoolchildren",
+    "schoolgirl", "schoolgirls", "schoolboy", "schoolboys",
+})
+
+ILLEGAL_MINOR_PHRASES = (
+    "little girl", "little boy", "young girl", "young boy",
+    "school girl", "school boy", "school girls", "school boys",
+    "high school girl", "high school boy",
+    "high school girls", "high school boys",
+    "middle school girl", "middle school boy",
+)
+
+_SPELLED_AGES = (
+    "one", "two", "three", "four", "five", "six", "seven",
+    "eight", "nine", "ten", "eleven", "twelve", "thirteen",
+    "fourteen", "fifteen", "sixteen", "seventeen",
+)
+
+_AGE_NUMBER_RE = re.compile(
+    r"\b(?:1[0-7]|[1-9])\s*(?:years?\s*old|yrs?\s*old|y\.?o\.?)\b")
+
+# Education shield: sex education and abuse prevention are
+# legitimate creation topics that name minors and sex in one
+# breath. When the sexual signal is only the weak words (no
+# explicit act term or phrase below), an education context
+# keeps the minor rules from firing. An explicit act in the
+# same prompt is never shielded.
+ILLEGAL_EDUCATION_TERMS = frozenset({
+    "education", "educational", "prevention", "awareness",
+    "curriculum", "classroom", "teaches", "teaching",
+    "lesson", "lessons",
+})
+
+# Sexual violence and non-consent, standalone.
+ILLEGAL_VIOLENCE_TERMS = frozenset({
+    "rape", "rapes", "raped", "raping", "rapist", "rapists",
+    "molest", "molests", "molested", "molesting", "molester",
+    "molesters", "molestation", "incest", "incestuous",
+    "bestiality", "zoophilia", "zoophile", "zoophiles",
+    "necrophilia", "necrophile", "necrophiles",
+    "nonconsensual", "unconsensual",
+})
+
+ILLEGAL_VIOLENCE_PHRASES = (
+    "non consensual", "without consent", "forced sex",
+    "forced himself on", "forced herself on",
+    "forces himself on", "forces herself on",
+    "force himself on", "force herself on",
+    "sex slave", "sexual slavery",
+    "snuff film", "snuff films", "snuff video", "snuff movie",
+    "snuff porn", "sex with an animal", "sex with animals",
+    "sex with a dog", "sex with a horse", "sex with a cat",
+)
+
+# Strong sexual act words for the two context rules below.
+# A family word or a helpless word (asleep, drugged,
+# unconscious) reads as a violation only next to one of
+# these, so "a mom talks about sex education" and "a
+# sleeping dragon" stay clean while "sex with his sister"
+# and "sex with a sleeping woman" do not. Bare intensifiers
+# (fucking and friends) are deliberately absent: they are
+# how scripts talk, not acts.
+ILLEGAL_ACT_TERMS = frozenset({
+    "intercourse", "blowjob", "blowjobs", "handjob", "handjobs",
+    "fellatio", "cunnilingus", "masturbation", "masturbating",
+    "masturbate", "orgasm", "orgasms", "ejaculate",
+    "ejaculation", "penetration", "penetrate", "penetrates",
+    "penetrating", "deepthroat", "gangbang", "creampie",
+    "threesome", "porn", "pornographic",
+})
+
+ILLEGAL_ACT_PHRASES = (
+    "having sex", "have sex", "has sex", "oral sex",
+    "anal sex", "sex with", "sexual intercourse",
+)
+
+ILLEGAL_FAMILY_TERMS = frozenset({
+    "mother", "father", "sister", "brother", "mom", "dad",
+    "daughter", "son", "stepmother", "stepfather",
+    "stepsister", "stepbrother", "stepmom", "stepdad",
+    "stepson", "stepdaughter", "aunt", "uncle",
+})
+
+ILLEGAL_HELPLESS_TERMS = frozenset({
+    "unconscious", "drugged", "asleep", "sleeping",
+    "sedated", "intoxicated", "blackout", "comatose",
+})
+
+ILLEGAL_HELPLESS_PHRASES = ("passed out",)
+
+# Real-person signals: a deepfake term, or a proper-name
+# pattern next to a sexual signal. The name heuristic is
+# pragmatic, not certain: it reads two or more consecutive
+# capitalized words (or an all-caps pair) in the user's raw
+# text, skips the ones a place preposition introduces (a
+# nude beach in New York is a place, not a person) and a
+# small exclusion shelf of places, brands, and stock
+# phrases. It cannot see single names, stage names, or
+# misspellings, and a fictional character's full name reads
+# as a name: both limits are accepted with the method.
+ILLEGAL_DEEPFAKE_TERMS = frozenset({
+    "deepfake", "deepfakes", "deepfaked", "nudify",
+    "nudifier", "faceswap", "faceswapped",
+})
+
+ILLEGAL_DEEPFAKE_PHRASES = ("deep fake", "face swap")
+
+ILLEGAL_PERSON_CONTEXT = frozenset({
+    "celebrity", "celebrities", "famous", "actress", "actor",
+    "singer", "influencer", "president", "politician",
+})
+
+_NAME_PAIR_RE = re.compile(
+    r"[A-Z][a-z]+(?:['\u2019][a-z]+)?"
+    r"(?:\s+[A-Z][a-z]+(?:['\u2019][a-z]+)?)+")
+_NAME_CAPS_RE = re.compile(r"[A-Z]{2,}(?:\s+[A-Z]{2,})+")
+_PLACE_LEADERS = frozenset({
+    "in", "at", "to", "from", "near", "over", "across",
+    "into", "toward", "towards", "inside", "outside",
+})
+_NAME_DETERMINERS = frozenset({
+    "the", "a", "an", "this", "that", "my", "his", "her",
+    "their", "our", "your", "it", "on", "at", "but", "and",
+    "for", "with",
+})
+_NAME_EXCLUSIONS = frozenset({
+    "victoria secret", "victorias secret", "adults only",
+    "high definition", "ultra high", "new york",
+    "new york city", "los angeles", "las vegas",
+    "san francisco", "san diego", "hong kong", "south korea",
+    "north korea", "united states", "united kingdom",
+    "great britain", "new zealand", "south africa",
+    "saudi arabia", "sri lanka", "costa rica", "puerto rico",
+    "dominican republic", "czech republic", "ivory coast",
+    "sierra leone", "burkina faso", "el salvador",
+    "san marino", "vatican city", "kuala lumpur",
+    "buenos aires", "rio de janeiro", "sao paulo",
+    "cape town", "tel aviv", "abu dhabi", "new delhi",
+})
+_CAPS_STOPWORDS = frozenset({
+    "THE", "AND", "NOT", "FOR", "YOU", "ARE", "BUT", "ALL",
+    "ANY", "NEW", "HER", "HIS", "ITS", "OUR", "OUT", "WHO",
+    "WHY", "HOW", "NOW", "ONE", "TWO", "SHE", "HIM", "WAS",
+    "GET", "LET", "SAY", "SEE", "TOO", "USE", "WAY", "DAY",
+})
+
+
+def _prompt_names_person(raw: str) -> bool:
+    """Whether the raw prompt text carries a proper-name
+    pattern: two or more consecutive capitalized words, or
+    an all-caps pair, that is not a place phrase or a stock
+    phrase from the exclusion shelf."""
+    for rx in (_NAME_PAIR_RE, _NAME_CAPS_RE):
+        for match in rx.finditer(raw):
+            words = match.group(0).split()
+            if rx is _NAME_PAIR_RE and len(words) > 1 \
+                    and words[0].lower() in _NAME_DETERMINERS:
+                words = words[1:]
+            if len(words) < 2:
+                continue
+            if rx is _NAME_CAPS_RE and any(
+                    w in _CAPS_STOPWORDS for w in words):
+                continue
+            lowered = [w.lower().strip("'\u2019") for w in words]
+            windows = [" ".join(lowered[i:i + n])
+                       for n in (2, 3)
+                       for i in range(len(lowered) - n + 1)]
+            if any(w in _NAME_EXCLUSIONS for w in windows):
+                continue
+            before = re.findall(r"[A-Za-z]+", raw[:match.start()])
+            if before and before[-1].lower() in _PLACE_LEADERS:
+                continue
+            return True
+    return False
+
+
+def _prompt_states_minor_age(lowered: str, padded: str) -> bool:
+    """Whether the text states an age under 18 in words:
+    digits (15 year old, 15 y/o) or spelled out (fifteen
+    years old). The digit pattern reads the plain lowered
+    text, never the leet decode: the decode map turns 1
+    into i and 5 into s, which would erase every age."""
+    if _AGE_NUMBER_RE.search(lowered):
+        return True
+    return any(f" {w} year old " in padded
+               or f" {w} years old " in padded
+               for w in _SPELLED_AGES)
+
+
+def prompt_is_illegal(text):
+    """The category of illegal content a user's own prompt
+    asks for, or None: "hard" (sexual content involving
+    minors), "sexual-violence" (rape, non-consent, incest,
+    bestiality, snuff), or "real-person" (sexual content
+    naming a real person, NCII and deepfakes). Deterministic,
+    no calls out. Lawful adult content returns None: this
+    gate is not the gallery scan, and an explicit adult
+    prompt passes it exactly as before."""
+    if not text:
+        return None
+    raw = str(text)
+    decoded = raw.lower().translate(_PROMPT_LEET)
+    tokens = re.findall(r"[a-z0-9]+", decoded)
+    token_set = set(tokens)
+    padded = " " + " ".join(tokens) + " "
+    squeezed = "".join(tokens)
+
+    def has_phrase(phrases):
+        return any(" " + p + " " in padded for p in phrases)
+
+    # Hard, standalone: the words are the violation by
+    # themselves, whatever surrounds them.
+    if token_set & ILLEGAL_HARD_TERMS:
+        return "hard"
+    if has_phrase(ILLEGAL_HARD_PHRASES):
+        return "hard"
+    if any(t in squeezed for t in ILLEGAL_HARD_SQUEEZED):
+        return "hard"
+    sexual = prompt_is_nsfw(raw)
+    act = bool(token_set & ILLEGAL_ACT_TERMS) \
+        or has_phrase(ILLEGAL_ACT_PHRASES)
+    edu_shield = bool(token_set & ILLEGAL_EDUCATION_TERMS) \
+        and not act
+    minor = bool(token_set & ILLEGAL_MINOR_TERMS) \
+        or has_phrase(ILLEGAL_MINOR_PHRASES)
+    if minor and sexual and not edu_shield:
+        return "hard"
+    if sexual and not edu_shield \
+            and _prompt_states_minor_age(raw.lower(), padded):
+        return "hard"
+    # "Aged up" evasions: aging a minor subject up on paper
+    # is the same request with a fig leaf, sexual or not.
+    if minor and (" aged up " in padded or "agedup" in squeezed
+                  or " all grown up " in padded):
+        return "hard"
+    # Sexual violence and non-consent.
+    if token_set & ILLEGAL_VIOLENCE_TERMS:
+        return "sexual-violence"
+    if has_phrase(ILLEGAL_VIOLENCE_PHRASES):
+        return "sexual-violence"
+    if act and token_set & ILLEGAL_FAMILY_TERMS:
+        return "sexual-violence"
+    helpless = bool(token_set & ILLEGAL_HELPLESS_TERMS) \
+        or has_phrase(ILLEGAL_HELPLESS_PHRASES)
+    if act and helpless:
+        return "sexual-violence"
+    # Real-person sexual content (NCII, deepfakes).
+    deepfake = bool(token_set & ILLEGAL_DEEPFAKE_TERMS) \
+        or has_phrase(ILLEGAL_DEEPFAKE_PHRASES)
+    named = _prompt_names_person(raw)
+    if sexual and named:
+        return "real-person"
+    if deepfake and (sexual or named
+                     or token_set & ILLEGAL_PERSON_CONTEXT):
+        return "real-person"
+    return None
+
+
+def record_illegal_refusal(user, lane, category, prompt_text,
+                           ip) -> bool:
+    """Write one illegal-gate refusal record and run the
+    enforcement ladder. The record is server-side only (the
+    moonfactory-refusals Dict): account id, timestamp, lane,
+    category, the prompt as typed, and the creating IP; it is
+    never exposed in any user-facing or public payload. The
+    ladder: a hard refusal suspends the account on the spot;
+    any other category suspends at the third refusal on the
+    account. Suspension is a flag on the user record that the
+    creation gate checks before anything else, so a suspended
+    account creates nothing on any path. Returns whether the
+    account is suspended after this refusal. Never raises:
+    the refusal itself is the caller's raise, and a storage
+    failure must not turn it into a 500."""
+    try:
+        rec = {
+            "id": pysecrets.token_hex(8),
+            "user_id": user.get("id"),
+            "created_at": _now(),
+            "lane": lane,
+            "category": category,
+            "prompt": prompt_text,
+            "created_ip": ip or None,
+        }
+        refusals[rec["id"]] = rec
+        count = int(user.get("illegal_refusals") or 0) + 1
+        user["illegal_refusals"] = count
+        if category == "hard" or count >= ILLEGAL_SUSPEND_AFTER:
+            user["suspended"] = True
+            user["suspended_at"] = _now()
+            user["suspended_reason"] = "illegal content gate"
+        users[f"id:{user['id']}"] = user
+        if user.get("email"):
+            users[f"email:{user['email']}"] = user
+        return bool(user.get("suspended"))
+    except Exception as exc:  # noqa: BLE001
+        print(f"illegal refusal record failed: {exc}")
+        return bool(user.get("suspended"))
 
 
 def job_is_uncensored(job: dict) -> bool:
@@ -4882,6 +5240,29 @@ def api():
     def save_user(user: dict):
         users[f"id:{user['id']}"] = user
         users[f"email:{user['email']}"] = user
+
+    def enforce_prompt_gate(user, lane, ip, *texts):
+        """The creation-time illegal-content gate (Jack,
+        2026-11-24): every creation path runs its user text
+        through here before any quote, hold, charge, free
+        count, or dispatch. A suspended account is refused
+        outright, whatever it asks for. An illegal text
+        writes its refusal record, runs the suspension
+        ladder, and is refused with the one plain message,
+        which never names what matched. A refused request
+        creates nothing: no job, no hold, no charge, no
+        free clip consumed, nothing dispatched."""
+        if user.get("suspended"):
+            raise HTTPException(
+                status_code=400, detail=ILLEGAL_REFUSAL_MESSAGE)
+        for text in texts:
+            category = prompt_is_illegal(text)
+            if category:
+                record_illegal_refusal(
+                    user, lane, category, text, ip)
+                raise HTTPException(
+                    status_code=400,
+                    detail=ILLEGAL_REFUSAL_MESSAGE)
 
     def usage(user: dict) -> dict:
         # The period rollover below resets only the paid plan's
@@ -9800,6 +10181,14 @@ def api():
         before submission leaves an error job with the clean public
         message and the hold fully released: no charge, nothing
         stuck."""
+        # The illegal-content gate (Jack, 2026-11-24) runs
+        # before the quote, the hold, and the submit: the
+        # prompt, the music words, the spoken line, and the
+        # clone reference line are all user text.
+        enforce_prompt_gate(
+            user, model, created_ip,
+            prompt, music_prompt, speech_script,
+            clone_reference_text)
         params = _api_job_params(body, model)
         reload_state = {}
         state = api_lane_state(model)
@@ -10057,6 +10446,16 @@ def api():
             clone_reference_text = (
                 body.get("clone_reference_text") or "").strip()[
                     :CLONE_REFERENCE_TEXT_MAX]
+        # The illegal-content gate (Jack, 2026-11-24): the
+        # user's own words, checked before any quote, hold,
+        # charge, free count, or dispatch on either create
+        # path below (the per-second path checks again inside
+        # create_api_job, which is also where the drama
+        # retake route enters).
+        enforce_prompt_gate(
+            user, model, client_ip(request),
+            prompt, music_prompt, speech_script,
+            clone_reference_text)
         # Captions (Jack's call, 2026-11-18): a generation time
         # opt in, either checked or not. The finishing stage
         # burns word timed captions into the delivered file when
@@ -10070,6 +10469,12 @@ def api():
         # finishing stage. No gate and no charge for either.
         caption_style = _clean_caption_style(body)
         lower_third = _clean_lower_third(body)
+        if lower_third:
+            # The lower third is user text rendered onto the
+            # video: it passes the same gate (Jack, 2026-11-24).
+            enforce_prompt_gate(
+                user, model, client_ip(request),
+                lower_third.get("name"), lower_third.get("sub"))
         if speech_script and not is_paid(user):
             raise HTTPException(
                 status_code=403, detail="voiceover is a paid feature"
@@ -10762,6 +11167,11 @@ def api():
         if not bot_check_ok(body, client_ip(request), user):
             raise HTTPException(status_code=403, detail="bot check failed")
         prompt, aspect = _image_params(body)
+        # The illegal-content gate (Jack, 2026-11-24), before
+        # any lane pick, search, hold, or submit below.
+        enforce_prompt_gate(
+            user, str(body.get("image_model") or "image"),
+            client_ip(request), prompt)
         if body.get("image_model"):
             # The curated image shelf: provider image models,
             # paid accounts only, charged per image at submit
@@ -12184,6 +12594,12 @@ def api():
                 raise HTTPException(status_code=422, detail="that link has no readable duration")
         else:
             raise HTTPException(status_code=422, detail="paste a link or upload a file")
+        # The illegal-content gate (Jack, 2026-11-24): a clip
+        # takes no typed prompt, so the gate reads the source
+        # title, the only words the job carries, and the call
+        # is also what bars a suspended account from the lane.
+        enforce_prompt_gate(
+            user, "clip", client_ip(request), source_title)
         if duration > pricing.CLIP_MAX_SOURCE_SECONDS:
             raise HTTPException(status_code=422, detail="this video is longer than the 3 hour clipping limit")
         q = pricing.clip_quote(duration, owner=is_owner(user))
@@ -12396,6 +12812,12 @@ def api():
             fields = hf_clean_fields(template_id, body)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc))
+        # The illegal-content gate (Jack, 2026-11-24): every
+        # word a template renders is user text, checked
+        # before any free count or dispatch below.
+        enforce_prompt_gate(
+            user, "template", client_ip(request),
+            *[v for v in fields.values() if isinstance(v, str)])
         upload_path = None
         source_duration = 0.0
         if template_id == "captions":
@@ -13142,6 +13564,10 @@ x_api_key: str = Header(default="")):
             raise HTTPException(
                 status_code=422,
                 detail="a topic must be 200 characters or fewer")
+        # The illegal-content gate (Jack, 2026-11-24): the
+        # topic is user text, checked before the writing
+        # route turns it into a script.
+        enforce_prompt_gate(user, "short", client_ip(request), topic)
         # The draft model pick (2026-11-20): it drives the
         # topic writing call server side, with the house chain
         # as the fallback when the picked route is unavailable.
@@ -13266,6 +13692,15 @@ x_api_key: str = Header(default="")):
         # the cuts to the picked music's tempo in the runner.
         lower_third = _clean_lower_third(body)
         beat_sync = bool(body.get("beat_sync"))
+        # The illegal-content gate again on the finished words
+        # (Jack, 2026-11-24): the pasted or written script,
+        # the clone reference line, and the lower third, all
+        # before any free count or charge below.
+        enforce_prompt_gate(
+            user, "short", client_ip(request), script_text,
+            clone_reference_text,
+            (lower_third or {}).get("name"),
+            (lower_third or {}).get("sub"))
         is_free_job = False
         if not is_paid(user):
             if free_jobs_total(user) >= FREE_CLIPS_TOTAL:
@@ -13867,6 +14302,11 @@ x_api_key: str = Header(default="")):
                 detail="pick one of the draft models on the list")
         draft_model = llm_providers.normalize_draft_model(
             raw_draft_model)
+        # The illegal-content gate (Jack, 2026-11-24): the
+        # idea or script is user text, checked before the
+        # writing route ever sees it.
+        enforce_prompt_gate(
+            user, "drama", client_ip(request), source_text)
         try:
             draft = drama.draft_episode(
                 source_mode, source_text, draft_model)
@@ -13959,6 +14399,23 @@ x_api_key: str = Header(default="")):
                 body.get("entities"), body.get("shots"))
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc))
+        # The illegal-content gate (Jack, 2026-11-24): the
+        # confirmed storyboard is user text (the source, the
+        # names and looks, the actions and spoken lines),
+        # checked before any hold or shot job below.
+        gate_texts = [rec.get("source_text"), rec.get("title"),
+                      rec.get("summary")]
+        for person in entities["people"]:
+            gate_texts += [person.get("name"),
+                           person.get("description")]
+        gate_texts += [entities["place"].get("name"),
+                       entities["place"].get("description")]
+        for shot in shots:
+            gate_texts += [shot.get("action"),
+                           shot.get("spoken_line"),
+                           shot.get("camera"), shot.get("mood")]
+        enforce_prompt_gate(
+            user, "drama", client_ip(request), *gate_texts)
         for person in entities["people"]:
             person["reference_urls"] = _drama_entity_refs(user, person)
         entities["place"]["reference_urls"] = \
