@@ -613,6 +613,10 @@ def classify_job_output(job: dict, path=None) -> None:
         job["output_classifier"] = OUTPUT_CLASSIFIER_ID
         job["output_classified_at"] = _now()
         job.pop("output_classifier_error", None)
+        # The gallery thumb derives at finishing beside the
+        # verdict (perf pass, 2026-11-24), best-effort: the
+        # thumb routes derive it lazily if this did not land.
+        ensure_gallery_thumb(job, p)
         jobs[job["id"]] = job
     except Exception as exc:  # noqa: BLE001
         try:
@@ -626,6 +630,63 @@ def classify_job_output(job: dict, path=None) -> None:
             pass
         print(f"output classifier failed for job "
               f"{job.get('id')}: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# Gallery thumbnails (perf pass, Jack, 2026-11-24): the gallery
+# grid and the studio cards used to download finished originals
+# (a 1.3 MB PNG for one image card) just to show a small tile.
+# Every finished job gets a small JPEG derivative, at most
+# GALLERY_THUMB_WIDTH px wide, cached on the data volume beside
+# its files as {job_id}.gthumb.jpg. New jobs derive theirs at
+# finishing (ensure_gallery_thumb is called from the finishing
+# stages beside classify_job_output); existing jobs derive
+# theirs the first time a thumb is requested. Derivation is
+# best-effort: a failure returns None and callers fall back to
+# the routes they already had.
+GALLERY_THUMB_WIDTH = 480
+
+
+def ensure_gallery_thumb(job: dict, path=None):
+    """The job's small preview JPEG, derived and cached on
+    first need. Returns the Path, or None when no derivative
+    can be made from the finished file."""
+    try:
+        thumb = FILES_DIR / f"{job['id']}.gthumb.jpg"
+        if thumb.exists() and thumb.stat().st_size > 0:
+            return thumb
+        if path is None:
+            path = FILES_DIR / (
+                f"{job['id']}.png" if job.get("kind") == "image"
+                else f"{job['id']}.mp4")
+        p = Path(path)
+        if ".web." in p.name or not p.is_file():
+            return None
+        FILES_DIR.mkdir(parents=True, exist_ok=True)
+        tmp = FILES_DIR / f"{job['id']}.gthumb.tmp.jpg"
+        try:
+            tmp.unlink(missing_ok=True)
+        except Exception:
+            pass
+        cmd = ["ffmpeg", "-y"]
+        if job.get("kind") != "image":
+            cmd += ["-ss", "0.5"]
+        cmd += ["-i", str(p), "-vframes", "1",
+                "-vf", f"scale='min({GALLERY_THUMB_WIDTH},iw)':-2",
+                "-q:v", "5", str(tmp)]
+        proc = subprocess.run(cmd, capture_output=True,
+                              timeout=120)
+        if proc.returncode != 0 or not tmp.exists() \
+                or tmp.stat().st_size == 0:
+            try:
+                tmp.unlink(missing_ok=True)
+            except Exception:
+                pass
+            return None
+        tmp.replace(thumb)
+        return thumb
+    except Exception:  # noqa: BLE001
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -5567,6 +5628,15 @@ def api():
     from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
 
     web = FastAPI(title="Moonfactory")
+
+    # Compression (perf pass, Jack, 2026-11-24): the studio
+    # page is a large inline HTML document and the JSON
+    # payloads are plain text; gzip cuts both to a fraction of
+    # their raw size on the wire. Media files are already
+    # compressed formats and fall under the size/type handling
+    # of the middleware untouched in practice.
+    from starlette.middleware.gzip import GZipMiddleware
+    web.add_middleware(GZipMiddleware, minimum_size=1000)
 
     @web.middleware("http")
     async def security_headers(request: Request, call_next):
@@ -11444,9 +11514,9 @@ def api():
             key=lambda j: j["created_at"])
         positions = {j["id"]: i + 1 for i, j in enumerate(active)}
         # Recent mode (Jack, 2026-11-24): the studio homepage
-        # opens on the five most recent videos and the five most
-        # recent images only, so its payload never carries the
-        # whole library. The full list lives on the library
+        # opens on the three most recent videos and the three
+        # most recent images only, so its payload never carries
+        # the whole library. The full list lives on the library
         # page, which reads this same endpoint without the
         # flag. The per kind totals ride along so the homepage
         # knows when a section has more behind its View All
@@ -11455,8 +11525,8 @@ def api():
         total_videos = sum(1 for j in mine if j.get("kind") != "image")
         total_images = len(mine) - total_videos
         if recent:
-            picked = [j for j in mine if j.get("kind") != "image"][:5]
-            picked += [j for j in mine if j.get("kind") == "image"][:5]
+            picked = [j for j in mine if j.get("kind") != "image"][:3]
+            picked += [j for j in mine if j.get("kind") == "image"][:3]
             picked.sort(key=lambda j: j["created_at"], reverse=True)
         else:
             picked = mine[:50]
@@ -12052,6 +12122,236 @@ def api():
                 jobs[child["id"]] = child
                 created["charged_cents"] = 0
         return created
+
+    @web.post("/api/jobs/{job_id}/retry")
+    async def retry_job(job_id: str, request: Request, mf_session: str = Cookie(default="")):
+        """Retry an errored generation from its stored record
+        (Jack, 2026-11-24): every error card in the studio and
+        the library carries a Retry button beside Delete, and
+        this is the one door behind it. The retry is a fresh
+        creation rebuilt from the original inputs, so every
+        creation gate applies again (illegal content, upload
+        scan, ceilings, bot check) and the normal price is
+        charged at retry time — the failed attempt charged
+        nothing (its holds were restored), so there is no
+        double charge. Video generations ride the existing
+        regenerate path above, free retries for worker-side
+        errors included; the other kinds rebuild the body
+        their own create route takes and call it the same
+        way. Kinds whose inputs are not kept on the record
+        refuse plainly instead of guessing."""
+        user = require_user(request, mf_session)
+        parent = jobs.get(job_id)
+        if not parent or parent.get("user_id") != user["id"]:
+            raise HTTPException(status_code=404, detail="unknown job")
+        if parent.get("status") != "error":
+            raise HTTPException(
+                status_code=409,
+                detail="only a failed generation can be retried")
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            body = {}
+        bot = {k: body.get(k) for k in (
+            "challenge_id", "challenge_nonce", "turnstile_token")}
+        kind = parent.get("kind")
+        root_id = parent.get("retry_of") or parent["id"]
+
+        def link_retry(created_id):
+            child = jobs.get(created_id) if created_id else None
+            if child and not child.get("retry_of"):
+                child["retry_of"] = root_id
+                jobs[child["id"]] = child
+
+        if kind == "drama":
+            # An errored episode retries the way a paused one
+            # resumes: the failed shots go back to ready and
+            # the episode makes them again. The episode was
+            # already counted and held at creation; a resume
+            # never counts or charges again.
+            rec = dramas.get(parent.get("drama_id") or "")
+            if not rec:
+                raise HTTPException(status_code=404,
+                                    detail="episode not found")
+            for shot in rec.get("shots") or []:
+                if shot.get("status") == "failed":
+                    shot["status"] = "ready"
+                    shot["attempts"] = 0
+                    shot["child_job_id"] = None
+            rec["status"] = "making"
+            dramas[rec["id"]] = rec
+            parent["status"] = "running"
+            parent["error"] = None
+            parent["drama_state"] = "making"
+            parent["stage"] = "Starting again"
+            jobs[parent["id"]] = parent
+            return public_job(parent)
+
+        if kind == "short":
+            lines = parent.get("short_lines") or []
+            if not lines:
+                raise HTTPException(
+                    status_code=422,
+                    detail="the words of this short were not kept, so it cannot be retried")
+            new_body = {
+                "script": "\n".join(lines),
+                "split": parent.get("short_split") or "auto",
+                "voice": parent.get("speech_voice")
+                or DEFAULT_SPEECH_VOICE,
+                "visuals": parent.get("short_visuals") or "stock",
+                "style": parent.get("short_style") or "",
+                "music": parent.get("short_music") or "house",
+                "caption_style":
+                    parent.get("short_caption_style") or "",
+                "lower_third": parent.get("short_lower_third"),
+                "beat_sync": bool(parent.get("short_beat_sync")),
+                "draft_model": parent.get("short_draft_model") or "",
+                **bot,
+            }
+            if new_body["voice"] == CLONE_VOICE_ID:
+                # The clone reference clip is kept on the
+                # volume under the original job's id, so a
+                # cloned-voice short retries with the same
+                # voice. Without the file there is nothing to
+                # clone from, and the retry refuses plainly.
+                ext = parent.get("clone_reference_ext")
+                ref = (FILES_DIR / "voice_refs"
+                       / f"{parent['id']}.{ext}") if ext else None
+                if ref is None or not ref.exists():
+                    raise HTTPException(
+                        status_code=422,
+                        detail="the voice recording this short used was not kept, so it cannot be retried")
+                new_body["clone_reference_audio_b64"] = \
+                    base64.b64encode(ref.read_bytes()).decode()
+                new_body["clone_reference_text"] = \
+                    parent.get("clone_reference_text") or ""
+            request._body = json.dumps(new_body).encode()
+            result = await create_short(request, mf_session)
+            created = json.loads(result.body)
+            link_retry(created.get("id"))
+            return created
+
+        if kind == "image":
+            if parent.get("image_model"):
+                lane = pricing.IMAGE_LANES.get(
+                    parent["image_model"]) or {}
+                if lane.get("edit") \
+                        and parent.get("has_source_image"):
+                    # Edit lanes never kept the source picture
+                    # on the record (see create_image), so
+                    # there is nothing to rebuild the edit
+                    # from.
+                    raise HTTPException(
+                        status_code=422,
+                        detail="the picture this edit started from was not kept, so it cannot be retried. Make it again with the picture")
+                new_body = {
+                    "prompt": parent.get("prompt"),
+                    "image_model": parent["image_model"],
+                    "image_size": parent.get("image_size"),
+                    "aspect_ratio": parent.get("aspect_ratio")
+                    or "9:16",
+                    **bot,
+                }
+                request._body = json.dumps(new_body).encode()
+                result = await create_image(request, mf_session)
+                if isinstance(result, JSONResponse):
+                    created = json.loads(result.body)
+                else:
+                    created = result
+                link_retry(created.get("id")
+                           or created.get("job_id"))
+                return created
+            new_body = {
+                "prompt": parent.get("prompt"),
+                "aspect_ratio": parent.get("aspect_ratio") or "9:16",
+                "seed": parent.get("seed"),
+                "retry_of": root_id,
+                **bot,
+            }
+            request._body = json.dumps(new_body).encode()
+            result = await create_image(request, mf_session)
+            return json.loads(result.body)
+
+        if kind == "clip_output":
+            # A clip is one cut of its parent clipping job:
+            # retrying it means running that job again.
+            clip_parent = jobs.get(parent.get("clip_parent") or "")
+            if not clip_parent \
+                    or clip_parent.get("user_id") != user["id"]:
+                raise HTTPException(
+                    status_code=422,
+                    detail="the clipping job this clip came from is gone, so it cannot be retried")
+            parent = clip_parent
+            kind = "clip_job"
+
+        if kind == "clip_job":
+            new_body = {
+                "clip_count": parent.get("clip_count") or 3,
+                "length": parent.get("length") or "medium",
+                "caption_style": parent.get("caption_style")
+                or "bounce",
+                "layout": parent.get("layout") or "blur",
+                **bot,
+            }
+            if parent.get("source_url"):
+                new_body["url"] = parent["source_url"]
+            elif parent.get("upload_path"):
+                # The create route reads uploads through their
+                # upload record, so the retry registers the
+                # stored file under a fresh upload id and rides
+                # the same path (and the same hold) as a new
+                # clipping.
+                uid = pysecrets.token_hex(8)
+                meta[f"clipupload:{uid}"] = {
+                    "user_id": user["id"],
+                    "path": parent["upload_path"],
+                    "duration": float(
+                        parent.get("duration_seconds") or 0),
+                    "filename": parent.get("source_title") or "",
+                }
+                new_body["upload_id"] = uid
+            else:
+                raise HTTPException(
+                    status_code=422,
+                    detail="the video this clipping came from was not kept, so it cannot be retried")
+            request._body = json.dumps(new_body).encode()
+            result = await create_clip(request, mf_session)
+            created = json.loads(result.body)
+            link_retry(created.get("id"))
+            return created
+
+        if kind == "template":
+            new_body = {
+                "template": parent.get("template"),
+                **(parent.get("hf_fields") or {}),
+                **bot,
+            }
+            if parent.get("template") == "captions":
+                if not parent.get("upload_path"):
+                    raise HTTPException(
+                        status_code=422,
+                        detail="the clip this title card was made from was not kept, so it cannot be retried")
+                uid = pysecrets.token_hex(8)
+                meta[f"templateupload:{uid}"] = {
+                    "user_id": user["id"],
+                    "path": parent["upload_path"],
+                    "duration": float(
+                        parent.get("source_duration") or 0),
+                }
+                new_body["upload_id"] = uid
+            request._body = json.dumps(new_body).encode()
+            result = await create_template(request, mf_session)
+            created = json.loads(result.body)
+            link_retry(created.get("id"))
+            return created
+
+        # Every other error card is a video generation: the
+        # existing regenerate path rebuilds it from the same
+        # stored inputs.
+        request._body = json.dumps(body).encode()
+        return await regenerate(job_id, request, mf_session)
 
     def _fal_upload_bytes(data: bytes, content_type: str, file_name: str):
         """Upload bytes to fal storage and return the hosted file
@@ -12736,6 +13036,18 @@ def api():
         data_volume.commit()
         return poster_path
 
+    def _media_cache(job: dict, public: bool = False) -> str:
+        """Cache lifetime for a job's media (perf pass,
+        2026-11-24). A finished job's files never change under
+        its id, so they cache for a year as immutable. The one
+        exception is a drama episode: a shot retake re-renders
+        the episode under the same id, so its media caches for
+        an hour only."""
+        scope = "public" if public else "private"
+        if job.get("kind") == "drama":
+            return f"{scope}, max-age=3600"
+        return f"{scope}, max-age=31536000, immutable"
+
     def ensure_image_file(job: dict) -> Path:
         """Fetch a finished start image from the worker once and
         cache it on the data Volume. Images are delivered as made:
@@ -12778,8 +13090,10 @@ def api():
         if job["status"] != "done":
             raise HTTPException(status_code=409, detail=f"job status is {job['status']}")
         if job.get("kind") == "image":
-            return FileResponse(ensure_image_file(job), media_type="image/png",
-                                filename=f"moonfactory-{job_id}.png")
+            return FileResponse(
+                ensure_image_file(job), media_type="image/png",
+                filename=f"moonfactory-{job_id}.png",
+                headers={"Cache-Control": _media_cache(job)})
         if job.get("kind") == "clip_job":
             raise HTTPException(status_code=409, detail="this clip job made several clips, open one of them")
         out_path = ensure_processed(job)
@@ -12795,7 +13109,8 @@ def api():
         # player (Jack, 2026-11-21).
         resp = FileResponse(ensure_web_file(job, out_path),
                             media_type="video/mp4",
-                            filename=f"moonfactory-{job_id}.mp4")
+                            filename=f"moonfactory-{job_id}.mp4",
+                            headers={"Cache-Control": _media_cache(job)})
         resp.headers["content-disposition"] = (
             f'inline; filename="moonfactory-{job_id}.mp4"')
         return resp
@@ -12810,7 +13125,8 @@ def api():
         if job["status"] != "done" or job.get("kind") == "image":
             raise HTTPException(status_code=409, detail="no poster")
         return FileResponse(ensure_poster(job), media_type="image/jpeg",
-                            filename=f"moonfactory-{job_id}.jpg")
+                            filename=f"moonfactory-{job_id}.jpg",
+                            headers={"Cache-Control": _media_cache(job)})
 
     @web.delete("/api/jobs/{job_id}")
     def delete_job(job_id: str, request: Request, mf_session: str = Cookie(default="")):
@@ -12871,10 +13187,12 @@ def api():
                                   else f"{job_id}.mp4"))
         write_job_tombstone(job)
         del jobs[job_id]
+        _gallery_cache_clear()
         for path in (FILES_DIR / f"{job_id}.mp4",
                      FILES_DIR / f"{job_id}.web.mp4",
                      FILES_DIR / f"{job_id}.raw.mp4",
                      FILES_DIR / f"{job_id}.png",
+                     FILES_DIR / f"{job_id}.gthumb.jpg",
                      FILES_DIR / "beds" / f"{job_id}.wav"):
             try:
                 path.unlink(missing_ok=True)
@@ -15148,6 +15466,26 @@ x_api_key: str = Header(default="")):
         job = jobs.get(job_id)
         if not job or job.get("user_id") != user["id"]:
             raise HTTPException(status_code=404, detail="unknown job")
+        if job.get("kind") == "image":
+            # Studio cards show the small derivative, not the
+            # finished original (perf pass, 2026-11-24). The
+            # source file has to be on the volume first.
+            if job.get("status") == "done":
+                try:
+                    ensure_image_file(job)
+                except Exception:
+                    pass
+            thumb = ensure_gallery_thumb(job)
+            if thumb is None:
+                raise HTTPException(status_code=404,
+                                    detail="no thumbnail")
+            try:
+                data_volume.commit()
+            except Exception:
+                pass
+            return FileResponse(
+                thumb, media_type="image/jpeg",
+                headers={"Cache-Control": _media_cache(job)})
         path = FILES_DIR / f"{job_id}.jpg"
         if not path.exists():
             try:
@@ -15156,7 +15494,8 @@ x_api_key: str = Header(default="")):
                 pass
         if not path.exists():
             raise HTTPException(status_code=404, detail="no thumbnail")
-        return FileResponse(path, media_type="image/jpeg")
+        return FileResponse(path, media_type="image/jpeg",
+                            headers={"Cache-Control": _media_cache(job)})
 
     # -- public gallery -----------------------------------------------------
     # Every finished clip is listed by default (Jack, 2026-11-16).
@@ -15340,23 +15679,54 @@ x_api_key: str = Header(default="")):
             "file_url": f"/gallery/{job['id']}/file",
             "poster_url": (
                 None if is_image else f"/gallery/{job['id']}/poster"),
+            # The grid loads the small derivative, never the
+            # finished original (perf pass, 2026-11-24).
+            "thumb_url": f"/gallery/{job['id']}/thumb",
         }
 
     @web.get("/gallery", response_class=HTMLResponse)
     def gallery_page():
-        return HTMLResponse(GALLERY_HTML)
+        # The page shell is static markup with no account
+        # state: a short public cache is safe and takes the
+        # repeat-visit cost off the container (perf pass,
+        # 2026-11-24). The studio page deliberately keeps no
+        # cache header: its markup carries the live app.
+        return HTMLResponse(
+            GALLERY_HTML,
+            headers={"Cache-Control": "public, max-age=300"})
 
     @web.get("/library", response_class=HTMLResponse)
     def library_page():
         # The one library (Jack, 2026-11-24): the studio
-        # homepage shows only the five most recent videos and
+        # homepage shows only the three most recent videos and
         # images, and its View All links land here, where the
         # full list lives. No new tab or section: this page is
         # the library the product rule already names.
         return HTMLResponse(LIBRARY_HTML)
 
+    # The gallery feed cache (perf pass, 2026-11-24): the
+    # uncached build walks every job record in the store and
+    # rejudges each one, which measured ~11.5s a call on the
+    # live deployment. The rules are unchanged — the same
+    # gallery_visible and gallery_file_ready verdicts build
+    # the list — the built list is simply reused for a short
+    # window. Anything that changes what lists (an admin
+    # removal or restore, an owner delete) clears the cache
+    # in the same call, so a removal never lingers here; a
+    # newly finished job appears within the window.
+    _gallery_cache = {"at": 0.0, "items": None}
+    GALLERY_CACHE_SECONDS = 30
+
+    def _gallery_cache_clear():
+        _gallery_cache["at"] = 0.0
+        _gallery_cache["items"] = None
+
     @web.get("/api/gallery")
     def gallery_list():
+        now = time.time()
+        if _gallery_cache["items"] is not None \
+                and now - _gallery_cache["at"] < GALLERY_CACHE_SECONDS:
+            return {"items": _gallery_cache["items"]}
         try:
             data_volume.reload()
         except Exception:
@@ -15368,7 +15738,10 @@ x_api_key: str = Header(default="")):
                     and gallery_file_ready(job)):
                 items.append(public_gallery_item(job))
         items.sort(key=lambda i: i["created_at"], reverse=True)
-        return {"items": items[:100]}
+        items = items[:100]
+        _gallery_cache["at"] = now
+        _gallery_cache["items"] = items
+        return {"items": items}
 
     def _image_media_type(path: Path) -> str:
         """The real type of a finished image from its first bytes.
@@ -15404,17 +15777,19 @@ x_api_key: str = Header(default="")):
             if not path.exists():
                 raise HTTPException(status_code=404,
                                     detail="file is not available")
-            return FileResponse(path,
-                                media_type=_image_media_type(path),
-                                filename=f"moonfactory-{job_id}.png")
+            return FileResponse(
+                path, media_type=_image_media_type(path),
+                filename=f"moonfactory-{job_id}.png",
+                headers={"Cache-Control": _media_cache(job, public=True)})
         out_path = ensure_processed(job)
         try:
             ensure_poster(job)
         except Exception:
             pass
-        resp = FileResponse(ensure_web_file(job, out_path),
-                            media_type="video/mp4",
-                            filename=f"moonfactory-{job_id}.mp4")
+        resp = FileResponse(
+            ensure_web_file(job, out_path), media_type="video/mp4",
+            filename=f"moonfactory-{job_id}.mp4",
+            headers={"Cache-Control": _media_cache(job, public=True)})
         resp.headers["content-disposition"] = (
             f'inline; filename="moonfactory-{job_id}.mp4"')
         return resp
@@ -15425,8 +15800,32 @@ x_api_key: str = Header(default="")):
         if (not job or not gallery_visible(job)
                 or job.get("kind") == "image"):
             raise HTTPException(status_code=404, detail="not in the gallery")
-        return FileResponse(ensure_poster(job), media_type="image/jpeg",
-                            filename=f"moonfactory-{job_id}.jpg")
+        return FileResponse(
+            ensure_poster(job), media_type="image/jpeg",
+            filename=f"moonfactory-{job_id}.jpg",
+            headers={"Cache-Control": _media_cache(job, public=True)})
+
+    @web.get("/gallery/{job_id}/thumb")
+    def gallery_thumb(job_id: str):
+        # The small derivative the grid loads (perf pass,
+        # 2026-11-24): derived on first request for jobs that
+        # finished before thumbs existed, cached on the volume
+        # beside the job's files after that.
+        job = jobs.get(job_id)
+        if not job or not gallery_visible(job):
+            raise HTTPException(status_code=404, detail="not in the gallery")
+        thumb = ensure_gallery_thumb(job)
+        if thumb is None:
+            raise HTTPException(status_code=404,
+                                detail="no preview picture")
+        try:
+            data_volume.commit()
+        except Exception:
+            pass
+        return FileResponse(
+            thumb, media_type="image/jpeg",
+            filename=f"moonfactory-{job_id}-thumb.jpg",
+            headers={"Cache-Control": _media_cache(job, public=True)})
 
     @web.post("/api/gallery/{job_id}/report")
     async def report_gallery_item(job_id: str, request: Request):
@@ -15921,6 +16320,7 @@ x_api_key: str = Header(default="")):
             raise HTTPException(status_code=404, detail="unknown job")
         job["removed"] = True
         jobs[job_id] = job
+        _gallery_cache_clear()
         # An operator removal is the platform's confirmed-flag
         # act: the full case file goes on legal hold so the
         # 2258A(b) report set survives whatever happens to the
@@ -15936,6 +16336,7 @@ x_api_key: str = Header(default="")):
             raise HTTPException(status_code=404, detail="unknown job")
         job["removed"] = False
         jobs[job_id] = job
+        _gallery_cache_clear()
         return {"status": "restored"}
 
     return web
@@ -20723,7 +21124,7 @@ async function loadJobs() {
   } catch (e) { /* signed out */ }
 }
 // The homepage library split (Jack, 2026-11-24): videos and
-// images render in their own sections, the five most recent
+// images render in their own sections, the three most recent
 // of each, and the rest live on the library page, one View
 // All link away. The library page renders these same cards
 // from the full list.
@@ -20758,7 +21159,7 @@ function jobCardEl(j) {
       if ((j.status === 'queued' || j.status === 'running') && j.queue_position) html += '<br><span class="muted">In line at #' + j.queue_position + ' of your running videos</span>';
       if (j.partial) html += '<br><span class="muted">Finished shorter than planned. The later segments could not render, and you were charged only for the segments in this file.</span>';
       if (isClipOut && j.score !== null && j.score !== undefined) html += '<br><span class="muted">Score ' + j.score + '</span>';
-      if (isClipOut && j.has_thumb) html += '<br><img class="thumb" src="/api/jobs/' + j.id + '/thumb" alt="">';
+      if (isClipOut && j.has_thumb) html += '<br><img class="thumb" loading="lazy" decoding="async" src="/api/jobs/' + j.id + '/thumb" alt="">';
       if (j.stage && activeJob) html += '<br><span class="muted">' + j.stage + '</span>';
       if (activeJob) html += workBarHtml(j) + elapsedHtml(j);
       if (j.camera_presets && j.camera_presets.length) html +=
@@ -20769,7 +21170,7 @@ function jobCardEl(j) {
         '<br><span class="muted">Look ' + Object.values(j.camera_look).join(' · ') + '</span>';
       if (j.has_custom_audio) html +=
         '<br><span class="muted">Music made for this video from its music prompt</span>';
-      if (j.status === 'done' && j.kind === 'image') html += '<br><img class="thumb" src="/api/jobs/' + j.id + '/file" alt="">' +
+      if (j.status === 'done' && j.kind === 'image') html += '<br><img class="thumb" loading="lazy" decoding="async" src="/api/jobs/' + j.id + '/thumb" alt="">' +
         '<br>' + saveControlHtml(j.id, 'image');
       if (j.status === 'done' && j.kind !== 'image') html += '<br><video controls playsinline preload="metadata" poster="/api/jobs/' + j.id + '/poster" src="/api/jobs/' + j.id + '/file"></video>' +
         '<br>' + saveControlHtml(j.id, 'video');
@@ -20780,7 +21181,10 @@ function jobCardEl(j) {
       if (j.status === 'error' && j.kind === 'drama' && j.drama_state === 'paused') html +=
         '<br><button class="btn secondary" data-drama-resume="' + j.id + '">Try that shot again</button>';
       if (j.status === 'done' || j.status === 'error') html +=
-        '<br><button class="btn secondary" data-del="' + j.id + '" data-delkind="' + (j.kind || 'generation') + '" data-ingallery="' + (j.in_gallery ? '1' : '0') + '">Delete</button>';
+        '<br>' + (j.status === 'error'
+          ? '<button class="btn secondary" data-retry="' + j.id + '">Retry</button> '
+          : '') +
+        '<button class="btn secondary" data-del="' + j.id + '" data-delkind="' + (j.kind || 'generation') + '" data-ingallery="' + (j.in_gallery ? '1' : '0') + '">Delete</button>';
   div.innerHTML = html;
   return div;
 }
@@ -20804,7 +21208,7 @@ function renderClipResults(jobs) {
     const d = document.createElement('div'); d.className = 'card';
     let h = '<strong>' + (j.hook || 'Clip') + '</strong> · ' + (j.duration_seconds || '') + 's';
     if (j.score !== null && j.score !== undefined) h += ' · Score ' + j.score;
-    if (j.has_thumb) h += '<br><img class="thumb" src="/api/jobs/' + j.id + '/thumb" alt="">';
+    if (j.has_thumb) h += '<br><img class="thumb" loading="lazy" decoding="async" src="/api/jobs/' + j.id + '/thumb" alt="">';
     h += '<br><video controls playsinline preload="metadata" poster="/api/jobs/' + j.id + '/poster" src="/api/jobs/' + j.id + '/file"></video>' +
       '<br>' + saveControlHtml(j.id, 'video');
     d.innerHTML = h; box.appendChild(d);
@@ -20845,6 +21249,25 @@ async function jobBoxClick(e) {
       await api('/api/drama/' + resume.dataset.dramaResume + '/resume', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}' });
       loadJobs();
     } catch (err) { alert(err.message); }
+    return;
+  }
+  const retry = e.target.closest('[data-retry]');
+  if (retry) {
+    // Retry an errored generation (Jack, 2026-11-24): the
+    // server rebuilds the same creation from the stored
+    // record, through every creation gate again, at the
+    // normal price — the failed attempt charged nothing.
+    retry.disabled = true;
+    try {
+      let bot = {};
+      if (typeof botFields === 'function') {
+        try { bot = await botFields('botcheck6'); } catch (err) { bot = {}; }
+      }
+      await api('/api/jobs/' + retry.dataset.retry + '/retry', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ ...bot }) });
+      loadJobs();
+    } catch (err) { retry.disabled = false; alert(err.message); }
     return;
   }
   const b = e.target.closest('[data-del]');
@@ -21804,12 +22227,13 @@ async function loadGallery() {
       const f = document.createElement('div'); f.className = 'frame';
       if (item.kind === 'image') {
         const img = document.createElement('img');
-        img.src = item.file_url; img.alt = ''; img.loading = 'lazy';
+        img.src = item.thumb_url || item.file_url; img.alt = '';
+        img.loading = 'lazy'; img.decoding = 'async';
         f.appendChild(img);
       } else {
         const video = document.createElement('video');
         video.controls = true; video.src = item.file_url; video.preload = 'none';
-        if (item.poster_url) video.poster = item.poster_url;
+        if (item.thumb_url || item.poster_url) video.poster = item.thumb_url || item.poster_url;
         video.setAttribute('playsinline', '');
         f.appendChild(video);
       }
@@ -21850,7 +22274,7 @@ if ('serviceWorker' in navigator) {
 
 
 # The one library page (Jack, 2026-11-24): the studio homepage
-# shows the five most recent videos and images, and its View
+# shows the three most recent videos and images, and its View
 # All links land here, where the full list lives. The page's
 # card, save, and delete code is the studio's own, sliced out
 # of APP_HTML when this module loads, so the two surfaces

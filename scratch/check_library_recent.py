@@ -1,11 +1,13 @@
 """Local checks for the homepage library split and the library
 page (Jack, 2026-11-24).
 
-Rule: the studio homepage loads only the five most recent
-videos and the five most recent images. The rest are not in
-its payload at all. Each section's View All is a plain link
-to the library page (/library), never an in-place expand,
-and it shows only when the section has more than five. The
+Rule: the studio homepage loads only the three most recent
+videos and the three most recent images (Jack, 2026-11-24;
+five each until he cut it to three the same day). The rest
+are not in its payload at all. Each section's View All is a
+plain link to the library page (/library), never an in-place
+expand, and it shows only when the section has more than
+three. The
 library page reads the same /api/jobs endpoint without the
 recent flag and renders the full list with the studio's own
 card and delete code, shared by construction.
@@ -97,17 +99,17 @@ big["child"] = {"id": "child", "user_id": "u1", "kind": "generation",
 recent = run_list_jobs(big, {"recent": "1"})
 rv = [j for j in recent["jobs"] if j["kind"] != "image"]
 ri = [j for j in recent["jobs"] if j["kind"] == "image"]
-check(len(recent["jobs"]) == 10,
-      "recent payload does not carry exactly 5 + 5")
-check(len(rv) == 5 and len(ri) == 5,
-      "recent payload is not split 5 videos / 5 images")
+check(len(recent["jobs"]) == 6,
+      "recent payload does not carry exactly 3 + 3")
+check(len(rv) == 3 and len(ri) == 3,
+      "recent payload is not split 3 videos / 3 images")
 check(recent.get("total_videos") == 8
       and recent.get("total_images") == 7,
       "recent payload totals are not the full per kind counts")
-check([j["id"] for j in rv] == ["v7", "v6", "v5", "v4", "v3"],
-      "recent videos are not the five most recent, newest first")
-check([j["id"] for j in ri] == ["im6", "im5", "im4", "im3", "im2"],
-      "recent images are not the five most recent, newest first")
+check([j["id"] for j in rv] == ["v7", "v6", "v5"],
+      "recent videos are not the three most recent, newest first")
+check([j["id"] for j in ri] == ["im6", "im5", "im4"],
+      "recent images are not the three most recent, newest first")
 check(all(j["id"] not in ("other", "child") for j in recent["jobs"]),
       "recent payload leaks another user's job or a child job")
 
@@ -128,7 +130,7 @@ check(len(small["jobs"]) == 5
 
 lj = func_src("list_jobs")
 check('request.query_params.get("recent") == "1"' in lj
-      and '[:5]' in lj,
+      and '[:3]' in lj,
       "list_jobs does not cut the recent payload per kind")
 
 # -- the served homepage builders, run in node ----------------------------
@@ -155,7 +157,7 @@ if (parts.videos.length !== 8 || parts.images.length !== 7) {
   console.error('split wrong', parts.videos.length, parts.images.length);
   process.exit(1);
 }
-const link = viewAllHtml(8, 5);
+const link = viewAllHtml(8, 3);
 if (!link.includes('href="/library"') || !link.includes('View All')) {
   console.error('view all is not a library link', link);
   process.exit(1);
@@ -164,13 +166,12 @@ if (/onclick|data-viewall|expand/i.test(link)) {
   console.error('view all expands in place', link);
   process.exit(1);
 }
-if (viewAllHtml(5, 5) !== '' || viewAllHtml(3, 3) !== ''
-    || viewAllHtml(2, 5) !== '') {
-  console.error('view all shows at or under five');
+if (viewAllHtml(3, 3) !== '' || viewAllHtml(2, 3) !== '') {
+  console.error('view all shows at or under three');
   process.exit(1);
 }
-if (!viewAllHtml(6, 5).includes('href="/library"')) {
-  console.error('view all missing at six');
+if (!viewAllHtml(4, 3).includes('href="/library"')) {
+  console.error('view all missing at four');
   process.exit(1);
 }
 console.log('homepage builders ok');
@@ -238,6 +239,134 @@ check(page_block(HTML, "async function jobBoxClick(e) {",
 check("const noun = b.dataset.delkind" in LIB
       and "removed from your studio" in LIB,
       "the library page lost the gallery aware delete wording")
+
+# -- retry on error cards (Jack, 2026-11-24) ------------------------------
+
+card_src = page_block(HTML, "function jobCardEl(j) {",
+                      "function renderClipResults")
+check("data-retry" in card_src and ">Retry</button>" in card_src,
+      "error cards do not carry a Retry button")
+check("j.status === 'error'" in card_src.split("data-retry")[0][-200:],
+      "the Retry button is not tied to the error status")
+click_src = page_block(HTML, "async function jobBoxClick(e) {",
+                       "$('jobs').addEventListener('click', jobBoxClick);")
+check("data-retry" in click_src and "/retry'" in click_src,
+      "the shared card click handler does not post retries")
+check("data-retry" in LIB and "/retry'" in LIB,
+      "the library page lost the Retry wiring")
+
+retry_src = func_src("retry_job")
+check('"/api/jobs/{job_id}/retry"' in SRC,
+      "the retry route is not registered")
+for marker in ('status") != "error"',
+               "create_short", "create_image", "create_clip",
+               "create_template", "regenerate", "clip_parent",
+               "has_source_image"):
+    check(marker in retry_src,
+          f"the retry endpoint is missing its {marker} path")
+
+# The drama branch and the edit-image refusal, exercised: a
+# drama retry resets the failed shots and reopens the
+# episode; an edit-lane image whose source was not kept
+# refuses plainly and creates nothing.
+import asyncio  # noqa: E402
+
+
+class HTTPExc(Exception):
+    def __init__(self, status_code, detail):
+        self.status_code = status_code
+        self.detail = detail
+
+
+class FakeReq:
+    def __init__(self, payload=None):
+        self._payload = payload or {}
+
+    async def json(self):
+        return self._payload
+
+
+def run_retry(jobs_fixture, dramas_fixture, job_id, lanes=None):
+    ns = {
+        "jobs": jobs_fixture,
+        "dramas": dramas_fixture,
+        "require_user": lambda request, mf_session: {"id": "u1"},
+        "public_job": lambda j, queue_position=None: dict(j),
+        "HTTPException": HTTPExc,
+        "Cookie": lambda default="": default,
+        "Request": object,
+        "json": __import__("json"),
+        "base64": __import__("base64"),
+        "pricing": type("P", (), {
+            "IMAGE_LANES": lanes or {}})(),
+        "pysecrets": __import__("secrets"),
+        "meta": {},
+        "FILES_DIR": Path("/nonexistent"),
+        "DEFAULT_SPEECH_VOICE": "default",
+        "CLONE_VOICE_ID": "clone",
+    }
+    exec(func_src("retry_job"), ns)
+    return asyncio.run(ns["retry_job"](job_id, FakeReq(), ""))
+
+
+drama_jobs = {"d1": {"id": "d1", "user_id": "u1", "kind": "drama",
+                     "status": "error", "error": "boom",
+                     "drama_id": "rec1", "drama_state": "paused"}}
+drama_recs = {"rec1": {"id": "rec1", "status": "paused", "shots": [
+    {"status": "failed", "attempts": 2, "child_job_id": "c1"},
+    {"status": "done", "attempts": 1, "child_job_id": "c2"}]}}
+out = run_retry(drama_jobs, drama_recs, "d1")
+check(out["status"] == "running" and out["error"] is None
+      and out["drama_state"] == "making",
+      "a drama retry does not reopen the episode")
+check(drama_recs["rec1"]["shots"][0]["status"] == "ready"
+      and drama_recs["rec1"]["shots"][0]["attempts"] == 0
+      and drama_recs["rec1"]["shots"][1]["status"] == "done",
+      "a drama retry does not reset only the failed shots")
+
+edit_jobs = {"im1": {"id": "im1", "user_id": "u1", "kind": "image",
+                     "status": "error", "image_model": "editlane",
+                     "image_size": "1:1", "has_source_image": True,
+                     "prompt": "make it blue"}}
+try:
+    run_retry(edit_jobs, {}, "im1",
+              lanes={"editlane": {"edit": True}})
+    check(False, "an edit image retry without its source ran")
+except HTTPExc as exc:
+    check(exc.status_code == 422 and "not kept" in exc.detail,
+          "an edit image retry without its source does not "
+          "refuse plainly")
+
+done_jobs = {"v1": {"id": "v1", "user_id": "u1", "kind": "generation",
+                    "status": "done"}}
+try:
+    run_retry(done_jobs, {}, "v1")
+    check(False, "a retry of a finished job ran")
+except HTTPExc as exc:
+    check(exc.status_code == 409,
+          "a retry of a finished job is not refused")
+
+# -- perf pass pins (Jack, 2026-11-24) -------------------------------------
+
+check("GZipMiddleware" in SRC and "minimum_size=1000" in SRC,
+      "gzip compression is not wired on the web app")
+check("def ensure_gallery_thumb" in SRC
+      and "GALLERY_THUMB_WIDTH = 480" in SRC,
+      "the gallery thumbnail derivative is missing")
+check('"thumb_url"' in func_src("public_gallery_item")
+      and '"/gallery/{job_id}/thumb"' in SRC,
+      "gallery items do not carry the thumb route")
+check("item.thumb_url || item.file_url" in SRC
+      and "item.thumb_url || item.poster_url" in SRC,
+      "the gallery grid does not load thumbs first")
+check("GALLERY_CACHE_SECONDS = 30" in SRC
+      and "_gallery_cache_clear()" in func_src("admin_gallery_remove")
+      and "_gallery_cache_clear()" in func_src("delete_job"),
+      "the gallery feed cache or its invalidation is missing")
+check('"/api/jobs/" + j.id + "/thumb"' in SRC.replace(
+      "'/api/jobs/' + j.id + '/thumb'", '"/api/jobs/" + j.id + "/thumb"')
+      or "/api/jobs/' + j.id + '/thumb" in card_src,
+      "studio image cards do not load the thumb derivative")
 
 if failures:
     print("FAIL")
