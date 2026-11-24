@@ -17867,7 +17867,7 @@ function showShortsForm() {
     $('api-opts'), $('house-price'), $('botcheck2')];
   for (const el of hide) if (el) el.style.display = 'none';
   $('segments-note').textContent = '';
-  $('model-note').textContent = 'Faceless shorts are free. They count toward the five free clips on a free account, and paid accounts can make 20 a day.';
+  $('model-note').textContent = 'Faceless shorts are free. They count toward the five free clips on a free account.';
   $('quote').textContent = '';
   $('create').textContent = 'Make it for free';
   syncShortCloneOpts();
