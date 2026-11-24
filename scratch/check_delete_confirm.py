@@ -5,9 +5,10 @@ Rule: the delete confirm may only claim the item comes out of
 the public gallery when the item is really in it. NSFW
 generations never list in the gallery (since 2026-11-23 that
 verdict is prompt-judged: an uncensored-lane job whose own
-prompt scans NSFW), so their confirm reads studio only, while
-a clean-prompt uncensored job really is in the gallery and its
-confirm says so. The pick rides on in_gallery, which list_jobs
+prompt scans NSFW, or one that took an uploaded image as an
+input, which the word scan can never judge), so their confirm
+reads studio only, while a clean-prompt text-only uncensored
+job really is in the gallery and its confirm says so. The pick rides on in_gallery, which list_jobs
 stamps onto every job it sends as gallery_visible's own
 verdict, the very function the gallery feed lists by. The noun
 follows the item kind too: images are asked about as images.
@@ -96,9 +97,18 @@ check(gallery_visible(job(lane="wan3_unc", model="wan3_unc",
                           prompt="an erotic scene",
                           user_prompt="an erotic scene")) is False,
       "explicit uncensored model job would be stamped in_gallery")
-check(gallery_visible(job(lane="wan3_unc", model="wan3_unc")) is True,
-      "clean-prompt uncensored model job would not be stamped "
+check(gallery_visible(job(lane="wan22_uncut", model="wan22_uncut"))
+      is True,
+      "clean-prompt text-only uncensored job would not be stamped "
       "in_gallery (it really lists, so its confirm says so)")
+check(gallery_visible(job(lane="seedance25_unc",
+                          model="seedance25_unc",
+                          prompt="a lighthouse at dusk",
+                          user_prompt="a lighthouse at dusk",
+                          has_start_image=True)) is False,
+      "tame-prompt uncensored job with an uploaded start image "
+      "would be stamped in_gallery (it never lists, so its "
+      "confirm must read studio only)")
 check(gallery_visible(job(gallery_public=False)) is False,
       "creation stamped job would be stamped in_gallery")
 check(gallery_visible(job(user_id="u-out")) is False,

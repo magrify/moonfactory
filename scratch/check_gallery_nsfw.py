@@ -9,7 +9,11 @@ gallery purposes when it ran on an uncensored lane or build
 image lane flagged uncensored: job_is_uncensored sets the
 scope) AND its stored user prompt scans NSFW
 (prompt_is_nsfw). A clean prompt on an uncensored lane lists
-exactly like a regular generation. The read-level check in
+exactly like a regular generation. One refinement, Jack's
+later the same day: an in-scope job that took an uploaded
+image as an input never lists either, however tame its prompt
+reads, because the scan reads words, not pictures
+(job_has_image_input, pinned in check_prompt_nsfw.py). The read-level check in
 gallery_visible covers jobs finished before the rule existed,
 rejudging them by their stored prompts; their blanket-era
 creation stamps no longer rule them (the stamp still rules
@@ -164,6 +168,21 @@ check(gallery_visible(job(user_id="u-paid", lane="wan3_unc",
 check(gallery_visible(job(user_id="u-out", lane="seedance2_unc",
                           model="seedance2_unc")) is False,
       "uncensored model job of an opted out owner is visible")
+# The image-input bar: an uncensored job built on an uploaded
+# image never lists, however tame its prompt (the scan reads
+# words, not pictures). Seedance 2.5 Uncensored is
+# image-to-video only, so its records carry the fact in the
+# stored boolean or in the model alone.
+check(gallery_visible(job(lane="seedance25_unc",
+                          model="seedance25_unc",
+                          has_start_image=True)) is False,
+      "tame uncensored job with a start image is visible in "
+      "the gallery")
+check(job_is_nsfw({"lane": "seedance25_unc",
+                   "model": "seedance25_unc",
+                   "user_prompt": "a lighthouse at dusk"}) is True,
+      "tame prompt on an image-required uncensored model is "
+      "not barred by its image input")
 # House Wan 2.2 job: excluded through the model signal when its
 # prompt is explicit, listed when it is clean.
 check(gallery_visible(job(lane="production", model="wan2.2",

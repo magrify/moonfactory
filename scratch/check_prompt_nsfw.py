@@ -7,6 +7,17 @@ uncensored generation is NSFW, so the blanket lane rule is
 gone: a clean prompt on an uncensored lane lists in the gallery
 exactly like a regular generation (paid opt-out and the other
 gallery rules still apply), and an explicit prompt stays out.
+One refinement, Jack's later the same day: an uncensored
+generation that took an uploaded image as an input never
+lists, however tame its prompt reads, because the scan reads
+words, not pictures, so the image itself can never be judged.
+job_has_image_input reads that fact off the record's own
+stored fields (creation booleans, the house record's stored
+frames, stored reference URLs) plus the two definitional
+shapes (a start-image-required model, an edit image lane), so
+legacy records rejudge on the next read with no migration.
+Text-only uncensored generations keep the prompt verdict
+exactly, and regular lanes are untouched either way.
 The scan is rule based and deterministic (whole-token and
 phrase matching over one word-list block in app.py, with a
 light leet decode and a squeezed pass for spacing dodges), it
@@ -180,6 +191,68 @@ check(job_is_nsfw({"lane": "nsfw", "model": "wan22_uncut"})
       "job with no prompt stored anywhere is classified NSFW "
       "(there is nothing to judge)")
 
+# -- the image input: what counts, read off the record ---------------
+
+job_has_image_input = app.job_has_image_input
+check(job_has_image_input({"has_start_image": True}) is True,
+      "stored has_start_image boolean is not read")
+check(job_has_image_input({"has_source_image": True}) is True,
+      "stored has_source_image boolean is not read")
+check(job_has_image_input({"start_image_png_b64": "aGVsbG8="})
+      is True, "house record's stored start frame is not read")
+check(job_has_image_input({"end_image_png_b64": "aGVsbG8="})
+      is True, "house record's stored end frame is not read")
+check(job_has_image_input({"reference_image_urls": ["u"]}) is True,
+      "stored reference image URLs are not read")
+check(job_has_image_input({"reference_image_urls": []}) is False,
+      "an empty reference list reads as an image input")
+check(job_has_image_input({"model": "seedance25_unc"}) is True,
+      "a start-image-required model does not read as image input "
+      "on its model alone (legacy records carry the fact there)")
+check(job_has_image_input({"model": "wan26_flash"}) is True,
+      "a regular start-image-required model does not read as "
+      "image input on its model alone")
+check(job_has_image_input({"kind": "image", "image_model":
+                           "qwen_edit_unc"}) is True,
+      "an edit image lane does not read as image input by "
+      "definition")
+check(job_has_image_input({"kind": "image", "image_model":
+                           "zimage_unc"}) is False,
+      "a text-to-image uncensored lane reads as image input")
+check(job_has_image_input({"model": "wan22_uncut"}) is False,
+      "a text-only house Uncut record reads as image input")
+check(job_has_image_input({}) is False,
+      "empty job reads as image input")
+check(job_has_image_input(None) is False,
+      "missing job reads as image input")
+for model_id in app.START_IMAGE_REQUIRED_MODELS:
+    check(model_id in app.UNCENSORED_VIDEO_MODELS
+          or model_id in ("wan26_flash", "hailuo23_fast"),
+          f"start-image-required model {model_id} is neither an "
+          "uncensored model nor a known regular lane")
+
+# The verdict with an image input: in scope, the image alone
+# bars the job, whatever the prompt says; out of scope, the
+# image changes nothing.
+check(job_is_nsfw({"lane": "seedance25_unc",
+                   "model": "seedance25_unc",
+                   "user_prompt": "a lighthouse at dusk"}) is True,
+      "tame prompt on Seedance 2.5 Uncensored is not barred by "
+      "its image input")
+check(job_is_nsfw({"lane": "minimax_h3_unc",
+                   "model": "minimax_h3_unc",
+                   "user_prompt": "a lighthouse at dusk",
+                   "has_start_image": True}) is True,
+      "tame prompt with a stored start image is not barred")
+check(job_is_nsfw({"lane": "minimax_h3_unc",
+                   "model": "minimax_h3_unc",
+                   "user_prompt": "a lighthouse at dusk"}) is False,
+      "tame text-only MiniMax H3 Uncensored job is barred")
+check(job_is_nsfw({"lane": "wan3", "model": "wan3",
+                   "user_prompt": "a lighthouse at dusk",
+                   "reference_image_urls": ["u"]}) is False,
+      "regular lane job with an image input is classified NSFW")
+
 # -- gallery_visible: the wiring, exercised for real ------------------
 
 ns = {}
@@ -214,9 +287,57 @@ def job(**kw):
 # regular generation.
 check(gallery_visible(job(lane="wan22_uncut", model="wan22_uncut"))
       is True, "clean Uncut job does not list in the gallery")
+check(gallery_visible(job(lane="minimax_h3_unc",
+                          model="minimax_h3_unc")) is True,
+      "clean text-only MiniMax H3 Uncensored job does not list")
+# The image-input bar (Jack, 2026-11-23, later): an uncensored
+# generation built on an uploaded image never lists, however
+# tame its prompt. Seedance 2.5 Uncensored is image-to-video
+# only, so every real record of it took a start image: the
+# stored boolean shape and the bare legacy shape (the fact
+# rides in the model alone) both stay out.
 check(gallery_visible(job(lane="seedance25_unc",
-                          model="seedance25_unc")) is True,
-      "clean Seedance 2.5 Uncensored job does not list")
+                          model="seedance25_unc",
+                          has_start_image=True)) is False,
+      "tame Seedance 2.5 Uncensored job with a start image lists")
+check(gallery_visible(job(lane="seedance25_unc",
+                          model="seedance25_unc")) is False,
+      "legacy Seedance 2.5 Uncensored record (image input rides "
+      "in the model alone) lists under a tame prompt")
+check(gallery_visible(job(lane="seedance25_unc",
+                          model="seedance25_unc",
+                          user_prompt="an erotic dance")) is False,
+      "explicit Seedance 2.5 Uncensored job lists")
+# Reference images are an image input too, on any uncensored
+# lane that takes them.
+check(gallery_visible(job(lane="minimax_h3_unc",
+                          model="minimax_h3_unc",
+                          reference_image_urls=[
+                              "https://example.com/ref.png"])) is False,
+      "tame uncensored job with reference images lists")
+# The house record stores the frame itself: a tame Uncut job
+# animated from an uploaded start image stays out, while the
+# text-only one above lists.
+check(gallery_visible(job(lane="wan22_uncut", model="wan22_uncut",
+                          start_image_png_b64="aGVsbG8=")) is False,
+      "tame Uncut job with an uploaded start image lists")
+# An edit lane takes a source image on every job by definition:
+# a tame Qwen Image Edit uncensored job never lists.
+check(gallery_visible(job(kind="image", lane="image",
+                          model="qwen_edit_unc",
+                          image_model="qwen_edit_unc",
+                          user_prompt="make the sky bluer")) is False,
+      "tame Qwen Image Edit uncensored job lists")
+# Regular lanes are untouched by the bar: an image input on a
+# moderated lane changes nothing, in either direction.
+check(gallery_visible(job(reference_image_urls=[
+    "https://example.com/ref.png"])) is True,
+      "regular lane job with reference images no longer lists")
+check(gallery_visible(job(user_prompt="a nude woman",
+                          reference_image_urls=[
+                              "https://example.com/ref.png"])) is True,
+      "regular lane job is judged by the new bar (its prompt is "
+      "never read out of scope and its image input is not a bar)")
 # Explicit prompt on an uncensored lane stays out.
 check(gallery_visible(job(lane="wan22_uncut", model="wan22_uncut",
                           user_prompt="a nude woman dancing"))
@@ -263,6 +384,17 @@ check("user_prompt" in func_src("job_is_nsfw")
 check("job_is_uncensored" in func_src("gallery_visible"),
       "gallery_visible does not carve uncensored jobs out of "
       "the creation stamp rule")
+check("job_has_image_input" in func_src("job_is_nsfw"),
+      "job_is_nsfw does not apply the image-input bar")
+check("START_IMAGE_REQUIRED_MODELS" in func_src("_api_job_params"),
+      "_api_job_params no longer reads the shared "
+      "start-image-required shelf")
+check('"has_start_image": bool(params.get("start_image"))'
+      in func_src("create_api_job"),
+      "create_api_job does not store has_start_image on the record")
+check('"has_source_image": bool(source_image)'
+      in func_src("create_image"),
+      "create_image does not store has_source_image on the record")
 krea_src = func_src("_queue_krea2_on_kaggle")
 check("if job_is_nsfw(job):" in krea_src
       and 'job["gallery_public"] = False' in krea_src,

@@ -1345,6 +1345,23 @@ UNCENSORED_VIDEO_MODELS = (
     # the uncensored FP8 build; same treatment.
     "ltx25_unc",
 )
+# Models whose wired route publishes an image-to-video endpoint
+# only: create refuses them without a start image (the refusal
+# in _api_job_params reads this same tuple), so every job that
+# exists on one of them took an uploaded image as an input.
+# job_has_image_input reads that fact off the model alone,
+# which is what lets gallery records made before the start
+# image was stored on the record still rejudge correctly.
+START_IMAGE_REQUIRED_MODELS = (
+    "wan22_unc", "wan3_unc", "seedance25_unc", "vidu_q3_unc",
+    "wan3prime_unc", "wan22_lora_unc", "seedance2_unc",
+    "seedance2fast_unc", "seedance2mini_unc", "seedance15pro_unc",
+    "ltx23_unc", "ltx23_lora_unc", "wan26_unc", "wan27_unc",
+    # VidLab image-only lanes (2026-11-23): Wan 2.6 Flash and
+    # Hailuo 2.3 Fast publish images as a REQUIRED input on the
+    # route, so a job without one cannot be sent.
+    "wan26_flash", "hailuo23_fast",
+)
 # House video models: served by our own worker on the per-job
 # price table rather than the per-second shelf. Each maps to the
 # pricing lane its jobs settle on (the ceiling, the included
@@ -1526,21 +1543,62 @@ def job_is_uncensored(job: dict) -> bool:
     return bool(image_lane.get("uncensored"))
 
 
+def job_has_image_input(job: dict) -> bool:
+    """Whether the job took an uploaded image as an input: a
+    start or end frame, reference images, or an edit source.
+    Read off the job record's own stored fields, so it is
+    computed live at read time like the rest of the gallery
+    classification:
+    - has_start_image / has_source_image: the booleans stored
+      at creation on the records that do not keep the image
+      itself (per-second API jobs, image jobs).
+    - start_image_png_b64 / end_image_png_b64: the house
+      record stores the frames themselves.
+    - reference_image_urls: stored on per-second API records.
+    - Two shapes are definitional, so legacy records carry the
+      fact in their model or lane alone: a model on
+      START_IMAGE_REQUIRED_MODELS could not have been created
+      without a start image (create refuses it), and an image
+      lane whose pricing entry is an edit lane takes a source
+      image on every job it runs."""
+    if not job:
+        return False
+    if job.get("has_start_image") or job.get("has_source_image"):
+        return True
+    if job.get("start_image_png_b64") or job.get("end_image_png_b64"):
+        return True
+    if job.get("reference_image_urls"):
+        return True
+    if job.get("model") in START_IMAGE_REQUIRED_MODELS:
+        return True
+    image_lane = pricing.IMAGE_LANES.get(
+        job.get("image_model") or "") or {}
+    return bool(image_lane.get("edit"))
+
+
 def job_is_nsfw(job: dict) -> bool:
     """Whether a job is NSFW for public gallery purposes (Jack,
     2026-11-18; prompt-judged 2026-11-23): the job ran on an
-    uncensored lane or build (job_is_uncensored) AND the user's
-    own prompt for it scans NSFW (prompt_is_nsfw). The lane
-    alone no longer classifies: not every uncensored generation
-    is NSFW, so a clean prompt is gallery-eligible exactly like
-    a regular generation. The scan reads the record's
-    user_prompt (the words the user typed, kept apart from any
-    server composition), falling back to prompt on records that
+    uncensored lane or build (job_is_uncensored) AND either the
+    user's own prompt for it scans NSFW (prompt_is_nsfw) or it
+    took an uploaded image as an input (job_has_image_input).
+    The lane alone no longer classifies: not every uncensored
+    generation is NSFW, so a clean text-only generation is
+    gallery-eligible exactly like a regular generation. The
+    image bar is Jack's refinement later the same day: the
+    prompt scan reads words, not pictures, so an uncensored
+    generation built on an uploaded image can never be judged
+    clean from its prompt, however tame the words read; it
+    never lists. The scan reads the record's user_prompt (the
+    words the user typed, kept apart from any server
+    composition), falling back to prompt on records that
     predate the field. Computed live at read time, so jobs
     finished under the old blanket lane rule are rejudged by
-    their stored prompts."""
+    their stored prompts and stored image inputs."""
     if not job_is_uncensored(job):
         return False
+    if job_has_image_input(job):
+        return True
     return prompt_is_nsfw(
         job.get("user_prompt") or job.get("prompt") or "")
 
@@ -6961,17 +7019,7 @@ def api():
                 status_code=422,
                 detail="this model needs a start image or reference images",
             )
-        if model in ("wan22_unc", "wan3_unc", "seedance25_unc",
-                     "vidu_q3_unc", "wan3prime_unc", "wan22_lora_unc",
-                     "seedance2_unc", "seedance2fast_unc",
-                     "seedance2mini_unc", "seedance15pro_unc",
-                     "ltx23_unc", "ltx23_lora_unc", "wan26_unc",
-                     "wan27_unc",
-                     # VidLab image-only lanes (2026-11-23):
-                     # Wan 2.6 Flash and Hailuo 2.3 Fast publish
-                     # images as a REQUIRED input on the route,
-                     # so a job without one cannot be sent.
-                     "wan26_flash", "hailuo23_fast") \
+        if model in START_IMAGE_REQUIRED_MODELS \
                 and mode != "image" and not for_quote:
             # The uncensored builds' wired supplier publishes an
             # image-to-video endpoint only for them (its catalog,
@@ -9388,6 +9436,11 @@ def api():
                 body.get("seed") if isinstance(body.get("seed"), int)
                 else None),
             "reference_video_seconds": params["reference_video_seconds"],
+            # Whether the user supplied the start image (the
+            # bytes themselves ride only in the submit params):
+            # the gallery's image-input bar reads this off the
+            # record (job_has_image_input).
+            "has_start_image": bool(params.get("start_image")),
             "reference_image_urls": params["reference_image_urls"],
             "reference_video_urls": params["reference_video_urls"],
             "reference_audio_urls": params["reference_audio_urls"],
@@ -10394,6 +10447,11 @@ def api():
                 "created_at": _now(), "last_poll": 0,
                 "image_raw_cents": raw, "image_charge_cents": charge,
                 "error": None,
+                # Whether the user supplied the source image an
+                # edit lane works from (the image itself is not
+                # kept on the record): the gallery's image-input
+                # bar reads this (job_has_image_input).
+                "has_source_image": bool(source_image),
             }
             user["balance_cents"] = int(user.get("balance_cents", 0)) - charge
             save_user(user)
@@ -13609,8 +13667,12 @@ x_api_key: str = Header(default="")):
     # the one hard exception (Jack, 2026-11-18): a job whose own
     # prompt scans NSFW never lists, whatever the owner's
     # setting. Since 2026-11-23 the verdict is prompt-judged,
-    # not lane-judged: an uncensored-lane job with a clean
-    # prompt lists like any other. See job_is_nsfw.
+    # not lane-judged: a text-only uncensored-lane job with a
+    # clean prompt lists like any other. An uncensored-lane job
+    # that took an uploaded image as an input never lists
+    # either (Jack, later the same day): the prompt scan reads
+    # words, not pictures, so its image can never be judged
+    # clean from the words. See job_is_nsfw.
 
     def gallery_visible(job: dict) -> bool:
         # Finished images list alongside finished clips (Jack,
@@ -13631,11 +13693,12 @@ x_api_key: str = Header(default="")):
         # whatever the owner's opt-out setting: the classification
         # is computed live here, so jobs finished before this rule
         # existed are covered too, rejudged by their stored
-        # prompts. The creation stamp rules every job it was set
-        # on EXCEPT uncensored-lane jobs: theirs were stamped by
-        # the old blanket lane rule (or copy the prompt verdict),
-        # so for them the live prompt verdict above is the whole
-        # story and a clean prompt lists even under an old stamp.
+        # prompts and stored image inputs. The creation stamp
+        # rules every job it was set on EXCEPT uncensored-lane
+        # jobs: theirs were stamped by the old blanket lane rule
+        # (or copy the prompt verdict), so for them the live
+        # verdict above is the whole story and a clean text-only
+        # prompt lists even under an old stamp.
         if job_is_nsfw(job):
             return False
         if job.get("gallery_public") is False \
