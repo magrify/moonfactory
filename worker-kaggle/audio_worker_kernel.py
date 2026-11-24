@@ -237,8 +237,12 @@ def setup_kokoro():
     """Install Kokoro and prove a pipeline builds, so a
     broken speech setup fails the session's setup, not a
     claimed job. The weights download from the public
-    Kokoro HF repo on first pipeline creation."""
-    pip_install_checked(["kokoro>=0.9.2", "soundfile", "numpy"])
+    Kokoro HF repo on first pipeline creation. The pin is
+    the newest Kokoro Kaggle's package index serves
+    (observed 2026-11-24: its list tops out at 0.7.16 and
+    answers 0.9.x with no matching distribution); 0.7.16's
+    KPipeline is the same API the Modal recipe calls."""
+    pip_install_checked(["kokoro==0.7.16", "soundfile", "numpy"])
     kokoro_pipeline("af_heart")
     log("Kokoro ready")
 
@@ -253,6 +257,10 @@ def kokoro_pipeline(voice: str):
 
 
 def setup_engines():
+    """Both engines, for any caller that wants the pair;
+    the session itself sets them up independently (see
+    main), so one engine's failure never blocks the other
+    stage."""
     setup_ace()
     heartbeat()
     setup_kokoro()
@@ -263,7 +271,7 @@ def make_bed(job: dict) -> Path:
     """One ACE-Step bed from the job's caption and seed,
     through the project's own venv python, the Modal
     stage's subprocess discipline."""
-    ensure_engine()
+    ensure_engine("bed")
     caption = job.get("caption") or ""
     seed = int(job.get("seed") or 0)
     Path("/tmp/ace_params.json").write_text(
@@ -293,7 +301,7 @@ def make_bed(job: dict) -> Path:
 def make_voiceover(job: dict) -> Path:
     """One Kokoro voiceover: the job's text in the job's
     voice, 24 kHz mono wav, the Modal stage's recipe."""
-    ensure_engine()
+    ensure_engine("voiceover")
     import numpy as np
     import soundfile as sf
 
@@ -324,41 +332,55 @@ def fail_job(job_id: str, message: str):
         pass
 
 
-_SETUP_THREAD = None
-_SETUP_ERROR = None
+_SETUP_THREADS = {}
+_SETUP_ERRORS = {}
 
 
-def _setup_in_background():
-    global _SETUP_ERROR
+def _setup_one(name, fn):
     try:
-        setup_engines()
+        fn()
     except Exception:
-        _SETUP_ERROR = traceback.format_exc()
-        log(f"engine setup failed: {_SETUP_ERROR[-300:]}")
+        _SETUP_ERRORS[name] = traceback.format_exc()
+        log(f"{name} setup failed: {_SETUP_ERRORS[name][-300:]}")
+    heartbeat()
 
 
-def ensure_engine():
-    """Wait for the background engine setup; re-raise its
-    failure so the claimed job records it."""
-    if _SETUP_THREAD is not None:
-        _SETUP_THREAD.join()
-    if _SETUP_ERROR is not None:
-        raise RuntimeError(_SETUP_ERROR[-280:])
+def ensure_engine(stage):
+    """Wait for the background setup of the engine this
+    stage needs; re-raise its failure so the claimed job
+    records it. The engines set up independently, each in
+    its own thread: a speech setup failure never blocks a
+    bed, and an ACE-Step failure never blocks a voiceover
+    (the first proof sessions taught both lessons)."""
+    name = "ace" if stage == "bed" else "kokoro"
+    thread = _SETUP_THREADS.get(name)
+    if thread is not None:
+        thread.join()
+    if name in _SETUP_ERRORS:
+        raise RuntimeError(_SETUP_ERRORS[name][-280:])
+    if name == "ace":
+        setup_ace()
+    else:
+        setup_kokoro()
 
 
 def main():
-    global _SETUP_THREAD
     heartbeat()
     threading.Thread(target=heartbeat_loop, daemon=True).start()
-    # Engine setup runs in the background from boot, so it
-    # overlaps the platform's audio wait instead of eating
-    # it after the first claim (the voice worker's lesson).
-    # A setup failure is kept and handed to the first
-    # claimed job, whose record carries it back to the
+    # Engine setup runs in the background from boot, one
+    # thread per engine, so it overlaps the platform's
+    # audio wait instead of eating it after the first
+    # claim (the voice worker's lesson). A setup failure is
+    # kept per engine and handed to the first claimed job
+    # of that stage, whose record carries it back to the
     # platform; nothing fails blind.
-    _SETUP_THREAD = threading.Thread(
-        target=_setup_in_background, daemon=True)
-    _SETUP_THREAD.start()
+    _SETUP_THREADS["ace"] = threading.Thread(
+        target=_setup_one, args=("ace", setup_ace), daemon=True)
+    _SETUP_THREADS["kokoro"] = threading.Thread(
+        target=_setup_one, args=("kokoro", setup_kokoro),
+        daemon=True)
+    for thread in _SETUP_THREADS.values():
+        thread.start()
     idle = 0
     heartbeat()
     log("poll loop started (engine setup in background)")
