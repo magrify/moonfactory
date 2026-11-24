@@ -35,6 +35,7 @@
 # session start, the platform's standing single-copy rule:
 # no model copy lives in a Kaggle dataset.
 
+import importlib
 import json
 import os
 import shutil
@@ -169,7 +170,27 @@ def pip_install(pkgs, only_binary=False):
     r = subprocess.run(cmd, capture_output=True, text=True)
     tail = (r.stdout + r.stderr)[-300:]
     log(f"pip install {pkgs} -> rc={r.returncode} {tail}")
+    if r.returncode == 0:
+        # A package installed mid-process is invisible to
+        # the import system until its caches are invalidated
+        # (the directory listing was already scanned): the
+        # first proof session's Kokoro import died on
+        # exactly this, with pip reporting success.
+        importlib.invalidate_caches()
     return r.returncode
+
+
+def pip_install_checked(pkgs):
+    """pip_install that raises with pip's own tail, so a
+    real resolution failure reaches the platform as the
+    job's error instead of a later import error."""
+    if pip_install(pkgs) != 0:
+        r = subprocess.run(
+            [sys.executable, "-m", "pip", "install"] + pkgs,
+            capture_output=True, text=True)
+        raise RuntimeError(
+            f"pip install {pkgs} failed: "
+            f"{(r.stdout + r.stderr)[-280:]}")
 
 
 _ACE_READY = False
@@ -217,7 +238,7 @@ def setup_kokoro():
     broken speech setup fails the session's setup, not a
     claimed job. The weights download from the public
     Kokoro HF repo on first pipeline creation."""
-    pip_install(["kokoro>=0.9.2", "soundfile", "numpy"])
+    pip_install_checked(["kokoro>=0.9.2", "soundfile", "numpy"])
     kokoro_pipeline("af_heart")
     log("Kokoro ready")
 
