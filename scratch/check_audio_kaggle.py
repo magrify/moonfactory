@@ -182,7 +182,7 @@ def fresh_namespace():
         },
     }
     for name in ("_audio_key", "_audio_child_id", "_audio_child_path",
-                 "_queue_audio_child", "_audio_bytes",
+                 "_audio_kernel_rev", "_queue_audio_child", "_audio_bytes",
                  "_bed_payload_for_job", "_queue_short_bed_child"):
         exec(fn_source(PTREE, name), ns)
     return ns, jobs, clock, wakes
@@ -334,6 +334,29 @@ check("IDLE_LIMIT_SECONDS = 600" in KERNEL
       "the kernel lost its idle shutdown or session cap")
 check("moonfactory-hf-key" in KERNEL and "worker_key.txt" in KERNEL,
       "the kernel does not read the shared worker key dataset")
+
+# --- kernel revision discipline ----------------------------------------------
+# A stale session left over from an older push must neither
+# claim work nor suppress the wake for its replacement.
+
+check("def _audio_kernel_rev(" in PLATFORM
+      and '"audio_rev": _audio_kernel_rev()' in PLATFORM,
+      "audio children are not stamped with the kernel revision")
+check('other.get("audio_rev") == rev' in PLATFORM,
+      "the audio claim route does not filter children by revision")
+check('meta["audio:heartbeat_rev"]' in PLATFORM
+      and 'meta.get("audio:heartbeat_rev") == _audio_kernel_rev()' in PLATFORM,
+      "the audio wake does not require a current-revision heartbeat")
+check("X-Audio-Rev" in KERNEL and "Path(__file__).read_bytes()" in KERNEL,
+      "the kernel does not report a revision hashed from its own script")
+check("kokoro==0.7.16" in KERNEL,
+      "the kernel lost the Kokoro pin Kaggle's index can serve")
+check("pip_install_checked" in KERNEL
+      and "invalidate_caches" in KERNEL,
+      "the kernel lost the checked install or the import cache fix")
+check('ensure_engine("bed")' in KERNEL
+      and 'ensure_engine("voiceover")' in KERNEL,
+      "the kernel engines no longer set up independently per stage")
 
 # --- the revert path ---------------------------------------------------------
 

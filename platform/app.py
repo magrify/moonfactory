@@ -4148,6 +4148,29 @@ BED_WAIT_SECONDS = 1500
 VOICE_WAIT_SECONDS = 1500
 AUDIO_WEB_WAIT_SECONDS = 900
 
+def _audio_kernel_rev() -> str:
+    """The revision of the audio kernel this deployment
+    ships: a hash of the worker script itself. Children
+    are stamped with it when queued and are only handed to
+    a session reporting the same revision, and only a
+    heartbeat carrying it counts as fresh: a stale session
+    left over from an older push can neither claim work
+    nor suppress the wake that starts its replacement (the
+    first proof day left two broken older sessions alive
+    and claiming for the better part of an hour). The
+    cache rides on the function itself, so the helper
+    carries its own state wherever it is defined."""
+    rev = getattr(_audio_kernel_rev, "_cached", None)
+    if rev is None:
+        try:
+            rev = hashlib.sha256(
+                AUDIO_WORKER_SCRIPT_PATH.read_bytes()
+            ).hexdigest()[:12]
+        except Exception:
+            rev = "unknown"
+        _audio_kernel_rev._cached = rev
+    return rev
+
 
 def _wake_audio_kernel() -> None:
     """Wake the audio kernel when a stage waits and no
@@ -4156,7 +4179,8 @@ def _wake_audio_kernel() -> None:
     _wake_voice_kernel and never raises: a failed wake
     leaves the child queued for the next nudge."""
     try:
-        if _now() - float(meta.get("audio:heartbeat") or 0) \
+        if meta.get("audio:heartbeat_rev") == _audio_kernel_rev() \
+                and _now() - float(meta.get("audio:heartbeat") or 0) \
                 < AUDIO_HEARTBEAT_STALE_SECONDS:
             return
         if _now() - float(meta.get("audio:last_trigger") or 0) \
@@ -4230,6 +4254,7 @@ def _queue_audio_child(stage: str, payload: dict, parent):
             "charged_cents": 0,
             "audio_stage": stage,
             "audio_key": key,
+            "audio_rev": _audio_kernel_rev(),
             "audio_parent": (parent or {}).get("id"),
             **payload,
         }
@@ -14896,22 +14921,35 @@ def api():
         return _hf_worker_ok(x_api_key)
 
     @web.post("/api/worker/audio/heartbeat")
-    def audio_heartbeat(x_api_key: str = Header(default="")):
+    def audio_heartbeat(x_api_key: str = Header(default=""),
+                        x_audio_rev: str = Header(default="")):
         if not _audio_worker_ok(x_api_key):
             raise HTTPException(status_code=401, detail="bad worker key")
         meta["audio:heartbeat"] = _now()
+        meta["audio:heartbeat_rev"] = x_audio_rev
         return {"ok": True}
 
     @web.get("/api/worker/audio/jobs/next")
-    def audio_next_job(x_api_key: str = Header(default="")):
+    def audio_next_job(x_api_key: str = Header(default=""),
+                       x_audio_rev: str = Header(default="")):
         if not _audio_worker_ok(x_api_key):
             raise HTTPException(status_code=401, detail="bad worker key")
         meta["audio:heartbeat"] = _now()
+        if x_audio_rev:
+            meta["audio:heartbeat_rev"] = x_audio_rev
+        # Only children stamped with the kernel revision
+        # this deployment ships are handed out: a stale
+        # session polling with an older script sees an
+        # empty queue and idles itself out, and children
+        # queued under an older revision are re-queued
+        # fresh (restamped) by their waiting callers.
+        rev = _audio_kernel_rev()
         queued = []
         for key in list(jobs.keys()):
             other = jobs.get(key)
             if (other and other.get("kind") == "audio_stage"
-                    and other.get("status") == "queued"):
+                    and other.get("status") == "queued"
+                    and other.get("audio_rev") == rev):
                 queued.append(other)
         if not queued:
             return {"job": None}

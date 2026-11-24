@@ -145,7 +145,24 @@ def read_key() -> str:
 
 
 KEY = read_key()
-HEADERS = {"X-API-Key": KEY}
+
+# This session's revision: a hash of this very script. The
+# platform stamps every child with the revision of the
+# kernel it currently ships and only hands children to a
+# session whose revision matches, and it only treats a
+# heartbeat as fresh when it carries the current revision:
+# a stale session left over from an older push can neither
+# claim work nor suppress the wake that starts its
+# replacement (the first proof day left two broken sessions
+# alive and claiming for the better part of an hour).
+import hashlib
+
+try:
+    REV = hashlib.sha256(
+        Path(__file__).read_bytes()).hexdigest()[:12]
+except Exception:
+    REV = "unknown"
+HEADERS = {"X-API-Key": KEY, "X-Audio-Rev": REV}
 
 
 def heartbeat():
