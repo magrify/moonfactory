@@ -15610,7 +15610,14 @@ _CSS = """
   .tile .report:disabled{color:var(--faint);cursor:default}
   .job video{max-width:360px}
   .job img.thumb{width:140px;border-radius:10px}
-  footer{max-width:960px;margin:0 auto;padding:0 24px 44px;color:var(--faint);font-size:13.5px;display:flex;justify-content:space-between}
+  /* Footer (layout fix, 2026-11-24): brand on its own line,
+     links in a wrapping flex row with even gaps and real tap
+     targets, instead of two spans squeezed onto one row. */
+  footer{max-width:960px;margin:0 auto;padding:36px 24px 48px;border-top:1px solid var(--line);color:var(--faint);font-size:14px;display:flex;flex-direction:column;align-items:flex-start;gap:18px}
+  .foot-brand{font-weight:700;font-size:15px;color:var(--gray);letter-spacing:-.01em}
+  .foot-links{display:flex;flex-wrap:wrap;gap:12px 28px}
+  .foot-links a{color:var(--faint);text-decoration:none;padding:6px 0}
+  .foot-links a:hover{color:var(--ink)}
   /* Accessibility pass (2026-11-18, audit F1/F4/F5): a
      visually hidden utility for the live regions, one focus
      ring that reads on the dark theme for every interactive
@@ -15776,7 +15783,7 @@ _INFO_HEADER = """<header>
   <nav><a href="/gallery">Gallery</a><a href="/app">Studio</a></nav>
 </header>"""
 
-_INFO_FOOTER = """<footer><span>Moonfactory</span><span><a href="/help">Help</a> &nbsp;<a href="/terms">Terms</a> &nbsp;<a href="/privacy">Privacy</a> &nbsp;<a href="/acceptable-use">Acceptable use</a> &nbsp;<a href="/support">Support</a></span></footer>"""
+_INFO_FOOTER = """<footer><span class="foot-brand">Moonfactory</span><nav class="foot-links"><a href="/help">Help</a><a href="/terms">Terms</a><a href="/privacy">Privacy</a><a href="/acceptable-use">Acceptable use</a><a href="/support">Support</a></nav></footer>"""
 
 
 def _info_page(title: str, description: str, body: str) -> str:
@@ -17766,7 +17773,7 @@ APP_HTML = (
   </div>
 </div>
 </main>
-<footer><span>Moonfactory</span><span><a href="/gallery">Gallery</a> &nbsp;<a href="/help">Help</a> &nbsp;<a href="/terms">Terms</a> &nbsp;<a href="/privacy">Privacy</a> &nbsp;<a href="/acceptable-use">Acceptable use</a> &nbsp;<a href="/support">Support</a></span></footer>
+<footer><span class="foot-brand">Moonfactory</span><nav class="foot-links"><a href="/gallery">Gallery</a><a href="/help">Help</a><a href="/terms">Terms</a><a href="/privacy">Privacy</a><a href="/acceptable-use">Acceptable use</a><a href="/support">Support</a></nav></footer>
 <script>
 const $ = id => document.getElementById(id);
 let cfg = { pow_required: true, pow_difficulty_bits: 18, turnstile_site_key: null };
@@ -20727,7 +20734,7 @@ GALLERY_HTML = (
 </div>
 <div class="grid" id="items"><p class="muted">Loading...</p></div>
 </main>
-<footer><span>Moonfactory</span><span><a href="/app">Studio</a> &nbsp;<a href="/help">Help</a> &nbsp;<a href="/terms">Terms</a> &nbsp;<a href="/privacy">Privacy</a> &nbsp;<a href="/acceptable-use">Acceptable use</a> &nbsp;<a href="/support">Support</a></span></footer>
+<footer><span class="foot-brand">Moonfactory</span><nav class="foot-links"><a href="/app">Studio</a><a href="/help">Help</a><a href="/terms">Terms</a><a href="/privacy">Privacy</a><a href="/acceptable-use">Acceptable use</a><a href="/support">Support</a></nav></footer>
 <script>
 async function loadGallery() {
   const box = document.getElementById('items');
