@@ -15725,6 +15725,19 @@ x_api_key: str = Header(default="")):
             return FileResponse(
                 thumb, media_type="image/jpeg",
                 headers={"Cache-Control": _media_cache(job)})
+        # Video cards show the small derivative too
+        # (thumbnails only in listings, Jack 2026-11-24):
+        # the gthumb the gallery uses, with the full poster
+        # frame as the fallback when no derivative exists.
+        thumb = ensure_gallery_thumb(job)
+        if thumb is not None:
+            try:
+                data_volume.commit()
+            except Exception:
+                pass
+            return FileResponse(
+                thumb, media_type="image/jpeg",
+                headers={"Cache-Control": _media_cache(job)})
         path = FILES_DIR / f"{job_id}.jpg"
         if not path.exists():
             try:
@@ -17366,6 +17379,13 @@ _CSS = """
   .tile .report:disabled{color:var(--faint);cursor:default}
   .job video{max-width:360px}
   .job img.thumb{width:140px;border-radius:10px}
+  /* Thumbnails only in every listing (Jack, 2026-11-24): a
+     card shows the small derivative and a play badge; the
+     player element is built on the click, never before. */
+  .vidbox{position:relative;display:inline-block;cursor:pointer;line-height:0}
+  .vidbox .playbadge{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:32px;line-height:1;color:#fff;text-shadow:0 1px 10px rgba(0,0,0,.65);pointer-events:none}
+  .tile .frame .vidbox{display:block;width:100%;height:100%}
+  img.thumb[data-open]{cursor:pointer}
   /* Footer (layout fix, 2026-11-24): brand on its own line,
      links in a wrapping flex row with even gaps and real tap
      targets, instead of two spans squeezed onto one row. */
@@ -21492,7 +21512,6 @@ function jobCardEl(j) {
       if ((j.status === 'queued' || j.status === 'running') && j.queue_position) html += '<br><span class="muted">In line at #' + j.queue_position + ' of your running videos</span>';
       if (j.partial) html += '<br><span class="muted">Finished shorter than planned. The later segments could not render, and you were charged only for the segments in this file.</span>';
       if (isClipOut && j.score !== null && j.score !== undefined) html += '<br><span class="muted">Score ' + j.score + '</span>';
-      if (isClipOut && j.has_thumb) html += '<br><img class="thumb" loading="lazy" decoding="async" src="/api/jobs/' + j.id + '/thumb" alt="">';
       if (j.stage && activeJob) html += '<br><span class="muted">' + j.stage + '</span>';
       if (activeJob) html += workBarHtml(j) + elapsedHtml(j);
       if (j.camera_presets && j.camera_presets.length) html +=
@@ -21503,9 +21522,14 @@ function jobCardEl(j) {
         '<br><span class="muted">Look ' + Object.values(j.camera_look).join(' · ') + '</span>';
       if (j.has_custom_audio) html +=
         '<br><span class="muted">Music made for this video from its music prompt</span>';
-      if (j.status === 'done' && j.kind === 'image') html += '<br><img class="thumb" loading="lazy" decoding="async" src="/api/jobs/' + j.id + '/thumb" alt="">' +
+      if (j.status === 'done' && j.kind === 'image') html += '<br><img class="thumb" loading="lazy" decoding="async" data-open="' + j.id + '" src="/api/jobs/' + j.id + '/thumb" alt="">' +
         '<br>' + saveControlHtml(j.id, 'image');
-      if (j.status === 'done' && j.kind !== 'image') html += '<br><video controls playsinline preload="metadata" poster="/api/jobs/' + j.id + '/poster" src="/api/jobs/' + j.id + '/file"></video>' +
+      // Thumbnails only (Jack, 2026-11-24): the card carries
+      // no video element and fetches no media; jobBoxClick
+      // builds the player on the click, with the same
+      // playsinline and poster the eager player used to
+      // carry, pointed at the same file route.
+      if (j.status === 'done' && j.kind !== 'image') html += '<br><span class="vidbox" data-play="' + j.id + '"><img class="thumb" loading="lazy" decoding="async" src="/api/jobs/' + j.id + '/thumb" alt=""><span class="playbadge">▶</span></span>' +
         '<br>' + saveControlHtml(j.id, 'video');
       if (j.status === 'done' && j.kind === 'drama') html +=
         '<br><button class="btn secondary" data-drama-fix="' + j.id + '">Fix a shot</button>' +
@@ -21541,13 +21565,40 @@ function renderClipResults(jobs) {
     const d = document.createElement('div'); d.className = 'card';
     let h = '<strong>' + (j.hook || 'Clip') + '</strong> · ' + (j.duration_seconds || '') + 's';
     if (j.score !== null && j.score !== undefined) h += ' · Score ' + j.score;
-    if (j.has_thumb) h += '<br><img class="thumb" loading="lazy" decoding="async" src="/api/jobs/' + j.id + '/thumb" alt="">';
-    h += '<br><video controls playsinline preload="metadata" poster="/api/jobs/' + j.id + '/poster" src="/api/jobs/' + j.id + '/file"></video>' +
+    h += '<br><span class="vidbox" data-play="' + j.id + '"><img class="thumb" loading="lazy" decoding="async" src="/api/jobs/' + j.id + '/thumb" alt=""><span class="playbadge">▶</span></span>' +
       '<br>' + saveControlHtml(j.id, 'video');
     d.innerHTML = h; box.appendChild(d);
   }
 }
 async function jobBoxClick(e) {
+  const play = e.target.closest('[data-play]');
+  if (play) {
+    // Thumbnails only until this click (Jack, 2026-11-24):
+    // the card carried no video element and fetched no
+    // media. The player is built here with the same
+    // playsinline and poster the eager card player used to
+    // carry, pointed at the same file route — which serves
+    // the faststart web copy inline (the 2026-11-21 phone
+    // playback fix, unchanged).
+    const id = play.dataset.play;
+    const v = document.createElement('video');
+    v.controls = true;
+    v.setAttribute('playsinline', '');
+    v.poster = '/api/jobs/' + id + '/poster';
+    v.src = '/api/jobs/' + id + '/file';
+    play.replaceWith(v);
+    if (v.play) v.play().catch(() => {});
+    return;
+  }
+  const open = e.target.closest('[data-open]');
+  if (open) {
+    // Same rule for pictures: the card showed the
+    // thumbnail; the full image loads only on this click.
+    open.src = '/api/jobs/' + open.dataset.open + '/file';
+    open.removeAttribute('data-open');
+    open.style.width = 'min(360px, 100%)';
+    return;
+  }
   const fix = e.target.closest('[data-drama-fix]');
   if (fix) {
     const box = $('drama-fix-' + fix.dataset.dramaFix);
@@ -22564,11 +22615,26 @@ async function loadGallery() {
         img.loading = 'lazy'; img.decoding = 'async';
         f.appendChild(img);
       } else {
-        const video = document.createElement('video');
-        video.controls = true; video.src = item.file_url; video.preload = 'none';
-        if (item.thumb_url || item.poster_url) video.poster = item.thumb_url || item.poster_url;
-        video.setAttribute('playsinline', '');
-        f.appendChild(video);
+        // Thumbnails only (Jack, 2026-11-24): the tile shows
+        // the thumbnail and a play badge; the video element
+        // is created on the click, never at page load.
+        const ph = document.createElement('span');
+        ph.className = 'vidbox';
+        const img = document.createElement('img');
+        img.src = item.thumb_url || item.poster_url || '';
+        img.alt = ''; img.loading = 'lazy'; img.decoding = 'async';
+        const badge = document.createElement('span');
+        badge.className = 'playbadge'; badge.textContent = '▶';
+        ph.appendChild(img); ph.appendChild(badge);
+        ph.onclick = () => {
+          const video = document.createElement('video');
+          video.controls = true; video.src = item.file_url;
+          if (item.thumb_url || item.poster_url) video.poster = item.thumb_url || item.poster_url;
+          video.setAttribute('playsinline', '');
+          f.replaceChildren(video);
+          video.play().catch(() => {});
+        };
+        f.appendChild(ph);
       }
       const h = document.createElement('div'); h.className = 'handle';
       h.textContent = item.handle;

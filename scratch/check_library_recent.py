@@ -402,6 +402,104 @@ check('"/api/jobs/" + j.id + "/thumb"' in SRC.replace(
       or "/api/jobs/' + j.id + '/thumb" in card_src,
       "studio image cards do not load the thumb derivative")
 
+# -- thumbnails only in listings (Jack, 2026-11-24) -----------------------
+# A card carries no video element and fetches no media: the
+# player is built by the click handler, with playsinline and
+# the poster, pointed at the file route (the faststart web
+# copy). Exercised in node: the real card builder's output is
+# asserted, and the real click handler is driven with a fake
+# DOM to prove the click produces a playing video element.
+
+check("<video" not in card_src,
+      "job cards still render a video element")
+check('data-play="' in card_src and 'data-open="' in card_src,
+      "job cards do not carry the click to play/open boxes")
+check("data-play" in click_src and "createElement('video')" in click_src
+      and "v.play()" in click_src.replace("v.play().catch", "v.play()")
+      or "v.play" in click_src,
+      "the click handler does not build and play the player")
+
+thumb_harness = (
+    "const $ = id => ({ addEventListener() {} });\n"
+    "const document = { createElement(tag) {\n"
+    "  const el = { tag, children: [], attrs: {}, style: {},\n"
+    "    className: '', innerHTML: '', dataset: {},\n"
+    "    setAttribute(k, v) { this.attrs[k] = v; },\n"
+    "    replaceWith(other) { this.replacedBy = other; },\n"
+    "    play() { this.played = true; return Promise.resolve(); } };\n"
+    "  return el; } };\n"
+    "function costLine(j) { return ''; }\n"
+    "function saveControlHtml(id, kind) { return ''; }\n"
+    "function workBarHtml(j) { return ''; }\n"
+    "function elapsedHtml(j) { return ''; }\n"
+    + page_block(HTML, "function jobCardEl(j) {",
+                 "function renderClipResults")
+    + page_block(HTML, "async function jobBoxClick(e) {",
+                 "$('jobs').addEventListener('click', jobBoxClick);")
+    + """
+const vjob = { id: 'vidx', status: 'done', kind: 'generation',
+  model: 'Wan 2.2', model_id: 'wan2.2', lane: 'draft',
+  prompt: 'a barn', segments_total: 1, segments_done: 1 };
+const card = jobCardEl(vjob);
+if (card.innerHTML.includes('<video')) {
+  console.error('video card renders a player'); process.exit(1);
+}
+if (card.innerHTML.includes('/file')) {
+  console.error('video card references the media file'); process.exit(1);
+}
+if (!card.innerHTML.includes('data-play="vidx"')
+    || !card.innerHTML.includes('/api/jobs/vidx/thumb')) {
+  console.error('video card lacks the play box or thumb'); process.exit(1);
+}
+const ijob = { id: 'imx', status: 'done', kind: 'image',
+  model: 'House image', prompt: 'a barn', segments_total: 1,
+  segments_done: 1 };
+const icard = jobCardEl(ijob);
+if (!icard.innerHTML.includes('data-open="imx"')
+    || !icard.innerHTML.includes('/api/jobs/imx/thumb')
+    || icard.innerHTML.includes('/api/jobs/imx/file')) {
+  console.error('image card does not defer the full picture');
+  process.exit(1);
+}
+let made = null;
+document.createElement = tag => {
+  const el = { tag, attrs: {}, style: {}, dataset: {},
+    setAttribute(k, v) { this.attrs[k] = v; },
+    play() { this.played = true; return Promise.resolve(); } };
+  if (tag === 'video') made = el;
+  return el;
+};
+const ph = { dataset: { play: 'vidx' }, replacedBy: null,
+  replaceWith(other) { this.replacedBy = other; } };
+const ev = { target: { closest(sel) {
+  return sel === '[data-play]' ? ph : null; } } };
+jobBoxClick(ev).then(() => {
+  if (!made || ph.replacedBy !== made) {
+    console.error('click did not swap in a video element'); process.exit(1);
+  }
+  if (made.src !== '/api/jobs/vidx/file'
+      || made.poster !== '/api/jobs/vidx/poster'
+      || made.attrs.playsinline !== '' || !made.controls
+      || !made.played) {
+    console.error('click player shape wrong', JSON.stringify(made));
+    process.exit(1);
+  }
+  console.log('thumbnails-only click ok');
+}).catch(err => { console.error('click failed', err); process.exit(1); });
+""")
+with tempfile.NamedTemporaryFile("w", suffix=".js",
+                                 delete=False) as fh:
+    fh.write(thumb_harness)
+    thumb_path = fh.name
+try:
+    out = subprocess.run(["node", thumb_path], capture_output=True,
+                         text=True, timeout=60)
+    check(out.returncode == 0,
+          f"the thumbnails-only click proof disagrees: "
+          f"{out.stderr.strip()}")
+except Exception as exc:  # noqa: BLE001
+    check(False, f"the thumbnails-only click proof runs: {exc}")
+
 if failures:
     print("FAIL")
     for f in failures:
