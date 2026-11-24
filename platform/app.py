@@ -11249,8 +11249,25 @@ def api():
             (j for j in mine if j["status"] in ("queued", "running")),
             key=lambda j: j["created_at"])
         positions = {j["id"]: i + 1 for i, j in enumerate(active)}
+        # Recent mode (Jack, 2026-11-24): the studio homepage
+        # opens on the five most recent videos and the five most
+        # recent images only, so its payload never carries the
+        # whole library. The full list lives on the library
+        # page, which reads this same endpoint without the
+        # flag. The per kind totals ride along so the homepage
+        # knows when a section has more behind its View All
+        # link.
+        recent = request.query_params.get("recent") == "1"
+        total_videos = sum(1 for j in mine if j.get("kind") != "image")
+        total_images = len(mine) - total_videos
+        if recent:
+            picked = [j for j in mine if j.get("kind") != "image"][:5]
+            picked += [j for j in mine if j.get("kind") == "image"][:5]
+            picked.sort(key=lambda j: j["created_at"], reverse=True)
+        else:
+            picked = mine[:50]
         views = []
-        for j in mine[:50]:
+        for j in picked:
             view = public_job(j, queue_position=positions.get(j["id"]))
             # The delete confirm words itself by whether the
             # item really lists in the public gallery (Jack,
@@ -11260,6 +11277,10 @@ def api():
             # owner's library keeps showing every job.
             view["in_gallery"] = gallery_visible(j)
             views.append(view)
+        if recent:
+            return {"jobs": views, "recent": True,
+                    "total_videos": total_videos,
+                    "total_images": total_images}
         return {"jobs": views}
 
     @web.get("/api/jobs/{job_id}")
@@ -15060,6 +15081,15 @@ x_api_key: str = Header(default="")):
     def gallery_page():
         return HTMLResponse(GALLERY_HTML)
 
+    @web.get("/library", response_class=HTMLResponse)
+    def library_page():
+        # The one library (Jack, 2026-11-24): the studio
+        # homepage shows only the five most recent videos and
+        # images, and its View All links land here, where the
+        # full list lives. No new tab or section: this page is
+        # the library the product rule already names.
+        return HTMLResponse(LIBRARY_HTML)
+
     @web.get("/api/gallery")
     def gallery_list():
         try:
@@ -18437,6 +18467,10 @@ APP_HTML = (
 
   <h2 style="max-width:640px;margin:30px auto 6px">Your videos</h2>
   <div id="jobs" style="max-width:640px;margin:0 auto"><p class="muted">Loading...</p></div>
+  <div id="videos-more" style="max-width:640px;margin:10px auto 0"></div>
+  <h2 style="max-width:640px;margin:30px auto 6px">Your images</h2>
+  <div id="image-jobs" style="max-width:640px;margin:0 auto"><p class="muted">Loading...</p></div>
+  <div id="images-more" style="max-width:640px;margin:10px auto 0"></div>
 
   <div class="overlay" id="panel-account" style="display:none">
     <div class="panel" role="dialog" aria-label="Account">
@@ -20408,13 +20442,42 @@ function elapsedHtml(j) {
 }
 async function loadJobs() {
   try {
-    const r = await api('/api/jobs');
-    const box = $('jobs');
-    if (!r.jobs.length) { box.innerHTML = '<p class="muted">No videos yet.</p>'; return; }
-    box.innerHTML = '';
-    let active = false;
-    for (const j of r.jobs) {
-      const div = document.createElement('div'); div.className = 'card job';
+    const r = await api('/api/jobs?recent=1');
+    const parts = splitJobs(r.jobs);
+    const vbox = $('jobs');
+    if (parts.videos.length) renderJobCards(vbox, parts.videos);
+    else vbox.innerHTML = '<p class="muted">No videos yet.</p>';
+    const ibox = $('image-jobs');
+    if (parts.images.length) renderJobCards(ibox, parts.images);
+    else ibox.innerHTML = '<p class="muted">No images yet.</p>';
+    $('videos-more').innerHTML = viewAllHtml(r.total_videos || 0, parts.videos.length);
+    $('images-more').innerHTML = viewAllHtml(r.total_images || 0, parts.images.length);
+    if (r.jobs.some(j => j.status === 'queued' || j.status === 'running')) setTimeout(loadJobs, 10000);
+    announceJobStates(r.jobs);
+    renderClipResults(r.jobs);
+  } catch (e) { /* signed out */ }
+}
+// The homepage library split (Jack, 2026-11-24): videos and
+// images render in their own sections, the five most recent
+// of each, and the rest live on the library page, one View
+// All link away. The library page renders these same cards
+// from the full list.
+function splitJobs(jobs) {
+  return {
+    videos: jobs.filter(j => j.kind !== 'image'),
+    images: jobs.filter(j => j.kind === 'image'),
+  };
+}
+function viewAllHtml(total, shown) {
+  if (total <= shown) return '';
+  return '<a class="btn secondary" href="/library">View All</a>';
+}
+function renderJobCards(box, jobs) {
+  box.innerHTML = '';
+  for (const j of jobs) box.appendChild(jobCardEl(j));
+}
+function jobCardEl(j) {
+  const div = document.createElement('div'); div.className = 'card job';
       const isClipOut = j.kind === 'clip_output';
       const isClipJob = j.kind === 'clip_job';
       const activeJob = j.status === 'queued' || j.status === 'running';
@@ -20453,13 +20516,8 @@ async function loadJobs() {
         '<br><button class="btn secondary" data-drama-resume="' + j.id + '">Try that shot again</button>';
       if (j.status === 'done' || j.status === 'error') html +=
         '<br><button class="btn secondary" data-del="' + j.id + '" data-delkind="' + (j.kind || 'generation') + '" data-ingallery="' + (j.in_gallery ? '1' : '0') + '">Delete</button>';
-      if (activeJob) active = true;
-      div.innerHTML = html; box.appendChild(div);
-    }
-    if (active) setTimeout(loadJobs, 10000);
-    announceJobStates(r.jobs);
-    renderClipResults(r.jobs);
-  } catch (e) { /* signed out */ }
+  div.innerHTML = html;
+  return div;
 }
 function renderClipResults(jobs) {
   const box = document.getElementById('clip-results');
@@ -20487,7 +20545,7 @@ function renderClipResults(jobs) {
     d.innerHTML = h; box.appendChild(d);
   }
 }
-$('jobs').addEventListener('click', async e => {
+async function jobBoxClick(e) {
   const fix = e.target.closest('[data-drama-fix]');
   if (fix) {
     const box = $('drama-fix-' + fix.dataset.dramaFix);
@@ -20537,7 +20595,9 @@ $('jobs').addEventListener('click', async e => {
   if (!confirm(ask)) return;
   try { await api('/api/jobs/' + b.dataset.del, { method: 'DELETE' }); loadJobs(); }
   catch (err) { alert(err.message); }
-});
+}
+$('jobs').addEventListener('click', jobBoxClick);
+$('image-jobs').addEventListener('click', jobBoxClick);
 
 // ---- Clip tab ----
 let clipUploadId = null;
@@ -21522,3 +21582,166 @@ if ('serviceWorker' in navigator) {
 </script>
 </body></html>"""
 )
+
+
+# The one library page (Jack, 2026-11-24): the studio homepage
+# shows the five most recent videos and images, and its View
+# All links land here, where the full list lives. The page's
+# card, save, and delete code is the studio's own, sliced out
+# of APP_HTML when this module loads, so the two surfaces
+# share one source and cannot drift apart.
+def _library_html() -> str:
+    S = APP_HTML
+
+    def block(start, end):
+        a = S.index(start)
+        b = S.index(end, a)
+        return S[a:b].rstrip() + "\n"
+
+    save_a = S.index("const SAVE_ICON = ")
+    save_b = S.index(
+        "document.addEventListener('keydown', "
+        "e => { if (e.key === 'Escape') closeSaveMenus(); });",
+        save_a)
+    save_block = S[save_a:save_b].rstrip() + (
+        "\ndocument.addEventListener('keydown', "
+        "e => { if (e.key === 'Escape') closeSaveMenus(); });\n")
+    script = "\n".join([
+        "const $ = id => document.getElementById(id);",
+        "let cfg = { pow_required: true, pow_difficulty_bits: 18, "
+        "turnstile_site_key: null };",
+        "const botWidgets = {};",
+        "const botHandedOut = {};",
+        "let botExempt = false;",
+        "const SPIN = '<span class=\"spin\" aria-hidden=\"true\">"
+        "</span>';",
+        "// The library page leans on the Turnstile path, the "
+        "check the\n// deployment is configured with. The proof "
+        "of work solver lives\n// in the studio.",
+        "async function solvePow() { return {}; }",
+        block("async function api(path, opts) {",
+              "\n// Screen reader announcements"),
+        block("function announce(text, assertive) {",
+              "\nfunction msg("),
+        block("async function botFields(containerId) {",
+              "\nfunction renderBotChecks()"),
+        block("function renderBotChecks() {",
+              "\nfunction dropBotChecks()"),
+        block("function costLine(j) {",
+              "\n// Job state announcements"),
+        block("const jobStatusSeen = {};",
+              "\n// Save control"),
+        save_block,
+        block("function fmtElapsed(total) {",
+              "\nasync function loadJobs() {"),
+        block("function splitJobs(jobs) {",
+              "\nfunction viewAllHtml"),
+        block("function renderJobCards(box, jobs) {",
+              "\nfunction jobCardEl"),
+        block("function jobCardEl(j) {",
+              "\nfunction renderClipResults"),
+        """async function loadJobs() {
+  try {
+    const r = await api('/api/jobs');
+    const parts = splitJobs(r.jobs);
+    const vbox = $('jobs');
+    if (parts.videos.length) renderJobCards(vbox, parts.videos);
+    else vbox.innerHTML = '<p class="muted">No videos yet.</p>';
+    const ibox = $('image-jobs');
+    if (parts.images.length) renderJobCards(ibox, parts.images);
+    else ibox.innerHTML = '<p class="muted">No images yet.</p>';
+    if (r.jobs.some(j => j.status === 'queued' || j.status === 'running')) setTimeout(loadJobs, 10000);
+    announceJobStates(r.jobs);
+  } catch (e) {
+    $('jobs').innerHTML = '<p class="muted">Sign in to see your library.</p>';
+    $('image-jobs').innerHTML = '';
+  }
+}
+""",
+        block("async function jobBoxClick(e) {",
+              "\n$('jobs').addEventListener('click', jobBoxClick);"),
+        "$('jobs').addEventListener('click', jobBoxClick);",
+        "$('image-jobs').addEventListener('click', jobBoxClick);",
+        """(async () => {
+  try { cfg = await api('/api/config'); } catch (e) {}
+  try { const u = await api('/api/me'); if (u.is_owner) botExempt = true; } catch (e) {}
+  renderBotChecks();
+  window.addEventListener('load', renderBotChecks);
+  loadJobs();
+})();
+""",
+    ])
+    logo = (
+        '<svg width="27" height="27" viewBox="0 0 48 48" '
+        'aria-hidden="true"><path fill="#818cf8" '
+        'd="M23.3 8A16 16 0 1 0 32.6 37.5A16.5 16.5 0 0 1 '
+        '23.3 8Z"/><path fill="#f5d67a" stroke="#f5d67a" '
+        'stroke-width="1.6" stroke-linejoin="round" '
+        'd="M24 18.5L24 27.5L31.5 23Z"/></svg>')
+    favicon = (
+        "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' "
+        "viewBox='0 0 48 48'%3E%3Cpath fill='%23818cf8' "
+        "d='M23.3 8A16 16 0 1 0 32.6 37.5A16.5 16.5 0 0 1 23.3 8Z'/%3E"
+        "%3Cpath fill='%23f5d67a' stroke='%23f5d67a' stroke-width='1.6' "
+        "stroke-linejoin='round' "
+        "d='M24 18.5L24 27.5L31.5 23Z'/%3E%3C/svg%3E")
+    return (
+        '<!doctype html><html lang="en"><head><meta charset="utf-8">\n'
+        '<meta name="viewport" content="width=device-width, '
+        'initial-scale=1">\n'
+        "<title>Moonfactory library</title>\n"
+        '<meta name="description" content="Everything you have '
+        'made with Moonfactory, in your library.">'
+        + _CSS
+        + '<link rel="icon" href="' + favicon + '">\n'
+        '<link rel="manifest" href="/manifest.webmanifest">\n'
+        '<meta name="theme-color" content="#0c0c0f">\n'
+        '<meta name="mobile-web-app-capable" content="yes">\n'
+        '<meta name="apple-mobile-web-app-capable" content="yes">\n'
+        '<meta name="apple-mobile-web-app-status-bar-style" '
+        'content="black-translucent">\n'
+        '<meta name="apple-mobile-web-app-title" '
+        'content="Moonfactory">\n'
+        '<link rel="apple-touch-icon" href="/icons/icon-192.png">\n'
+        '<script src="https://challenges.cloudflare.com/turnstile/'
+        'v0/api.js" async defer></script>\n'
+        "</head><body><main>\n"
+        "<header>\n"
+        '  <a class="logo" href="/">' + logo +
+        "<span>Moon<em>factory</em></span></a>\n"
+        '  <nav><a href="/app">Studio</a>'
+        '<a href="/gallery">Gallery</a></nav>\n'
+        "</header>\n"
+        '<div id="live-status" class="sr-only" role="status" '
+        'aria-live="polite"></div>\n'
+        '<div id="live-alert" class="sr-only" role="alert" '
+        'aria-live="assertive"></div>\n'
+        '<div style="max-width:640px;margin:34px auto 0">\n'
+        '  <h2 style="font-size:26px;margin:0 0 6px">Your library</h2>\n'
+        '  <p class="muted" style="margin:0">Everything you have '
+        "made, most recent first.</p>\n"
+        "</div>\n"
+        '<h2 style="max-width:640px;margin:30px auto 6px">'
+        "Your videos</h2>\n"
+        '<div id="jobs" style="max-width:640px;margin:0 auto">'
+        '<p class="muted">Loading...</p></div>\n'
+        '<h2 style="max-width:640px;margin:30px auto 6px">'
+        "Your images</h2>\n"
+        '<div id="image-jobs" style="max-width:640px;margin:0 auto">'
+        '<p class="muted">Loading...</p></div>\n'
+        '<div id="botcheck6" style="max-width:640px;'
+        'margin:18px auto 0"></div>\n'
+        "</main>\n"
+        '<footer><span class="foot-brand">'
+        + logo.replace('width="27" height="27"',
+                       'width="20" height="20"')
+        + 'Moonfactory</span><nav class="foot-links">'
+        '<a href="/app">Studio</a><a href="/help">Help</a>'
+        '<a href="/terms">Terms</a><a href="/privacy">Privacy</a>'
+        '<a href="/acceptable-use">Acceptable use</a>'
+        '<a href="/support">Support</a></nav></footer>\n'
+        "<script>\n" + script + "</script>\n"
+        "</body></html>")
+
+
+LIBRARY_HTML = _library_html()
