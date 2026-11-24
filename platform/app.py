@@ -14937,13 +14937,17 @@ def api():
         meta["audio:heartbeat"] = _now()
         if x_audio_rev:
             meta["audio:heartbeat_rev"] = x_audio_rev
-        # Only children stamped with the kernel revision
-        # this deployment ships are handed out: a stale
-        # session polling with an older script sees an
-        # empty queue and idles itself out, and children
-        # queued under an older revision are re-queued
-        # fresh (restamped) by their waiting callers.
+        # Only a session running the kernel revision this
+        # deployment ships is handed work, and only
+        # children stamped with that revision: a stale
+        # session polling with an older script (which
+        # reports an older revision, or none) sees an empty
+        # queue and idles itself out, and children queued
+        # under an older revision are re-queued fresh
+        # (restamped) by their waiting callers.
         rev = _audio_kernel_rev()
+        if x_audio_rev != rev:
+            return {"job": None}
         queued = []
         for key in list(jobs.keys()):
             other = jobs.get(key)

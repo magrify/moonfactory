@@ -344,6 +344,8 @@ check("def _audio_kernel_rev(" in PLATFORM
       "audio children are not stamped with the kernel revision")
 check('other.get("audio_rev") == rev' in PLATFORM,
       "the audio claim route does not filter children by revision")
+check("if x_audio_rev != rev:" in PLATFORM,
+      "the audio claim route does not refuse stale-revision sessions")
 check('meta["audio:heartbeat_rev"]' in PLATFORM
       and 'meta.get("audio:heartbeat_rev") == _audio_kernel_rev()' in PLATFORM,
       "the audio wake does not require a current-revision heartbeat")
