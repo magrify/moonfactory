@@ -1787,18 +1787,53 @@ def _wait_clone_child(parent: dict, text: str,
     return None
 
 
+def _short_custom_bed_for_job(job: dict):
+    """The custom music bed for one short, made from the
+    user's own description on the job record. The _bed_for_job
+    pattern, per job: the ACE-Step bed stage reads the
+    description with the instrumental close appended, the bed
+    is cached per job on the data Volume, and any audio stage
+    failure falls back to the house bed and flags the job
+    record, so delivery never breaks on the music stage."""
+    prompt = (job.get("music_prompt") or "").strip()
+    if not prompt:
+        return BED_PATH if BED_PATH.exists() else None
+    bed_file = FILES_DIR / "beds" / f"{job['id']}.wav"
+    if bed_file.exists():
+        return bed_file
+    try:
+        seed = int(hashlib.sha256(
+            job["id"].encode()).hexdigest()[:8], 16) % 90000 + 10000
+        caption = f"{prompt}, instrumental, no vocals"
+        generate_bed = modal.Function.from_name(
+            "sinclip-audio", "generate_bed")
+        data = generate_bed.remote(caption, seed)
+        bed_file.parent.mkdir(parents=True, exist_ok=True)
+        bed_file.write_bytes(data)
+        data_volume.commit()
+        return bed_file
+    except Exception:
+        job["music_fallback"] = True
+        jobs[job["id"]] = job
+        return BED_PATH if BED_PATH.exists() else None
+
+
 def _short_bed_for_job(job: dict):
     """The music bed one short runs under, by the job's picked
     style. House is the platform bed file. A named style rides
     the platform's ACE-Step bed stage with its fixed caption,
     the _bed_for_job pattern, but cached by style on the data
     Volume so each style is generated once and then shared.
-    No music returns None. Any audio stage failure falls back
-    to the house bed and flags the job record, so delivery
-    never breaks on the music stage."""
+    The custom pick rides the same stage per job, from the
+    user's own description on the job record. No music
+    returns None. Any audio stage failure falls back to the
+    house bed and flags the job record, so delivery never
+    breaks on the music stage."""
     style = job.get("short_music") or "house"
     if style == "none":
         return None
+    if style == SHORTS_CUSTOM_MUSIC:
+        return _short_custom_bed_for_job(job)
     caption = (SHORTS_MUSIC_STYLES.get(style) or {}).get(
         "caption") or ""
     if not caption:
@@ -3634,15 +3669,21 @@ SHORTS_STAGES = (
     "Putting it together",
 )
 # The music choices for one short. House is the platform's
-# ACE-Step bed file, the lane's original fixed bed. The named
-# styles are fixed captions on the same ACE-Step stage
-# _bed_for_job rides: each style's bed is generated once,
-# cached on the data Volume in the same beds folder, and
-# shared by every short that picks it after, so a style costs
-# one bed generation once, not one per short. None is no music
-# under the narration at all.
+# ACE-Step bed file, the lane's original fixed bed: its
+# generation caption is a dreamy ambient track, so the label
+# says so (renamed 2026-11-24; the key, the bed file, and
+# stored jobs keep the house name). The named styles are
+# fixed captions on the same ACE-Step stage _bed_for_job
+# rides: each style's bed is generated once, cached on the
+# data Volume in the same beds folder, and shared by every
+# short that picks it after, so a style costs one bed
+# generation once, not one per short. None is no music under
+# the narration at all. Custom is the paid pick where the
+# user describes the music in their own words: it carries no
+# fixed caption, and its bed is made per job from the job's
+# music prompt, the _bed_for_job pattern (2026-11-24).
 SHORTS_MUSIC_STYLES = {
-    "house": {"label": "House bed", "caption": "", "bpm": 96},
+    "house": {"label": "Dreamy ambient", "caption": "", "bpm": 96},
     "calm": {"label": "Calm piano",
              "caption": "calm soft piano, gentle and warm",
              "bpm": 80},
@@ -3653,8 +3694,46 @@ SHORTS_MUSIC_STYLES = {
                   "caption": "cinematic orchestral strings, "
                              "emotional and swelling",
                   "bpm": 90},
+    "lofi": {"label": "Lofi chill",
+             "caption": "lofi chill beats, soft vinyl warmth, "
+                        "mellow and relaxed",
+             "bpm": 72},
+    "acoustic": {"label": "Acoustic folk",
+                 "caption": "acoustic folk guitar, gentle "
+                            "fingerpicking, warm and earthy",
+                 "bpm": 92},
+    "jazz": {"label": "Jazz lounge",
+             "caption": "smooth jazz lounge, soft piano and "
+                        "brushed drums, laid back and warm",
+             "bpm": 84},
+    "electronic": {"label": "Electronic pulse",
+                   "caption": "electronic pulse, steady synth "
+                              "groove, clean and driving",
+                   "bpm": 118},
+    "corporate": {"label": "Corporate bright",
+                  "caption": "bright corporate background music, "
+                             "light piano and soft beats, "
+                             "positive and clean",
+                  "bpm": 105},
+    "epic": {"label": "Epic trailer",
+             "caption": "epic trailer music, big orchestral "
+                        "hits and rising drums, powerful and "
+                        "dramatic",
+             "bpm": 100},
+    "synthwave": {"label": "Synthwave",
+                  "caption": "synthwave, retro synth arpeggios "
+                             "and warm analog pads, nostalgic "
+                             "night drive",
+                  "bpm": 102},
+    "tropical": {"label": "Tropical groove",
+                 "caption": "tropical groove, light marimba "
+                            "and soft percussion, sunny and easy",
+                 "bpm": 98},
     "none": {"label": "No music", "caption": "", "bpm": 100},
+    "custom": {"label": "Custom, your own description",
+               "caption": "", "bpm": 100},
 }
+SHORTS_CUSTOM_MUSIC = "custom"
 TEMPLATE_MAX_SOURCE_SECONDS = 60
 TEMPLATE_MAX_UPLOAD_BYTES = 200 * 1024 * 1024
 # A trigger push is attempted at most once per this many seconds,
@@ -12436,6 +12515,7 @@ def api():
                 "visuals": parent.get("short_visuals") or "stock",
                 "style": parent.get("short_style") or "",
                 "music": parent.get("short_music") or "house",
+                "music_prompt": parent.get("music_prompt") or "",
                 "caption_style":
                     parent.get("short_caption_style") or "",
                 "lower_third": parent.get("short_lower_third"),
@@ -14703,6 +14783,30 @@ x_api_key: str = Header(default="")):
             raise HTTPException(
                 status_code=422,
                 detail="pick one of the music choices on the list")
+        # Custom music (Jack, 2026-11-24): the pick where the
+        # user describes the music in their own words. Paid
+        # only, the same gate the video lane's custom audio
+        # carries (2026-11-16): a free account gets a clean
+        # refusal here, never a quiet swap to a preset it did
+        # not pick. The words ride the job record as its music
+        # prompt, and the runner makes the bed from them per
+        # job. A description sent with any other pick is
+        # ignored, the pick governs.
+        music_prompt = ""
+        if music == SHORTS_CUSTOM_MUSIC:
+            music_prompt = (body.get("music_prompt") or "").strip()
+            if len(music_prompt) > CUSTOM_AUDIO_MAX_CHARS:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"music description must be {CUSTOM_AUDIO_MAX_CHARS} characters or fewer")
+            if not music_prompt:
+                raise HTTPException(
+                    status_code=422,
+                    detail="describe the music you want, or pick one of the styles on the list")
+            if not is_paid(user):
+                raise HTTPException(
+                    status_code=403,
+                    detail="custom music is a paid feature")
         caption_style = (body.get("caption_style") or "").strip() \
             or shorts.CAPTION_STYLE_DEFAULT
         if caption_style not in shorts.CAPTION_STYLES:
@@ -14721,7 +14825,7 @@ x_api_key: str = Header(default="")):
         # before any free count or charge below.
         enforce_prompt_gate(
             user, "short", client_ip(request), script_text,
-            clone_reference_text,
+            clone_reference_text, music_prompt,
             (lower_third or {}).get("name"),
             (lower_third or {}).get("sub"))
         is_free_job = False
@@ -14808,7 +14912,7 @@ x_api_key: str = Header(default="")):
             "resolution": "1080x1920",
             "plan_at_job": user["plan"],
             "free_tier": is_free_job,
-            "music_prompt": None,
+            "music_prompt": music_prompt or None,
         }
         if voice == CLONE_VOICE_ID:
             # The folded clone charge (see above): the
@@ -19137,12 +19241,26 @@ APP_HTML = (
     </div>
     <label>Music</label>
     <select id="short-music">
-      <option value="house" selected>House bed</option>
+      <option value="house" selected>Dreamy ambient</option>
       <option value="calm">Calm piano</option>
       <option value="upbeat">Upbeat pop</option>
       <option value="cinematic">Cinematic strings</option>
+      <option value="lofi">Lofi chill</option>
+      <option value="acoustic">Acoustic folk</option>
+      <option value="jazz">Jazz lounge</option>
+      <option value="electronic">Electronic pulse</option>
+      <option value="corporate">Corporate bright</option>
+      <option value="epic">Epic trailer</option>
+      <option value="synthwave">Synthwave</option>
+      <option value="tropical">Tropical groove</option>
       <option value="none">No music</option>
+      <option value="custom">Custom, your own description</option>
     </select>
+    <div id="short-music-custom-wrap" style="display:none">
+      <label>Describe your music</label>
+      <input id="short-music-custom" type="text" maxlength="300" placeholder="slow solo piano with soft rain behind it">
+      <p class="muted">Your music is made from your words for this short alone. Custom music is a paid feature.</p>
+    </div>
     <label>Captions</label>
     <select id="short-captions">
       <option value="classic" selected>Classic</option>
@@ -19153,11 +19271,11 @@ APP_HTML = (
       <option value="none">No captions</option>
     </select>
     <p class="muted">Karaoke lights each word up as it is spoken. Pop makes each line of captions spring in.</p>
-    <label>Lower third name (optional)</label>
-    <input id="short-lt-name" type="text" maxlength="60" placeholder="A name or headline for the open">
-    <label>Lower third smaller line (optional)</label>
-    <input id="short-lt-sub" type="text" maxlength="80" placeholder="The line under the name">
-    <p class="muted">The lower third sits low on the frame for the first seconds, with or without captions.</p>
+    <label>Opening title (optional)</label>
+    <input id="short-lt-name" type="text" maxlength="60" placeholder="Your name or a headline for the open">
+    <label>Smaller line under it (optional)</label>
+    <input id="short-lt-sub" type="text" maxlength="80" placeholder="One short line under the title">
+    <p class="muted">This text sits low on the screen for the first seconds of the video, like the name banner on a news clip. It works with or without captions.</p>
     <label style="font-weight:400;display:block">
       <input type="checkbox" id="short-beat-sync" style="width:auto;margin:0 6px 0 0">
       Cut on the beat</label>
@@ -22155,6 +22273,15 @@ function shortShowVisuals() {
     (v === 'ai' || v === 'overlay') ? '' : 'none';
 }
 $('short-visuals').addEventListener('change', shortShowVisuals);
+// The custom music pick opens its own words box: the user
+// describes the music and the bed is made from the
+// description for this short alone. The server gates the
+// pick to paid accounts, the same as custom audio on video.
+function shortShowMusicCustom() {
+  $('short-music-custom-wrap').style.display =
+    $('short-music').value === 'custom' ? '' : 'none';
+}
+$('short-music').addEventListener('change', shortShowMusicCustom);
 // The script box placeholder names the unit the split pick
 // cuts on, so the two never disagree (Jack, 2026-11-23: with
 // the pick on sentences the box still talked about lines).
@@ -22224,6 +22351,7 @@ function buildShort() {
     lower_third_sub: $('short-lt-sub').value.trim(),
     beat_sync: $('short-beat-sync').checked };
   if (payload.visuals === 'ai' || payload.visuals === 'overlay') payload.style = $('short-style').value;
+  if (payload.music === 'custom') payload.music_prompt = $('short-music-custom').value.trim();
   if (payload.voice === 'clone' && shortCloneRefB64) {
     payload.clone_reference_audio_b64 = shortCloneRefB64;
     payload.clone_reference_text = $('short-clone-ref-text').value.trim();

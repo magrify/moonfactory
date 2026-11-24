@@ -50,14 +50,27 @@ for stage in app.SHORTS_STAGES:
 check(shorts.WIDTH == 1080 and shorts.HEIGHT == 1920,
       "shorts are vertical 1080 x 1920")
 check(set(app.SHORTS_MUSIC_STYLES) == {
-    "house", "calm", "upbeat", "cinematic", "none"},
-    "the music choices are the house bed, three styles, and none")
+    "house", "calm", "upbeat", "cinematic", "lofi", "acoustic",
+    "jazz", "electronic", "corporate", "epic", "synthwave",
+    "tropical", "none", "custom"},
+    "the music choices are the platform bed, eleven styles, "
+    "no music, and the custom pick")
+check(app.SHORTS_MUSIC_STYLES["house"]["label"] == "Dreamy ambient",
+      "the house bed pick is named for what the track is, "
+      "a dreamy ambient bed")
+check(app.SHORTS_CUSTOM_MUSIC == "custom"
+      and app.SHORTS_MUSIC_STYLES["custom"]["label"]
+      == "Custom, your own description",
+      "the custom pick is the own description choice")
 for music_id, entry in app.SHORTS_MUSIC_STYLES.items():
     check(all(mark not in entry["label"] for mark in (":", ";", "-")),
           f"music label follows the plain copy rule: {entry['label']}")
-    if music_id not in ("house", "none"):
+    if music_id not in ("house", "none", "custom"):
         check(bool(entry["caption"]),
               f"music style {music_id} carries its bed caption")
+check(not app.SHORTS_MUSIC_STYLES["custom"]["caption"],
+      "the custom pick carries no fixed caption, its bed "
+      "comes from the user's own description")
 check(shorts.SHORTS_MAX_LINES == 20, "script line cap is 20")
 check(shorts.SHORTS_MAX_SCRIPT_CHARS == 2200,
       "script cap fits a full two minutes")
@@ -484,6 +497,21 @@ check('"short_music"' in lane and "SHORTS_MUSIC_STYLES" in lane,
       "creation takes, validates, and records the music choice")
 check('"music_styles"' in lane,
       "the config offers the music choices")
+check("custom music is a paid feature" in lane,
+      "custom music keeps the paid gate at creation, so a "
+      "free creation with a custom description is refused")
+check(lane.index("custom music is a paid feature")
+      < lane.index("process_short_job.spawn"),
+      "the custom music gate lands before any dispatch")
+check("SHORTS_CUSTOM_MUSIC" in lane
+      and "CUSTOM_AUDIO_MAX_CHARS" in lane,
+      "creation reads the custom pick and caps its "
+      "description at the custom audio cap")
+check('"music_prompt": music_prompt or None' in lane,
+      "a paid custom pick stores its description on the "
+      "job record as its music prompt")
+check('"music_prompt": parent.get("music_prompt")' in SRC,
+      "a retried short keeps its custom music description")
 check('"short_caption_style"' in lane and "CAPTION_STYLES" in lane,
       "creation takes, validates, and records the caption style")
 check('"short_lower_third": lower_third,' in lane
@@ -528,6 +556,18 @@ check("_short_bed_for_job" in processor,
       "the runner resolves the picked music bed")
 check("generate_bed" in SRC and "shorts_{style}" in SRC,
       "named beds ride the platform bed stage, cached by style")
+bed_fn = SRC.split("def _short_custom_bed_for_job", 1)[1].split(
+    "def process_short_job", 1)[0]
+check("SHORTS_CUSTOM_MUSIC" in bed_fn
+      and "return _short_custom_bed_for_job(job)" in bed_fn,
+      "the custom pick routes the short's bed to its own "
+      "per job make")
+check("{job['id']}.wav" in bed_fn
+      and "instrumental, no vocals" in bed_fn
+      and 'job["music_fallback"] = True' in bed_fn,
+      "the custom bed is made from the description with the "
+      "instrumental close, cached per job, with the house "
+      "bed fallback flagged on failure")
 check("build_captions_ass" in processor, "the runner times captions")
 check('!= "none"' in processor and "ass_path = None" in processor,
       "the runner writes no captions file for the no captions "
@@ -689,8 +729,38 @@ music_values = {
 }
 check(music_values == set(app.SHORTS_MUSIC_STYLES),
       "the music picker offers exactly the music choices")
+check('<option value="house" selected>Dreamy ambient</option>'
+      in pane,
+      "the platform bed pick carries its dreamy ambient name")
+check('<option value="custom">Custom, your own description'
+      '</option>' in pane,
+      "the music picker offers the custom pick")
+check('id="short-music-custom"' in pane
+      and 'id="short-music-custom-wrap"' in pane,
+      "the form carries the custom music words box")
+check("payload.music_prompt = $('short-music-custom')"
+      ".value.trim()" in SRC,
+      "the submit sends the custom music description")
+check("function shortShowMusicCustom()" in SRC
+      and "$('short-music').addEventListener('change', "
+      "shortShowMusicCustom)" in SRC,
+      "the custom words box opens on the custom pick")
 check("$('short-music')" in SRC,
       "the submit sends the music choice")
+check('<label>Opening title (optional)</label>' in pane
+      and '<label>Smaller line under it (optional)</label>'
+      in pane,
+      "the opening title fields carry their plain names")
+check('placeholder="Your name or a headline for the open"'
+      in pane
+      and 'placeholder="One short line under the title"'
+      in pane,
+      "the opening title placeholders speak plainly")
+check("like the name banner on a news clip" in pane,
+      "the opening title helper says what the text does "
+      "in plain words")
+check("Lower third" not in pane,
+      "no TV jargon is left in the shorts form")
 check('id="short-captions"' in pane,
       "the form carries the caption style picker")
 caption_select = pane.split('id="short-captions"', 1)[1].split(
