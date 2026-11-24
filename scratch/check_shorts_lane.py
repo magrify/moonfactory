@@ -729,6 +729,16 @@ music_values = {
 }
 check(music_values == set(app.SHORTS_MUSIC_STYLES),
       "the music picker offers exactly the music choices")
+music_order = [
+    part.split('"')[0]
+    for part in music_select.split('<option value="')[1:]
+]
+check(music_order == [
+    "none", "custom", "house", "calm", "upbeat", "cinematic",
+    "lofi", "acoustic", "jazz", "electronic", "corporate",
+    "epic", "synthwave", "tropical",
+], "the picker leads with No music and the custom pick, then "
+   "the platform bed and the styles (Jack, 2026-11-24)")
 check('<option value="house" selected>Dreamy ambient</option>'
       in pane,
       "the platform bed pick carries its dreamy ambient name")

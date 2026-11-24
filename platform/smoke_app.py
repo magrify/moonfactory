@@ -71,7 +71,8 @@ def run_smoke(base: str) -> dict:
         }
 
     r = s.post(f"{base}/api/signup",
-               json={"email": email, "password": password, **bot_fields()},
+               json={"email": email, "password": password,
+                     "accept_terms": True, **bot_fields()},
                timeout=30)
     out["steps"]["signup"] = r.status_code
     assert r.status_code == 200, r.text[:300]

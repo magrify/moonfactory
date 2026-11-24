@@ -1050,6 +1050,34 @@ PROFILE_PHOTO_NOT_IMAGE = (
     "That file is not a picture we can use.")
 PROFILE_PHOTO_TOO_LARGE = "That photo file is too large."
 
+# ---------------------------------------------------------------------------
+# Legal acceptance at sign-up (Jack, 2026-11-24). Creating an
+# account requires accepting the Terms of Service, the Privacy
+# Policy, and the Acceptable Use Policy, and confirming the age
+# floor from the Terms. The sign-in form carries an acceptance
+# checkbox that starts unchecked; the sign-up endpoint refuses
+# any create that does not carry the acceptance, whatever the
+# client sent, and a successful sign-up stamps the account with
+# when it accepted and which legal pack it accepted.
+# LEGAL_VERSION names the current pack by the date the Terms
+# page itself carries (Last updated November 23, 2026). Existing
+# accounts are untouched: no retroactive prompt, no backfill.
+# ---------------------------------------------------------------------------
+
+LEGAL_VERSION = "2026-11-23"
+LEGAL_ACCEPTANCE_REQUIRED = (
+    "Please accept the Terms of Service, the Privacy Policy, "
+    "and the Acceptable Use Policy to create your account.")
+
+
+def legal_acceptance_stamp(body):
+    """The acceptance record a sign-up body carries, or None
+    when the sign-up did not accept. Only a true accept_terms
+    counts; anything else is no acceptance."""
+    if not isinstance(body, dict) or body.get("accept_terms") is not True:
+        return None
+    return {"accepted_at": _now(), "legal_version": LEGAL_VERSION}
+
 
 def profile_photo_path(user_id: str) -> Path:
     """The one stored profile photo for an account."""
@@ -6766,6 +6794,15 @@ def api():
             raise HTTPException(status_code=422, detail="a valid email is required")
         if len(password) < 8:
             raise HTTPException(status_code=422, detail="password must be at least 8 characters")
+        # Legal acceptance (Jack, 2026-11-24): the endpoint
+        # itself refuses a create that does not carry the
+        # acceptance, whatever the client sent, and refuses
+        # before the bot check so an unchecked attempt costs
+        # nothing and parks nothing.
+        acceptance = legal_acceptance_stamp(body)
+        if acceptance is None:
+            raise HTTPException(status_code=422,
+                                detail=LEGAL_ACCEPTANCE_REQUIRED)
         if not _verify_bot_check(body, ip):
             raise HTTPException(status_code=403, detail="bot check failed")
         if users.get(f"email:{email}"):
@@ -6774,6 +6811,8 @@ def api():
             "id": pysecrets.token_hex(8),
             "email": email,
             "pw": _hash_password(password),
+            "terms_accepted_at": acceptance["accepted_at"],
+            "legal_version": acceptance["legal_version"],
             "verified": False,
             "created_at": _now(),
             "plan": "free",
@@ -18921,6 +18960,7 @@ APP_HTML = (
   <label for="email">Email</label><input id="email" type="email" autocomplete="email">
   <label for="password">Password (8+ characters)</label><input id="password" type="password" autocomplete="current-password">
   <div id="botcheck"></div>
+  <p><label for="accept-terms"><input type="checkbox" id="accept-terms" style="width:auto;margin:0 6px 0 0">I agree to the <a href="/terms" target="_blank" rel="noopener">Terms of Service</a>, <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a> and <a href="/acceptable-use" target="_blank" rel="noopener">Acceptable Use Policy</a> and I confirm I am at least 13 years old.</label></p>
   <p>
     <button class="btn" id="login">Sign in</button>
     <button class="btn secondary" id="signup">Create account</button>
@@ -19462,6 +19502,8 @@ APP_HTML = (
     </div>
     <label>Music</label>
     <select id="short-music">
+      <option value="none">No music</option>
+      <option value="custom">Custom, your own description</option>
       <option value="house" selected>Dreamy ambient</option>
       <option value="calm">Calm piano</option>
       <option value="upbeat">Upbeat pop</option>
@@ -19474,8 +19516,6 @@ APP_HTML = (
       <option value="epic">Epic trailer</option>
       <option value="synthwave">Synthwave</option>
       <option value="tropical">Tropical groove</option>
-      <option value="none">No music</option>
-      <option value="custom">Custom, your own description</option>
     </select>
     <div id="short-music-custom-wrap" style="display:none">
       <label>Describe your music</label>
@@ -20323,6 +20363,13 @@ function selectedLook() {
 }
 
 $('signup').onclick = async () => {
+  // Creating an account needs the legal acceptance first.
+  // The stop is plain and nothing is sent, so a parked
+  // creation stays parked in place, never lost.
+  if (!$('accept-terms').checked) {
+    msg('auth-msg', 'Please accept the Terms of Service, the Privacy Policy, and the Acceptable Use Policy to create your account.', 'err');
+    return;
+  }
   const btn = $('signup');
   btnBusy(btn, 'Creating your account...');
   $('login').disabled = true;
@@ -20332,7 +20379,7 @@ $('signup').onclick = async () => {
     $('password').autocomplete = 'new-password';
     spinMsg('auth-msg', 'Working on the bot check...');
     const bot = await botFields('botcheck');
-    const payload = { email: $('email').value, password: $('password').value, ...bot };
+    const payload = { email: $('email').value, password: $('password').value, accept_terms: $('accept-terms').checked, ...bot };
     // A creation built while signed out rides the sign-up: it
     // is stored on the new account and fires on the verified
     // return, so the local copy clears here (one home, one fire).
