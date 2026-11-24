@@ -270,7 +270,9 @@ USERS = {f"id:{u['id']}": u
 
 gns = {"users": USERS, "is_paid": is_paid,
        "job_is_nsfw": job_is_nsfw,
-       "job_is_uncensored": job_is_uncensored}
+       "job_is_uncensored": job_is_uncensored,
+       "prompt_is_nsfw": app.prompt_is_nsfw,
+       "OUTPUT_CLASSIFIER_SINCE": app.OUTPUT_CLASSIFIER_SINCE}
 exec(func_src("gallery_visible"), gns)
 gallery_visible = gns["gallery_visible"]
 
@@ -328,16 +330,23 @@ check(gallery_visible(job(kind="image", lane="image",
                           image_model="qwen_edit_unc",
                           user_prompt="make the sky bluer")) is False,
       "tame Qwen Image Edit uncensored job lists")
-# Regular lanes are untouched by the bar: an image input on a
-# moderated lane changes nothing, in either direction.
+# Regular lanes are untouched by the image-input bar itself:
+# an image input on a moderated lane is not a bar.
 check(gallery_visible(job(reference_image_urls=[
     "https://example.com/ref.png"])) is True,
       "regular lane job with reference images no longer lists")
+# But since 2026-11-24 the gallery prompt scan judges every
+# lane (Jack): a flagged prompt on a regular lane keeps the job
+# out too. (This supersedes the earlier pin here, under which a
+# regular lane's prompt was never read for gallery purposes.)
+# job_is_nsfw itself is unchanged: out of the uncensored scope
+# it still returns False, as pinned above; the all-lane scan
+# lives in gallery_visible only.
 check(gallery_visible(job(user_prompt="a nude woman",
                           reference_image_urls=[
-                              "https://example.com/ref.png"])) is True,
-      "regular lane job is judged by the new bar (its prompt is "
-      "never read out of scope and its image input is not a bar)")
+                              "https://example.com/ref.png"])) is False,
+      "regular lane job with a flagged prompt still lists "
+      "(the gallery prompt scan now judges every lane)")
 # Explicit prompt on an uncensored lane stays out.
 check(gallery_visible(job(lane="wan22_uncut", model="wan22_uncut",
                           user_prompt="a nude woman dancing"))

@@ -137,7 +137,9 @@ USERS = {f"id:{u['id']}": u
          for u in (free_owner, paid_owner, opted_out_owner)}
 
 gns = {"users": USERS, "is_paid": is_paid, "job_is_nsfw": job_is_nsfw,
-       "job_is_uncensored": job_is_uncensored}
+       "job_is_uncensored": job_is_uncensored,
+       "prompt_is_nsfw": app.prompt_is_nsfw,
+       "OUTPUT_CLASSIFIER_SINCE": app.OUTPUT_CLASSIFIER_SINCE}
 exec(func_src("gallery_visible"), gns)
 gallery_visible = gns["gallery_visible"]
 

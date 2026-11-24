@@ -44,6 +44,8 @@ import secrets as pysecrets
 import shutil
 import subprocess
 import sys
+import tempfile
+import threading
 import time
 import urllib.parse
 import uuid
@@ -76,7 +78,8 @@ refusals = modal.Dict.from_name("moonfactory-refusals", create_if_missing=True)
 image = (
     modal.Image.debian_slim(python_version="3.12")
     .apt_install("ffmpeg", "fonts-dejavu-core")
-    .pip_install("fastapi[standard]", "requests", "stripe", "pynacl")
+    .pip_install("fastapi[standard]", "requests", "stripe", "pynacl",
+                 "onnxruntime", "numpy", "pillow")
     .add_local_file(str(Path(__file__).parent / "pricing.py"), "/platform/pricing.py")
     .add_local_file(
         str(Path(__file__).parent.parent
@@ -126,7 +129,8 @@ image = (
 clip_image = (
     modal.Image.debian_slim(python_version="3.12")
     .apt_install("ffmpeg", "fonts-dejavu-core")
-    .pip_install("sherpa-onnx", "yt-dlp", "numpy", "requests")
+    .pip_install("sherpa-onnx", "yt-dlp", "numpy", "requests",
+                 "onnxruntime", "pillow")
     .add_local_file(str(Path(__file__).parent / "pricing.py"), "/platform/pricing.py")
     .add_local_file(
         str(Path(__file__).parent.parent
@@ -234,7 +238,7 @@ def clip_probe(url: str) -> dict:
 @app.function(
     image=clip_image,
     secrets=[modal.Secret.from_name("moonfactory-providers")],
-    volumes={"/data": data_volume},
+    volumes={"/data": data_volume, "/worker-models": worker_models},
     cpu=4.0,
     memory=8192,
     timeout=3600,
@@ -355,6 +359,8 @@ def process_clip_job(job_id: str):
             }
             stamp_content_hash(
                 child, files_dir / f"{child_id}.mp4")
+            classify_job_output(
+                child, files_dir / f"{child_id}.mp4")
             jobs[child_id] = child
             clip_ids.append(child_id)
         job["clip_ids"] = clip_ids
@@ -410,6 +416,216 @@ def stamp_content_hash(job: dict, path) -> None:
         jobs[job["id"]] = job
     except Exception as exc:  # noqa: BLE001
         print(f"content hash failed for job {job.get('id')}: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# Output classifier (Jack, 2026-11-24): a finished generation's
+# public gallery listing is judged by its actual output, not only
+# by its prompt. Falconsai/nsfw_image_detection (a ViT returning a
+# normal/nsfw probability; code and weights Apache-2.0) runs on
+# CPU at finishing, inside the finishing stage itself, and stamps
+# its verdict on the job record. The verdict feeds gallery
+# visibility ONLY (see gallery_visible): it never blocks creation,
+# never refuses a user, never delays or blocks delivery to the
+# owner, and never affects a charge. Lawful NSFW keeps generating
+# and delivering exactly as before; a flagged verdict only keeps
+# that one item out of the public gallery. The weights (an ONNX
+# export of the published checkpoint) are cached on the models
+# volume, so a cold container does not depend on Hugging Face
+# being up; when they cannot be loaded the verdict stays missing
+# and gallery_visible fails closed for the gallery (the job still
+# delivers to its owner).
+# ---------------------------------------------------------------------------
+
+OUTPUT_CLASSIFIER_ID = "Falconsai/nsfw_image_detection"
+# The one threshold: an output whose nsfw probability reaches
+# this is flagged out of the public gallery.
+OUTPUT_NSFW_FLAG_THRESHOLD = 0.7
+# Jobs created at or after this moment are post-change jobs: with
+# no verdict stamped they are not gallery eligible (fail closed).
+# Jobs created before it are legacy and keep the prompt-only
+# behavior they shipped under. No backfill, ever.
+OUTPUT_CLASSIFIER_SINCE = 1795520000.0
+OUTPUT_CLASSIFIER_DIR = Path(
+    "/worker-models/classifier/falconsai-nsfw")
+OUTPUT_CLASSIFIER_MAX_ATTEMPTS = 3
+
+_output_classifier_session = None
+_output_classifier_lock = threading.Lock()
+
+
+def _output_classifier():
+    """The lazy ONNX session for the output classifier, loaded
+    once per container from the models volume. Raises when the
+    weights are unavailable or the runtime is missing; the caller
+    (classify_job_output) turns that into a missing verdict, never
+    a blocked delivery."""
+    global _output_classifier_session
+    if _output_classifier_session is not None:
+        return _output_classifier_session
+    with _output_classifier_lock:
+        if _output_classifier_session is not None:
+            return _output_classifier_session
+        import onnxruntime as ort
+
+        model_path = OUTPUT_CLASSIFIER_DIR / "model.onnx"
+        if not model_path.is_file():
+            raise RuntimeError(
+                f"output classifier weights missing at {model_path}")
+        session = ort.InferenceSession(
+            str(model_path), providers=["CPUExecutionProvider"])
+        _output_classifier_session = session
+        return session
+
+
+def _classifier_preprocess(image_path):
+    """One picture as the model's input tensor, following the
+    published preprocessor_config.json exactly: resize to
+    224x224 (bilinear), rescale by 1/255, normalize with mean and
+    std 0.5."""
+    import numpy as np
+    from PIL import Image
+
+    with Image.open(image_path) as img:
+        img = img.convert("RGB").resize((224, 224), Image.BILINEAR)
+        arr = np.asarray(img, dtype=np.float32) / 255.0
+    arr = (arr - 0.5) / 0.5
+    return arr.transpose(2, 0, 1)[None, :, :, :]
+
+
+def _classifier_image_score(image_path, session=None) -> float:
+    """The nsfw probability of one still picture."""
+    import numpy as np
+
+    session = session or _output_classifier()
+    tensor = _classifier_preprocess(image_path)
+    logits = session.run(None, {"pixel_values": tensor})[0][0]
+    exp = np.exp(logits - float(np.max(logits)))
+    probs = exp / float(np.sum(exp))
+    return float(probs[1])
+
+
+def _video_sample_times(duration) -> list:
+    """Up to three sample points in a finished video: the first
+    moment, the middle, and the last moment. A short video's
+    points collapse onto each other and are deduped, so a very
+    short clip may only yield one or two distinct samples."""
+    try:
+        d = float(duration or 0)
+    except (TypeError, ValueError):
+        d = 0.0
+    if d <= 0:
+        return [0.0]
+    times = [min(0.5, d / 2.0), d / 2.0, max(d - 0.5, 0.0)]
+    out = []
+    for t in times:
+        if all(abs(t - seen) > 0.25 for seen in out):
+            out.append(round(t, 3))
+    return out
+
+
+def _classifier_video_scores(video_path, session=None) -> list:
+    """The nsfw probabilities of a finished video's sampled
+    frames (first, middle, last). Raises when no frame could be
+    read at all: an unjudged video is a missing verdict, not a
+    clean one."""
+    session = session or _output_classifier()
+    duration = 0.0
+    try:
+        probe = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries",
+             "format=duration", "-of", "json", str(video_path)],
+            capture_output=True, timeout=60)
+        duration = float(json.loads(
+            probe.stdout.decode() or "{}").get(
+                "format", {}).get("duration") or 0)
+    except Exception:  # noqa: BLE001
+        duration = 0.0
+    scores = []
+    with tempfile.TemporaryDirectory() as tmp:
+        for i, t in enumerate(_video_sample_times(duration)):
+            frame = Path(tmp) / f"frame{i}.jpg"
+            try:
+                subprocess.run(
+                    ["ffmpeg", "-y", "-ss", str(t), "-i",
+                     str(video_path), "-vframes", "1", "-q:v", "3",
+                     str(frame)],
+                    capture_output=True, timeout=120)
+            except Exception:  # noqa: BLE001
+                continue
+            if frame.is_file() and frame.stat().st_size > 0:
+                scores.append(_classifier_image_score(frame, session))
+    if not scores:
+        raise RuntimeError("no video frame could be sampled")
+    return scores
+
+
+def _classifier_file_scores(path) -> list:
+    """Every nsfw probability a finished file earns: one for a
+    still image, one per sampled frame for a video. The caller
+    takes the maximum, so a video is judged by its worst sampled
+    frame."""
+    p = Path(path)
+    suffix = p.suffix.lower()
+    if suffix == ".mp4":
+        return _classifier_video_scores(p)
+    if suffix in (".png", ".jpg", ".jpeg", ".webp"):
+        return [_classifier_image_score(p)]
+    return []
+
+
+def classify_job_output(job: dict, path=None) -> None:
+    """Stamp the output classifier's verdict onto a finished
+    job's record: output_nsfw_score (the worst probability the
+    file earned), output_flagged (the score reached
+    OUTPUT_NSFW_FLAG_THRESHOLD), output_classifier (the model
+    id), output_classified_at. Called from the finishing stages
+    beside stamp_content_hash, over the same final file.
+
+    The verdict is gallery-only. A failure (weights unavailable,
+    inference error, no readable frame) never blocks, delays or
+    changes the delivery: it is logged, an error stamp and an
+    attempt count are recorded, and the job simply carries no
+    verdict, which gallery_visible treats as not gallery
+    eligible for post-change jobs. Attempts are capped so a
+    permanently unavailable model is not retried on every read;
+    a later success clears the error stamp."""
+    try:
+        if job.get("output_nsfw_score") is not None:
+            return
+        if int(job.get("output_classifier_attempts") or 0) \
+                >= OUTPUT_CLASSIFIER_MAX_ATTEMPTS:
+            return
+        if path is None:
+            path = FILES_DIR / (
+                f"{job['id']}.png" if job.get("kind") == "image"
+                else f"{job['id']}.mp4")
+        p = Path(path)
+        if ".web." in p.name or not p.is_file():
+            return
+        scores = _classifier_file_scores(p)
+        if not scores:
+            return
+        score = max(scores)
+        job["output_nsfw_score"] = round(score, 4)
+        job["output_flagged"] = bool(
+            score >= OUTPUT_NSFW_FLAG_THRESHOLD)
+        job["output_classifier"] = OUTPUT_CLASSIFIER_ID
+        job["output_classified_at"] = _now()
+        job.pop("output_classifier_error", None)
+        jobs[job["id"]] = job
+    except Exception as exc:  # noqa: BLE001
+        try:
+            job["output_classifier_attempts"] = int(
+                job.get("output_classifier_attempts") or 0) + 1
+            job["output_classifier"] = OUTPUT_CLASSIFIER_ID
+            job["output_classified_at"] = _now()
+            job["output_classifier_error"] = str(exc)[:300]
+            jobs[job["id"]] = job
+        except Exception:  # noqa: BLE001
+            pass
+        print(f"output classifier failed for job "
+              f"{job.get('id')}: {exc}")
 
 
 def write_job_tombstone(job: dict) -> None:
@@ -1457,6 +1673,7 @@ def process_short_job(job_id: str):
         # (its repair splice), so the content fingerprint is
         # taken only now, over the final bytes.
         stamp_content_hash(job, out_path)
+        classify_job_output(job, out_path)
         try:
             subprocess.run(
                 ["ffmpeg", "-y", "-ss", "0.5", "-i", str(out_path),
@@ -6838,6 +7055,7 @@ def api():
         out_path.write_bytes(raw)
         data_volume.commit()
         stamp_content_hash(job, out_path)
+        classify_job_output(job, out_path)
         job["bytes"] = len(raw)
         job["status"] = "done"
         job["error"] = None
@@ -7031,6 +7249,7 @@ def api():
         out_path.write_bytes(raw)
         data_volume.commit()
         stamp_content_hash(job, out_path)
+        classify_job_output(job, out_path)
         job["bytes"] = len(raw)
         job["status"] = "done"
         job["error"] = None
@@ -7233,6 +7452,7 @@ def api():
         out_path.write_bytes(resp.content)
         data_volume.commit()
         stamp_content_hash(job, out_path)
+        classify_job_output(job, out_path)
         job["bytes"] = len(resp.content)
         owner = users.get(f"id:{job['user_id']}")
         if owner:
@@ -12040,6 +12260,13 @@ def api():
         job_id = job["id"]
         FILES_DIR.mkdir(parents=True, exist_ok=True)
         out_path = FILES_DIR / f"{job_id}.mp4"
+        if out_path.exists() and job.get("status") == "done":
+            # A finished file with no output verdict yet (its
+            # finishing-stage classification failed or predates
+            # a retry): judge it now, on the owner's own fetch.
+            # A no-op once a score is stamped, and capped after
+            # a few attempts, so this costs a dict read per serve.
+            classify_job_output(job, out_path)
         if job.get("provider") == "clip":
             if not out_path.exists():
                 try:
@@ -12170,6 +12397,10 @@ def api():
             # original goes on the record. The web remux derived
             # from it at serve time is never stamped.
             stamp_content_hash(job, out_path)
+            # Output classifier (2026-11-24): the delivered file
+            # is final here too, so its gallery verdict is
+            # stamped from the same bytes.
+            classify_job_output(job, out_path)
             data_volume.commit()
         return out_path
 
@@ -12299,6 +12530,9 @@ def api():
             # were already stamped when their bytes landed,
             # which makes this a no-op for them.
             stamp_content_hash(job, out_path)
+        # The gallery verdict rides the same first fetch: a
+        # no-op once the record carries a score.
+        classify_job_output(job, out_path)
         return out_path
 
     @web.get("/api/jobs/{job_id}/file")
@@ -12997,6 +13231,7 @@ def api():
         except Exception:
             pass
         stamp_content_hash(job, out_path)
+        classify_job_output(job, out_path)
         job["status"] = "done"
         job["stage"] = None
         jobs[job["id"]] = job
@@ -13346,6 +13581,7 @@ x_api_key: str = Header(default="")):
                 except Exception:
                     pass
             stamp_content_hash(job, out_path)
+            classify_job_output(job, out_path)
             job["status"] = "done"
             jobs[job["id"]] = job
             return {"ok": True, "bytes": len(data)}
@@ -14125,6 +14361,7 @@ x_api_key: str = Header(default="")):
         # fingerprint is (re)stamped before the record
         # lands as done.
         stamp_content_hash(job, out)
+        classify_job_output(job, out)
         job["status"] = "done"
         job["stage"] = None
         job["drama_state"] = "done"
@@ -14675,6 +14912,15 @@ x_api_key: str = Header(default="")):
     # either (Jack, later the same day): the prompt scan reads
     # words, not pictures, so its image can never be judged
     # clean from the words. See job_is_nsfw.
+    # Since 2026-11-24 two more signals stack on top (Jack): the
+    # prompt scan judges EVERY lane for gallery purposes, regular
+    # included, and the output classifier's verdict on the actual
+    # picture decides alongside it: a flagged output never lists,
+    # on any lane, and a post-change job with no verdict yet does
+    # not list either (fail closed for the gallery; the owner
+    # still gets the delivery). Clean prompt plus clean verdict
+    # lists, uncensored lanes included: there is no blanket lane
+    # ban anywhere in this rule.
 
     def gallery_visible(job: dict) -> bool:
         # Finished images list alongside finished clips (Jack,
@@ -14702,6 +14948,30 @@ x_api_key: str = Header(default="")):
         # verdict above is the whole story and a clean text-only
         # prompt lists even under an old stamp.
         if job_is_nsfw(job):
+            return False
+        # The prompt scan on every lane (Jack, 2026-11-24):
+        # job_is_nsfw above only judges the uncensored scope
+        # (its meaning everywhere else, the creation stamps
+        # included, is unchanged), but for the gallery a flagged
+        # prompt keeps a regular-lane job out too. The scan reads
+        # the same stored words job_is_nsfw reads.
+        if prompt_is_nsfw(
+                job.get("user_prompt") or job.get("prompt") or ""):
+            return False
+        # The output classifier's verdict (Jack, 2026-11-24): a
+        # flagged output never lists, whatever its prompt said,
+        # on regular and uncensored lanes alike. A post-change
+        # job carrying no verdict at all (its finishing-stage
+        # classification has not landed, or failed) does not
+        # list either: the gallery fails closed while the owner's
+        # delivery never waits on it. Legacy jobs, created before
+        # the classifier existed, carry no verdict and are judged
+        # on the prompt rules alone, exactly as before.
+        if job.get("output_flagged"):
+            return False
+        if job.get("output_nsfw_score") is None \
+                and float(job.get("created_at") or 0) \
+                >= OUTPUT_CLASSIFIER_SINCE:
             return False
         if job.get("gallery_public") is False \
                 and not job_is_uncensored(job):
