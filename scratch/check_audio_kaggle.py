@@ -351,8 +351,8 @@ check('meta["audio:heartbeat_rev"]' in PLATFORM
       "the audio wake does not require a current-revision heartbeat")
 check("X-Audio-Rev" in KERNEL and "Path(__file__).read_bytes()" in KERNEL,
       "the kernel does not report a revision hashed from its own script")
-check("kokoro==0.7.16" in KERNEL,
-      "the kernel lost the Kokoro pin Kaggle's index can serve")
+check("kokoro==0.7.4" in KERNEL,
+      "the kernel lost the Kokoro pin Kaggle's index can resolve")
 check("pip_install_checked" in KERNEL
       and "invalidate_caches" in KERNEL,
       "the kernel lost the checked install or the import cache fix")

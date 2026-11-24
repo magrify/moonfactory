@@ -254,12 +254,15 @@ def setup_kokoro():
     """Install Kokoro and prove a pipeline builds, so a
     broken speech setup fails the session's setup, not a
     claimed job. The weights download from the public
-    Kokoro HF repo on first pipeline creation. The pin is
-    the newest Kokoro Kaggle's package index serves
-    (observed 2026-11-24: its list tops out at 0.7.16 and
-    answers 0.9.x with no matching distribution); 0.7.16's
+    Kokoro HF repo on first pipeline creation. The pins
+    are the newest pair Kaggle's package index can
+    resolve (observed 2026-11-24: its Kokoro list tops
+    out at 0.7.16 and answers 0.9.x with no matching
+    distribution, but 0.7.16 requires misaki>=0.7.16 and
+    its misaki list tops out at 0.7.4, so the lockstep
+    0.7.4 pair is the newest resolvable set); 0.7.4's
     KPipeline is the same API the Modal recipe calls."""
-    pip_install_checked(["kokoro==0.7.16", "soundfile", "numpy"])
+    pip_install_checked(["kokoro==0.7.4", "soundfile", "numpy"])
     kokoro_pipeline("af_heart")
     log("Kokoro ready")
 
