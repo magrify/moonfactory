@@ -75,7 +75,8 @@ class Req:
 
 INDEX_FUNCS = [
     "_job_index_entry", "_index_job", "_unindex_job",
-    "_job_index_ensure", "_user_job_index", "_indexed_records",
+    "_job_index_ensure", "_user_job_index", "_dict_get_many",
+    "_indexed_records",
     "_indexed_active_records", "_prune_active",
 ]
 
@@ -218,7 +219,8 @@ for marker in ('id="image-jobs"', 'id="videos-more"',
 # -- the library page --------------------------------------------------------
 
 check('@web.get("/library"' in SRC
-      and "HTMLResponse(LIBRARY_HTML)" in func_src("library_page"),
+      and "_shell_page(request, LIBRARY_HTML, LIBRARY_ETAG)"
+      in func_src("library_page"),
       "the /library route does not serve the library page")
 
 LIB = app.LIBRARY_HTML

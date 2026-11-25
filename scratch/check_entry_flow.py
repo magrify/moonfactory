@@ -42,10 +42,10 @@ check("_LANDING_TOP" not in SRC, "the landing top blocks are gone")
 check("hero-go" not in SRC, "the Try It hero button is gone")
 check("Open Create" not in HTML, "no Open Create interstitial remains")
 landing = SRC.split('def landing(', 1)[1].split('@web.get("/app"', 1)[0]
-check("return HTMLResponse(APP_HTML)" in landing,
+check("return _shell_page(request, APP_HTML, APP_ETAG)" in landing,
       "the root route serves the studio page to everyone")
-studio_route = SRC.split('def studio():', 1)[1].split("def terms_page", 1)[0]
-check("return HTMLResponse(APP_HTML)" in studio_route,
+studio_route = SRC.split('def studio(', 1)[1].split("def terms_page", 1)[0]
+check("return _shell_page(request, APP_HTML, APP_ETAG)" in studio_route,
       "/app serves the same studio page")
 
 # --- the studio renders signed out; the auth form is a panel -------------

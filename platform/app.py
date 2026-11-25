@@ -207,13 +207,30 @@ def _user_job_index(user_id: str) -> dict:
     return user_jobs.get(user_id) or {"ids": [], "active": []}
 
 
+def _dict_get_many(store, keys) -> list:
+    """Fetch many records from a Modal Dict at once (perf
+    pass, 2026-11-24). A single get is a network round trip
+    (~60ms or more), so the read paths that fetch a page of
+    records one by one paid that per record in series: the
+    gallery build's walk measured ~11.5s. The fetches are
+    independent, so they run on a small thread pool; results
+    come back in key order, with None where a record is gone,
+    exactly as a serial loop of gets would produce."""
+    keys = list(keys)
+    if len(keys) <= 1:
+        return [store.get(k) for k in keys]
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=16) as pool:
+        return list(pool.map(store.get, keys))
+
+
 def _indexed_records(user_id: str, job_ids) -> list:
     """Fetch records for index ids, pruning ids whose records
     are gone from both the id list and the active set."""
+    job_ids = list(job_ids)
     records = []
     dead = []
-    for jid in job_ids:
-        job = jobs.get(jid)
+    for jid, job in zip(job_ids, _dict_get_many(jobs, job_ids)):
         if job:
             records.append(job)
         else:
@@ -6554,12 +6571,30 @@ def api():
 
     # -- per-second lane state ------------------------------------------
 
+    # Rate table cache (perf pass, Jack, 2026-11-24): the
+    # merged table changes only when the scheduled refresh
+    # rewrites the stored one (a 6h cadence against a 24h
+    # staleness limit), but /api/config and /api/pricing used
+    # to re-read and re-merge it once per model — 70-odd Dict
+    # round trips each, which measured ~9.5s a call and left
+    # the studio's catalog dead on every refresh. The merged
+    # table is now cached in this container for a minute; the
+    # pause verdict still reads the stored updated_at on every
+    # call, so the staleness rule is untouched.
+    _rate_table_cache = {"at": 0.0, "table": None}
+    RATE_TABLE_CACHE_SECONDS = 60
+
     def rate_table() -> dict:
         """The live provider rate table (design s.6): seeded from
         pricing.py's verified rates, refreshed on a schedule by the
         refresh_provider_rates function. A table older than the
         staleness limit pauses the per-second lanes rather than
         quoting from stale prices."""
+        cached = _rate_table_cache["table"]
+        if cached is not None and \
+                time.time() - _rate_table_cache["at"] \
+                < RATE_TABLE_CACHE_SECONDS:
+            return cached
         table = meta.get("provider_rates")
         if not table or "rates" not in table:
             table = {
@@ -6579,10 +6614,15 @@ def api():
         for model, resolutions in (table.get("rates") or {}).items():
             if isinstance(resolutions, dict):
                 merged.setdefault(model, {}).update(resolutions)
-        return {"rates": merged, "updated_at": table.get("updated_at")}
+        merged_table = {"rates": merged,
+                        "updated_at": table.get("updated_at")}
+        _rate_table_cache["table"] = merged_table
+        _rate_table_cache["at"] = time.time()
+        return merged_table
 
-    def api_lane_state(model: str) -> dict:
-        table = rate_table()
+    def api_lane_state(model: str, table: dict = None) -> dict:
+        if table is None:
+            table = rate_table()
         age = _now() - float(table.get("updated_at") or 0)
         provider = MODEL_PROVIDER.get(model, "fal")
         configured = bool(os.environ.get(
@@ -6708,6 +6748,20 @@ def api():
 
     # -- pages -------------------------------------------------------------
 
+    def _shell_page(request: Request, html_text: str, etag: str,
+                    cache_control: str = "private, no-cache"):
+        """Serve one of the static page shells with its ETag
+        (perf pass, 2026-11-24). A matching If-None-Match gets
+        a 304 with no body; anything else gets the full page.
+        no-cache means the browser stores the shell but asks
+        on every load, so a deploy is never masked — the
+        refresh just stops re-downloading 230KB to learn the
+        page did not change."""
+        headers = {"ETag": etag, "Cache-Control": cache_control}
+        if request.headers.get("if-none-match") == etag:
+            return Response(status_code=304, headers=headers)
+        return HTMLResponse(html_text, headers=headers)
+
     @web.get("/", response_class=HTMLResponse)
     def landing(request: Request, mf_session: str = Cookie(default="")):
         # Entry flow (Jack, 2026-11-19): the site opens straight
@@ -6717,11 +6771,11 @@ def api():
         # a visitor builds the whole creation first, and the
         # sign-in step appears only when they hit a create
         # button. Root and /app serve the same studio page.
-        return HTMLResponse(APP_HTML)
+        return _shell_page(request, APP_HTML, APP_ETAG)
 
     @web.get("/app", response_class=HTMLResponse)
-    def studio():
-        return HTMLResponse(APP_HTML)
+    def studio(request: Request):
+        return _shell_page(request, APP_HTML, APP_ETAG)
 
     @web.get("/terms", response_class=HTMLResponse)
     def terms_page():
@@ -6799,12 +6853,16 @@ def api():
 
     @web.get("/favicon.ico")
     def favicon_ico():
-        return Response(content=FAVICON_SVG, media_type="image/svg+xml")
+        return Response(content=FAVICON_SVG, media_type="image/svg+xml",
+                        headers={"Cache-Control":
+                                 "public, max-age=86400"})
 
     @web.get("/manifest.webmanifest")
     def manifest():
         return Response(content=MANIFEST_JSON,
-                        media_type="application/manifest+json")
+                        media_type="application/manifest+json",
+                        headers={"Cache-Control":
+                                 "public, max-age=86400"})
 
     @web.get("/sw.js")
     def service_worker():
@@ -6920,7 +6978,7 @@ def api():
                     if m["id"] in PER_SECOND_MODELS else []),
                 "available": (
                     True if m["id"] in HOUSE_MODEL_PRICING_LANE
-                    else not api_lane_state(m["id"])["paused"]
+                    else not api_lane_state(m["id"], tier_table)["paused"]
                 ),
             }
 
@@ -7012,7 +7070,7 @@ def api():
         table = rate_table()
         lanes = {}
         for model in PER_SECOND_MODELS:
-            state = api_lane_state(model)
+            state = api_lane_state(model, table)
             frontier = {
                 res: pricing.frontier_lane(model, res, table["rates"],
                                            owner=owner)
@@ -16830,24 +16888,26 @@ x_api_key: str = Header(default="")):
         }
 
     @web.get("/gallery", response_class=HTMLResponse)
-    def gallery_page():
+    def gallery_page(request: Request):
         # The page shell is static markup with no account
         # state: a short public cache is safe and takes the
         # repeat-visit cost off the container (perf pass,
-        # 2026-11-24). The studio page deliberately keeps no
-        # cache header: its markup carries the live app.
-        return HTMLResponse(
-            GALLERY_HTML,
-            headers={"Cache-Control": "public, max-age=300"})
+        # 2026-11-24), and its ETag lets the revalidation
+        # after the 300s answer 304 instead of re-sending
+        # the page. The studio page deliberately keeps no
+        # max-age: its markup carries the live app, so it
+        # revalidates on every load (a 304 when unchanged).
+        return _shell_page(request, GALLERY_HTML, GALLERY_ETAG,
+                           "public, max-age=300")
 
     @web.get("/library", response_class=HTMLResponse)
-    def library_page():
+    def library_page(request: Request):
         # The one library (Jack, 2026-11-24): the studio
         # homepage shows only the three most recent videos and
         # images, and its View All links land here, where the
         # full list lives. No new tab or section: this page is
         # the library the product rule already names.
-        return HTMLResponse(LIBRARY_HTML)
+        return _shell_page(request, LIBRARY_HTML, LIBRARY_ETAG)
 
     # The gallery feed (perf passes, Jack 2026-11-24): the
     # uncached build walks every job record in the store and
@@ -16865,11 +16925,30 @@ x_api_key: str = Header(default="")):
     # or an admin removal drops the item in the same call (a
     # removal never lingers), an admin restore kicks a
     # background rebuild, and a job that finishes inserts
-    # itself via _gallery_feed_finished. Only a fresh
-    # container's first request pays the build synchronously.
+    # itself via _gallery_feed_finished. A fresh container
+    # serves the persisted last build while it rebuilds;
+    # only a never-built feed pays the build synchronously.
     _gallery_cache = {"at": 0.0, "items": None,
                       "building_since": 0.0}
     GALLERY_CACHE_SECONDS = 30
+    GALLERY_FEED_META_KEY = "gallery_feed_v1"
+
+    def _gallery_persist(items):
+        """Keep the last built feed in the meta store (perf
+        pass, 2026-11-24): a fresh container's first gallery
+        request serves it while a rebuild runs in the
+        background, instead of paying the build synchronously.
+        It is only a serving shortcut — every build and every
+        in-place change rewrites it, a removal filters it in
+        the same call that drops the item in process, and
+        every file serve re-checks the job's own verdict."""
+        try:
+            if items is None:
+                del meta[GALLERY_FEED_META_KEY]
+            else:
+                meta[GALLERY_FEED_META_KEY] = {"items": items}
+        except Exception:
+            pass
 
     def _gallery_cache_clear(job_id=None):
         """Drop one item from the cached feed in place, or
@@ -16877,10 +16956,24 @@ x_api_key: str = Header(default="")):
         if job_id is None:
             _gallery_cache["at"] = 0.0
             _gallery_cache["items"] = None
+            _gallery_persist(None)
         elif _gallery_cache["items"] is not None:
             _gallery_cache["items"] = [
                 item for item in _gallery_cache["items"]
                 if item["id"] != job_id]
+            _gallery_persist(_gallery_cache["items"])
+        else:
+            # This container never built the feed, but the
+            # persisted copy a future container would serve
+            # still loses the item in the same call.
+            try:
+                stored = meta.get(GALLERY_FEED_META_KEY) or {}
+                kept = [
+                    item for item in stored.get("items") or []
+                    if item["id"] != job_id]
+                meta[GALLERY_FEED_META_KEY] = {"items": kept}
+            except Exception:
+                pass
 
     def _gallery_build():
         try:
@@ -16888,12 +16981,6 @@ x_api_key: str = Header(default="")):
         except Exception:
             pass
         owners = {}
-
-        def owner_of(job):
-            uid = job.get("user_id")
-            if uid not in owners:
-                owners[uid] = users.get(f"id:{uid}")
-            return owners[uid]
 
         # Candidates come from the global index entry (perf
         # pass 3): newest-first top-level facts, so the build
@@ -16905,19 +16992,43 @@ x_api_key: str = Header(default="")):
         # the same top-level set the walk filtered to).
         _job_index_ensure()
         gent = user_jobs.get(JOB_INDEX_ALL_KEY) or {"ids": []}
+        entries = gent.get("ids") or []
         items = []
-        for entry in gent.get("ids") or []:
-            job = jobs.get(entry[0])
-            if not job:
-                continue
-            owner = owner_of(job)
-            if owner is None:
-                continue
-            if gallery_visible(job, owner) \
-                    and gallery_file_ready(job):
-                items.append(public_gallery_item(job, owner))
-                if len(items) >= 100:
-                    break
+        # Records and owner records are fetched a chunk at a
+        # time in parallel (perf pass, 2026-11-24): the serial
+        # walk paid one Dict round trip per candidate, which
+        # is most of why the build measured ~11.5s. The
+        # verdicts run in the same order over the same
+        # records; only the fetching overlaps.
+        for start in range(0, len(entries), 64):
+            chunk = entries[start:start + 64]
+            chunk_jobs = _dict_get_many(
+                jobs, [entry[0] for entry in chunk])
+            missing = []
+            for job in chunk_jobs:
+                if job:
+                    uid = job.get("user_id")
+                    if uid and uid not in owners \
+                            and uid not in missing:
+                        missing.append(uid)
+            for uid, owner in zip(
+                    missing,
+                    _dict_get_many(
+                        users, [f"id:{uid}" for uid in missing])):
+                owners[uid] = owner
+            for job in chunk_jobs:
+                if not job:
+                    continue
+                owner = owners.get(job.get("user_id"))
+                if owner is None:
+                    continue
+                if gallery_visible(job, owner) \
+                        and gallery_file_ready(job):
+                    items.append(public_gallery_item(job, owner))
+                    if len(items) >= 100:
+                        break
+            if len(items) >= 100:
+                break
         items.sort(key=lambda i: i["created_at"], reverse=True)
         return items[:100]
 
@@ -16926,6 +17037,7 @@ x_api_key: str = Header(default="")):
             items = _gallery_build()
             _gallery_cache["items"] = items
             _gallery_cache["at"] = time.time()
+            _gallery_persist(items)
         except Exception:
             pass
         finally:
@@ -16960,6 +17072,7 @@ x_api_key: str = Header(default="")):
                 items.sort(
                     key=lambda i: i["created_at"], reverse=True)
                 del items[100:]
+                _gallery_persist(items)
         except Exception:
             pass
 
@@ -16971,9 +17084,24 @@ x_api_key: str = Header(default="")):
                     >= GALLERY_CACHE_SECONDS:
                 _gallery_kick()
             return {"items": items}
+        # Fresh container (perf pass, 2026-11-24): serve the
+        # persisted last build immediately and rebuild in the
+        # background. Only a platform whose feed was never
+        # built pays the build synchronously.
+        try:
+            stored = meta.get(GALLERY_FEED_META_KEY) or {}
+        except Exception:
+            stored = {}
+        items = stored.get("items")
+        if items is not None:
+            _gallery_cache["items"] = items
+            _gallery_cache["at"] = 0.0
+            _gallery_kick()
+            return {"items": items}
         items = _gallery_build()
         _gallery_cache["at"] = time.time()
         _gallery_cache["items"] = items
+        _gallery_persist(items)
         return {"items": items}
 
     def _image_media_type(path: Path) -> str:
@@ -24032,3 +24160,22 @@ def _library_html() -> str:
 
 
 LIBRARY_HTML = _library_html()
+
+
+# Shell page validators (perf pass, Jack, 2026-11-24): the
+# page shells are byte-identical for every visitor, so each
+# carries a strong ETag over its exact bytes. Browsers store
+# the shell but must revalidate (Cache-Control: no-cache on
+# the shell responses), so a refresh costs one small round
+# trip and a 304 with no body when nothing changed, and a
+# deploy changes the hash and the next refresh gets the new
+# page in full. Freshness semantics are unchanged: the
+# server is asked on every load, never bypassed.
+def _page_etag(html_text: str) -> str:
+    return '"' + hashlib.sha256(
+        html_text.encode("utf-8")).hexdigest()[:32] + '"'
+
+
+APP_ETAG = _page_etag(APP_HTML)
+GALLERY_ETAG = _page_etag(GALLERY_HTML)
+LIBRARY_ETAG = _page_etag(LIBRARY_HTML)

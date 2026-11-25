@@ -105,7 +105,8 @@ def exec_all(ns, names):
 
 INDEX_FUNCS = [
     "_job_index_entry", "_index_job", "_unindex_job",
-    "_job_index_ensure", "_user_job_index", "_indexed_records",
+    "_job_index_ensure", "_user_job_index", "_dict_get_many",
+    "_indexed_records",
     "_indexed_active_records", "_prune_active",
 ]
 
@@ -306,12 +307,15 @@ def bench_gallery():
         "_gallery_cache": {"at": 0.0, "items": None,
                            "building_since": 0.0},
         "GALLERY_CACHE_SECONDS": 30,
+        "GALLERY_FEED_META_KEY": "gallery_feed_v1",
     })
     exec_all(ns, INDEX_FUNCS)
-    exec_all(ns, ["is_paid", "display_handle", "gallery_visible",
+    exec_all(ns, ["is_paid", "display_handle", "avatar_url",
+                  "gallery_visible",
                   "gallery_file_ready", "public_gallery_item",
                   "_gallery_build", "_gallery_refresh",
                   "_gallery_kick", "_gallery_feed_finished",
+                  "_gallery_persist", "_gallery_cache_clear",
                   "gallery_list"])
     gl = ns["gallery_list"]
     cache = ns["_gallery_cache"]
