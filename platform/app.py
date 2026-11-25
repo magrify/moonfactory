@@ -3541,7 +3541,12 @@ MODEL_PROVIDER = {
     "veo3": "piapi",
     "veo3_fast": "fal",
     "kling3_omni": "kie",
-    "veo3_lite": "eachlabs",
+    # Veo 3.1 Lite rides Kie since 2026-11-25: Kie bills the
+    # model flat per clip ($0.15 at 720p, $0.175 at 1080p,
+    # native audio included) where the Eachlabs route billed
+    # per second with no audio at all. The Eachlabs submit
+    # stays wired below as the lane's spare.
+    "veo3_lite": "kie",
     "hailuo23": "kie",
     "luma_ray32": "fal",
     "ltx25": "fal",
@@ -3706,8 +3711,8 @@ LANE_AUDIO = {
                        "note": "Seedance native audio incl. dialogue; generate_audio on"},
     "seedance2_mini": {"native_speech": False, "native_audio": False,
                        "note": "silent model on every route"},
-    "veo3_lite": {"native_speech": False, "native_audio": False,
-                  "note": "the model generates dialogue natively, but the wired route is the published no-audio tier; the with-audio tier is recorded in pricing.py"},
+    "veo3_lite": {"native_speech": True, "native_audio": True,
+                  "note": "Veo 3.1 Lite native audio incl. dialogue on the wired Kie route; the displaced Eachlabs route was the no-audio tier"},
     "omni12": {"native_speech": True, "native_audio": True,
                "note": "Gemini Omni native audio incl. speech; the wired route's audio basis is unconfirmed"},
     "omni11": {"native_speech": True, "native_audio": True,
@@ -5617,25 +5622,27 @@ RESOLUTION_ORDER = ("480p", "720p", "1080p", "2K", "4K")
 # 2026-11-19). These models' provider submits transmit no
 # resolution the lower tiers could ride: Kie's shared input
 # builder sends none for kling4, omni12, seedance2_fast or
-# seedance2_mini, Eachlabs' Veo Lite submit sends none, and
-# OpenRouter's HappyHorse submit sends none; kling3 sends
-# only its 4K mode, and which of Kie's std or pro modes its
-# lower tiers mean is not documented. Until the funded pass
-# wires each provider's field, the picker sells only the
-# tier named here: the one tier the submit does carry where
-# it carries one (kling3), the cheapest tier where it
-# carries none, so nobody pays for a size distinction the
-# job never transmits.
+# seedance2_mini, and OpenRouter's HappyHorse submit sends
+# none; kling3 sends only its 4K mode, and which of Kie's
+# std or pro modes its lower tiers mean is not documented.
+# Until the funded pass wires each provider's field, the
+# picker sells only the tier named here: the one tier the
+# submit does carry where it carries one (kling3), the
+# cheapest tier where it carries none, so nobody pays for a
+# size distinction the job never transmits.
 SIZE_PICKER_SINGLE = {
     "kling3": ("4K",),
     "omni12": ("720p",),
-    "veo3_lite": ("720p",),
     "happyhorse": ("720p",),
     "seedance2_mini": ("480p",),
 }
 # Kling 4.0 and Seedance 2.0 Fast left this table 2026-11-23:
 # their VidLab submit sends the resolution on every job, so
 # every priced tier is a real choice again.
+# Veo 3.1 Lite left this table 2026-11-25: the lane moved to
+# Kie, whose Veo submit sends the resolution on every job, so
+# both priced tiers (720p, 1080p) are real choices again. The
+# Eachlabs submit that carried none is the spare now.
 
 
 def offered_resolutions(model: str, rates: dict) -> list:
@@ -7865,6 +7872,20 @@ def api():
         raw = pricing.per_second_lane_cost_cents(
             job["model"], job["resolution"], table["rates"]
         ) * billed
+        flat = pricing.flat_clip_cost_cents(
+            job["model"], job["resolution"])
+        if flat is not None:
+            # A flat-per-clip lane settles at its true cost:
+            # the per-clip cost times the generations the job
+            # took (a chained length is that many separately
+            # billed clips), plus post on the generated
+            # seconds — never the rate table's worst-case
+            # per-second ceiling times the length, which would
+            # overstate the cost of every longer clip.
+            output_seconds = billed - float(
+                job.get("reference_video_seconds") or 0.0)
+            raw = pricing.flat_clip_raw_cents(
+                job["model"], job["resolution"], output_seconds)
         # A supplier that reports its own settled charge (the task
         # API's usage record) is the truest cost there is: it already
         # reflects token-based pricing and reference-video rates the
@@ -10204,6 +10225,13 @@ def api():
         them."""
         model = job["model"]
         mode = params["mode"]
+        if model == "veo3_lite":
+            # Veo 3.1 does not ride the slug table: Kie's
+            # current Veo docs put it on this same jobs
+            # endpoint under the unified model id veo-3-1 with
+            # the tier named inside the input.
+            _submit_kie_veo_lite(job, params, prompt)
+            return
         slugs = {
             ("kling4", "text"): "kling-4.0/reference-to-video",
             ("kling4", "reference"): "kling-4.0/reference-to-video",
@@ -10317,6 +10345,57 @@ def api():
         job["provider_task_id"] = task_id
         jobs[job["id"]] = job
 
+    def _submit_kie_veo_lite(job: dict, params: dict, prompt: str):
+        """Veo 3.1 Lite on Kie (lane rerouted 2026-11-25):
+        POST /api/v1/jobs/createTask with the unified model id
+        veo-3-1 and the tier named inside the input as
+        veo3_lite, polled by the shared Kie mirror. The shape
+        follows Kie's own current Veo API reference
+        (docs.kie.ai/veo3-api/generate-veo-3-video, read
+        2026-11-25): duration is one of 4 / 6 / 8 seconds (the
+        lane's steps already match), resolution is sent on
+        every job (720p / 1080p, the two priced tiers), and
+        every clip carries Veo's native audio by default, so
+        no audio field is sent. Kie publishes no square Veo
+        aspect: the documented enum is 16:9 / 9:16 / Auto, so
+        a 1:1 job sends Auto (Kie center-crops toward the
+        closer of the two). No watermark and no translation
+        flag is sent. PAYLOAD-UNVERIFIED until the first real
+        job runs on the funded Kie balance."""
+        mode = params["mode"]
+        aspect = params["aspect_ratio"]
+        inp = {
+            "prompt": prompt,
+            "model": "veo3_lite",
+            "duration": int(params["duration"]),
+            "resolution": params["resolution"],
+            "aspect_ratio": (
+                aspect if aspect in ("16:9", "9:16") else "Auto"),
+            "generation_type": (
+                "FIRST_AND_LAST_FRAMES_2_VIDEO"
+                if mode == "image" else "TEXT_2_VIDEO"),
+        }
+        try:
+            if mode == "image":
+                urls = [_beatapi_media_url(
+                    params["start_image"], "first-frame")]
+                if params["end_image"]:
+                    urls.append(_beatapi_media_url(
+                        params["end_image"], "last-frame"))
+                inp["image_urls"] = urls
+        except Exception as exc:
+            _submit_failed(job, f"media upload failed: {exc}")
+        data = _submit_post(
+            job, f"{KIE_BASE}/api/v1/jobs/createTask",
+            _api_headers("kie"), {"model": "veo-3-1", "input": inp})
+        payload = data.get("data") or {}
+        task_id = (payload.get("taskId") or payload.get("task_id")
+                   or payload.get("id"))
+        if not task_id:
+            _submit_failed(job, "submit returned no task id")
+        job["provider_task_id"] = task_id
+        jobs[job["id"]] = job
+
     def mirror_kie_status(job: dict) -> dict:
         if not _poll_gate(job):
             return job
@@ -10333,8 +10412,16 @@ def api():
                     raw = data.get("resultJson")
                     if raw:
                         try:
-                            urls = (json.loads(raw) or {}).get(
-                                "resultUrls") or []
+                            parsed = json.loads(raw) or {}
+                            urls = parsed.get("resultUrls") or []
+                            if not urls:
+                                # Veo 3.1's resultJson nests its
+                                # urls one level down (Kie's Veo
+                                # reference, read 2026-11-25: at
+                                # 1080p the video url sits in
+                                # data.result_urls).
+                                urls = (parsed.get("data") or {}).get(
+                                    "result_urls") or []
                         except Exception:
                             urls = []
                     if urls:

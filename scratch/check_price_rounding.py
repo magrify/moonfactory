@@ -21,7 +21,13 @@ estimate and settle. Verified here programmatically:
   cap covers it, and a customer's settle never lands below
   the lane's intended sell figure; on lanes whose sell rate
   is the 1.25x minimum itself, the settle is never below
-  1.25x the settled raw cost. (The named at-cost exception
+  1.25x the settled raw cost. A flat-per-clip lane (one
+  whose supplier bills per generation, recorded in
+  pricing.FLAT_CLIP_COST_CENTS) is measured against its true
+  raw instead of the rate table's per-second ceiling: the
+  per-clip cost times the generations the length takes,
+  plus post, with the intended sell figure the standard
+  markup on that raw through the shared rounding path. (The named at-cost exception
   lanes, whose sell rate Jack set at raw cost or raw cost
   plus the Stripe percentage so the lane can sit under
   Higgsfield, are counted separately: their rule is never
@@ -175,12 +181,41 @@ for model, tiers in pricing.PROVIDER_RATES_CENTS_PER_SECOND.items():
                         # the intended figure below and the
                         # estimate delta checks, not re-derived
                         # from its raw basis here.
-                        raw_settled = lane_cost * duration + lip_raw
-                        intended = sell * duration
-                        if lip:
-                            intended += lip_debit
-                        if clone:
-                            intended += pricing.voice_clone_price_cents()
+                        if pricing.flat_clip_cost_cents(
+                                model, resolution) is not None:
+                            # A flat-per-clip lane: the true
+                            # settled raw is the per-clip cost
+                            # times the generations the length
+                            # takes plus post (the rate table
+                            # carries only the worst-case
+                            # per-second ceiling for this lane),
+                            # and the intended sell figure is
+                            # the flat picture's own debit — the
+                            # standard markup on that raw
+                            # through the shared rounding path —
+                            # with the lip and clone pieces
+                            # added the same way as elsewhere.
+                            raw_settled = pricing.flat_clip_raw_cents(
+                                model, resolution, duration) + lip_raw
+                            intended = pricing._flat_clip_picture(
+                                model, resolution,
+                                duration)["balance_debit_cents"]
+                            if lip:
+                                intended += \
+                                    pricing.customer_debit_cents(
+                                        lip_debit)
+                            if clone:
+                                intended += \
+                                    pricing.voice_clone_price_cents()
+                        else:
+                            raw_settled = lane_cost * duration \
+                                + lip_raw
+                            intended = sell * duration
+                            if lip:
+                                intended += lip_debit
+                            if clone:
+                                intended += \
+                                    pricing.voice_clone_price_cents()
                         check(debit >= intended - 1e-9,
                               f"{tag}: debit {debit} is below "
                               f"the intended sell figure {intended}")

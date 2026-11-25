@@ -354,15 +354,29 @@ PROVIDER_RATES_CENTS_PER_SECOND = {
     # $0.041 no-video. Seeded at the no-video rates, same basis
     # and same reference-mode flag as Fast above.
     "seedance2_mini": {"480p": 1.9, "720p": 4.1},
-    # Veo 3.1 Lite via Eachlabs (follow-up pass, 2026-11-16):
-    # Eachlabs publishes $0.03-0.08/s on the no-audio basis (three
-    # suppliers tie at $0.03/s); carried at the bottom of the
-    # published range for 720p and the top for 1080p, pending
-    # console confirmation. Like Veo 3.1, the model generates
-    # dialogue natively but this route does not, so the lane is
-    # silent-with-voiceover. fal's with-audio rates ($0.05/s at
-    # 720p, $0.08/s at 1080p) are the fallback below.
-    "veo3_lite": {"720p": 3.0, "1080p": 8.0},
+    # Veo 3.1 Lite via Kie (rerouted 2026-11-25, Jack's
+    # no-expiry wins): Kie bills the model FLAT PER CLIP, not
+    # per second — 30 credits ($0.15) per 720p video and 35
+    # credits ($0.175) per 1080p video, native audio included
+    # (Kie's own authenticated catalog
+    # API, api.kie.ai/api/v1/models pricingDesc for veo-3-1,
+    # read 2026-11-25; kie.ai/veo-3-1 agrees). The rate
+    # table's contract is worst-case cost per billed second,
+    # so the flat cost is carried here at the lane's shortest
+    # sold length (4 s): 15.0 / 4 = 3.75 and 17.5 / 4 = 4.375.
+    # Every longer clip costs less per second, never more.
+    # The governing cost is FLAT_CLIP_COST_CENTS below: the
+    # quote, the balance debit and the settle all price the
+    # lane from the true per-clip figure, not from this
+    # per-second ceiling. The displaced Eachlabs no-audio
+    # rates ($0.03 / $0.08 per second) are in
+    # DISPLACED_RATES_CENTS_PER_SECOND below as
+    # veo3_lite_eachlabs; fal's with-audio rates
+    # ($0.05/s at 720p, $0.08/s at 1080p) are the fallback
+    # below. The old Eachlabs route was silent (the model
+    # speaks natively but that tier did not); the Kie route
+    # carries the model's native audio in the same pass.
+    "veo3_lite": {"720p": 3.75, "1080p": 4.375},
     # Gemini Omni 1.2 Flash via Kie (follow-up pass, 2026-11-16):
     # from $0.02/s, carried flat (the published figure's
     # resolution basis is unconfirmed). BeatAPI's rates ($0.392 /
@@ -769,6 +783,12 @@ DISPLACED_RATES_CENTS_PER_SECOND = {
     # (the Kie submit paths stay wired in app.py as spares).
     "kling4_kie": {"720p": 14.25, "1080p": 21.25},
     "seedance2_fast_kie": {"480p": 5.9, "720p": 12.4},
+    # Eachlabs rates displaced 2026-11-25 when Veo 3.1 Lite
+    # moved to Kie's flat per-clip pricing (the Eachlabs
+    # submit path stays wired in app.py as the spare). These
+    # are the no-audio per-second rates the lane ran on from
+    # the 2026-11-16 follow-up pass.
+    "veo3_lite_eachlabs": {"720p": 3.0, "1080p": 8.0},
 }
 
 # Resolutions each per-second model can actually be ordered at.
@@ -846,6 +866,135 @@ MODEL_RESOLUTIONS = {
     "magi2": ("1080p",),
 }
 PROVIDER_RATE_STALE_SECONDS = 24 * 3600
+
+# Flat per-clip provider costs, in cents per finished clip at
+# any sold duration, for lanes whose supplier bills per
+# generation rather than per second. The per-second rate table
+# cannot express these honestly (a flat $0.15 clip costs
+# 3.75c/s at 4 seconds and 1.875c/s at 8), so the quote, the
+# balance debit and the settle price these lanes from this
+# table; the rate table carries only the worst-case per-second
+# ceiling (the flat cost at the lane's shortest sold length)
+# for the displays and pause logic that need a per-second
+# figure. Post cost still applies per finished second on top.
+FLAT_CLIP_COST_CENTS = {
+    # Veo 3.1 Lite via Kie (2026-11-25): 30 credits ($0.15)
+    # per 720p video, 35 credits ($0.175) per 1080p video,
+    # native audio included (Kie's authenticated catalog
+    # pricingDesc for veo-3-1, read 2026-11-25). The price
+    # buys ONE native-length video; a longer job the platform
+    # chains from native segments is that many videos, priced
+    # per segment by flat_clip_raw_cents below.
+    "veo3_lite": {"720p": 15.0, "1080p": 17.5},
+}
+
+# The native segment lengths a flat-per-clip lane's price
+# buys, per model: the lengths one flat-priced generation
+# can be. A job longer than the longest is chained from
+# these segments by the app layer, so its flat cost is the
+# per-clip cost times the segment count.
+FLAT_CLIP_STEPS = {
+    "veo3_lite": (4, 6, 8),
+}
+
+
+def flat_clip_cost_cents(model: str, resolution: str):
+    """The flat per-clip provider cost for a lane billed per
+    generation, or None for the per-second lanes. This is the
+    governing cost wherever a lane appears in both tables."""
+    return (FLAT_CLIP_COST_CENTS.get(model) or {}).get(resolution)
+
+
+def flat_clip_segments(model: str, seconds: float) -> int:
+    """How many flat-priced generations a job of this length
+    takes on a flat-per-clip lane: one at any single native
+    length; past the longest, the fewest native segments
+    summing exactly to the length (the same composition the
+    app layer's duration plan makes). A length no exact
+    composition makes (the app refuses those lengths) is
+    carried at the ceiling count, so the figure never
+    understates the cost."""
+    steps = FLAT_CLIP_STEPS.get(model)
+    if not steps:
+        raise ValueError(f"no flat clip steps for {model}")
+    total = int(round(float(seconds)))
+    if total <= 0:
+        return 1
+    best = {0: 0}
+    for amount in range(1, total + 1):
+        for step in steps:
+            if step <= amount and (amount - step) in best:
+                candidate = best[amount - step] + 1
+                if amount not in best or candidate < best[amount]:
+                    best[amount] = candidate
+    if total in best:
+        return best[total]
+    import math
+
+    return max(1, math.ceil(total / max(steps)))
+
+
+def flat_clip_raw_cents(model: str, resolution: str,
+                        seconds: float) -> float:
+    """The true raw cost of one flat-per-clip job of this
+    length: the per-clip cost times the generations the
+    length takes, plus post per finished second."""
+    flat = flat_clip_cost_cents(model, resolution)
+    if flat is None:
+        raise ValueError(
+            f"no flat clip cost for {model} at {resolution}")
+    return flat * flat_clip_segments(model, seconds) \
+        + POST_COST_CENTS_PER_SECOND * float(seconds)
+
+
+def _flat_clip_picture(model: str, resolution: str,
+                       output_seconds: float, rates=None,
+                       owner: bool = False) -> dict:
+    """The money picture for one flat-per-clip job: raw cost
+    (the flat clip cost times the generations the length
+    takes, plus post per finished second), the balance debit
+    at the standard rule (cost x FRONTIER_MIN_MARKUP through
+    the shared rounding path; the owner pays raw cost), and
+    the effective sell rate per second at this duration for
+    the payloads that speak per-second. The
+    Higgsfield cap is frontier_lane's own verdict for the
+    lane, applied to the job's total: the cap is a property
+    of the lane's pricing posture (its worst-case per-second
+    figures against Higgsfield's), not of one job's length —
+    a flat job's per-second equivalent falls as the clip
+    lengthens and spikes below the lane's shortest real
+    length, so judging the cap per job would let the same
+    lane flip bases between durations. Where frontier_lane
+    puts the lane on an at-cost basis, the job sells at raw
+    cost (or raw cost grossed up by the Stripe percentage fee
+    on the residual basis), never below cost."""
+    if flat_clip_cost_cents(model, resolution) is None:
+        raise ValueError(
+            f"no flat clip cost for {model} at {resolution}")
+    seconds = float(output_seconds)
+    if seconds <= 0:
+        raise ValueError("flat clip picture needs a duration")
+    raw = flat_clip_raw_cents(model, resolution, seconds)
+    if owner:
+        return {
+            "raw_cost_cents": raw,
+            "balance_debit_cents": customer_debit_cents(raw),
+            "sell_cents_per_second": round(raw / seconds, 3),
+            "pricing_basis": "standard",
+        }
+    sell_total = raw * FRONTIER_MIN_MARKUP
+    basis = frontier_lane(model, resolution, rates)["pricing_basis"]
+    if basis == "at_cost_residual":
+        sell_total = raw / (1 - STRIPE_PCT)
+    elif basis == "at_cost_undercut":
+        sell_total = raw
+    return {
+        "raw_cost_cents": raw,
+        "balance_debit_cents": customer_debit_cents(sell_total),
+        "sell_cents_per_second": round(sell_total / seconds, 3),
+        "pricing_basis": basis,
+    }
+
 
 # Local post cost per finished second for per-second-lane outputs,
 # in cents. Measured 2026-11-16: the loudness pass on a 5 s clip is
@@ -1119,7 +1268,7 @@ def frontier_lane(model: str, resolution: str, rates=None,
         can_undercut = sell < effective
     elif effective is not None and can_undercut is None:
         can_undercut = sell < effective
-    return {
+    picture = {
         "cost_cents_per_second": round(cost, 3),
         "higgsfield_effective_cents_per_second": (
             round(effective, 3) if effective is not None else None),
@@ -1128,6 +1277,16 @@ def frontier_lane(model: str, resolution: str, rates=None,
         "can_undercut": can_undercut,
         "pricing_basis": basis,
     }
+    flat = flat_clip_cost_cents(model, resolution)
+    if flat is not None:
+        # A flat-per-clip lane: the per-second figures above
+        # are the worst-case ceiling at the lane's shortest
+        # sold length; the governing per-clip cost rides along
+        # so the pricing payload never presents the ceiling as
+        # the price of a longer clip.
+        picture["flat_clip_cost_cents"] = flat
+        picture["cost_basis"] = "flat_per_clip"
+    return picture
 
 
 def customer_debit_cents(amount: float) -> int:
@@ -1154,7 +1313,15 @@ def per_second_balance_debit_cents(model: str, resolution: str,
     """What a per-second job charges prepaid balance: the Amendment 3
     sell rate for the lane times the billed seconds, rounded up
     through the shared customer rounding path. The owner pays
-    raw cost instead (owner pricing exemption)."""
+    raw cost instead (owner pricing exemption). A flat-per-clip
+    lane prices from its per-clip cost instead (the flat cost
+    plus post per billed second through the same standard
+    rule), so its debit does not grow with the clip's length
+    the way a per-second lane's does."""
+    if flat_clip_cost_cents(model, resolution) is not None:
+        return _flat_clip_picture(
+            model, resolution, billed_seconds, rates=rates,
+            owner=owner)["balance_debit_cents"]
     sell = frontier_lane(
         model, resolution, rates, owner=owner
     )["sell_cents_per_second"]
@@ -1214,7 +1381,20 @@ def per_second_estimate(model: str, resolution: str, output_seconds: float,
     import math
 
     billed = float(output_seconds) + float(reference_video_seconds)
-    raw = per_second_lane_cost_cents(model, resolution, rates) * billed
+    flat = flat_clip_cost_cents(model, resolution)
+    if flat is not None:
+        # A flat-per-clip lane: raw cost is the per-clip cost
+        # plus post on the output seconds (a flat supplier
+        # bills the generation, not the reference material),
+        # and the sell rate shown is the effective per-second
+        # figure at this duration, so the quote, the caps and
+        # the settle all describe the same per-clip price.
+        raw = _flat_clip_picture(
+            model, resolution, output_seconds, rates=rates,
+            owner=owner)["raw_cost_cents"]
+    else:
+        raw = per_second_lane_cost_cents(
+            model, resolution, rates) * billed
     debit = per_second_balance_debit_cents(
         model, resolution, billed, rates, owner=owner
     )
@@ -1225,9 +1405,14 @@ def per_second_estimate(model: str, resolution: str, output_seconds: float,
     if voice_clone:
         raw += VOICE_CLONE_RAW_CENTS
         debit += voice_clone_price_cents(owner=owner)
-    sell = frontier_lane(
-        model, resolution, rates, owner=owner
-    )["sell_cents_per_second"]
+    if flat is not None:
+        sell = _flat_clip_picture(
+            model, resolution, output_seconds, rates=rates,
+            owner=owner)["sell_cents_per_second"]
+    else:
+        sell = frontier_lane(
+            model, resolution, rates, owner=owner
+        )["sell_cents_per_second"]
     return {
         "billed_seconds": billed,
         "raw_cost_cents": raw,
