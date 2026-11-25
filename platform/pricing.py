@@ -1946,14 +1946,15 @@ IMAGE_LANES = {
         # $0.03 per image at every tier on VidLab.
         "raw_cents": {"1K": 3.0, "2K": 3.0, "4K": 3.0},
     },
-    "gpt_image1": {
-        # GPT Image 1 prices by quality tier, not size:
-        # low $0.02, medium $0.06, high $0.20. The size keys
-        # are the quality values the submit sends.
-        "label": "GPT Image 1 · $", "provider": "vidlab",
-        "endpoint": "gpt-image-1",
-        "raw_cents": {"low": 2.0, "medium": 6.0, "high": 20.0},
-    },
+    # GPT Image 1 was REMOVED from the shelf 2026-11-25
+    # (Jack's order): OpenAI shut the model down on
+    # 2026-10-23, so the lane could only ever fail. A dead
+    # lane is not left listed for customers to pick. Old job
+    # records still carry image_model "gpt_image1"; every
+    # read path resolves lanes with .get, so they render in
+    # libraries and history exactly as before. The frontier
+    # sweep must never re-wire it (maker-shutdown model;
+    # ledger row records the removal).
     "gpt_image25_flare": {
         "label": "GPT Image 2.5 Flare · $", "provider": "vidlab",
         "endpoint": "gpt-image-2.5-flare",
@@ -2136,8 +2137,6 @@ IMAGE_SIZE_LABELS = {
     "seedream40": {"square": "Square"},
     "gpt_image2": {"1K": "1024 x 1024", "2K": "2048 x 2048",
                    "4K": "4096 x 4096"},
-    "gpt_image1": {"low": "Low quality", "medium": "Medium quality",
-                   "high": "High quality"},
     "gpt_image25_flare": {"1K": "1024 x 1024", "2K": "2048 x 2048",
                           "4K": "4096 x 4096"},
     "gpt_image25_sunburst": {"1K": "1024 x 1024",
@@ -2216,8 +2215,7 @@ IMAGE_ASPECTS = {
     # VidLab image lanes (2026-11-23): every VidLab image
     # model publishes the same seven aspect ratios (1:1 plus
     # these six), except Seedream 5.5, which adds 21:9, 2:1
-    # and 1:2, and GPT Image 1, which publishes only 2:3 and
-    # 3:2 beside its square. The edit lane takes no aspects.
+    # and 1:2. The edit lane takes no aspects.
     "ugc_image1": ("16:9", "9:16", "4:3", "3:4", "3:2", "2:3"),
     "nano_banana": ("16:9", "9:16", "4:3", "3:4", "3:2", "2:3"),
     "nano_banana2_lite": ("16:9", "9:16", "4:3", "3:4", "3:2", "2:3"),
@@ -2229,7 +2227,6 @@ IMAGE_ASPECTS = {
     "seedream45": ("16:9", "9:16", "4:3", "3:4", "3:2", "2:3"),
     "seedream40": ("16:9", "9:16", "4:3", "3:4", "3:2", "2:3"),
     "gpt_image2": ("16:9", "9:16", "4:3", "3:4", "3:2", "2:3"),
-    "gpt_image1": ("2:3", "3:2"),
     "gpt_image25_flare": ("16:9", "9:16", "4:3", "3:4", "3:2", "2:3"),
     "gpt_image25_sunburst": ("16:9", "9:16", "4:3", "3:4", "3:2",
                              "2:3"),

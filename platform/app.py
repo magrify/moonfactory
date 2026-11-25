@@ -8870,12 +8870,11 @@ def api():
             # and the price rides the tier alone, like the
             # BeatAPI branch. Three key shapes need care: a
             # flat lane's "square" base sends only the square
-            # ratio; GPT Image 1's keys are quality tiers, not
-            # sizes, and go out as the quality; Midjourney V7's
-            # keys are speed modes and go out as its quality
-            # too. The edit lane sends its source image as the
-            # model's images input. PAYLOAD-UNVERIFIED like the
-            # other shelf branches until a funded job proves it.
+            # ratio; Midjourney V7's keys are speed modes, not
+            # sizes, and go out as its quality. The edit lane
+            # sends its source image as the model's images
+            # input. PAYLOAD-UNVERIFIED like the other shelf
+            # branches until a funded job proves it.
             headers = dict(_api_headers("vidlab"))
             headers["Idempotency-Key"] = job["id"]
             tier, _, aspect = size.partition("-")
@@ -8883,8 +8882,7 @@ def api():
             if lane.get("edit"):
                 image_input["images"] = [_beatapi_media_url(
                     source_image, "edit-source")]
-            elif job["image_model"] in ("gpt_image1",
-                                        "midjourney_v7"):
+            elif job["image_model"] in ("midjourney_v7",):
                 image_input["quality"] = tier
                 if aspect:
                     image_input["aspect_ratio"] = aspect
