@@ -277,6 +277,18 @@ PROVIDER_RATES_CENTS_PER_SECOND = {
     # estimate. BeatAPI's with-input rates (18.0 / 28.0) are in
     # DISPLACED_RATES below.
     "kling4": {"720p": 13.5, "1080p": 20.0},
+    # MAGI-2 by Sand.ai via Higgsfield's own API (wired
+    # 2026-11-25): Higgsfield's published API price is a flat
+    # $0.08 per generated second, 1080p only, generated audio
+    # included (Higgsfield's MAGI-2 API reference,
+    # open.higgsfield.ai/models/sand/magi-2, read 2026-11-25).
+    # Standard pricing (Jack's ruling, 2026-11-25): customers
+    # pay the normal markup through the standard
+    # customer_debit_cents path like every regular lane; this
+    # lane is NOT an at-cost exception and carries no
+    # HIGGSFIELD_POLICY_CENTS_PER_SECOND entry. The owner pays
+    # the raw rate, as on every lane.
+    "magi2": {"1080p": 8.0},
     # Kling 3.0 Omni via Kie (follow-up pass, 2026-11-16): from
     # $0.0755/s (the from-price does not split standard/pro;
     # carried flat pending console confirmation). fal's with-audio
@@ -829,6 +841,9 @@ MODEL_RESOLUTIONS = {
     "skyreels_v4_std": ("480p", "720p", "1080p"),
     "seedance15pro": ("480p", "720p", "1080p"),
     "seedance10pro_fast": ("480p", "720p", "1080p"),
+    # MAGI-2 (2026-11-25): 1080p is the model's only
+    # resolution on Higgsfield's API.
+    "magi2": ("1080p",),
 }
 PROVIDER_RATE_STALE_SECONDS = 24 * 3600
 

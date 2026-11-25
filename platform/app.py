@@ -2672,6 +2672,9 @@ MODELS = [
     {"id": "seedance15pro", "label": "Seedance 1.5 Pro", "paid_only": True},
     {"id": "seedance10pro_fast", "label": "Seedance 1.0 Pro Fast", "paid_only": True},
     {"id": "pixverse_v6_max", "label": "PixVerse V6 Max", "paid_only": True},
+    # MAGI-2 by Sand.ai (2026-11-25): listed individually
+    # under its own name, on Higgsfield's own API route.
+    {"id": "magi2", "label": "MAGI-2", "paid_only": True},
 ]
 MODEL_LABELS = {m["id"]: m["label"] for m in MODELS}
 DEFAULT_MODEL = "wan2.2"
@@ -3496,6 +3499,8 @@ PER_SECOND_MODELS = (
     "vidu_q3_turbo", "vidu_q3_mix", "skyreels_v4_fast",
     "skyreels_v4_std", "seedance15pro", "seedance10pro_fast",
     "pixverse_v6_max",
+    # MAGI-2 via Higgsfield (2026-11-25).
+    "magi2",
 )
 # Which supplier serves each per-second model. Internal only: the
 # picker, the pricing page, and every error show model names, never
@@ -3601,6 +3606,9 @@ MODEL_PROVIDER = {
     "ltx23_lora_unc": "spicyapi",
     # Motion transfer (2026-11-17): fal's Wan Motion endpoint.
     "wan_motion": "fal",
+    # MAGI-2 (2026-11-25): Higgsfield's own API is the only
+    # route; the model is a Higgsfield exclusive at launch.
+    "magi2": "higgsfield",
 }
 # The secret env var each supplier's key lives under in the
 # moonfactory-providers Modal secret. Lane state checks the
@@ -3626,6 +3634,7 @@ PROVIDER_KEY_ENV = {
     "cloudflare": "CLOUDFLARE_API_TOKEN",
     "ovhcloud": "OVH_AI_API_KEY",
     "vidlab": "VIDLAB_API_KEY",
+    "higgsfield": "HIGGSFIELD_API_KEY",
 }
 # Per-resolution route overrides: Seedance 2.5's cheapest route
 # is a different supplier at 480p/720p (CometAPI) than at 1080p
@@ -3775,6 +3784,13 @@ LANE_AUDIO = {
                            "note": "silent on the wired route; music and voice run in post"},
     "pixverse_v6_max": {"native_speech": False, "native_audio": True,
                         "note": "PixVerse native audio is music/SFX-led; generate_audio on; priced at the with-audio rate"},
+    # MAGI-2 (2026-11-25): the model generates its audio in
+    # the same pass, lip-synced dialogue, sound effects and
+    # music (Higgsfield's MAGI-2 page, read 2026-11-25); the
+    # submit sends generate_audio=true, its documented
+    # default, and the $0.08/s rate already includes it.
+    "magi2": {"native_speech": True, "native_audio": True,
+              "note": "MAGI-2 generates lip-synced dialogue, sound effects and music natively; audio included in the rate"},
     "runway_gen45": {"native_speech": False, "native_audio": False,
                      "note": "Gen-4.5 is silent; its maker sells audio as separate models"},
     # Uncensored lanes (2026-11-17): audio capability follows
@@ -3843,14 +3859,14 @@ def lip_sync_applies(model: str, speech_script) -> bool:
 URL_RESULT_PROVIDERS = (
     "fal", "beatapi", "kie", "cometapi", "piapi", "openrouter",
     "novita", "wavespeed", "eachlabs", "runway", "vidu", "minimax",
-    "spicyapi", "hotapi", "wiro", "vidlab",
+    "spicyapi", "hotapi", "wiro", "vidlab", "higgsfield",
 )
 # Suppliers polled through mirror_api_status (fal and BeatAPI keep
 # their original mirror functions).
 API_POLL_PROVIDERS = (
     "kie", "cometapi", "piapi", "openrouter", "novita",
     "wavespeed", "eachlabs", "runway", "vidu", "minimax",
-    "spicyapi", "hotapi", "wiro", "vidlab",
+    "spicyapi", "hotapi", "wiro", "vidlab", "higgsfield",
 )
 # Bounded poll lifetimes, in seconds from job creation (the
 # universal safety net, 2026-11-17). The SpicyAPI lesson: a
@@ -5225,6 +5241,9 @@ MODEL_DURATION_BOUNDS = {
     "skyreels_v4_std": (3, 15),
     "seedance15pro": (4, 12),
     "seedance10pro_fast": (2, 12),
+    # MAGI-2 (2026-11-25): Higgsfield's API reference bounds
+    # duration at 4 to 30 whole seconds, any value in range.
+    "magi2": (4, 30),
     # Uncensored lanes (2026-11-17), from each route's own
     # published schema or model page.
     "wan22_unc": (5, 5),
@@ -5327,7 +5346,13 @@ UNIVERSAL_LONG_LENGTHS = (45, 60, 90, 120)
 # Novita i2v, WaveSpeed image paths, Eachlabs image slug,
 # Runway image_to_video, the image-only SpicyAPI builds,
 # HotAPI image_url, Wiro inputImage).
-CHAIN_CONTINUATION_MODELS = PER_SECOND_MODELS
+# MAGI-2 is the one exception (2026-11-25): a MAGI-2
+# generation caps at 30 seconds and its picker respects the
+# model's own 4 to 30 second range, so the lane offers no
+# chained lengths; its image-to-video field names are also
+# still payload-unverified, and chaining rides on that mode.
+CHAIN_CONTINUATION_MODELS = tuple(
+    m for m in PER_SECOND_MODELS if m != "magi2")
 
 # Per-lane reference caps (images, videos, audios), raised from
 # the old flat platform cap to what each model actually supports
@@ -5387,6 +5412,9 @@ MODEL_REF_VIDEO_SECONDS_CAP = {
     # Motion transfer's reference video is the product: up to
     # the model's own 30 second driving limit.
     "wan_motion": 30.0,
+    # MAGI-2 (2026-11-25): Higgsfield's docs cap the total
+    # reference video across all clips at 30 seconds.
+    "magi2": 30.0,
 }
 
 
@@ -5831,6 +5859,18 @@ VIDLAB_VIDEO_MODELS = {
                         "rate_variants": {"480p": "540p+audio",
                                           "720p": "720p+audio",
                                           "1080p": "1080p+audio"}},
+}
+HIGGSFIELD_BASE = "https://api.higgsfield.ai"
+# MAGI-2's mode endpoints on Higgsfield's API (2026-11-25):
+# one path per mode under the model's own name, all at the
+# same $0.08 per generated second (Higgsfield's MAGI-2 model
+# pages, read 2026-11-25).
+HIGGSFIELD_VIDEO_MODELS = {
+    "magi2": {
+        "text": "sand/magi-2/text-to-video",
+        "image": "sand/magi-2/image-to-video",
+        "reference": "sand/magi-2/reference-to-video",
+    },
 }
 FAL_BASE = "https://queue.fal.run"
 FAL_ENDPOINTS = {
@@ -9828,6 +9868,14 @@ def api():
             # Vidu's published auth scheme is a Token header.
             return {"Authorization": f"Token {key}",
                     "Content-Type": "application/json"}
+        if provider == "higgsfield":
+            # Higgsfield's documented scheme (its API docs,
+            # read 2026-11-25): the literal word Key followed
+            # by the combined KEY_ID:KEY_SECRET credential,
+            # which is exactly how the value rides
+            # HIGGSFIELD_API_KEY in the secret store.
+            return {"Authorization": f"Key {key}",
+                    "Content-Type": "application/json"}
         if provider == "eachlabs":
             return {"X-API-Key": key, "Authorization": f"Bearer {key}",
                     "Content-Type": "application/json"}
@@ -11507,6 +11555,111 @@ def api():
             pass
         return job
 
+    # -- Higgsfield ---------------------------------------------------------
+    def submit_higgsfield_job(job: dict, body: dict, params: dict,
+                              prompt: str):
+        """Higgsfield API: POST the mode's own endpoint with a
+        flat JSON body, auth "Authorization: Key
+        KEY_ID:KEY_SECRET" (the combined credential rides
+        HIGGSFIELD_API_KEY verbatim), then poll the status_url
+        the submit returns. Documented contract (Higgsfield's
+        MAGI-2 text-to-video API reference and its API docs
+        index, read 2026-11-25): the submit answers {status:
+        "queued", request_id, status_url, cancel_url}; the
+        status answer carries queued / in_progress / completed
+        / failed / nsfw / canceled, and a completed answer
+        carries the result at video.url. The text-to-video
+        body below is the documented schema exactly: prompt,
+        duration 4 to 30, resolution "1080p" (the model's only
+        tier), aspect_ratio, generate_audio (the lane's priced
+        basis includes the model's native audio, so it is sent
+        on), and an optional seed. PAYLOAD-UNVERIFIED for the
+        image and reference modes: Higgsfield documents both
+        endpoints and their inputs (a first frame plus an
+        optional last frame; image, video and audio reference
+        lists, references as public URLs) but does not
+        publicly print those modes' field names, so their
+        bodies follow the API's own *_url / *_urls naming from
+        its published examples. No Higgsfield key is in the
+        secret store yet, so the lane sits paused until one
+        is; the first keyed submit is the envelope proof, like
+        the VidLab lanes before it."""
+        model = job["model"]
+        spec = HIGGSFIELD_VIDEO_MODELS[model]
+        mode = params["mode"]
+        payload = {
+            "prompt": prompt,
+            "duration": int(params["duration"]),
+            "resolution": "1080p",
+            "aspect_ratio": params["aspect_ratio"],
+            "generate_audio": True,
+        }
+        if isinstance(body.get("seed"), int):
+            payload["seed"] = body["seed"]
+        try:
+            if mode == "image":
+                payload["image_url"] = _beatapi_media_url(
+                    params["start_image"], "first-frame")
+                if params.get("end_image"):
+                    payload["end_image_url"] = _beatapi_media_url(
+                        params["end_image"], "last-frame")
+            elif mode == "reference":
+                if params["reference_image_urls"]:
+                    payload["image_urls"] = [
+                        _beatapi_media_url(u, "reference-image")
+                        for u in params["reference_image_urls"]]
+                if params["reference_video_urls"]:
+                    payload["video_urls"] = [
+                        _beatapi_media_url(u, "reference-video")
+                        for u in params["reference_video_urls"]]
+                if params["reference_audio_urls"]:
+                    payload["audio_urls"] = [
+                        _beatapi_media_url(u, "reference-audio")
+                        for u in params["reference_audio_urls"]]
+        except Exception as exc:
+            _submit_failed(job, f"media upload failed: {exc}")
+        data = _submit_post(
+            job, f"{HIGGSFIELD_BASE}/{spec[mode]}",
+            _api_headers("higgsfield"), payload)
+        request_id = data.get("request_id")
+        status_url = data.get("status_url")
+        if not request_id or not status_url:
+            _submit_failed(job, "submit returned no request id")
+        job["provider_task_id"] = request_id
+        job["provider_status_url"] = status_url
+        jobs[job["id"]] = job
+
+    def mirror_higgsfield_status(job: dict) -> dict:
+        if not _poll_gate(job):
+            return job
+        try:
+            resp = requests.get(
+                job.get("provider_status_url")
+                or f"{HIGGSFIELD_BASE}/requests/"
+                   f"{job['provider_task_id']}/status",
+                headers=_api_headers("higgsfield"), timeout=15)
+            if resp.status_code == 200:
+                data = resp.json() or {}
+                status = str(data.get("status") or "").lower()
+                if status == "completed":
+                    video = data.get("video")
+                    url = video.get("url") \
+                        if isinstance(video, dict) else None
+                    if url:
+                        _poll_done(job, url)
+                    else:
+                        _poll_retry_or_fail(job)
+                elif status in ("failed", "nsfw", "canceled"):
+                    _poll_fail(job, f"higgsfield {status}")
+                elif status in ("queued", "in_progress"):
+                    job["status"] = "running"
+                    jobs[job["id"]] = job
+                else:
+                    _note_unparsed(job, "higgsfield", status, data)
+        except Exception:
+            pass
+        return job
+
     def submit_api_job(job: dict, body: dict, params: dict, prompt: str,
                        base: str):
         """Dispatch one per-second job to the supplier recorded on
@@ -11543,6 +11696,8 @@ def api():
             submit_wiro_job(job, body, params, prompt)
         elif provider == "vidlab":
             submit_vidlab_job(job, body, params, prompt)
+        elif provider == "higgsfield":
+            submit_higgsfield_job(job, body, params, prompt)
         else:
             submit_fal_job(job, body, params, prompt, base)
 
@@ -11577,6 +11732,8 @@ def api():
             return mirror_wiro_status(job)
         if provider == "vidlab":
             return mirror_vidlab_status(job)
+        if provider == "higgsfield":
+            return mirror_higgsfield_status(job)
         return job
 
 
