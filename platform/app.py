@@ -6597,6 +6597,33 @@ def _send_email(to: str, subject: str, body: str) -> str:
     return "outbox"
 
 
+def telegram_login_hash_ok(bot_token: str, payload: dict) -> bool:
+    """Telegram's Login Widget verification, exactly as Telegram
+    specifies it: the data check string is every field but the
+    hash itself, as key=value lines sorted by key and joined
+    with newlines, and the expected hash is HMAC-SHA256 over
+    that string keyed by the SHA256 of the bot token. Anything
+    else (a missing hash, a missing token, one altered field)
+    does not verify, and a payload that does not verify is not
+    an identity."""
+    received = str((payload or {}).get("hash") or "")
+    if not received or not bot_token:
+        return False
+    lines = []
+    for key in sorted(payload):
+        if key == "hash":
+            continue
+        value = payload.get(key)
+        if value is None or value == "":
+            continue
+        lines.append(f"{key}={value}")
+    secret_key = hashlib.sha256(bot_token.encode()).digest()
+    expected = hmac.new(
+        secret_key, "\n".join(lines).encode(), hashlib.sha256
+    ).hexdigest()
+    return hmac.compare_digest(expected, received)
+
+
 def _rate_limited(bucket: str, ident: str, limit: int, window: int = 60) -> bool:
     key = f"rl:{bucket}:{ident}"
     record = meta.get(key) or {"start": _now(), "count": 0}
@@ -6746,7 +6773,18 @@ def api():
 
     def save_user(user: dict):
         users[f"id:{user['id']}"] = user
-        users[f"email:{user['email']}"] = user
+        # An account is indexed by every identity it carries:
+        # its email when it has one, and its provider identity
+        # for the social accounts (X, Telegram) that have no
+        # email at all (Jack, 2026-11-25). The id index is the
+        # canonical record sessions resolve; the others are
+        # sign-in pointers to it, so a provider sign-in reloads
+        # through the id before it trusts the record.
+        if user.get("email"):
+            users[f"email:{user['email']}"] = user
+        provider = user.get("auth_provider")
+        if provider and user.get("provider_id"):
+            users[f"{provider}:{user['provider_id']}"] = user
 
     def enforce_prompt_gate(user, lane, ip, *texts):
         """The creation-time illegal-content gate (Jack,
@@ -6986,7 +7024,13 @@ def api():
     def public_user(user: dict) -> dict:
         budget_used = included_cost_used(user)
         return {
-            "email": user["email"],
+            "email": user.get("email"),
+            # Provider accounts (X, Telegram) carry no email:
+            # the studio labels them by the provider profile
+            # name, and auth_provider says which provider the
+            # account belongs to (Jack, 2026-11-25).
+            "display_name": user.get("display_name"),
+            "auth_provider": user.get("auth_provider"),
             "verified": user["verified"],
             "plan": user["plan"],
             "paid_customer": is_paid(user),
@@ -7283,7 +7327,13 @@ def api():
             # Social sign in (2026-11-25): the studio renders a
             # provider button only for a provider whose
             # credentials this deployment actually carries.
-            "oauth_providers": {"google": _google_oauth_configured()},
+            "oauth_providers": {
+                "google": _google_oauth_configured(),
+                "x": _x_oauth_configured(),
+                "telegram": _telegram_configured(),
+                "telegram_bot_username":
+                    _telegram_bot_username() or None,
+            },
             "pow_required": not _turnstile_configured(),
             "pow_difficulty_bits": POW_DIFFICULTY_BITS,
             "payments_mode": stripe_mode(),
@@ -7787,6 +7837,265 @@ def api():
                 meta[f"oauth-park:{park_id}"] = {
                     "pending_create": None, "expires": 0}
         resp = RedirectResponse(url="/app", status_code=303)
+        resp.set_cookie(
+            "mf_session", _make_session(user["id"],
+                                        user.get("session_epoch", "")),
+            max_age=7 * 24 * 3600, httponly=True, samesite="lax",
+        )
+        return resp
+
+    # -- Social sign-in: X and Telegram (Jack, 2026-11-25) ---
+    # Jack's call, made knowing the trade: neither X nor
+    # Telegram can hand this platform a verified email (X's
+    # OAuth user lookup returns none; Telegram's login returns
+    # a Telegram identity only). These accounts are therefore
+    # keyed by the provider's own user id instead of an email:
+    # no email on the record, no password (password sign-in
+    # simply never matches, exactly as with Google accounts),
+    # no verification step (the provider is the verification),
+    # and the acceptance stamps exactly as the Google path
+    # stamps it, because the dialog's by-continuing line is on
+    # screen when the button is clicked. Everything downstream
+    # (sessions, free clips, the 18+ gate, billing) reads the
+    # same user record and never learns the difference.
+    # X runs the redirect flow, mirroring Google's shape with
+    # PKCE added (X requires it): start, one-time server-side
+    # state spent before the token exchange, user lookup.
+    # Telegram is not a redirect flow at all: its Login Widget
+    # answers in the page, the browser posts the widget's
+    # payload here, and the payload is believed only after the
+    # HMAC check against the bot token passes and its
+    # auth_date is fresh. A creation built while signed out
+    # never leaves the page on the Telegram path, so it fires
+    # in place like the email sign-in; on the X path it rides
+    # the /api/auth/park round trip like Google's.
+
+    def _x_oauth_configured() -> bool:
+        return bool(os.environ.get("X_CLIENT_ID")
+                    and os.environ.get("X_CLIENT_SECRET"))
+
+    def _telegram_bot_username() -> str:
+        return (os.environ.get("TELEGRAM_BOT_USERNAME") or ""
+                ).strip().lstrip("@")
+
+    def _telegram_configured() -> bool:
+        # The widget needs both halves: the bot token keys the
+        # HMAC check, and the bot username names the widget.
+        # The username is read from the secret rather than
+        # derived with a getMe call, so /api/config answers
+        # without a network call and the state is exact.
+        return bool(os.environ.get("TELEGRAM_BOT_TOKEN")
+                    and _telegram_bot_username())
+
+    def _provider_account(provider: str, provider_id: str,
+                          display_name: str = "") -> dict:
+        """Resolve the account a provider identity owns, or
+        create it on first sign-in. The provider index is only
+        a pointer: the record is reloaded through the id index
+        (the one sessions resolve) before it is trusted, so a
+        stamp written anywhere else (a suspension, a session
+        epoch) is the record the sign-in sees."""
+        found = users.get(f"{provider}:{provider_id}")
+        user = None
+        if found:
+            user = users.get(f"id:{found['id']}") or found
+        if user is not None:
+            if display_name \
+                    and user.get("display_name") != display_name:
+                user["display_name"] = display_name
+                save_user(user)
+            return user
+        # A new account from a provider identity: the record
+        # mirrors the Google path's, with the provider's user
+        # id in place of the email, the profile's display name
+        # where the provider gave one, the acceptance stamped
+        # from the by-continuing line, and the account already
+        # verified (the provider proved the identity).
+        user = {
+            "id": pysecrets.token_hex(8),
+            "email": None,
+            "pw": "",
+            "auth_provider": provider,
+            "provider_id": str(provider_id),
+            "display_name": display_name or None,
+            "terms_accepted_at": _now(),
+            "legal_version": LEGAL_VERSION,
+            "verified": True,
+            "created_at": _now(),
+            "plan": "free",
+            "handle": None,
+            "gallery_opt_out": False,
+            "past_due": False,
+            "balance_cents": 0,
+            "net_paid_cents": 0.0,
+            "cost_settled_cents": 0.0,
+            "free_jobs_total": 0,
+            "usage": {"period": _period(), "free_jobs": 0,
+                      "included_seconds": 0.0,
+                      "included_cost_cents": 0.0},
+        }
+        save_user(user)
+        record_acceptance(user, ACCEPTANCE_SIGNUP_LEGAL,
+                          legal_version=LEGAL_VERSION)
+        return user
+
+    def _social_signin_redirect(user: dict, record) -> RedirectResponse:
+        """The shared tail of a redirect social sign-in: land
+        the parked creation on the account and issue the login
+        session cookie, the same landing the Google callback
+        performs."""
+        park_id = (record or {}).get("park") or ""
+        if park_id:
+            parked = meta.get(f"oauth-park:{park_id}")
+            if parked and parked.get("expires", 0) > _now() \
+                    and parked.get("pending_create"):
+                user["pending_create"] = parked["pending_create"]
+                save_user(user)
+                meta[f"oauth-park:{park_id}"] = {
+                    "pending_create": None, "expires": 0}
+        resp = RedirectResponse(url="/app", status_code=303)
+        resp.set_cookie(
+            "mf_session", _make_session(user["id"],
+                                        user.get("session_epoch", "")),
+            max_age=7 * 24 * 3600, httponly=True, samesite="lax",
+        )
+        return resp
+
+    @web.get("/api/auth/x/start")
+    def x_oauth_start(request: Request, park: str = ""):
+        import base64
+        import urllib.parse
+
+        if not _x_oauth_configured():
+            raise HTTPException(status_code=404, detail="not found")
+        park_id = ""
+        if park:
+            record = meta.get(f"oauth-park:{park}")
+            if record and record.get("expires", 0) > _now():
+                park_id = park
+        # PKCE (X requires it): the verifier stays server side
+        # in the state record; only its SHA256 challenge rides
+        # the authorize request.
+        verifier = pysecrets.token_urlsafe(48)
+        challenge = base64.urlsafe_b64encode(
+            hashlib.sha256(verifier.encode()).digest()
+        ).decode().rstrip("=")
+        state = pysecrets.token_urlsafe(24)
+        meta[f"oauth-state:x:{state}"] = {
+            "park": park_id, "verifier": verifier,
+            "expires": _now() + 10 * 60}
+        query = urllib.parse.urlencode({
+            "client_id": os.environ["X_CLIENT_ID"],
+            "redirect_uri": f"{base_url(request)}/api/auth/x/callback",
+            "response_type": "code",
+            "scope": "tweet.read users.read",
+            "state": state,
+            "code_challenge": challenge,
+            "code_challenge_method": "S256",
+        })
+        return RedirectResponse(
+            url=f"https://twitter.com/i/oauth2/authorize?{query}",
+            status_code=303)
+
+    @web.get("/api/auth/x/callback")
+    def x_oauth_callback(request: Request, code: str = "",
+                         state: str = "", error: str = ""):
+        def fail():
+            return RedirectResponse(url="/app?oauth=error",
+                                    status_code=303)
+
+        if not _x_oauth_configured() or error or not code \
+                or not state:
+            return fail()
+        record = meta.get(f"oauth-state:x:{state}")
+        if not record or record.get("expires", 0) < _now() \
+                or not record.get("verifier"):
+            return fail()
+        # One time: the state (and its PKCE verifier) is spent
+        # whatever happens next.
+        meta[f"oauth-state:x:{state}"] = {
+            "park": "", "verifier": "", "expires": 0}
+        try:
+            token_resp = requests.post(
+                "https://api.twitter.com/2/oauth2/token",
+                data={
+                    "code": code,
+                    "grant_type": "authorization_code",
+                    "redirect_uri":
+                        f"{base_url(request)}/api/auth/x/callback",
+                    "code_verifier": record["verifier"],
+                },
+                auth=(os.environ["X_CLIENT_ID"],
+                      os.environ["X_CLIENT_SECRET"]),
+                timeout=15)
+            if token_resp.status_code != 200:
+                return fail()
+            access_token = token_resp.json().get("access_token")
+            if not access_token:
+                return fail()
+            info_resp = requests.get(
+                "https://api.twitter.com/2/users/me",
+                headers={"Authorization": f"Bearer {access_token}"},
+                timeout=15)
+            if info_resp.status_code != 200:
+                return fail()
+            info = (info_resp.json() or {}).get("data") or {}
+        except Exception:  # noqa: BLE001
+            return fail()
+        x_id = str(info.get("id") or "")
+        if not x_id:
+            return fail()
+        display_name = (info.get("name") or "").strip()
+        if not display_name and info.get("username"):
+            display_name = "@" + str(info["username"]).strip()
+        user = _provider_account("x", x_id, display_name)
+        return _social_signin_redirect(user, record)
+
+    @web.post("/api/auth/telegram/login")
+    async def telegram_login(request: Request):
+        """The Telegram Login Widget's answer, posted by the
+        studio: the payload is an identity only when its hash
+        verifies against the bot token and its auth_date is
+        fresh (a day old at most, and not from the future
+        beyond clock skew). The session issued is the login
+        session, returned the way /api/login returns it,
+        because the widget answers in the page and the sign-in
+        completes there."""
+        ip = client_ip(request)
+        if _rate_limited("telegram-login", ip, 10):
+            raise HTTPException(status_code=429,
+                                detail="too many attempts, slow down")
+        if not _telegram_configured():
+            raise HTTPException(status_code=404, detail="not found")
+        body = await request.json()
+        if not isinstance(body, dict):
+            raise HTTPException(status_code=422,
+                                detail="that sign in cannot be read")
+        if not telegram_login_hash_ok(
+                os.environ["TELEGRAM_BOT_TOKEN"], body):
+            raise HTTPException(
+                status_code=401,
+                detail="that Telegram sign in could not be verified")
+        try:
+            tg_id = int(body.get("id") or 0)
+            auth_date = int(body.get("auth_date") or 0)
+        except (TypeError, ValueError):
+            raise HTTPException(
+                status_code=401,
+                detail="that Telegram sign in could not be verified")
+        if not tg_id or auth_date < _now() - 24 * 3600 \
+                or auth_date > _now() + 300:
+            raise HTTPException(
+                status_code=401,
+                detail="that Telegram sign in is out of date")
+        display_name = " ".join(
+            part for part in [
+                str(body.get("first_name") or "").strip(),
+                str(body.get("last_name") or "").strip()] if part)
+        if not display_name and body.get("username"):
+            display_name = "@" + str(body["username"]).strip().lstrip("@")
+        user = _provider_account("telegram", str(tg_id), display_name)
+        resp = JSONResponse({"status": "ok", "user": public_user(user)})
         resp.set_cookie(
             "mf_session", _make_session(user["id"],
                                         user.get("session_epoch", "")),
@@ -18190,10 +18499,15 @@ x_api_key: str = Header(default="")):
         first real top up did before this helper existed (found
         live, 2026-11-17)."""
         if not user.get("stripe_customer_id"):
-            customer = stripe.Customer.create(
-                email=user["email"],
-                metadata={"user_id": user["id"]},
-            )
+            # Provider accounts (X, Telegram) have no email to
+            # give Stripe: the customer is created without one
+            # and checkout still runs (Stripe collects what it
+            # needs on its own page); such a customer simply
+            # has no address for an emailed receipt.
+            create_kwargs = {"metadata": {"user_id": user["id"]}}
+            if user.get("email"):
+                create_kwargs["email"] = user["email"]
+            customer = stripe.Customer.create(**create_kwargs)
             user["stripe_customer_id"] = customer.id
             save_user(user)
         return user["stripe_customer_id"]
@@ -20564,6 +20878,8 @@ APP_HTML = (
   create an account and it starts right away, exactly as you built it.</p>
   <div class="auth-providers" id="auth-oauth" style="display:none">
     <a class="auth-provider" id="auth-google" href="/api/auth/google/start"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M23.5 12.3c0-.9-.1-1.5-.3-2.2H12v4.3h6.5c-.1 1.1-.8 2.7-2.4 3.8l3.7 2.9c2.3-2.1 3.7-5.2 3.7-9z"/><path fill="#34A853" d="M12 24c3.2 0 5.9-1.1 7.9-2.9l-3.7-2.9c-1 .7-2.4 1.2-4.2 1.2-3.2 0-5.9-2.2-6.9-5.1L1.3 17.2C3.3 21.2 7.3 24 12 24z"/><path fill="#FBBC05" d="M5.1 14.3c-.2-.7-.4-1.5-.4-2.3s.1-1.6.4-2.3L1.3 6.8C.5 8.4 0 10.1 0 12s.5 3.6 1.3 5.2l3.8-2.9z"/><path fill="#EA4335" d="M12 4.7c1.8 0 3 .8 3.7 1.4l3.3-3.2C17.9 1.1 15.2 0 12 0 7.3 0 3.3 2.8 1.3 6.8l3.8 2.9c1-2.9 3.7-5 6.9-5z"/></svg><span>Continue with Google</span></a>
+    <a class="auth-provider" id="auth-x" href="/api/auth/x/start" style="display:none"><svg width="19" height="19" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18.9 1.2h3.7l-8.1 9.3L24 22.8h-7.5l-5.9-7.7-6.7 7.7H.2l8.7-9.9L0 1.2h7.7l5.3 7 5.9-7z"/></svg><span>Continue with X</span></a>
+    <div class="auth-provider" id="auth-telegram" style="display:none"><span id="auth-telegram-slot"></span></div>
   </div>
   <div class="auth-or" id="auth-or" style="display:none"><span>OR</span></div>
   <div class="auth-providers">
@@ -22218,14 +22534,14 @@ function openEmailForm() {
 }
 $('auth-email-toggle').onclick = () => { openEmailForm(); $('email').focus(); };
 setAuthMode('create');
-// Continue with Google: a creation built while signed out
-// rides the round trip parked server side, the same one home
-// the sign-up path uses. The browser parks it first, then
-// follows the start link with the park id; with nothing
-// parked it simply follows the link.
-$('auth-google').onclick = async e => {
+// Continue with Google / Continue with X: a creation built
+// while signed out rides the round trip parked server side,
+// the same one home the sign-up path uses. The browser parks
+// it first, then follows the start link with the park id;
+// with nothing parked it simply follows the link.
+async function followProviderStart(e, startPath) {
   e.preventDefault();
-  let href = '/api/auth/google/start';
+  let href = startPath;
   if (pendingCreate) {
     try {
       const r = await api('/api/auth/park', { method: 'POST', headers: {'Content-Type': 'application/json'},
@@ -22234,18 +22550,61 @@ $('auth-google').onclick = async e => {
     } catch (err) { /* the sign in still proceeds; the build stays in the form */ }
   }
   window.location.href = href;
+}
+$('auth-google').onclick = e => followProviderStart(e, '/api/auth/google/start');
+$('auth-x').onclick = e => followProviderStart(e, '/api/auth/x/start');
+// Continue with Telegram is the Login Widget, not a link:
+// Telegram's own script renders its button in the row, and
+// its answer arrives in this page (no round trip, so a built
+// creation fires in place, exactly like the email sign in).
+// The server believes the answer only after its HMAC check.
+let telegramWidgetLoaded = false;
+function loadTelegramWidget(username) {
+  if (telegramWidgetLoaded) return;
+  telegramWidgetLoaded = true;
+  const s = document.createElement('script');
+  s.async = true;
+  s.src = 'https://telegram.org/js/telegram-widget.js?22';
+  s.setAttribute('data-telegram-login', username);
+  s.setAttribute('data-size', 'large');
+  s.setAttribute('data-radius', '20');
+  s.setAttribute('data-onauth', 'onTelegramAuth(user)');
+  s.setAttribute('data-request-access', 'write');
+  $('auth-telegram-slot').appendChild(s);
+}
+window.onTelegramAuth = async tg => {
+  try {
+    const r = await api('/api/auth/telegram/login', { method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(tg) });
+    if (pendingCreate && r.user && r.user.verified) {
+      spinMsg('auth-msg', 'Starting your video...');
+      await afterSignIn(r.user);
+    } else {
+      closeAuthPanel();
+      await afterSignIn(r.user);
+    }
+  } catch (e) { msg('auth-msg', e.message, 'err'); }
 };
-// The provider row, its OR divider, and the passwordless
+// The provider rows, their OR divider, and the passwordless
 // line render only when the deployment carries that
 // provider's credentials; /api/config says which, and a
 // button for a provider that cannot answer never ships.
 function applyOAuthProviders() {
   const oauthBox = $('auth-oauth');
   if (!oauthBox) return;
-  const google = !!(cfg.oauth_providers && cfg.oauth_providers.google);
-  oauthBox.style.display = google ? '' : 'none';
-  $('auth-or').style.display = google ? '' : 'none';
-  $('auth-secure').style.display = google ? '' : 'none';
+  const providers = (cfg && cfg.oauth_providers) || {};
+  const google = !!providers.google;
+  const x = !!providers.x;
+  const telegram = !!providers.telegram;
+  const anyProvider = google || x || telegram;
+  oauthBox.style.display = anyProvider ? '' : 'none';
+  $('auth-google').style.display = google ? '' : 'none';
+  $('auth-x').style.display = x ? '' : 'none';
+  $('auth-telegram').style.display = telegram ? '' : 'none';
+  $('auth-or').style.display = anyProvider ? '' : 'none';
+  $('auth-secure').style.display = anyProvider ? '' : 'none';
+  if (telegram && providers.telegram_bot_username)
+    loadTelegramWidget(providers.telegram_bot_username);
 }
 // A social sign in that could not finish lands back here
 // with the reason in the query: open the dialog on the
@@ -22662,8 +23021,8 @@ function showStudio(u) {
   $('auth').style.display = 'none'; $('studio').style.display = 'block';
   $('nav-signin').style.display = 'none';
   $('profile').style.display = 'inline-block';
-  $('menu-email').textContent = u.email;
-  $('account-email').textContent = u.email;
+  $('menu-email').textContent = u.email || u.display_name || u.handle;
+  $('account-email').textContent = u.email || u.display_name || u.handle;
   $('account-handle').textContent = u.handle;
   renderAvatar(u);
   renderAutoReload(u);
@@ -23377,7 +23736,7 @@ $('segments').addEventListener('change', updateHousePrice);
 // when none is. The gallery reads its own copy from the
 // feed, so it never needs this.
 function renderAvatar(u) {
-  const letter = (u.email || '?').trim().charAt(0).toUpperCase();
+  const letter = (u.email || u.display_name || u.handle || '?').trim().charAt(0).toUpperCase();
   const btn = $('avatar');
   const big = $('account-photo');
   btn.innerHTML = '';

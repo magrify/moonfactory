@@ -11,13 +11,16 @@ Rules pinned here:
   help? mailto, a shield line, and a by-continuing line
   naming the Terms, Privacy Policy, and Acceptable Use
   Policy with links.
-- A provider button never ships dead: the Google row, the
-  divider, and the passwordless line all start hidden, and
-  the studio shows them only when /api/config reports the
-  deployment carries Google's credentials. No X or Telegram
-  button exists in the markup at all (neither flow can
-  supply a verified email to this account model, so neither
-  is half-wired).
+- A provider button never ships dead: every provider row,
+  the divider, and the passwordless line all start hidden,
+  and the studio shows a row only when /api/config reports
+  the deployment carries that provider's credentials. (The
+  X and Telegram rows were added later the same day on
+  Jack's order to proceed: neither flow can supply a
+  verified email, so their accounts are keyed by the
+  provider's user id instead. Their wiring is pinned in
+  check_x_telegram_auth.py; this file keeps the dialog and
+  the Google flow.)
 - The email form is the same form as before, folded: the
   acceptance checkbox lives in create mode only, sign in
   mode hides it and the Create account button, and both
@@ -87,9 +90,13 @@ check('id="auth-or"' in auth and "<span>OR</span>" in auth,
 check('id="auth-email-toggle"' in auth
       and "Continue with email" in auth,
       "the email path opens from its own pill")
-check("Continue with X" not in HTML
-      and "Continue with Telegram" not in HTML,
-      "no X or Telegram button ships (neither is wired)")
+check('id="auth-x" href="/api/auth/x/start" style="display:none"'
+      in auth and "Continue with X" in auth,
+      "the X row exists under the Google row and starts hidden")
+check('id="auth-telegram" style="display:none"' in auth
+      and 'id="auth-telegram-slot"' in auth,
+      "the Telegram row exists under the X row and starts "
+      "hidden (the widget renders into its slot)")
 check('<a href="mailto:support@magrify.com">Need help?</a>' in auth,
       "Need help? mails the support address")
 check("Secure passwordless authentication" in auth,
@@ -131,7 +138,8 @@ check("api('/api/auth/park'" in modes
       "the Google click parks the built creation first")
 check("window.location.href = href;" in modes,
       "the Google click then follows the start route")
-check("cfg.oauth_providers && cfg.oauth_providers.google" in modes,
+check("const providers = (cfg && cfg.oauth_providers) || {};"
+      in modes and "const google = !!providers.google;" in modes,
       "provider visibility reads /api/config, not a guess")
 check("applyOAuthProviders(); buildCatalog();" in SRC,
       "the studio applies provider visibility when config lands")
@@ -139,8 +147,10 @@ check("get('oauth') === 'error'" in modes,
       "a failed social sign in reopens the dialog with the reason")
 
 # -- /api/config reports only what the deployment carries --------
-check('"oauth_providers": {"google": _google_oauth_configured()}'
-      in SRC, "/api/config reports the Google credential state")
+check('"google": _google_oauth_configured(),' in SRC
+      and '"x": _x_oauth_configured(),' in SRC
+      and '"telegram": _telegram_configured(),' in SRC,
+      "/api/config reports each provider's credential state")
 helper = func_src("_google_oauth_configured")
 check('os.environ.get("GOOGLE_OAUTH_CLIENT_ID")' in helper
       and 'os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET")' in helper,
