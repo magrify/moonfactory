@@ -36,7 +36,9 @@ check(app.TEMPLATE_MAX_SOURCE_SECONDS == 60,
 check(set(app.HF_TEMPLATES) == {"title", "captions", "stat", "promo",
                                  "story", "sting", "explainer",
                                  "explainer_pop", "explainer_energy",
-                                 "kinetic", "intro", "outro", "chart"},
+                                 "kinetic", "intro", "outro", "chart",
+                                 "turntable3d", "globe3d", "citypin3d",
+                                 "house3d", "bars3d", "presenter"},
       "starter templates, the motion wing and the motion pack templates exist")
 check(app.HF_TEMPLATES["story"]["name"] == "Animated story short",
       "story template carries its studio name")

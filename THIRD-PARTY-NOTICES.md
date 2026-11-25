@@ -1,5 +1,18 @@
 # Third-party notices
 
+## MotionForge (3D motion templates and photo presenter)
+
+Moonfactory's 3D motion templates (product turntable, globe
+arcs, city pin, house build, 3D bars) and its photo presenter
+template adapt the template family from MotionForge
+(https://github.com/aykutucesai/motionforge), under the MIT
+License, copyright the MotionForge contributors. The scenes
+were rebuilt for this platform's HyperFrames scene contract
+in motion/src/forge3d.ts and motion/src/presenter.ts; the
+mouth curve tool in motion/presenter/mouth_curve.py follows
+the shape of MotionForge's mouth curve tool, with this
+platform's own envelope math.
+
 ## PeakCut (clipping pipeline)
 
 Moonfactory's Clip mode ports code from PeakCut

@@ -12,3 +12,7 @@ __pycache__/
 *.log
 outputs/
 modal-venv/
+
+# motion wing build outputs
+motion/node_modules/
+motion/scene/

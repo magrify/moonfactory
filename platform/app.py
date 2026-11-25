@@ -4481,7 +4481,56 @@ HF_TEMPLATES = {
         "duration": 9.0,
         "fields": ("title", "data"),
     },
+    # The 3D motion templates and the photo presenter
+    # (2026-11-25): the MotionForge template family (MIT),
+    # rebuilt as deterministic three.js scenes on this same
+    # free lane. The five scenes share one dispatcher bundle
+    # (forge3d-scene.js, motion/src/forge3d.ts); the claim
+    # payload flags their jobs forge3d so the worker stages
+    # it. The presenter is its own entry: a photo the user
+    # uploads, a script the Kokoro stage speaks through the
+    # audio child seam, and a mouth the worker animates from
+    # the voiceover's mouth curve (presenter-scene.js,
+    # motion/src/presenter.ts). Zero credits like the rest of
+    # the wing: every stage rides the free Kaggle paths the
+    # wing already uses.
+    "turntable3d": {
+        "name": "Product turntable 3D",
+        "duration": 8.0,
+        "fields": ("headline", "subline"),
+    },
+    "globe3d": {
+        "name": "Globe arcs 3D",
+        "duration": 8.0,
+        "fields": ("headline", "subline"),
+    },
+    "citypin3d": {
+        "name": "City pin 3D",
+        "duration": 6.0,
+        "fields": ("headline", "subline"),
+    },
+    "house3d": {
+        "name": "House build 3D",
+        "duration": 8.0,
+        "fields": ("headline", "subline"),
+    },
+    "bars3d": {
+        "name": "Bars 3D",
+        "duration": 9.0,
+        "fields": ("title", "data"),
+    },
+    "presenter": {
+        "name": "Photo presenter",
+        "duration": None,  # the voiceover sets it at claim time
+        "fields": ("script",),
+    },
 }
+
+# The templates whose compositions are three.js scenes the
+# worker stages a bundle for: the five 3D scenes share the
+# forge3d bundle, the presenter has its own.
+FORGE3D_TEMPLATES = ("turntable3d", "globe3d", "citypin3d",
+                     "house3d", "bars3d")
 
 _HF_FIELD_LIMITS = {
     "headline": 90,
@@ -4495,6 +4544,7 @@ _HF_FIELD_LIMITS = {
     "points": 1100,
     "words": 300,
     "data": 2000,
+    "script": 900,
 }
 
 
@@ -4542,6 +4592,12 @@ def hf_clean_fields(template_id: str, body: dict) -> dict:
         "intro": ("headline",),
         "outro": ("headline",),
         "chart": ("title", "data"),
+        "turntable3d": ("headline",),
+        "globe3d": ("headline",),
+        "citypin3d": ("headline",),
+        "house3d": ("headline",),
+        "bars3d": ("title", "data"),
+        "presenter": ("script",),
     }[template_id]
     for field in required:
         if not out.get(field):
@@ -4550,6 +4606,24 @@ def hf_clean_fields(template_id: str, body: dict) -> dict:
     if not re.fullmatch(r"#[0-9a-f]{6}", color):
         raise ValueError("that color does not look right, pick one from the color box")
     out["color"] = color
+    if template_id == "presenter":
+        # Where the mouth sits on the photo, as percents the
+        # form's two small boxes carry. Defaults land where a
+        # head and shoulders portrait usually keeps its mouth;
+        # anything off the photo is refused, not clamped, so a
+        # typo never silently moves the mouth.
+        for key, default in (("mouth_x", 50.0), ("mouth_y", 68.0)):
+            raw = body.get(key)
+            if raw is None or raw == "":
+                out[key] = default
+                continue
+            try:
+                value = float(raw)
+            except (TypeError, ValueError):
+                raise ValueError("the mouth position boxes take numbers")
+            if not 5.0 <= value <= 95.0:
+                raise ValueError("keep the mouth position inside the photo")
+            out[key] = value
     return out
 
 
@@ -4992,6 +5066,10 @@ def build_hf_composition(template_id: str, fields: dict,
         parts.append("      </div>")
         return _hf_page(9.0, accent, "\n".join(parts),
                         "\n".join(timeline))
+    if template_id in FORGE3D_TEMPLATES:
+        return _hf_forge3d_page(template_id, fields)
+    if template_id == "presenter":
+        return _hf_presenter_page(fields)
     if template_id == "story":
         return _hf_story_page(fields)
     raise ValueError(f"unknown template {template_id}")
@@ -5123,6 +5201,119 @@ def _hf_story_page(fields: dict) -> str:
       window.__timelines["main"] = tl;
     </script>
     <script src="motion-scene.js"></script>
+  </body>
+</html>
+"""
+
+
+def _hf_forge3d_page(template_id: str, fields: dict) -> str:
+    """A 3D motion template's composition: the forge3d scene
+    bundle draws the scene on the canvas from the props, and
+    the words ride as timed panels over it, the story page's
+    shape with a lighter shell. Bars 3D carries its values in
+    the scene itself, so it takes only its title as a panel."""
+    import html as _html
+    import json as _json
+
+    esc = _html.escape
+    spec = HF_TEMPLATES[template_id]
+    duration = float(spec["duration"])
+    accent = fields.get("color") or "#6366f1"
+    props = {"template": template_id, "color": accent,
+             "duration": duration}
+    if template_id == "bars3d":
+        props["points"] = fields.get("points") or []
+    props_js = _json.dumps(props).replace("</", "<\\/")
+    headline = fields.get("headline") or fields.get("title") or ""
+    subline = fields.get("subline") or ""
+    sub_clip = (
+        f"""        <p style="position:absolute;left:70px;top:236px;width:940px;text-align:center;font-size:42px;font-weight:400;color:#d8d5cc;text-shadow:0 4px 30px rgba(0,0,0,0.6);">{esc(subline)}</p>"""
+        if subline else "")
+    clips = f"""      <canvas id="gl" class="clip" data-start="0" data-duration="{duration:g}" data-track-index="0" width="1080" height="1920" style="position:absolute;left:0;top:0;width:1080px;height:1920px;"></canvas>
+      <div id="forge3d-title" class="clip" data-start="0" data-duration="{duration:g}" data-track-index="2" style="position:absolute;left:0;top:0;width:1080px;height:1920px;opacity:0;">
+        <div style="position:absolute;left:50%;top:120px;width:170px;height:14px;margin-left:-85px;background:{accent};border-radius:7px;"></div>
+        <h1 style="position:absolute;left:70px;top:160px;width:940px;text-align:center;font-size:76px;font-weight:800;line-height:1.12;letter-spacing:-0.01em;text-shadow:0 6px 44px rgba(0,0,0,0.55);">{esc(headline)}</h1>
+{sub_clip}
+      </div>
+      <div id="forge3d-fade" style="position:absolute;left:0;top:0;width:1080px;height:1920px;background:#000000;opacity:0;"></div>"""
+    timeline = f"""      tl.fromTo("#forge3d-title", {{ opacity: 0, y: 36 }}, {{ opacity: 1, y: 0, duration: 0.65, ease: "expo.out" }}, 0.35);
+      tl.to("#forge3d-fade", {{ opacity: 1, duration: 0.55, ease: "power1.in" }}, {duration - 0.55:g});"""
+    return f"""<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <script src="gsap.min.js"></script>
+    <style>
+      * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+      html, body {{ margin: 0; width: 1080px; height: 1920px; overflow: hidden; background: #0c0c0f; }}
+      #root {{ position: relative; width: 1080px; height: 1920px; background: #0c0c0f;
+        font-family: sans-serif; color: #f4f4f1; overflow: hidden; }}
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0"
+      data-duration="{duration:g}" data-width="1080" data-height="1920" data-fps="24">
+{clips}
+    </div>
+    <script>window.__motion = {props_js};</script>
+    <script>
+      window.__timelines = window.__timelines || {{}};
+      const tl = gsap.timeline({{ paused: true }});
+{timeline}
+      window.__timelines["main"] = tl;
+    </script>
+    <script src="forge3d-scene.js"></script>
+  </body>
+</html>
+"""
+
+
+def _hf_presenter_page(fields: dict) -> str:
+    """The photo presenter's composition: the presenter scene
+    bundle draws the talking photo on the canvas, the worker
+    stages the photo under its own name beside this file,
+    writes the voiceover as voice.wav and the mouth curve as
+    mouth-curve.js, and the voice rides as the audio clip.
+    The claim path fills duration and photo into the fields
+    before building, so what renders is exactly what the
+    worker staged."""
+    import json as _json
+
+    duration = float(fields.get("duration") or 0)
+    accent = fields.get("color") or "#6366f1"
+    props = {"color": accent, "duration": duration,
+             "photo": fields.get("photo") or "photo.jpg",
+             "mouthX": fields.get("mouth_x") or 50.0,
+             "mouthY": fields.get("mouth_y") or 68.0}
+    props_js = _json.dumps(props).replace("</", "<\\/")
+    return f"""<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <script src="gsap.min.js"></script>
+    <style>
+      * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+      html, body {{ margin: 0; width: 1080px; height: 1920px; overflow: hidden; background: #0c0c0f; }}
+      #root {{ position: relative; width: 1080px; height: 1920px; background: #0c0c0f;
+        font-family: sans-serif; color: #f4f4f1; overflow: hidden; }}
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0"
+      data-duration="{duration:g}" data-width="1080" data-height="1920" data-fps="24">
+      <canvas id="gl" class="clip" data-start="0" data-duration="{duration:g}" data-track-index="0" width="1080" height="1920" style="position:absolute;left:0;top:0;width:1080px;height:1920px;"></canvas>
+      <audio id="voice" class="clip" data-start="0" data-duration="{duration:g}" data-track-index="8" src="voice.wav"></audio>
+    </div>
+    <script>window.__motion = {props_js};</script>
+    <script src="mouth-curve.js"></script>
+    <script>
+      window.__timelines = window.__timelines || {{}};
+      const tl = gsap.timeline({{ paused: true }});
+      window.__timelines["main"] = tl;
+    </script>
+    <script src="presenter-scene.js"></script>
   </body>
 </html>
 """
@@ -14825,7 +15016,14 @@ def api():
         src_dir = Path("/data/template-sources")
         src_dir.mkdir(parents=True, exist_ok=True)
         suffix = Path(file.filename or "upload.mp4").suffix.lower()
-        if suffix not in (".mp4", ".mov", ".mkv", ".webm", ".m4v"):
+        # The photo presenter's source is a picture, not a
+        # clip: it lands under its image suffix with no probe,
+        # and the create path classifies it through the same
+        # input gate every image input crosses. The record
+        # carries the kind so a photo can never be spent as a
+        # clip or the other way round.
+        is_image = suffix in (".jpg", ".jpeg", ".png", ".webp")
+        if not is_image and suffix not in (".mp4", ".mov", ".mkv", ".webm", ".m4v"):
             suffix = ".mp4"
         dest = src_dir / f"{upload_id}{suffix}"
         size = 0
@@ -14841,6 +15039,14 @@ def api():
                     raise HTTPException(status_code=413, detail="that file is too big, keep it under 200 MB")
                 fh.write(chunk)
         data_volume.commit()
+        if is_image:
+            meta[f"templateupload:{upload_id}"] = {
+                "user_id": user["id"], "path": str(dest),
+                "kind": "image", "duration": 0.0,
+                "filename": (file.filename or "upload")[:120],
+                "created_at": _now(),
+            }
+            return {"upload_id": upload_id, "kind": "image"}
         try:
             info = clipping.probe(dest)
         except Exception as exc:
@@ -14854,6 +15060,7 @@ def api():
                 detail="that clip is too long for this one, keep it under a minute")
         meta[f"templateupload:{upload_id}"] = {
             "user_id": user["id"], "path": str(dest),
+            "kind": "video",
             "duration": duration,
             "filename": (file.filename or "upload")[:120],
             "created_at": _now(),
@@ -14892,6 +15099,29 @@ def api():
                 raise HTTPException(status_code=422, detail="upload your clip first, then make it")
             upload_path = rec["path"]
             source_duration = float(rec["duration"])
+        presenter_verdict = None
+        if template_id == "presenter":
+            rec = meta.get(f"templateupload:{body.get('upload_id') or ''}")
+            if (not rec or rec.get("user_id") != user["id"]
+                    or rec.get("kind") != "image"):
+                raise HTTPException(status_code=422, detail="upload your photo first, then make it")
+            upload_path = rec["path"]
+            # The photo crosses the same input gate every
+            # image input crosses, before any free count or
+            # dispatch: a flagged photo is refused with the
+            # standard message and an unjudged one fails
+            # closed, exactly like an image on a regular lane.
+            import base64 as _b64
+            photo_b64 = _b64.b64encode(
+                Path(upload_path).read_bytes()).decode()
+            presenter_verdict = classify_input_images(
+                b64_images=[photo_b64])
+            refusal = input_gate_refusal(
+                {"images": [photo_b64],
+                 "prompt": fields.get("script") or ""},
+                presenter_verdict)
+            if refusal:
+                raise HTTPException(status_code=422, detail=refusal)
         is_free_job = False
         if not is_paid(user):
             if free_jobs_total(user) >= FREE_CLIPS_TOTAL:
@@ -14916,12 +15146,20 @@ def api():
                 len(fields["words"].split("\n")))
         elif template_id == "captions":
             duration = source_duration
+        elif template_id == "presenter":
+            # A placeholder from the script's length (about
+            # 150 spoken words a minute); the claim path
+            # replaces it with the finished voiceover's real
+            # length before the composition is built.
+            duration = max(4.0, min(
+                60.0, len(fields["script"].split()) / 2.5))
         else:
             duration = float(spec["duration"])
         display = (
             fields.get("headline") or fields.get("caption")
             or fields.get("stat") or fields.get("title")
             or (fields.get("words") or "").split("\n")[0]
+            or (fields.get("script") or "")[:60]
             or spec["name"])
         job = {
             "id": pysecrets.token_hex(8),
@@ -14956,6 +15194,22 @@ def api():
         }
         jobs[job["id"]] = job
         _index_job(job)
+        if template_id == "presenter":
+            # The voiceover rides the audio child seam the
+            # faceless shorts use (Kokoro on the Kaggle audio
+            # worker, $0 like the rest of the wing). The job
+            # waits at this stage until the wav lands; the
+            # claim path skips it until then and fails it if
+            # the voice stage errors.
+            stamp_input_verdict(job, presenter_verdict)
+            voice_child = _queue_audio_child(
+                "voiceover",
+                {"text": fields["script"],
+                 "voice": DEFAULT_SPEECH_VOICE},
+                job)
+            job["voice_child_id"] = (voice_child or {}).get("id")
+            job["stage"] = "Making the voiceover"
+            jobs[job["id"]] = job
         if is_free_job:
             u = usage(user)
             u["free_jobs"] += 1
@@ -14992,7 +15246,32 @@ def api():
         if not queued:
             return {"job": None}
         queued.sort(key=lambda j: j["created_at"])
-        job = queued[0]
+        job = None
+        for cand in queued:
+            if cand.get("template") == "presenter":
+                # A presenter renders only once its voiceover
+                # exists: skip it while the wav is cooking (the
+                # worker claims the next job instead of idling
+                # on this one), and fail it here if the voice
+                # stage already failed, so it never waits
+                # forever on a voice that will not come.
+                child_id = cand.get("voice_child_id")
+                child = jobs.get(child_id) if child_id else None
+                if child and child.get("status") == "error":
+                    cand["status"] = "error"
+                    cand["stage"] = "Could not make it"
+                    cand["error"] = (child.get("error")
+                                     or "the voiceover failed")
+                    jobs[cand["id"]] = cand
+                    continue
+                voice_path = (_audio_child_path(child_id)
+                              if child_id else None)
+                if not voice_path or not Path(voice_path).exists():
+                    continue
+            job = cand
+            break
+        if job is None:
+            return {"job": None}
         job["status"] = "running"
         job["stage"] = "Rendering now"
         job["claimed_at"] = _now()
@@ -15019,6 +15298,35 @@ def api():
                 "duration": plan[-1]["b"],
                 "scenes": [span["a"] for span in plan],
             }
+        if job["template"] in FORGE3D_TEMPLATES:
+            # The worker stages the 3D scene bundle beside the
+            # composition and renders on the motion bound.
+            payload["forge3d"] = True
+        if job["template"] == "presenter":
+            # The voiceover is ready (the selection above
+            # guaranteed it): measure it, rebuild the
+            # composition at its real length with the photo's
+            # staged name, and flag the job so the worker
+            # pulls the voice down and computes the mouth
+            # curve before rendering.
+            voice_path = _audio_child_path(job["voice_child_id"])
+            try:
+                voice_seconds = float(
+                    clipping.probe(voice_path)["duration"])
+            except Exception:
+                voice_seconds = float(job.get("duration_seconds") or 0)
+            duration = round(max(1.0, voice_seconds), 2)
+            job["duration_seconds"] = duration
+            fields = dict(job.get("hf_fields") or {})
+            fields["duration"] = duration
+            fields["photo"] = Path(job["upload_path"]).name
+            payload["fields"] = fields
+            payload["html"] = build_hf_composition(
+                "presenter", fields, 0.0)
+            payload["presenter"] = True
+            payload["source_name"] = Path(job["upload_path"]).name
+            payload["has_voice"] = True
+            jobs[job["id"]] = job
         return {"job": payload}
 
     @web.get("/api/worker/hf/jobs/{job_id}/source")
@@ -15038,7 +15346,31 @@ def api():
         if not path.exists():
             raise HTTPException(status_code=404, detail="the uploaded file is missing")
         return FileResponse(path, media_type="video/mp4",
-                            filename="source.mp4")
+                            filename=path.name)
+
+    @web.get("/api/worker/hf/jobs/{job_id}/voice")
+    def hf_job_voice(job_id: str, x_api_key: str = Header(default="")):
+        """The presenter job's finished voiceover, for the
+        worker to stage as voice.wav and compute the mouth
+        curve from. Only a presenter job with a ready wav has
+        one; anything else is a 404."""
+        if not _hf_worker_ok(x_api_key):
+            raise HTTPException(status_code=401, detail="bad worker key")
+        job = jobs.get(job_id)
+        if not job or job.get("kind") != "template" \
+                or job.get("template") != "presenter" \
+                or not job.get("voice_child_id"):
+            raise HTTPException(status_code=404, detail="unknown job")
+        path = _audio_child_path(job["voice_child_id"])
+        if not path.exists():
+            try:
+                data_volume.reload()
+            except Exception:
+                pass
+        if not path.exists():
+            raise HTTPException(status_code=404, detail="the voiceover is not ready")
+        return FileResponse(path, media_type="audio/wav",
+                            filename="voice.wav")
 
     @web.post("/api/worker/hf/jobs/{job_id}/file")
     async def hf_job_file(job_id: str, request: Request,
@@ -20256,6 +20588,54 @@ APP_HTML = (
         <label>Or load a CSV file</label>
         <input id="mf-chart-file" type="file" accept=".csv,text/csv,text/plain">
       </div>
+      <div id="motion-fields-turntable3d" style="display:none">
+        <label>Headline</label>
+        <input id="mf-turntable3d-headline" type="text" maxlength="90" placeholder="The mug that sells itself">
+        <label>Smaller line under it</label>
+        <input id="mf-turntable3d-subline" type="text" maxlength="120" placeholder="Now in five colors">
+        <p class="muted">A product stand turns in 3D while your words land over it. The stand and the plinth take your accent color.</p>
+      </div>
+      <div id="motion-fields-globe3d" style="display:none">
+        <label>Headline</label>
+        <input id="mf-globe3d-headline" type="text" maxlength="90" placeholder="We ship everywhere">
+        <label>Smaller line under it</label>
+        <input id="mf-globe3d-subline" type="text" maxlength="120" placeholder="Forty countries and counting">
+        <p class="muted">A wireframe globe turns while flight arcs hop between cities in your accent color.</p>
+      </div>
+      <div id="motion-fields-citypin3d" style="display:none">
+        <label>Headline</label>
+        <input id="mf-citypin3d-headline" type="text" maxlength="90" placeholder="Find us downtown">
+        <label>Smaller line under it</label>
+        <input id="mf-citypin3d-subline" type="text" maxlength="120" placeholder="Two blocks from the square">
+        <p class="muted">A map pin drops onto a little city while rings walk outward from it.</p>
+      </div>
+      <div id="motion-fields-house3d" style="display:none">
+        <label>Headline</label>
+        <input id="mf-house3d-headline" type="text" maxlength="90" placeholder="Built for you">
+        <label>Smaller line under it</label>
+        <input id="mf-house3d-subline" type="text" maxlength="120" placeholder="From the ground up in ninety days">
+        <p class="muted">A house builds itself piece by piece, slab to walls to roof, while your words land over it.</p>
+      </div>
+      <div id="motion-fields-bars3d" style="display:none">
+        <label>Chart title</label>
+        <input id="mf-bars3d-title" type="text" maxlength="90" placeholder="Bookings by month">
+        <label>Your numbers</label>
+        <textarea id="mf-bars3d-data" rows="6" maxlength="2000" placeholder="January, 120"></textarea>
+        <p class="muted">One point on each row, like January, 120. Use two to twelve points. The bars rise in 3D and carry your accent color.</p>
+      </div>
+      <div id="motion-fields-presenter" style="display:none">
+        <label>Your photo</label>
+        <input id="mf-presenter-photo" type="file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp">
+        <p class="muted" id="mf-presenter-photo-note">Pick a clear photo, head and shoulders works best. Your photo is checked the same way every picture on Moonfactory is checked.</p>
+        <label>What it says</label>
+        <textarea id="mf-presenter-script" rows="5" maxlength="900" placeholder="Say the words your presenter speaks out loud"></textarea>
+        <p class="muted">The presenter speaks these words in the standard voice, and its mouth follows the speech. Keep it under about a minute of talking.</p>
+        <label>Mouth across the photo, percent</label>
+        <input id="mf-presenter-mouth-x" type="number" min="5" max="95" step="1" value="50">
+        <label>Mouth down the photo, percent</label>
+        <input id="mf-presenter-mouth-y" type="number" min="5" max="95" step="1" value="68">
+        <p class="muted">Where the mouth sits on your photo. Fifty across is the middle. Sixty eight down suits most head and shoulders photos, nudge it until the mouth lands right.</p>
+      </div>
       <label>Accent color</label>
       <input id="mf-color" type="color" value="#6366f1" style="width:90px;height:44px;padding:2px">
       <p class="muted">Free for everyone. Free accounts count it toward their five free clips.</p>
@@ -21573,6 +21953,11 @@ async function fireCreate(d) {
       if (!tplUploadId) throw new Error('the clip upload did not finish');
       d.body.upload_id = tplUploadId;
     }
+    if (d.needsPresenterUpload) {
+      await uploadPresenterPhoto();
+      if (!presenterUploadId) throw new Error('the photo upload did not finish');
+      d.body.upload_id = presenterUploadId;
+    }
     const bot = await botFields(d.botId);
     await api(d.endpoint, { method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ ...d.body, ...bot }) });
@@ -22142,7 +22527,13 @@ const MOTION_TEMPLATES = [
   { id: 'kinetic', name: 'Kinetic type' },
   { id: 'intro', name: 'Logo intro' },
   { id: 'outro', name: 'Logo outro' },
-  { id: 'chart', name: 'Data video' }
+  { id: 'chart', name: 'Data video' },
+  { id: 'turntable3d', name: 'Product turntable 3D' },
+  { id: 'globe3d', name: 'Globe arcs 3D' },
+  { id: 'citypin3d', name: 'City pin 3D' },
+  { id: 'house3d', name: 'House build 3D' },
+  { id: 'bars3d', name: 'Bars 3D' },
+  { id: 'presenter', name: 'Photo presenter' }
 ];
 // Which field block each motion pick shows in the composer.
 const MOTION_BLOCKS = {
@@ -22151,7 +22542,13 @@ const MOTION_BLOCKS = {
   explainer_pop: 'motion-fields-explainer',
   explainer_energy: 'motion-fields-explainer',
   kinetic: 'motion-fields-kinetic', intro: 'motion-fields-intro',
-  outro: 'motion-fields-outro', chart: 'motion-fields-chart'
+  outro: 'motion-fields-outro', chart: 'motion-fields-chart',
+  turntable3d: 'motion-fields-turntable3d',
+  globe3d: 'motion-fields-globe3d',
+  citypin3d: 'motion-fields-citypin3d',
+  house3d: 'motion-fields-house3d',
+  bars3d: 'motion-fields-bars3d',
+  presenter: 'motion-fields-presenter'
 };
 const MOTION_NOTES = {
   story: 'A little animated town tells your story, with music made for it. It renders free, so it can take a while to start.',
@@ -22162,7 +22559,13 @@ const MOTION_NOTES = {
   kinetic: 'Your lines, one at a time, filling the whole screen. The last line lands in your accent color. It renders free, so it can take a while to start.',
   intro: 'Your name inside a ring of light, and it holds at the end so your content can start under it. It renders free, so it can take a while to start.',
   outro: 'An end card that holds on your name, your line and your button words. It renders free, so it can take a while to start.',
-  chart: 'Your numbers become a bar chart that grows on screen. Paste them or load a CSV file. It renders free, so it can take a while to start.'
+  chart: 'Your numbers become a bar chart that grows on screen. Paste them or load a CSV file. It renders free, so it can take a while to start.',
+  turntable3d: 'A product stand turns in 3D under your headline. It renders free, so it can take a while to start.',
+  globe3d: 'A turning globe with flight arcs hopping between cities. It renders free, so it can take a while to start.',
+  citypin3d: 'A map pin drops onto a little city and rings walk out from it. It renders free, so it can take a while to start.',
+  house3d: 'A house builds itself from the slab up while your words land over it. It renders free, so it can take a while to start.',
+  bars3d: 'Your numbers become bars that rise in 3D. It renders free, so it can take a while to start.',
+  presenter: 'Your photo talks. It speaks your script out loud and its mouth follows the words. It renders free, so it can take a while to start.'
 };
 function isMotionTemplate(id) { return MOTION_TEMPLATES.some(t => t.id === id); }
 function moneyC(c) { return '$' + (c / 100).toFixed(2); }
@@ -22704,6 +23107,25 @@ function buildCreate() {
     } else if (model === 'chart') {
       payload.title = $('mf-chart-title').value;
       payload.data = $('mf-chart-data').value;
+    } else if (model === 'bars3d') {
+      payload.title = $('mf-bars3d-title').value;
+      payload.data = $('mf-bars3d-data').value;
+    } else if (model === 'presenter') {
+      // The photo uploads through the template upload route
+      // and the job carries its id, like the captions clip.
+      // A signed out pick parks the upload for fire time,
+      // the same way the clip does.
+      payload.script = $('mf-presenter-script').value;
+      payload.mouth_x = $('mf-presenter-mouth-x').value;
+      payload.mouth_y = $('mf-presenter-mouth-y').value;
+      const built = { kind: 'motion', endpoint: '/api/templates',
+        botId: 'botcheck2', msgId: 'job-msg', body: payload };
+      if (presenterUploadId) payload.upload_id = presenterUploadId;
+      else built.needsPresenterUpload = true;
+      return built;
+    } else if (['turntable3d', 'globe3d', 'citypin3d', 'house3d'].includes(model)) {
+      payload.headline = $('mf-' + model + '-headline').value;
+      payload.subline = $('mf-' + model + '-subline').value;
     } else {
       // The three explainer styles share one field block.
       payload.headline = $('mf-expl-headline').value;
@@ -23632,6 +24054,37 @@ async function uploadTplClip() {
     restoredFileArrived('upload_id', tplUploadId);
   } catch (e) { msg('tpl-msg', e.message, 'err'); }
   finally { $('tpl-clip-file').disabled = false; }
+}
+// The photo presenter's photo uploads on pick for a signed in
+// user, through the same template upload route as the captions
+// clip. A signed out visitor's pick stays in the page and
+// uploads at fire time, right after sign in.
+let presenterUploadId = null;
+let presenterPhotoFile = null;
+$('mf-presenter-photo').addEventListener('change', async () => {
+  const f = $('mf-presenter-photo').files[0];
+  presenterPhotoFile = f || null;
+  if (!f) { presenterUploadId = null; return; }
+  if (!currentUser) {
+    msg('job-msg', 'Photo picked. It uploads when you sign in, and your presenter starts right after.', 'ok');
+    return;
+  }
+  await uploadPresenterPhoto();
+});
+async function uploadPresenterPhoto() {
+  const f = presenterPhotoFile || $('mf-presenter-photo').files[0];
+  if (!f) return;
+  $('mf-presenter-photo').disabled = true;
+  try {
+    spinMsg('job-msg', 'Uploading your photo...');
+    const fd = new FormData(); fd.append('file', f);
+    const r = await fetch('/api/templates/upload', { method: 'POST', body: fd });
+    const q = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(q.detail || ('HTTP ' + r.status));
+    presenterUploadId = q.upload_id;
+    msg('job-msg', 'Photo ready. Write the script and press Create.', 'ok');
+  } catch (e) { msg('job-msg', e.message, 'err'); }
+  finally { $('mf-presenter-photo').disabled = false; }
 }
 function buildTitleCard() {
   const t = $('tpl-template').value;

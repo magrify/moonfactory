@@ -6,7 +6,12 @@
 # animated story short) ride the same loop: the claim payload
 # flags them, the worker stages the scene script that ships in
 # the toolchain dataset beside the composition, and synthesizes
-# the score with the audio kit that ships there too. Kaggle
+# the score with the audio kit that ships there too. The 3D
+# motion templates and the photo presenter (2026-11-25) ride
+# the loop the same way, each with its own scene bundle staged
+# from the same dataset; a presenter job also pulls its
+# voiceover down and computes the mouth curve from it before
+# the render. Kaggle
 # datasets persist, so the whole toolchain (Node 22, the
 # HyperFrames CLI, its Chromium, GSAP) is built once and carried
 # in the magrify/moonfactory-hf-toolchain dataset; a session
@@ -133,7 +138,9 @@ def setup_toolchain() -> dict:
         motion_dir = TOOLCHAIN_DIR / "motion"
         motion_dir.mkdir(parents=True, exist_ok=True)
         for name in ("motion-scene.js", "motion_audio.py",
-                     "dsp.py", "instruments.py"):
+                     "dsp.py", "instruments.py",
+                     "forge3d-scene.js", "presenter-scene.js",
+                     "mouth_curve.py"):
             src = TOOLCHAIN_MOUNT / name
             if src.exists():
                 shutil.copy(src, motion_dir / name)
@@ -191,9 +198,13 @@ def setup_toolchain() -> dict:
     motion_dir = TOOLCHAIN_DIR / "motion"
     motion_ready = (motion_dir / "motion-scene.js").exists() \
         and (motion_dir / "motion_audio.py").exists()
+    forge_ready = (motion_dir / "forge3d-scene.js").exists()
+    presenter_ready = (motion_dir / "presenter-scene.js").exists() \
+        and (motion_dir / "mouth_curve.py").exists()
     log("toolchain ready")
     return {"env": env, "node": str(node_bin / "node"),
             "entry": str(entry), "motion": motion_ready,
+            "forge3d": forge_ready, "presenter": presenter_ready,
             "motion_dir": str(motion_dir)}
 
 
@@ -213,12 +224,17 @@ def render_job(job: dict, tools: dict) -> Path:
         "media": {"autoProxy": False},
     }))
     if job.get("has_source"):
-        log(f"job {job['id']}: downloading source clip")
+        # The source lands under its real name when the claim
+        # names one (the presenter's photo keeps its suffix, so
+        # the scene can load it as a picture); a clip source
+        # keeps the standing source.mp4 name.
+        source_name = job.get("source_name") or "source.mp4"
+        log(f"job {job['id']}: downloading source")
         with requests.get(
                 f"{PLATFORM}/api/worker/hf/jobs/{job['id']}/source",
                 headers=HEADERS, timeout=300, stream=True) as resp:
             resp.raise_for_status()
-            with open(job_dir / "source.mp4", "wb") as fh:
+            with open(job_dir / source_name, "wb") as fh:
                 for chunk in resp.iter_content(1024 * 1024):
                     fh.write(chunk)
     render_timeout = RENDER_TIMEOUT_SECONDS
@@ -246,6 +262,45 @@ def render_job(job: dict, tools: dict) -> Path:
         if audio.returncode != 0 or not (job_dir / "mix.wav").exists():
             tail = (audio.stderr or audio.stdout or "")[-400:]
             raise RuntimeError(f"score synthesis failed: {tail}")
+        render_timeout = MOTION_RENDER_TIMEOUT_SECONDS
+    if job.get("forge3d"):
+        # A 3D motion template: stage the dispatcher bundle the
+        # composition loads. The scenes are light (no post
+        # chain) but still WebGL, so they take the motion bound.
+        if not tools["forge3d"]:
+            raise RuntimeError("3d scene assets missing from the "
+                               "toolchain dataset")
+        shutil.copy(Path(tools["motion_dir"]) / "forge3d-scene.js",
+                    job_dir / "forge3d-scene.js")
+        render_timeout = MOTION_RENDER_TIMEOUT_SECONDS
+    if job.get("presenter"):
+        # The photo presenter: stage its scene bundle, pull the
+        # finished voiceover the platform's Kokoro stage made,
+        # and compute the mouth curve from it before rendering.
+        if not tools["presenter"]:
+            raise RuntimeError("presenter assets missing from the "
+                               "toolchain dataset")
+        shutil.copy(Path(tools["motion_dir"]) / "presenter-scene.js",
+                    job_dir / "presenter-scene.js")
+        log(f"job {job['id']}: downloading voiceover")
+        with requests.get(
+                f"{PLATFORM}/api/worker/hf/jobs/{job['id']}/voice",
+                headers=HEADERS, timeout=300, stream=True) as resp:
+            resp.raise_for_status()
+            with open(job_dir / "voice.wav", "wb") as fh:
+                for chunk in resp.iter_content(1024 * 1024):
+                    fh.write(chunk)
+        log(f"job {job['id']}: computing the mouth curve")
+        curve = subprocess.run(
+            [sys.executable,
+             str(Path(tools["motion_dir"]) / "mouth_curve.py"),
+             str(job_dir / "voice.wav"), "24",
+             str(job_dir / "mouth-curve.js")],
+            cwd=tools["motion_dir"], capture_output=True, text=True,
+            timeout=300)
+        if curve.returncode != 0 or not (job_dir / "mouth-curve.js").exists():
+            tail = (curve.stderr or curve.stdout or "")[-400:]
+            raise RuntimeError(f"mouth curve failed: {tail}")
         render_timeout = MOTION_RENDER_TIMEOUT_SECONDS
     out_path = job_dir / "out.mp4"
     log(f"job {job['id']}: rendering")

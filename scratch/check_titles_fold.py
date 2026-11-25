@@ -128,7 +128,9 @@ check(app.TEMPLATE_DAILY_CAP_PAID == 20, "the paid daily cap is still 20")
 check(set(app.HF_TEMPLATES) == {"title", "captions", "stat", "promo",
                                  "story", "sting", "explainer",
                                  "explainer_pop", "explainer_energy",
-                                 "kinetic", "intro", "outro", "chart"},
+                                 "kinetic", "intro", "outro", "chart",
+                                 "turntable3d", "globe3d", "citypin3d",
+                                 "house3d", "bars3d", "presenter"},
       "the starter templates, the motion wing and the motion pack "
       "templates all exist server side")
 check(app.HF_TEMPLATES["title"]["fields"] == ("headline", "subline"),
