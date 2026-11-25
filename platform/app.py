@@ -910,6 +910,12 @@ def ensure_gallery_thumb(job: dict, path=None):
 #   lane's purpose, the verdict stamps, and the gallery bars
 #   (the uncensored image-input bar and the verdict bar in
 #   gallery_visible) do the rest.
+# - The PHOTO PRESENTER entry is the one carve-out from the
+#   regular rule (Jack, 2026-11-25): its photo is the user's
+#   own picture by design, so a flagged verdict passes there
+#   (presenter_input_refusal below) while an unjudged one
+#   still fails closed; the verdict stamps and the gallery
+#   bar applies exactly as above.
 #
 # Remote reference URLs (http/https) are never fetched at
 # creation, so they are never judged: a job whose only inputs
@@ -1044,6 +1050,43 @@ def input_gate_refusal(probe: dict, verdict):
               f"(model {probe.get('model') or probe.get('lane')}): "
               f"flagged upload")
         return INPUT_REFUSAL_FLAGGED
+    return None
+
+
+def presenter_input_refusal(verdict):
+    """The photo presenter's own input gate (Jack, 2026-11-25):
+    the one carve-out from the regular-lane rule above. The
+    presenter exists to animate the user's own photo, so on
+    this entry only, a FLAGGED verdict — the classifier
+    reading the photo as a real person — never refuses
+    creation: the photo is the subject the entry is for.
+    The exemption covers exactly the flag and nothing else:
+
+    - The verdict still stamps the job record through
+      stamp_input_verdict, honestly, flagged included, so a
+      flagged presenter photo still keeps the job out of the
+      public gallery through gallery_visible's input bar,
+      exactly like any other flagged input.
+    - An upload set that could not be judged refuses with
+      the same try-again message as everywhere else: the
+      exemption is for the flag, never for the absence of a
+      verdict (fail closed stands).
+    - The creation-time illegal-content gate is a separate
+      gate and runs on the template's words before this one,
+      untouched.
+
+    No other entry or lane calls this: every other creation
+    path keeps input_gate_refusal's rule, where the same
+    flagged photo still refuses."""
+    if verdict is None:
+        return None
+    if verdict.get("error"):
+        print(f"input gate refused a presenter creation: "
+              f"unjudged upload: {verdict['error']}")
+        return INPUT_REFUSAL_UNJUDGED
+    if verdict.get("flagged"):
+        print("input gate passed a flagged photo on the "
+              "presenter entry (the own-photo exemption)")
     return None
 
 
@@ -15185,20 +15228,21 @@ def api():
                     or rec.get("kind") != "image"):
                 raise HTTPException(status_code=422, detail="upload your photo first, then make it")
             upload_path = rec["path"]
-            # The photo crosses the same input gate every
-            # image input crosses, before any free count or
-            # dispatch: a flagged photo is refused with the
-            # standard message and an unjudged one fails
-            # closed, exactly like an image on a regular lane.
+            # The photo is classified by the same input
+            # classifier every image input crosses, before any
+            # free count or dispatch, and the verdict stamps
+            # the job record below. The refusal rule is this
+            # entry's own (Jack, 2026-11-25): a flagged photo
+            # passes, because the presenter exists to animate
+            # the user's own photo; an unjudged one still
+            # fails closed. Every other lane keeps
+            # input_gate_refusal's rule.
             import base64 as _b64
             photo_b64 = _b64.b64encode(
                 Path(upload_path).read_bytes()).decode()
             presenter_verdict = classify_input_images(
                 b64_images=[photo_b64])
-            refusal = input_gate_refusal(
-                {"images": [photo_b64],
-                 "prompt": fields.get("script") or ""},
-                presenter_verdict)
+            refusal = presenter_input_refusal(presenter_verdict)
             if refusal:
                 raise HTTPException(status_code=422, detail=refusal)
         is_free_job = False

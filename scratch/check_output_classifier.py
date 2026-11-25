@@ -536,6 +536,53 @@ check("refusals" not in _gr and "suspended" not in _gr
       and "record_illegal_refusal" not in _gr,
       "the input refusal writes to the illegal-gate records")
 
+# -- the presenter carve-out (Jack, 2026-11-25) -----------------------------
+#
+# The photo presenter is the one exemption from the regular
+# lane rule: it exists to animate the user's own photo, so a
+# flagged verdict (the classifier reading the photo as a real
+# person) passes on that entry only. The same flagged verdict
+# on a regular lane still refuses (pinned above), an unjudged
+# presenter photo still fails closed, and the verdict still
+# stamps, so the gallery bar above still applies to it.
+
+check(app.presenter_input_refusal(FLAGV) is None,
+      "a flagged photo refuses on the presenter entry")
+check(app.presenter_input_refusal(ERRORV)
+      == app.INPUT_REFUSAL_UNJUDGED,
+      "an unjudged photo does not fail closed on the presenter")
+check(app.presenter_input_refusal(CLEANV) is None,
+      "a clean photo refuses on the presenter entry")
+check(app.presenter_input_refusal(None) is None,
+      "a verdictless presenter creation refuses")
+# The carve-out is the flag only: its source never carries
+# the flagged refusal and never touches the illegal-gate
+# records, and the shared gate's rule is unchanged by it.
+_pr = func_src("presenter_input_refusal")
+check("INPUT_REFUSAL_FLAGGED" not in _pr
+      and "refusals" not in _pr
+      and "record_illegal_refusal" not in _pr,
+      "the presenter carve-out reaches past the flag")
+check(app.input_gate_refusal(REG, FLAGV)
+      == app.INPUT_REFUSAL_FLAGGED,
+      "the regular-lane rule moved with the carve-out")
+# The presenter branch of create_template is the only caller:
+# it classifies, applies its own refusal, and still stamps
+# the verdict on the job; the illegal-content gate runs on
+# the template's words before any of it.
+_tpl = func_src("create_template")
+check("presenter_input_refusal(presenter_verdict)" in _tpl
+      and "stamp_input_verdict(job, presenter_verdict)" in _tpl,
+      "the presenter branch lost its own gate or its stamp")
+check(_tpl.index("enforce_prompt_gate")
+      < _tpl.index("presenter_input_refusal"),
+      "the illegal gate no longer runs before the presenter "
+      "photo gate")
+for fn in ("create_api_job", "create_job", "create_image",
+           "create_drama", "create_short", "create_clip"):
+    check("presenter_input_refusal" not in func_src(fn),
+          f"{fn} picked up the presenter carve-out")
+
 # -- the input wiring -------------------------------------------------------
 
 for fn in ("create_api_job", "create_job", "create_image",

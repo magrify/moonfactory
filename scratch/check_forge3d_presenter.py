@@ -5,8 +5,11 @@ presenter are individual entries on the free template lane,
 their compositions carry the right bundles and props, the
 presenter waits for its voiceover at claim time and rebuilds
 at the voice's real length, the photo crosses the input gate
-at create, and the worker stages every new asset and fails
-clearly when one is missing. Runs against the source tree
+at create (with the own-photo exemption on the flag: a
+flagged photo passes on this entry only, an unjudged one
+still fails closed, the verdict still stamps), and the
+worker stages every new asset and fails clearly when one is
+missing. Runs against the source tree
 without importing the platform (no Modal SDK in the venv),
 like the other lane checks.
 """
@@ -103,7 +106,7 @@ for pin in ('payload["forge3d"] = True',
             'voice_child = _queue_audio_child(',
             '(voice_child or {}).get("id")',
             'classify_input_images(',
-            'input_gate_refusal(',
+            'presenter_input_refusal(presenter_verdict)',
             'stamp_input_verdict(job, presenter_verdict)',
             '"kind": "image"',
             'rec.get("kind") != "image"'):
