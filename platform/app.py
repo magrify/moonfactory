@@ -20373,6 +20373,7 @@ APP_HTML = (
           <option disabled data-tier-sep="1">$$$$</option>
           <option value="openrouter:anthropic/claude-sonnet-5">Claude Sonnet 5</option>
           <option value="openrouter:google/gemini-3.1-pro-preview">Gemini 3.1 Pro</option>
+          <option value="gemini:gemini-4-neon">Gemini 4 Neon</option>
           <option value="openrouter:openai/gpt-5.5">GPT-5.5</option>
         </optgroup>
         <optgroup label="Uncensored Models">
@@ -20450,6 +20451,7 @@ APP_HTML = (
             <option disabled data-tier-sep="1">$$$$</option>
             <option value="openrouter:anthropic/claude-sonnet-5">Claude Sonnet 5</option>
             <option value="openrouter:google/gemini-3.1-pro-preview">Gemini 3.1 Pro</option>
+            <option value="gemini:gemini-4-neon">Gemini 4 Neon</option>
             <option value="openrouter:openai/gpt-5.5">GPT-5.5</option>
           </optgroup>
           <optgroup label="Uncensored Models">
@@ -20518,6 +20520,7 @@ APP_HTML = (
             <option disabled data-tier-sep="1">$$$$</option>
             <option value="openrouter:anthropic/claude-sonnet-5">Claude Sonnet 5</option>
             <option value="openrouter:google/gemini-3.1-pro-preview">Gemini 3.1 Pro</option>
+            <option value="gemini:gemini-4-neon">Gemini 4 Neon</option>
             <option value="openrouter:openai/gpt-5.5">GPT-5.5</option>
           </optgroup>
           <optgroup label="Uncensored Models">
@@ -20795,6 +20798,7 @@ APP_HTML = (
           <option disabled data-tier-sep="1">$$$$</option>
           <option value="openrouter:anthropic/claude-sonnet-5">Claude Sonnet 5</option>
           <option value="openrouter:google/gemini-3.1-pro-preview">Gemini 3.1 Pro</option>
+          <option value="gemini:gemini-4-neon">Gemini 4 Neon</option>
           <option value="openrouter:openai/gpt-5.5">GPT-5.5</option>
         </optgroup>
         <optgroup label="Uncensored Models">
@@ -20976,6 +20980,7 @@ APP_HTML = (
         <option disabled data-tier-sep="1">$$$$</option>
         <option value="openrouter:anthropic/claude-sonnet-5">Claude Sonnet 5</option>
         <option value="openrouter:google/gemini-3.1-pro-preview">Gemini 3.1 Pro</option>
+        <option value="gemini:gemini-4-neon">Gemini 4 Neon</option>
         <option value="openrouter:openai/gpt-5.5">GPT-5.5</option>
       </optgroup>
       <optgroup label="Uncensored Models">

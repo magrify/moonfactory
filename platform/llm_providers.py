@@ -107,6 +107,21 @@ Provider state at wiring time (2026-11-17):
   lists on 2026-11-20 (free reads), and every registered
   Venice uncensored id was confirmed still listed.
   PICK_CHAIN and clipping are untouched.
+- gemini 4 neon (2026-11-25, Jack: "Moon factory needs
+  Gemini neon too"): Google's Gemini 4 Neon is a TEXT
+  reasoning model, not an image or video model (Google's
+  launch post, blog.google, 2026-11-18; model id
+  gemini-4-neon; text output only, image/audio/video
+  input only, 1M-token window). It is wired as its own
+  Regular draft pick on the platform Gemini key, exactly
+  like the other two Gemini picks. Google's price is
+  $3.00 in / $15.00 out per 1M tokens and Neon has NO
+  free tier (paid Gemini API tier only), so the pick
+  bands at those figures in DRAFT_MODEL_BANDING_FIGURES;
+  on a free-tier platform key the pick fails clean by
+  name under the no-substitution rule until the key sits
+  on the paid tier. NOT in PICK_CHAIN: clipping keeps
+  its free-only ruling.
 """
 
 import json
@@ -321,6 +336,12 @@ DRAFT_MODELS = [
     {"id": "gemini:gemini-3.5-flash-lite",
      "label": "Gemini 3.5 Flash Lite",
      "provider": "gemini", "model": "gemini-3.5-flash-lite",
+     "group": "regular"},
+    # Gemini 4 Neon (2026-11-25): Google's text reasoning
+    # model on the same platform Gemini key. Paid tier
+    # only at Google (no free tier); see the header note.
+    {"id": "gemini:gemini-4-neon", "label": "Gemini 4 Neon",
+     "provider": "gemini", "model": "gemini-4-neon",
      "group": "regular"},
     {"id": "openrouter:anthropic/claude-sonnet-5",
      "label": "Claude Sonnet 5", "provider": "openrouter",
@@ -547,15 +568,19 @@ DRAFT_MODEL_PRICES = {
 # pickers give their Free group no separators.
 DRAFT_MODEL_TIER_BANDS = (1.50, 4.00, 10.00)
 
-# The two Gemini picks are banded by their paid-tier list
+# The Gemini picks are banded by their paid-tier list
 # prices (the worst case), because which Google tier the
 # platform key sits on is unsettled: Gemini 3.8 Flash at
 # $0.75 in / $3.75 out and Gemini 3.5 Flash Lite at $0.30
 # in / $2.50 out per 1M, from the same 2026-11-20 audit.
+# Gemini 4 Neon's figures are Google's launch prices
+# (2026-11-18) and are its ONLY prices: Neon has no free
+# tier, so there is no cheaper case to band against.
 # Banding only; these figures render nowhere either.
 DRAFT_MODEL_BANDING_FIGURES = {
     "gemini:gemini-3.8-flash": ("0.75", "3.75"),
     "gemini:gemini-3.5-flash-lite": ("0.30", "2.50"),
+    "gemini:gemini-4-neon": ("3.00", "15.00"),
 }
 
 

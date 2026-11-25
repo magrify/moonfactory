@@ -41,7 +41,7 @@ MODELS = llm_providers.DRAFT_MODELS
 BY_ID = {m["id"]: m for m in MODELS}
 
 # --- the registry shape ----------------------------------------------------
-check(len(MODELS) == 43, f"expected 43 draft models, got {len(MODELS)}")
+check(len(MODELS) == 44, f"expected 44 draft models, got {len(MODELS)}")
 check(len(BY_ID) == len(MODELS), "draft model ids are unique")
 # Labels are unique WITHIN each group (2026-11-21): the
 # Numes free route offers some models under the same plain
@@ -56,7 +56,7 @@ for g in ("free", "regular", "uncensored"):
 groups = {}
 for m in MODELS:
     groups[m["group"]] = groups.get(m["group"], 0) + 1
-check(groups == {"free": 7, "regular": 8, "uncensored": 28},
+check(groups == {"free": 7, "regular": 9, "uncensored": 28},
       f"group sizes drifted: {groups}")
 check([m["id"] for m in MODELS[:3]] == [
     "openrouter:nvidia/nemotron-3-ultra-550b-a55b:free",
@@ -77,6 +77,13 @@ check(BY_ID[llm_providers.DRAFT_MODEL_DEFAULT]["model"]
 check(BY_ID["gemini:gemini-3.5-flash-lite"]["model"]
       == "gemini-3.5-flash-lite",
       "Gemini 3.5 Flash Lite is a separate model, not a fold-in")
+check(BY_ID["gemini:gemini-4-neon"]["model"] == "gemini-4-neon"
+      and BY_ID["gemini:gemini-4-neon"]["label"]
+      == "Gemini 4 Neon"
+      and BY_ID["gemini:gemini-4-neon"]["provider"] == "gemini"
+      and BY_ID["gemini:gemini-4-neon"]["group"] == "regular",
+      "Gemini 4 Neon is its own Regular pick on the platform "
+      "Gemini key (2026-11-25)")
 uncensored_ids = [m["id"] for m in MODELS if m["group"] == "uncensored"]
 check(uncensored_ids[:4] == [
     "venice:qwen-3-8-27b",
@@ -229,6 +236,9 @@ for block in _re.findall(
 GEMINI_BANDING = {
     "gemini:gemini-3.8-flash": ("0.75", "3.75"),
     "gemini:gemini-3.5-flash-lite": ("0.30", "2.50"),
+    # Google's launch prices, 2026-11-18; Neon has no
+    # free tier, so these are its only prices.
+    "gemini:gemini-4-neon": ("3.00", "15.00"),
 }
 TIER_BANDS = (1.50, 4.00, 10.00)
 
@@ -356,6 +366,8 @@ try:
          "gemini", "gemini-3.8-flash"),
         ("gemini:gemini-3.5-flash-lite", "GEMINI_API_KEY",
          "gemini", "gemini-3.5-flash-lite"),
+        ("gemini:gemini-4-neon", "GEMINI_API_KEY",
+         "gemini", "gemini-4-neon"),
         ("openrouter:anthropic/claude-sonnet-5",
          "OPENROUTER_API_KEY", "openrouter",
          "anthropic/claude-sonnet-5"),
