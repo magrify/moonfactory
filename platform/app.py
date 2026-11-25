@@ -7280,6 +7280,10 @@ def api():
         ]
         return {
             "turnstile_site_key": os.environ.get("TURNSTILE_SITE_KEY") or None,
+            # Social sign in (2026-11-25): the studio renders a
+            # provider button only for a provider whose
+            # credentials this deployment actually carries.
+            "oauth_providers": {"google": _google_oauth_configured()},
             "pow_required": not _turnstile_configured(),
             "pow_difficulty_bits": POW_DIFFICULTY_BITS,
             "payments_mode": stripe_mode(),
@@ -7612,6 +7616,177 @@ def api():
         if not user or not _check_password(body.get("password") or "", user["pw"]):
             raise HTTPException(status_code=401, detail="email or password is wrong")
         resp = JSONResponse({"status": "ok", "user": public_user(user)})
+        resp.set_cookie(
+            "mf_session", _make_session(user["id"],
+                                        user.get("session_epoch", "")),
+            max_age=7 * 24 * 3600, httponly=True, samesite="lax",
+        )
+        return resp
+
+    # -- Social sign-in: Google (Jack, 2026-11-25) ------------
+    # The dialog's Continue with Google runs the standard
+    # authorization code flow, wired end to end in code and
+    # live the moment the deployment carries the credentials:
+    # with no GOOGLE_OAUTH_CLIENT_ID / GOOGLE_OAUTH_CLIENT_SECRET
+    # in the secret the start route 404s and /api/config tells
+    # the studio to keep the button hidden, so a button that
+    # cannot answer never ships. Accounts resolve by the email
+    # Google has verified: an existing account signs in (and
+    # its email counts as verified from this sign-in, Google
+    # proved the mailbox), a new email creates the account on
+    # the spot, already verified. A creation built while
+    # signed out rides the round trip parked server side and
+    # lands on the account, the same one home the sign-up
+    # path uses, and the verified return claims and fires it.
+    # The acceptance mechanism differs from the email form in
+    # exactly one way: there is no checkbox on this path. The
+    # dialog's by-continuing line (Terms, Privacy Policy, and
+    # Acceptable Use Policy, named with links under the
+    # buttons) is what the click accepts, so a new account
+    # stamps terms_accepted_at and LEGAL_VERSION at creation
+    # and writes the same signup_legal entry to the append
+    # only acceptance log the checkbox path writes.
+
+    def _google_oauth_configured() -> bool:
+        return bool(os.environ.get("GOOGLE_OAUTH_CLIENT_ID")
+                    and os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET"))
+
+    @web.post("/api/auth/park")
+    async def oauth_park(request: Request):
+        """Park a signed out visitor's creation for the social
+        sign-in round trip; the park id rides the OAuth state
+        and the callback lands the creation on the account."""
+        ip = client_ip(request)
+        if _rate_limited("oauth-park", ip, 5):
+            raise HTTPException(status_code=429, detail="too many attempts, slow down")
+        body = await request.json()
+        pending = _clean_pending_create(body.get("pending_create"))
+        if not pending:
+            raise HTTPException(status_code=422, detail="that creation cannot be saved")
+        park_id = pysecrets.token_urlsafe(18)
+        meta[f"oauth-park:{park_id}"] = {
+            "pending_create": pending, "expires": _now() + 30 * 60}
+        return {"park": park_id}
+
+    @web.get("/api/auth/google/start")
+    def google_oauth_start(request: Request, park: str = ""):
+        import urllib.parse
+
+        if not _google_oauth_configured():
+            raise HTTPException(status_code=404, detail="not found")
+        park_id = ""
+        if park:
+            record = meta.get(f"oauth-park:{park}")
+            if record and record.get("expires", 0) > _now():
+                park_id = park
+        state = pysecrets.token_urlsafe(24)
+        meta[f"oauth-state:{state}"] = {
+            "park": park_id, "expires": _now() + 10 * 60}
+        query = urllib.parse.urlencode({
+            "client_id": os.environ["GOOGLE_OAUTH_CLIENT_ID"],
+            "redirect_uri": f"{base_url(request)}/api/auth/google/callback",
+            "response_type": "code",
+            "scope": "openid email profile",
+            "state": state,
+        })
+        return RedirectResponse(
+            url=f"https://accounts.google.com/o/oauth2/v2/auth?{query}",
+            status_code=303)
+
+    @web.get("/api/auth/google/callback")
+    def google_oauth_callback(request: Request, code: str = "",
+                              state: str = "", error: str = ""):
+        def fail():
+            return RedirectResponse(url="/app?oauth=error",
+                                    status_code=303)
+
+        if not _google_oauth_configured() or error or not code \
+                or not state:
+            return fail()
+        record = meta.get(f"oauth-state:{state}")
+        if not record or record.get("expires", 0) < _now():
+            return fail()
+        # One time: the state is spent whatever happens next.
+        meta[f"oauth-state:{state}"] = {"park": "", "expires": 0}
+        try:
+            token_resp = requests.post(
+                "https://oauth2.googleapis.com/token",
+                data={
+                    "code": code,
+                    "client_id": os.environ["GOOGLE_OAUTH_CLIENT_ID"],
+                    "client_secret":
+                        os.environ["GOOGLE_OAUTH_CLIENT_SECRET"],
+                    "redirect_uri":
+                        f"{base_url(request)}/api/auth/google/callback",
+                    "grant_type": "authorization_code",
+                }, timeout=15)
+            if token_resp.status_code != 200:
+                return fail()
+            access_token = token_resp.json().get("access_token")
+            if not access_token:
+                return fail()
+            info_resp = requests.get(
+                "https://openidconnect.googleapis.com/v1/userinfo",
+                headers={"Authorization": f"Bearer {access_token}"},
+                timeout=15)
+            if info_resp.status_code != 200:
+                return fail()
+            info = info_resp.json()
+        except Exception:  # noqa: BLE001
+            return fail()
+        email = (info.get("email") or "").strip().lower()
+        # Only a Google-verified email can create or enter an
+        # account here; anything else is not an identity.
+        if not email or info.get("email_verified") is not True:
+            return fail()
+        user = users.get(f"email:{email}")
+        if not user:
+            # A new account from a provider-verified email: the
+            # record mirrors sign-up's, with no password (the
+            # provider is the credential, so password sign-in
+            # simply never matches), the acceptance stamped
+            # from the by-continuing line, and the email already
+            # verified by Google.
+            user = {
+                "id": pysecrets.token_hex(8),
+                "email": email,
+                "pw": "",
+                "auth_provider": "google",
+                "terms_accepted_at": _now(),
+                "legal_version": LEGAL_VERSION,
+                "verified": True,
+                "created_at": _now(),
+                "plan": "free",
+                "handle": None,
+                "gallery_opt_out": False,
+                "past_due": False,
+                "balance_cents": 0,
+                "net_paid_cents": 0.0,
+                "cost_settled_cents": 0.0,
+                "free_jobs_total": 0,
+                "usage": {"period": _period(), "free_jobs": 0,
+                          "included_seconds": 0.0,
+                          "included_cost_cents": 0.0},
+            }
+            save_user(user)
+            record_acceptance(user, ACCEPTANCE_SIGNUP_LEGAL,
+                              legal_version=LEGAL_VERSION)
+        elif not user.get("verified"):
+            # Google proved this mailbox, so an account still
+            # waiting on its verification link is verified by
+            # this sign-in, and anything parked on it can fire.
+            user["verified"] = True
+            save_user(user)
+        park_id = record.get("park") or ""
+        if park_id:
+            parked = meta.get(f"oauth-park:{park_id}")
+            if parked and parked.get("expires", 0) > _now() \
+                    and parked.get("pending_create"):
+                user["pending_create"] = parked["pending_create"]
+                save_user(user)
+                meta[f"oauth-park:{park_id}"] = {
+                    "pending_create": None, "expires": 0}
+        resp = RedirectResponse(url="/app", status_code=303)
         resp.set_cookie(
             "mf_session", _make_session(user["id"],
                                         user.get("session_epoch", "")),
@@ -19052,6 +19227,34 @@ _CSS = """
   .switch input:disabled{cursor:default}
   .switch input:disabled + .track{opacity:.45}
   .switch input:focus-visible + .track{outline:2px solid var(--accent-bright);outline-offset:2px}
+  /* Sign-in dialog (PhotoStudioGen shape, Jack, 2026-11-25):
+     the Play Hollow mark centered in a quiet tile over a bold
+     heading, a create / sign in toggle line under it, full
+     width provider pills with the provider mark at the left,
+     a hairline OR divider, and the email path as one more
+     pill that opens the form this dialog has always carried.
+     The provider row, the divider, and the passwordless line
+     render only when the deployment carries that provider's
+     credentials, so a button that cannot answer never ships. */
+  #auth{padding:34px 30px 28px}
+  .auth-mark{display:flex;justify-content:center;margin-bottom:16px}
+  .auth-tile{width:58px;height:58px;border-radius:17px;background:var(--seg-bg);border:1px solid var(--line);display:flex;align-items:center;justify-content:center}
+  #auth h2{text-align:center;font-size:29px;letter-spacing:-.025em;margin:0 0 8px}
+  .auth-toggle{text-align:center;margin:0 0 6px;font-size:14.5px}
+  .auth-toggle a{font-weight:700;color:var(--ink);text-decoration:none}
+  .auth-toggle a:hover{text-decoration:underline}
+  #auth-intro{text-align:center}
+  .auth-providers{display:flex;flex-direction:column;gap:11px;margin-top:20px}
+  .auth-provider{display:flex;align-items:center;justify-content:center;position:relative;width:100%;box-sizing:border-box;padding:14px 20px;border-radius:999px;background:rgba(255,255,255,.03);border:1px solid var(--line-strong);color:var(--ink);font:inherit;font-size:15.5px;font-weight:600;text-decoration:none;cursor:pointer;transition:background .18s,border-color .18s}
+  .auth-provider:hover{background:rgba(255,255,255,.06);border-color:#54545f}
+  .auth-provider svg{position:absolute;left:20px;flex:none}
+  .auth-or{display:flex;align-items:center;gap:14px;margin:20px 0 0;color:var(--faint);font-size:12.5px;letter-spacing:.14em}
+  .auth-or::before,.auth-or::after{content:"";flex:1;border-top:1px solid var(--line)}
+  .auth-actions{display:flex;flex-direction:column;gap:10px;margin:14px 0 0}
+  .auth-help{text-align:center;margin:18px 0 0}
+  .auth-help a{color:var(--accent-bright);text-decoration:none;font-size:14.5px}
+  .auth-secure{display:flex;align-items:center;justify-content:center;gap:8px;color:var(--faint);font-size:14px;margin:14px 0 0}
+  .auth-fineprint{text-align:center;font-size:13.5px;margin:16px 0 0}
   h1{font-size:46px;line-height:1.12;letter-spacing:-.03em;font-weight:800;margin:0}
   h2{font-size:26px;letter-spacing:-.02em;margin:0 0 6px}
   a{color:var(--accent-bright)}
@@ -20353,20 +20556,34 @@ APP_HTML = (
 <div id="live-status" class="sr-only" role="status" aria-live="polite"></div>
 <div id="live-alert" class="sr-only" role="alert" aria-live="assertive"></div>
 
-<div id="auth" class="card" style="display:none;max-width:640px;margin-left:auto;margin-right:auto">
-  <h2>Sign in or create an account</h2>
+<div id="auth" class="card" style="display:none;max-width:460px;margin-left:auto;margin-right:auto">
+  <div class="auth-mark"><span class="auth-tile"><svg width="34" height="34" viewBox="0 0 48 48" aria-hidden="true"><path fill="#818cf8" d="M23.3 8A16 16 0 1 0 32.6 37.5A16.5 16.5 0 0 1 23.3 8Z"/><path fill="#f5d67a" stroke="#f5d67a" stroke-width="1.6" stroke-linejoin="round" d="M24 18.5L24 27.5L31.5 23Z"/></svg></span></div>
+  <h2 id="auth-heading">Create your account</h2>
+  <p class="auth-toggle muted"><span id="auth-toggle-text">Already have an account?</span> <a href="#" id="auth-mode-link">Sign in</a></p>
   <p class="muted" id="auth-intro">Your video is ready to make. Sign in or
   create an account and it starts right away, exactly as you built it.</p>
+  <div class="auth-providers" id="auth-oauth" style="display:none">
+    <a class="auth-provider" id="auth-google" href="/api/auth/google/start"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M23.5 12.3c0-.9-.1-1.5-.3-2.2H12v4.3h6.5c-.1 1.1-.8 2.7-2.4 3.8l3.7 2.9c2.3-2.1 3.7-5.2 3.7-9z"/><path fill="#34A853" d="M12 24c3.2 0 5.9-1.1 7.9-2.9l-3.7-2.9c-1 .7-2.4 1.2-4.2 1.2-3.2 0-5.9-2.2-6.9-5.1L1.3 17.2C3.3 21.2 7.3 24 12 24z"/><path fill="#FBBC05" d="M5.1 14.3c-.2-.7-.4-1.5-.4-2.3s.1-1.6.4-2.3L1.3 6.8C.5 8.4 0 10.1 0 12s.5 3.6 1.3 5.2l3.8-2.9z"/><path fill="#EA4335" d="M12 4.7c1.8 0 3 .8 3.7 1.4l3.3-3.2C17.9 1.1 15.2 0 12 0 7.3 0 3.3 2.8 1.3 6.8l3.8 2.9c1-2.9 3.7-5 6.9-5z"/></svg><span>Continue with Google</span></a>
+  </div>
+  <div class="auth-or" id="auth-or" style="display:none"><span>OR</span></div>
+  <div class="auth-providers">
+    <button class="auth-provider" id="auth-email-toggle" type="button"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg><span>Continue with email</span></button>
+  </div>
+  <div id="auth-email-form" style="display:none">
   <label for="email">Email</label><input id="email" type="email" autocomplete="email">
   <label for="password">Password (8+ characters)</label><input id="password" type="password" autocomplete="current-password">
   <div id="botcheck"></div>
-  <p><label for="accept-terms"><input type="checkbox" id="accept-terms" style="width:auto;margin:0 6px 0 0">I agree to the <a href="/terms" target="_blank" rel="noopener">Terms of Service</a>, <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a> and <a href="/acceptable-use" target="_blank" rel="noopener">Acceptable Use Policy</a> and I confirm I am at least 13 years old.</label></p>
-  <p>
-    <button class="btn" id="login">Sign in</button>
-    <button class="btn secondary" id="signup">Create account</button>
-    <button class="btn secondary" id="auth-back" type="button">Back to your video</button>
+  <p id="auth-accept-row"><label for="accept-terms"><input type="checkbox" id="accept-terms" style="width:auto;margin:0 6px 0 0">I agree to the <a href="/terms" target="_blank" rel="noopener">Terms of Service</a>, <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a> and <a href="/acceptable-use" target="_blank" rel="noopener">Acceptable Use Policy</a> and I confirm I am at least 13 years old.</label></p>
+  <p class="auth-actions">
+    <button class="btn" id="login" style="width:100%;display:none">Sign in</button>
+    <button class="btn" id="signup" style="width:100%">Create account</button>
+    <button class="btn secondary" id="auth-back" type="button" style="width:100%">Back to your video</button>
   </p>
+  </div>
   <p id="auth-msg"></p>
+  <p class="auth-help"><a href="mailto:support@magrify.com">Need help?</a></p>
+  <p class="auth-secure" id="auth-secure" style="display:none"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6z"/><path d="M9 12l2 2 4-4"/></svg><span>Secure passwordless authentication</span></p>
+  <p class="muted auth-fineprint">By continuing, you agree to our <a href="/terms" target="_blank" rel="noopener">Terms of Service</a>, <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a> and <a href="/acceptable-use" target="_blank" rel="noopener">Acceptable Use Policy</a>.</p>
   <p class="muted">New accounts must verify their email before creating
   videos. Check your inbox for the link after you sign up. Anything you
   built is saved to your account and starts once you are verified.</p>
@@ -21969,6 +22186,75 @@ function openAuthPanel() {
 function closeAuthPanel() { $('auth').style.display = 'none'; }
 $('auth-back').onclick = () => closeAuthPanel();
 $('nav-signin').onclick = e => { e.preventDefault(); openAuthPanel(); };
+
+// ---- Dialog modes and providers (PhotoStudioGen shape,
+// 2026-11-25): the dialog opens on Create your account and
+// the line under the heading swaps it to Sign in. Both modes
+// share the one email and password field pair, exactly as
+// before: create mode shows the acceptance box and the
+// Create account button, sign in mode shows the Sign in
+// button, and each button's own handler above is unchanged.
+// The email form starts folded behind its pill, like the
+// design's Continue with email step.
+let authMode = 'create';
+function setAuthMode(mode) {
+  authMode = mode;
+  const create = mode === 'create';
+  $('auth-heading').textContent = create ? 'Create your account' : 'Sign in';
+  $('auth-toggle-text').textContent = create
+    ? 'Already have an account?' : 'New to Moonfactory?';
+  $('auth-mode-link').textContent = create ? 'Sign in' : 'Create an account';
+  $('auth-accept-row').style.display = create ? '' : 'none';
+  $('signup').style.display = create ? '' : 'none';
+  $('login').style.display = create ? 'none' : '';
+}
+$('auth-mode-link').onclick = e => {
+  e.preventDefault();
+  setAuthMode(authMode === 'create' ? 'signin' : 'create');
+};
+function openEmailForm() {
+  $('auth-email-form').style.display = '';
+  $('auth-email-toggle').style.display = 'none';
+}
+$('auth-email-toggle').onclick = () => { openEmailForm(); $('email').focus(); };
+setAuthMode('create');
+// Continue with Google: a creation built while signed out
+// rides the round trip parked server side, the same one home
+// the sign-up path uses. The browser parks it first, then
+// follows the start link with the park id; with nothing
+// parked it simply follows the link.
+$('auth-google').onclick = async e => {
+  e.preventDefault();
+  let href = '/api/auth/google/start';
+  if (pendingCreate) {
+    try {
+      const r = await api('/api/auth/park', { method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ pending_create: serializePending(pendingCreate) }) });
+      if (r && r.park) href += '?park=' + encodeURIComponent(r.park);
+    } catch (err) { /* the sign in still proceeds; the build stays in the form */ }
+  }
+  window.location.href = href;
+};
+// The provider row, its OR divider, and the passwordless
+// line render only when the deployment carries that
+// provider's credentials; /api/config says which, and a
+// button for a provider that cannot answer never ships.
+function applyOAuthProviders() {
+  const oauthBox = $('auth-oauth');
+  if (!oauthBox) return;
+  const google = !!(cfg.oauth_providers && cfg.oauth_providers.google);
+  oauthBox.style.display = google ? '' : 'none';
+  $('auth-or').style.display = google ? '' : 'none';
+  $('auth-secure').style.display = google ? '' : 'none';
+}
+// A social sign in that could not finish lands back here
+// with the reason in the query: open the dialog on the
+// email path and say so plainly.
+if (new URLSearchParams(location.search).get('oauth') === 'error') {
+  openAuthPanel();
+  openEmailForm();
+  msg('auth-msg', 'That sign in did not finish. Try again, or use your email and password.', 'err');
+}
 
 // File payloads are the one thing a pending creation cannot
 // carry through the sign-up round trip: the fields below are
@@ -24677,7 +24963,7 @@ async function fireImage(d) {
   }
   msg('job-msg', 'Still working. Your image will appear in your library below when it lands.', 'ok');
 }
-fetch('/api/config').then(r => r.json()).then(c => { cfg = c; catalogCfg = c; renderBotChecks(); buildCatalog(); });
+fetch('/api/config').then(r => r.json()).then(c => { cfg = c; catalogCfg = c; renderBotChecks(); applyOAuthProviders(); buildCatalog(); });
 // The pricing payload is account aware (the owner's own
 // session sees raw costs), so it is fetched once at page
 // load and again whenever a studio session starts: an in
