@@ -3538,8 +3538,17 @@ MODEL_PROVIDER = {
     "grok15_lite": "fal",
     "happyhorse": "openrouter",
     "minimax_h3": "beatapi",
-    "veo3": "piapi",
-    "veo3_fast": "fal",
+    # Veo 3.1 and Veo 3.1 Fast ride Kie since 2026-11-25
+    # (frontier coverage pass): Kie bills both flat per clip
+    # with native audio ($1.25 / $1.275 / $1.85 per Quality
+    # clip, $0.30 / $0.325 / $0.90 per Fast clip), the cheapest
+    # compliant route for either model. The PiAPI route the
+    # Quality lane ran on is out under Jack's
+    # no-expiring-credits rule and the fal route the Fast lane
+    # ran on costs four times Kie's 720p figure; both submits
+    # stay wired below as spares.
+    "veo3": "kie",
+    "veo3_fast": "kie",
     "kling3_omni": "kie",
     # Veo 3.1 Lite rides Kie since 2026-11-25: Kie bills the
     # model flat per clip ($0.15 at 720p, $0.175 at 1080p,
@@ -3650,11 +3659,11 @@ PROVIDER_KEY_ENV = {
 # below BeatAPI's ~$0.0968/s live read.
 MODEL_PROVIDER_OVERRIDES = {
     "seedance": {"480p": "cometapi", "720p": "cometapi"},
-    # Veo 3.1's 4K tier (2026-11-17, 4K expansion): the primary
-    # PiAPI route's own docs cap its resolution enum at
-    # 720p/1080p, so 4K rides the wired fal route, priced at
-    # fal's with-audio 4K rate in pricing.py.
-    "veo3": {"4K": "fal"},
+    # Veo 3.1's 4K tier rode the fal route from the 2026-11-17
+    # 4K expansion until 2026-11-25, when the lane moved to
+    # Kie, whose Veo 3.1 pricing covers 4K on the same flat
+    # per-clip basis as the other tiers; the override is gone
+    # and fal's rates remain the lane's fallback in pricing.py.
 }
 
 
@@ -3695,8 +3704,8 @@ LANE_AUDIO = {
                    "note": "motion transfer: your subject image performs the motion from your reference video; silent, music and voice run in post"},
     "seedance": {"native_speech": True, "native_audio": True,
                  "note": "Seedance native audio incl. dialogue; audio on for the BeatAPI tiers; the CometAPI 720p tier's audio basis is unconfirmed"},
-    "veo3": {"native_speech": False, "native_audio": False,
-             "note": "the model generates dialogue natively, but the wired route is the published no-audio rate; with-audio routes are recorded as fallbacks in pricing.py"},
+    "veo3": {"native_speech": True, "native_audio": True,
+             "note": "Veo 3.1 native audio incl. dialogue on the wired Kie route; the displaced PiAPI route was the no-audio tier"},
     "veo3_fast": {"native_speech": True, "native_audio": True,
                   "note": "wired route is the with-audio rate; dialogue native"},
     "kling3": {"native_speech": True, "native_audio": True,
@@ -10423,6 +10432,12 @@ def api():
             # the tier named inside the input.
             _submit_kie_veo_lite(job, params, prompt)
             return
+        if model in ("veo3", "veo3_fast"):
+            # The Quality and Fast tiers ride the same unified
+            # veo-3-1 endpoint since the 2026-11-25 reroute,
+            # each with its own tier inside the input.
+            _submit_kie_veo(job, params, prompt)
+            return
         slugs = {
             ("kling4", "text"): "kling-4.0/reference-to-video",
             ("kling4", "reference"): "kling-4.0/reference-to-video",
@@ -10574,6 +10589,70 @@ def api():
                     urls.append(_beatapi_media_url(
                         params["end_image"], "last-frame"))
                 inp["image_urls"] = urls
+        except Exception as exc:
+            _submit_failed(job, f"media upload failed: {exc}")
+        data = _submit_post(
+            job, f"{KIE_BASE}/api/v1/jobs/createTask",
+            _api_headers("kie"), {"model": "veo-3-1", "input": inp})
+        payload = data.get("data") or {}
+        task_id = (payload.get("taskId") or payload.get("task_id")
+                   or payload.get("id"))
+        if not task_id:
+            _submit_failed(job, "submit returned no task id")
+        job["provider_task_id"] = task_id
+        jobs[job["id"]] = job
+
+    # The Kie tier inside the unified veo-3-1 input for the
+    # two tiers this submit serves (the Lite tier keeps its
+    # own submit above, pinned by its own check).
+    KIE_VEO_TIERS = {"veo3": "veo3", "veo3_fast": "veo3_fast"}
+
+    def _submit_kie_veo(job: dict, params: dict, prompt: str):
+        """Veo 3.1 Quality and Fast on Kie (lanes rerouted
+        2026-11-25): POST /api/v1/jobs/createTask with the
+        unified model id veo-3-1 and the tier named inside
+        the input (veo3 / veo3_fast), polled by the shared
+        Kie mirror. The shape follows Kie's own current Veo
+        API reference (docs.kie.ai/veo3-api/generate-veo-3-video,
+        read 2026-11-25): duration is one of 4 / 6 / 8 seconds
+        (the lanes' steps already match), resolution is sent
+        on every job (720p / 1080p / 4K, the priced tiers),
+        and every clip carries Veo's native audio by default,
+        so no audio field is sent. Reference mode sends
+        REFERENCE_2_VIDEO with the reference image urls:
+        Kie's reference names that mode for the Fast and Lite
+        tiers, and the Quality tier's support for it is
+        PAYLOAD-UNVERIFIED like the rest of this submit until
+        the first real job runs on the funded Kie balance.
+        Kie publishes no square Veo aspect: the documented
+        enum is 16:9 / 9:16 / Auto, so a 1:1 job sends Auto.
+        No watermark and no translation flag is sent."""
+        mode = params["mode"]
+        aspect = params["aspect_ratio"]
+        inp = {
+            "prompt": prompt,
+            "model": KIE_VEO_TIERS[job["model"]],
+            "duration": int(params["duration"]),
+            "resolution": params["resolution"],
+            "aspect_ratio": (
+                aspect if aspect in ("16:9", "9:16") else "Auto"),
+            "generation_type": (
+                "FIRST_AND_LAST_FRAMES_2_VIDEO"
+                if mode == "image" else
+                "REFERENCE_2_VIDEO"
+                if mode == "reference" else "TEXT_2_VIDEO"),
+        }
+        try:
+            if mode == "image":
+                urls = [_beatapi_media_url(
+                    params["start_image"], "first-frame")]
+                if params["end_image"]:
+                    urls.append(_beatapi_media_url(
+                        params["end_image"], "last-frame"))
+                inp["image_urls"] = urls
+            elif mode == "reference" \
+                    and params["reference_image_urls"]:
+                inp["image_urls"] = params["reference_image_urls"]
         except Exception as exc:
             _submit_failed(job, f"media upload failed: {exc}")
         data = _submit_post(

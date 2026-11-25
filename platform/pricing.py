@@ -222,28 +222,33 @@ PROVIDER_RATES_CENTS_PER_SECOND = {
     # direction, and settlement uses the provider's own reported
     # charge, never this estimate.
     "seedance": {"480p": 8.24, "720p": 18.48, "1080p": 48.1},
-    # Veo 3.1 via PiAPI (follow-up pass, 2026-11-16): $0.12/s is
-    # the cheapest published per-second rate anywhere, on the
-    # NO-AUDIO basis (PiAPI's with-audio rate is $0.24/s). The
-    # model itself generates dialogue natively; this route does
-    # not, so the lane's audio capability is silent-with-voiceover
-    # (the Kokoro voiceover path covers talking content; see
-    # LANE_AUDIO in app.py). Carried flat: the published figure
-    # has no resolution split. fal's with-audio route ($0.40/s)
-    # is the fallback below.
-    # 4K tier (2026-11-17, 4K expansion): PiAPI's own Veo 3.1
-    # docs cap its resolution enum at 720p/1080p, so the 4K tier
-    # rides the wired fal route instead (per-resolution override
-    # in app.py's MODEL_PROVIDER_OVERRIDES): fal's own Veo 3.1
-    # page prices 4K at $0.40/s no-audio and $0.60/s with audio,
-    # and the fal submit sends generate_audio=true, so the
-    # with-audio $0.60/s is the tier's cost basis.
-    "veo3": {"720p": 12.0, "1080p": 12.0, "4K": 60.0},
-    # Veo 3.1 Fast via fal, with audio: $0.15/s at 720p and 1080p.
-    # 4K tier (2026-11-17, 4K expansion): fal's own Veo 3.1 Fast
-    # page prices 4K at $0.30/s no-audio and $0.35/s with audio;
-    # the lane's basis is with-audio, so $0.35/s.
-    "veo3_fast": {"720p": 15.0, "1080p": 15.0, "4K": 35.0},
+    # Veo 3.1 via Kie (rerouted 2026-11-25, frontier coverage
+    # pass): Kie bills the model flat per clip, native audio
+    # included — 250 credits ($1.25) per 720p video, 255
+    # credits ($1.275) per 1080p video, 370 credits ($1.85)
+    # per 4K video (Kie's published Veo 3.1 pricing, read
+    # 2026-11-25; the governing cost lives in
+    # FLAT_CLIP_COST_CENTS below). The rate table carries only
+    # the worst-case per-second ceiling, the flat cost at the
+    # lane's shortest 4 s length. The route this displaces,
+    # PiAPI at $0.12/s on the no-audio basis, is out under
+    # Jack's no-expiring-credits rule (PiAPI credits expire);
+    # its rates are recorded in DISPLACED_RATES below and its
+    # submit stays wired as a spare. fal's with-audio route
+    # ($0.40/s, $0.60/s at 4K) is the fallback below and now
+    # covers every tier alike, 4K included.
+    "veo3": {"720p": 31.25, "1080p": 31.875, "4K": 46.25},
+    # Veo 3.1 Fast via Kie (rerouted 2026-11-25, frontier
+    # coverage pass): flat per clip with native audio — 60
+    # credits ($0.30) per 720p video, 65 credits ($0.325) per
+    # 1080p video, 180 credits ($0.90) per 4K video (Kie's
+    # published Veo 3.1 pricing, read 2026-11-25; governing
+    # cost in FLAT_CLIP_COST_CENTS below, rate table carries
+    # the 4 s ceiling only). Displaces the fal per-second
+    # route ($0.15/s at 720p and 1080p, $0.35/s at 4K, with
+    # audio), whose rates move to the fallback table below;
+    # the fal endpoints stay wired in app.py.
+    "veo3_fast": {"720p": 7.5, "1080p": 8.125, "4K": 22.5},
     # Kling 3.0 via Kie (follow-up pass, 2026-11-16; round-2
     # cost correction, same day): Kie's own model page
     # (kie.ai/kling-3-0) prices kling-3.0/video per second at
@@ -709,11 +714,16 @@ FALLBACK_PROVIDER_RATES_CENTS_PER_SECOND = {
     # they exist, so a fallback is a provider flip, not a rebuild.
     "kling3_omni": {"720p": 11.2, "1080p": 14.0},
     "hailuo23": {"720p": 5.6, "1080p": 8.2},
-    # veo3's 4K row is fal's with-audio 4K rate ($0.60/s); since
-    # the 2026-11-17 4K expansion the fal route SERVES the lane's
-    # 4K tier via MODEL_PROVIDER_OVERRIDES in app.py, so the row
-    # is the live tier's basis, not only a fallback record.
+    # veo3's rows are fal's with-audio rates ($0.40/s, $0.60/s
+    # at 4K): the fallback since the lane moved to Kie's flat
+    # per-clip pricing on 2026-11-25 (the fal route served the
+    # lane's 4K tier until then via MODEL_PROVIDER_OVERRIDES).
     "veo3": {"720p": 40.0, "1080p": 40.0, "4K": 60.0},
+    # Veo 3.1 Fast via fal, with audio ($0.15/s at 720p and
+    # 1080p, $0.35/s at 4K): the lane's primary until the
+    # 2026-11-25 move to Kie's flat per-clip pricing; the fal
+    # endpoints stay wired in app.py as the fallback.
+    "veo3_fast": {"720p": 15.0, "1080p": 15.0, "4K": 35.0},
     "veo3_lite": {"720p": 5.0, "1080p": 8.0},
     # Grok Imagine Video 1.5 via fal (2026-11-17): fal's own
     # page prices the 1.5 endpoints at $0.08 / $0.14 / $0.25 per
@@ -789,6 +799,15 @@ DISPLACED_RATES_CENTS_PER_SECOND = {
     # are the no-audio per-second rates the lane ran on from
     # the 2026-11-16 follow-up pass.
     "veo3_lite_eachlabs": {"720p": 3.0, "1080p": 8.0},
+    # PiAPI rates displaced 2026-11-25 when Veo 3.1 moved to
+    # Kie's flat per-clip pricing: $0.12/s flat at 720p and
+    # 1080p on the NO-AUDIO basis (its with-audio rate was
+    # $0.24/s), the route the lane ran on from the 2026-11-16
+    # follow-up pass. Record only: PiAPI is out under Jack's
+    # no-expiring-credits rule, so this route does not come
+    # back; the PiAPI submit stays wired in app.py as a spare
+    # for the record, like the other displaced routes.
+    "veo3_piapi": {"720p": 12.0, "1080p": 12.0},
 }
 
 # Resolutions each per-second model can actually be ordered at.
@@ -886,6 +905,18 @@ FLAT_CLIP_COST_CENTS = {
     # chains from native segments is that many videos, priced
     # per segment by flat_clip_raw_cents below.
     "veo3_lite": {"720p": 15.0, "1080p": 17.5},
+    # Veo 3.1 (Quality) via Kie (2026-11-25): 250 credits
+    # ($1.25) per 720p video, 255 credits ($1.275) per 1080p
+    # video, 370 credits ($1.85) per 4K video, native audio
+    # included (Kie's published Veo 3.1 pricing, read
+    # 2026-11-25). One price buys one native-length video;
+    # chained lengths price per segment, as for the Lite.
+    "veo3": {"720p": 125.0, "1080p": 127.5, "4K": 185.0},
+    # Veo 3.1 Fast via Kie (2026-11-25): 60 credits ($0.30)
+    # per 720p video, 65 credits ($0.325) per 1080p video,
+    # 180 credits ($0.90) per 4K video, native audio included
+    # (same published Kie pricing, read 2026-11-25).
+    "veo3_fast": {"720p": 30.0, "1080p": 32.5, "4K": 90.0},
 }
 
 # The native segment lengths a flat-per-clip lane's price
@@ -895,6 +926,8 @@ FLAT_CLIP_COST_CENTS = {
 # per-clip cost times the segment count.
 FLAT_CLIP_STEPS = {
     "veo3_lite": (4, 6, 8),
+    "veo3": (4, 6, 8),
+    "veo3_fast": (4, 6, 8),
 }
 
 
@@ -1646,8 +1679,23 @@ IMAGE_LANES = {
         # fal's own published measured cost for a high-quality
         # 1024x1024 Flare image (about $0.053), the only size
         # sold until the funded pass measures the real charge.
-        "label": "GPT Image 2.6 · $$$", "provider": "fal",
+        "label": "GPT Image 2.6 Flare · $$$", "provider": "fal",
         "endpoint": "openai/gpt-image-2.6/flare/text-to-image",
+        "raw_cents": {"1024x1024": 5.3},
+    },
+    "gpt_image_26_sunburst": {
+        # GPT Image 2.6 Sunburst (wired 2026-11-25, frontier
+        # coverage pass): the detail tier of OpenAI's 2.6 pair,
+        # carried as its own lane beside the Flare lane above.
+        # OpenAI bills Sunburst and Flare on the identical
+        # token card, and fal serves both, so the raw figure
+        # is the same measured high-quality 1024x1024 cost
+        # (about $0.053) the Flare lane carries, on the same
+        # single size until the funded pass measures the real
+        # charge. VidLab's catalog carries no 2.6 tier (read
+        # 2026-11-23), so fal is the cheapest wired route.
+        "label": "GPT Image 2.6 Sunburst · $$$", "provider": "fal",
+        "endpoint": "openai/gpt-image-2.6/sunburst/text-to-image",
         "raw_cents": {"1024x1024": 5.3},
     },
     "seedream55_unc": {

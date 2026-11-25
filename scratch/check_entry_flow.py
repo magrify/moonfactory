@@ -340,7 +340,7 @@ for lane_id in ("seedream55_unc", "seedream5pro_unc", "zimage_unc",
     check(pricing.IMAGE_LANES[lane_id].get("uncensored") is True,
           f"image lane {lane_id} carries its uncensored flag in pricing")
 for lane_id in ("nano_banana_21", "nano_banana_pro", "nano_banana_2",
-                "gpt_image_26"):
+                "gpt_image_26", "gpt_image_26_sunburst"):
     check(app.image_picker_class(lane_id) == "paid",
           f"image lane {lane_id} groups as paid")
 for lane_id in ("flux2_klein4b", "flux1_schnell", "stock"):
@@ -372,7 +372,8 @@ def _image_tier_marks(debit):
 for lane_id, base in (("nano_banana_21", "Nano Banana 2.1"),
                       ("nano_banana_2", "Nano Banana 2"),
                       ("nano_banana_pro", "Nano Banana Pro"),
-                      ("gpt_image_26", "GPT Image 2.6"),
+                      ("gpt_image_26", "GPT Image 2.6 Flare"),
+                      ("gpt_image_26_sunburst", "GPT Image 2.6 Sunburst"),
                       ("seedream55_unc", "Seedream 5.5"),
                       ("seedream5pro_unc", "Seedream 5.0 Pro"),
                       ("zimage_unc", "Z-Image"),
@@ -419,6 +420,7 @@ for lane_id, tier in (("house", 1), ("zimage_unc", 1),
                       ("zimage_pro_unc", 1), ("seedream55_unc", 2),
                       ("seedream5pro_unc", 2), ("qwen_edit_unc", 3),
                       ("nano_banana_pro", 3), ("gpt_image_26", 3),
+                      ("gpt_image_26_sunburst", 3),
                       ("nano_banana_21", 1), ("nano_banana_2", 1)):
     check(app.image_lane_tier(lane_id) == tier,
           f"image lane {lane_id} serves tier {tier} as data")
