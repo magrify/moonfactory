@@ -390,5 +390,77 @@
   "size": 457111960,
   "sha256": "e947ebc07ee627796196b6dc551326c387ca81af173a5df72a789f135cd21f0b",
   "family": "krea2"
+ },
+ {
+  "repo": "Comfy-Org/Hunyuan-Video-1.5",
+  "file": "split_files/diffusion_models/hunyuanvideo1.5_480p_t2v_cfg_distilled_fp8_scaled.safetensors",
+  "dest": "diffusion_models/hunyuanvideo1.5_480p_t2v_cfg_distilled_fp8_scaled.safetensors",
+  "size": 8330399746,
+  "sha256": "e1dbece6b36d4a3baf7a371e655c127db11233195c5dde44ce0c08831f92b7df",
+  "family": "hunyuan15"
+ },
+ {
+  "repo": "Comfy-Org/Hunyuan-Video-1.5",
+  "file": "split_files/diffusion_models/hunyuanvideo1.5_480p_i2v_step_distilled_fp8_scaled.safetensors",
+  "dest": "diffusion_models/hunyuanvideo1.5_480p_i2v_step_distilled_fp8_scaled.safetensors",
+  "size": 8335127098,
+  "sha256": "302636263ad01e2659a18b78e96e95f44433b92def7cae1dab29b5105eeb63b1",
+  "family": "hunyuan15"
+ },
+ {
+  "repo": "Comfy-Org/Hunyuan-Video-1.5",
+  "file": "split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors",
+  "dest": "text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors",
+  "size": 9384670680,
+  "sha256": "cb5636d852a0ea6a9075ab1bef496c0db7aef13c02350571e388aea959c5c0b4",
+  "family": "hunyuan15"
+ },
+ {
+  "repo": "Comfy-Org/Hunyuan-Video-1.5",
+  "file": "split_files/text_encoders/byt5_small_glyphxl_fp16.safetensors",
+  "dest": "text_encoders/byt5_small_glyphxl_fp16.safetensors",
+  "size": 438643184,
+  "sha256": "516910bb4c9b225370290e40585d1b0e6c8cd3583690f7eec2f7fb593990fb48",
+  "family": "hunyuan15"
+ },
+ {
+  "repo": "Comfy-Org/Hunyuan-Video-1.5",
+  "file": "split_files/vae/hunyuanvideo15_vae_fp16.safetensors",
+  "dest": "vae/hunyuanvideo15_vae_fp16.safetensors",
+  "size": 2521292758,
+  "sha256": "e7c3091949c27e2d55ae6d5df917b99dadfebbf308e5a50d0ade0d16c90297ae",
+  "family": "hunyuan15"
+ },
+ {
+  "repo": "Comfy-Org/Hunyuan-Video-1.5",
+  "file": "split_files/clip_vision/sigclip_vision_patch14_384.safetensors",
+  "dest": "clip_vision/sigclip_vision_patch14_384.safetensors",
+  "size": 856505640,
+  "sha256": "1fee501deabac72f0ed17610307d7131e3e9d1e838d0363aa3c2b97a6e03fb33",
+  "family": "hunyuan15"
+ },
+ {
+  "repo": "Comfy-Org/LongCat-Image",
+  "file": "split_files/diffusion_models/longcat_image_bf16.safetensors",
+  "dest": "diffusion_models/longcat_image_bf16.safetensors",
+  "size": 12541383144,
+  "sha256": "7c83c314a3d879d43e5700072033256000f46a56900ae48b209a77ac1921488b",
+  "family": "longcat"
+ },
+ {
+  "repo": "Comfy-Org/Hunyuan-Video-1.5",
+  "file": "split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors",
+  "dest": "text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors",
+  "size": 9384670680,
+  "sha256": "cb5636d852a0ea6a9075ab1bef496c0db7aef13c02350571e388aea959c5c0b4",
+  "family": "longcat"
+ },
+ {
+  "repo": "Comfy-Org/z_image_turbo",
+  "file": "split_files/vae/ae.safetensors",
+  "dest": "vae/ae.safetensors",
+  "size": 335304388,
+  "sha256": "afc8e28272cd15db3919bacdb6918ce9c1ed22e96cb12c4d5ed0fba823529e38",
+  "family": "longcat"
  }
 ]

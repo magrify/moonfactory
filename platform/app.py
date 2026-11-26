@@ -2718,6 +2718,16 @@ MODELS = [
     # MAGI-2 by Sand.ai (2026-11-25): listed individually
     # under its own name, on Higgsfield's own API route.
     {"id": "magi2", "label": "MAGI-2", "paid_only": True},
+    # HunyuanVideo 1.5 (2026-11-26, Jack's order): Tencent's
+    # 8.3B open video model as a house lane on the Kaggle
+    # worker (the 480p FP8 distilled builds), listed under
+    # its own name like every lane. Not a per-second lane: it
+    # settles on its own house pricing lane (pricing lane
+    # "hunyuan15"), routed in create_job like the other house
+    # models. A clean lane (the model is moderated by its own
+    # design and the lane carries no uncensored flag), so the
+    # regular gallery, classifier and input rules apply.
+    {"id": "hunyuan15", "label": "HunyuanVideo 1.5", "paid_only": True},
 ]
 MODEL_LABELS = {m["id"]: m["label"] for m in MODELS}
 DEFAULT_MODEL = "wan2.2"
@@ -2770,6 +2780,9 @@ HOUSE_MODEL_PRICING_LANE = {
     # model is far bigger than the Wan experts, so it carries
     # its own measured-cost entry rather than borrowing one.
     "ltx25_unc": "ltx_unc",
+    # HunyuanVideo 1.5 settles on its own pricing lane, which
+    # carries the Production serving basis (see pricing.py).
+    "hunyuan15": "hunyuan15",
 }
 
 
@@ -3739,6 +3752,8 @@ LANE_AUDIO = {
                "note": "house model is silent; music bed and the voiceover path run in post"},
     "ltx25_unc": {"native_speech": True, "native_audio": True,
                "note": "LTX-2.5 generates synchronized audio with speech in the render itself; no post stage runs"},
+    "hunyuan15": {"native_speech": False, "native_audio": False,
+               "note": "house model is silent; music bed and the voiceover path run in post"},
     "wan3": {"native_speech": False, "native_audio": True,
              "note": "native audio is music/SFX-led; speech is not reliable"},
     "wan3_prime": {"native_speech": False, "native_audio": True,
@@ -4458,7 +4473,8 @@ def _queue_short_bed_child(job: dict) -> None:
 # (house Wan 2.2 in its Draft, Production and Effects shapes,
 # and Wan 2.2 Uncut) carry the $$$ band, and Draft's measured
 # entry (50c) is the highest per job cost on the house shelf.
-KAGGLE_COMFY_LANES = ("draft", "production", "effects", "nsfw")
+KAGGLE_COMFY_LANES = ("draft", "production", "effects", "nsfw",
+                      "hunyuan15")
 
 HF_TEMPLATES = {
     "title": {
@@ -9136,6 +9152,40 @@ def api():
         jobs[job["id"]] = job
         _comfy_maybe_trigger()
 
+    def _queue_longcat_on_kaggle(job: dict):
+        """Queue a LongCat-Image job on the Kaggle ComfyUI
+        worker (2026-11-26): the clean Apache 2.0 house image
+        lane rides the image shelf for its picker entry, its
+        paid gate and its per image charge, then takes the
+        house image job's shape here (provider kaggle-comfy,
+        route kaggle, queued) so the kernel claim, the worker
+        endpoints, the mirror's dead-kernel bounds and the
+        house restores all work it exactly like a house image,
+        while the image_model stamp stays on the record for
+        the kernel to pick the LongCat graph by. The Krea
+        conversion's shape, minus its stamps: the shelf charge
+        stays on the record as charged_cents, so a failure
+        restores it in full through _restore_house_image, and
+        the route's raw cost is $0 on Kaggle, so cost_cents
+        is 0. A clean lane, so no gallery stamp: placement is
+        judged by the output classifier and the prompt scan
+        exactly like a regular generation."""
+        job["provider"] = "kaggle-comfy"
+        job["route"] = "kaggle"
+        job["status"] = "queued"
+        job["worker_job_id"] = None
+        if not isinstance(job.get("seed"), int):
+            job["seed"] = pysecrets.randbelow(1_000_000_000)
+        job["charged_cents"] = int(job.get("image_charge_cents")
+                                   or 0)
+        job["cost_cents"] = 0.0
+        job["included_cost_cents"] = 0
+        job["free_tier"] = False
+        job["bytes"] = None
+        job["last_poll"] = 0
+        jobs[job["id"]] = job
+        _comfy_maybe_trigger()
+
     # ------------------------------------------------------
     # OVHcloud AI Endpoints free image route (2026-11-20).
     # SDXL is priced at 0 EUR in OVHcloud's own catalog and
@@ -13201,6 +13251,32 @@ def api():
                     status_code=422,
                     detail="LTX 2.5 Uncensored renders one clip per job")
             lane = "ltx_unc"
+        if model == "hunyuan15":
+            # HunyuanVideo 1.5 (2026-11-26, Jack's order): the
+            # house lane on the Kaggle worker. The model choice
+            # is the lane. Text to video and image to video
+            # both run (a start image is welcome, never
+            # required); segments chain on the worker like the
+            # other house lanes. It combines with neither an
+            # effect nor a Fun Camera preset, and an end image
+            # is refused by the house shape checks below, the
+            # same as every non Production lane. Everything
+            # downstream (the ceiling, the included budget, the
+            # balance price, the dispatch) reads the worker
+            # lane exactly as it does for Production.
+            if pricing.lane_paused("hunyuan15"):
+                raise HTTPException(
+                    status_code=503,
+                    detail="this lane is paused while its costs are reviewed")
+            if effect_id:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Effects run on Wan 2.2. Pick that model for an effect video")
+            if fun_preset is not None:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Fun Camera presets run on Wan 2.2. Pick that model for a camera move")
+            lane = "hunyuan15"
         if model in PER_SECOND_MODELS:
             # Per-second lanes take their length from
             # duration_seconds (the nine-length menu), never from
@@ -13986,6 +14062,12 @@ def api():
                     # Klein conversion's shape with the paid
                     # charge kept on the record.
                     _queue_krea2_on_kaggle(job)
+                elif lane_id == "longcat":
+                    # LongCat-Image (2026-11-26): the lane's
+                    # only route is the house Kaggle worker,
+                    # so the job queues there at submit, the
+                    # Krea conversion's shape on a clean lane.
+                    _queue_longcat_on_kaggle(job)
                 else:
                     _submit_provider_image(job, prompt,
                                            source_image=source_image)
@@ -14015,6 +14097,7 @@ def api():
             return {"job_id": job_id,
                     "status": "queued" if klein_on_kaggle
                     or lane_id == "krea2_verite"
+                    or lane_id == "longcat"
                     else "running",
                     "charged_cents": charge}
         # Same in-flight limits as video jobs, counted together:
@@ -23296,7 +23379,7 @@ let pricingData = null;
 // House models run on our own worker with the house form
 // (segments and a start image), never the per-second form. The
 // list mirrors HOUSE_MODEL_PRICING_LANE in the platform code.
-const HOUSE_MODEL_IDS = ['wan2.2', 'wan22_uncut', 'ltx25_unc'];
+const HOUSE_MODEL_IDS = ['wan2.2', 'wan22_uncut', 'ltx25_unc', 'hunyuan15'];
 function isHouseModel(id) { return HOUSE_MODEL_IDS.includes(id); }
 // Motion templates ride the same picker as the models (Jack,
 // 2026-11-18: one Create, no separate wing). They are not
@@ -23525,6 +23608,7 @@ function updateHousePrice() {
   const segs = Number($('segments').value) || 1;
   const per = $('model').value === 'wan22_uncut' ? (jp.nsfw || 0)
     : $('model').value === 'ltx25_unc' ? (jp.ltx_unc || 0)
+    : $('model').value === 'hunyuan15' ? (jp.hunyuan15 || 0)
     : $('lane').value === 'production' ? (jp.production || 0) : (jp.draft || 0);
   el.textContent = 'It costs ' + moneyC(per * segs + cloneAdd) + ' from your balance for ' +
     segs + (segs === 1 ? ' segment' : ' segments') + ' at ' + moneyC(per) +

@@ -33,6 +33,9 @@ WORKFLOW_FILES = (
     "z_image_t2i.json",
     "flux2_klein_t2i.json",
     "krea2_verite_t2i.json",
+    "hunyuan15_t2v.json",
+    "hunyuan15_i2v.json",
+    "longcat_t2i.json",
 )
 
 

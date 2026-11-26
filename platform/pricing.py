@@ -60,6 +60,16 @@ MEASURED_COST_CENTS = {
     # give the lane its job price and the owner this raw cost
     # in the meantime, exactly the Uncut lane's structure.
     "ltx_unc": 26,
+    # HunyuanVideo 1.5 (2026-11-26, Jack's order): Tencent's
+    # 8.3B model on the house Kaggle worker (the 480p FP8
+    # distilled builds), priced on the Production lane's
+    # serving basis like the other Kaggle house lanes: the
+    # same 15 cent entry, so the shared formulas give it the
+    # same 99 cent job price and the owner the same raw cost
+    # per segment. PROVISIONAL in the LTX sense: no render has
+    # run yet, so this is the house basis, not a measurement;
+    # the first measured wall replaces it if it lands higher.
+    "hunyuan15": 15,
 }
 
 CREATOR_PRICE_CENTS = 2000  # $20/mo
@@ -1776,6 +1786,31 @@ IMAGE_LANES = {
         "uncensored": True,
         "endpoint": "krea2-verite",
         "raw_cents": {"832x1216": 1.9, "1024x1024": 1.9,
+                      "1216x832": 1.9},
+    },
+    "longcat": {
+        # LongCat-Image (2026-11-26, Jack's order): Meituan's
+        # 6B text to image model (Apache 2.0), notably strong
+        # at rendering text inside images, running on the
+        # house Kaggle ComfyUI worker like the Krea lane
+        # above, not on a provider API. The lane rides the
+        # shelf for its picker entry, its paid gate and its
+        # per image charge, then converts to the house job
+        # shape at submit (see _queue_longcat_on_kaggle in
+        # app.py). The raw figure is a price basis, not a
+        # provider bill: it matches the Krea lane's raw, so
+        # the customer price takes the same shape (raw x
+        # FRONTIER_MIN_MARKUP = 2.375c, the $ band). The
+        # route's true raw cost is $0 on Kaggle's free
+        # compute, and that is what the owner pays
+        # (image_lane_price returns $0 for the owner on a
+        # kaggle-comfy lane). A clean lane: no uncensored
+        # flag, so the regular gallery and input rules apply.
+        # Text to image only, no edit mode. All three sizes
+        # sell at the one flat raw, like the Krea lane.
+        "label": "LongCat-Image · $", "provider": "kaggle-comfy",
+        "endpoint": "longcat-image",
+        "raw_cents": {"1024x1024": 1.9, "832x1216": 1.9,
                       "1216x832": 1.9},
     },
     "qwen_edit_unc": {

@@ -59,8 +59,10 @@ PTREE = ast.parse(PLATFORM)
 
 # --- routing -------------------------------------------------------------
 lanes = literal(PTREE, "KAGGLE_COMFY_LANES")
-check(lanes == ("draft", "production", "effects", "nsfw"),
-      "KAGGLE_COMFY_LANES is exactly the four house video lanes")
+check(lanes == ("draft", "production", "effects", "nsfw",
+                "hunyuan15"),
+      "KAGGLE_COMFY_LANES is exactly the house video lanes "
+      "(the four Wan lanes plus HunyuanVideo 1.5, 2026-11-26)")
 check("on_kaggle = lane in KAGGLE_COMFY_LANES" in PLATFORM
       and "if not on_kaggle:" in PLATFORM,
       "create_job dispatches to the Modal worker only off the Kaggle route")
@@ -240,7 +242,13 @@ g = kernel.build_fun_camera_workflow("p", "n", 1, "Orbit", prefix="x")
 g2 = kernel.build_effects_workflow("p", "n", 1, "inflate", prefix="x")
 g3 = kernel.build_image_workflow("p", 1, "9:16", prefix="x")
 g4 = kernel.build_klein_image_workflow("p", 1, 1024, 1024, prefix="x")
-for g in (g, g2, g3, g4):
+g5 = kernel.build_hunyuan_workflow("p", "n", 1, "9:16",
+                                   text_only=True, prefix="x")
+g6 = kernel.build_hunyuan_workflow("p", "n", 1, "9:16",
+                                   text_only=False, prefix="x")
+g7 = kernel.build_longcat_image_workflow("p", 1, 1024, 1024,
+                                         prefix="x")
+for g in (g, g2, g3, g4, g5, g6, g7):
     for n in g.values():
         for v in n.get("inputs", {}).values():
             if isinstance(v, str) and v.endswith(".safetensors"):
@@ -254,7 +262,7 @@ for name in sorted(named):
               f"manifest pins size and sha256 for {name}")
 families = {e["family"] for e in MANIFEST}
 check(families == {"shared", "draft", "a14b", "camera", "effects",
-                   "image", "klein", "krea2"},
+                   "image", "klein", "krea2", "hunyuan15", "longcat"},
       "the manifest stages by family")
 total = sum(e["size"] for e in MANIFEST)
 check(total > 100 * 1024**3,

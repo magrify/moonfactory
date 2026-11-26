@@ -104,6 +104,14 @@ NSFW_LANE = "nsfw"
 KREA2_NEGATIVE_PROMPT = (
     "cartoon, anime, illustration, painting, cgi, 3d render, "
     "blurry, deformed, extra limbs, watermark, text")
+# LongCat-Image (2026-11-26): the negative from ComfyUI's
+# official LongCat text to image template, baked the way the
+# Krea lane bakes its own.
+LONGCAT_NEGATIVE_PROMPT = (
+    "blurry, low resolution, oversaturated, harsh lighting, "
+    "messy composition, distorted face, extra fingers, bad "
+    "anatomy, cheap jewelry, plastic texture, cartoon, "
+    "illustration, anime, watermark, text, logo")
 ASPECT_RATIOS = ("9:16", "16:9", "1:1")
 
 # Which model families a job needs on disk before it renders.
@@ -116,6 +124,8 @@ JOB_FAMILIES = {
     "image": ("image",),
     "klein": ("klein",),
     "krea2": ("krea2",),
+    "hunyuan15": ("hunyuan15",),
+    "longcat": ("longcat",),
 }
 # Keep at least this much disk free after staging a family.
 DISK_RESERVE_BYTES = 6 * 1024 ** 3
@@ -385,6 +395,80 @@ def build_krea2_image_workflow(prompt: str, seed: int,
         elif ct == "KSampler":
             inputs["seed"] = seed
         elif ct == "EmptyLatentImage":
+            inputs["width"] = width
+            inputs["height"] = height
+        elif ct == "SaveImage":
+            inputs["filename_prefix"] = prefix or "sinclip/api_image"
+    return workflow
+
+
+def build_hunyuan_workflow(prompt: str, negative: str, seed: int,
+                           aspect: str = "9:16", text_only: bool = False,
+                           prefix: str = ""):
+    # HunyuanVideo 1.5 (2026-11-26): Tencent's 8.3B model as a
+    # house lane on this worker, from ComfyUI's official
+    # Hunyuan Video 1.5 templates with the super resolution
+    # stage left out. The weights are the 480p FP8 distilled
+    # builds (the only FP8 builds Comfy-Org ships for these
+    # modes, and the size this host class renders in sane
+    # time): the text to video graph runs the CFG distilled
+    # build at 20 steps with the guidance baked in (CFG 1),
+    # the image to video graph runs the step distilled build
+    # at 8 steps, both at shift 7 on the template's sampler
+    # stack (RandomNoise, CFGGuider, KSamplerSelect euler,
+    # BasicScheduler simple, SamplerCustomAdvanced). One
+    # segment is 121 frames at 24 fps. The dimensions come
+    # from LANE_DIMS like every house lane.
+    name = "hunyuan15_t2v.json" if text_only else "hunyuan15_i2v.json"
+    workflow = json.loads(json.dumps(WORKFLOW_TEMPLATES[name]))
+    prefix = prefix or "sinclip/api_hunyuan15"
+    width, height = LANE_DIMS["hunyuan15"][aspect]
+    for node in workflow.values():
+        ct = node.get("class_type")
+        inputs = node.get("inputs", {})
+        if ct == "CLIPTextEncode":
+            if inputs.get("text") == "PLACEHOLDER_POSITIVE_PROMPT":
+                inputs["text"] = prompt
+            elif inputs.get("text") == "PLACEHOLDER_NEGATIVE_PROMPT":
+                inputs["text"] = negative
+        elif ct == "RandomNoise":
+            inputs["noise_seed"] = seed
+        elif ct == "EmptyHunyuanVideo15Latent":
+            inputs["width"] = width
+            inputs["height"] = height
+        elif ct == "HunyuanVideo15ImageToVideo":
+            inputs["width"] = width
+            inputs["height"] = height
+        elif ct == "SaveVideo":
+            inputs["filename_prefix"] = prefix
+    return workflow
+
+
+def build_longcat_image_workflow(prompt: str, seed: int,
+                                 width: int = 1024, height: int = 1024,
+                                 prefix: str = ""):
+    # LongCat-Image (2026-11-26): Meituan's 6B text to image
+    # model (Apache 2.0), the graph from ComfyUI's official
+    # LongCat template flattened out of its subgraph: the
+    # BF16 weights, the Qwen2.5 VL 7B encoder loaded as type
+    # longcat_image, the Flux AE VAE, CFG Norm at 1, Flux
+    # Guidance at 4 on both conditionings, 20 steps at cfg 4,
+    # euler on the simple scheduler, and the template's own
+    # negative baked in. The sold sizes are pixel dimensions,
+    # so width and height ride in directly.
+    workflow = json.loads(
+        json.dumps(WORKFLOW_TEMPLATES["longcat_t2i.json"]))
+    for node in workflow.values():
+        ct = node.get("class_type")
+        inputs = node.get("inputs", {})
+        if ct == "CLIPTextEncode":
+            if inputs.get("text") == "PLACEHOLDER_POSITIVE_PROMPT":
+                inputs["text"] = prompt
+            elif inputs.get("text") == "PLACEHOLDER_NEGATIVE_PROMPT":
+                inputs["text"] = LONGCAT_NEGATIVE_PROMPT
+        elif ct == "KSampler":
+            inputs["seed"] = seed
+        elif ct == "EmptySD3LatentImage":
             inputs["width"] = width
             inputs["height"] = height
         elif ct == "SaveImage":
@@ -980,6 +1064,31 @@ def run_video_job(job: dict) -> dict:
                 video = run_workflow(
                     workflow,
                     images={start_name: start_bytes, end_name: end_bytes})
+            elif lane == "hunyuan15":
+                # HunyuanVideo 1.5 (2026-11-26): its own pair
+                # of graphs (text to video, image to video),
+                # picked per segment by whether a start frame
+                # exists, exactly the house chaining shape: a
+                # later segment always continues from the last
+                # frame of the one before, so it always runs
+                # the image graph. The model's own negative is
+                # empty unless the caller wrote one.
+                text_only = start_bytes is None
+                workflow = build_hunyuan_workflow(
+                    prompt, job.get("negative_prompt") or "",
+                    seg_seed, aspect, text_only=text_only,
+                    prefix=prefix)
+                check_nodes(workflow)
+                if text_only:
+                    video = run_workflow(workflow)
+                else:
+                    image_name = f"job_{job_id}_seg{i + 1}.png"
+                    for node in workflow.values():
+                        if node.get("class_type") == "LoadImage":
+                            node["inputs"]["image"] = image_name
+                    video = run_workflow(workflow,
+                                         image_bytes=start_bytes,
+                                         image_name=image_name)
             else:
                 text_only = start_bytes is None
                 workflow = build_lane_workflow(
@@ -1060,6 +1169,37 @@ def run_video_job(job: dict) -> dict:
 
 
 def run_image_job(job: dict) -> dict:
+    if job.get("image_model") == "longcat":
+        # LongCat-Image (2026-11-26): the clean Apache 2.0
+        # house image lane on this worker. Same discipline as
+        # the branches below: stage the family, restart
+        # ComfyUI when the model set changed under it, render,
+        # and let the caller's upload carry the result. The
+        # sold sizes are pixel dimensions on the job record.
+        if ensure_families(JOB_FAMILIES["longcat"]):
+            restart_comfy()
+        started = time.time()
+        width, height = 1024, 1024
+        try:
+            w_s, h_s = str(
+                job.get("image_size") or "1024x1024").split("x", 1)
+            width, height = int(w_s), int(h_s)
+        except Exception:
+            pass
+        workflow = build_longcat_image_workflow(
+            job.get("prompt") or "", int(job.get("seed") or 12345),
+            width, height,
+            prefix=f"sinclip/api_image_{job['id']}")
+        check_nodes(workflow)
+        data, exec_seconds = run_image_workflow(workflow)
+        return {
+            "data": data,
+            "render_seconds": round(time.time() - started, 1),
+            "exec_seconds": round(float(exec_seconds or 0), 1),
+            "segments_done": 1,
+            "partial": False,
+            "partial_error": "",
+        }
     if job.get("image_model") == "krea2_verite":
         # Krea 2 Verite (2026-11-21): the uncensored Krea 2
         # lane on this worker. Same discipline as the Klein

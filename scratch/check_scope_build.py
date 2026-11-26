@@ -147,11 +147,12 @@ for mid in app.PER_SECOND_MODELS:
         check(res in rates, f"{mid} missing a rate for {res}")
 
 # --- image shelf (item 1) ------------------------------------------
-check(len(pricing.IMAGE_LANES) == 47,
-      "image shelf has 47 lanes (33 VidLab lanes added 2026-11-23, "
-      "GPT Image 2.6 Sunburst added 2026-11-25; superseded "
-      "2026-11-25: was 48 until GPT Image 1 was removed the same "
-      "day, its upstream shut down by OpenAI 2026-10-23)")
+check(len(pricing.IMAGE_LANES) == 48,
+      "image shelf has 48 lanes (33 VidLab lanes added 2026-11-23, "
+      "GPT Image 2.6 Sunburst added 2026-11-25, LongCat-Image "
+      "added 2026-11-26; superseded 2026-11-25: was 48 until "
+      "GPT Image 1 was removed the same day, its upstream shut "
+      "down by OpenAI 2026-10-23, leaving 47 until LongCat)")
 check(pricing.IMAGE_LANES["krea2_verite"]["provider"] == "kaggle-comfy"
       and pricing.IMAGE_LANES["krea2_verite"]["endpoint"] == "krea2-verite"
       and pricing.IMAGE_LANES["krea2_verite"].get("uncensored") is True,

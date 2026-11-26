@@ -790,6 +790,12 @@ LANE_DIMS = {
     # multiples of 32): 1280x704 is the nearest grid shape to
     # the model card's recommended 1280x720.
     "ltx_unc": {"9:16": (704, 1280), "16:9": (1280, 704), "1:1": (960, 960)},
+    # HunyuanVideo 1.5 (2026-11-26) renders at its 480p grid
+    # on the Kaggle worker only (the FP8 distilled builds the
+    # lane serves); the Modal worker never takes its jobs, but
+    # the kernel's baked LANE_DIMS is extracted from this
+    # table, so the lane's shapes live here like the rest.
+    "hunyuan15": {"9:16": (480, 848), "16:9": (848, 480), "1:1": (640, 640)},
 }
 
 # Start-image generation (Pass 3): one still image per job at the

@@ -1,5 +1,22 @@
 # Third-party notices
 
+## HunyuanVideo 1.5 (house video lane)
+
+The HunyuanVideo 1.5 video lane runs Tencent's open weights
+(Comfy-Org/Hunyuan-Video-1.5, the 480p FP8 distilled builds)
+on this platform's own worker under the Tencent Hunyuan
+Community License Agreement. The United States is inside
+the license territory (the agreement excludes only the
+European Union, the United Kingdom and South Korea), and
+outputs generated with the model are owned by the user who
+generated them under the agreement's terms.
+
+## LongCat-Image (house image lane)
+
+The LongCat-Image lane runs Meituan's open weights
+(Comfy-Org/LongCat-Image) on this platform's own worker
+under the Apache License 2.0.
+
 ## MotionForge (3D motion templates and photo presenter)
 
 Moonfactory's 3D motion templates (product turntable, globe

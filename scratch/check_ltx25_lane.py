@@ -199,8 +199,10 @@ check('if model == "ltx25_unc":' in PLATFORM
       "create_job does not route ltx25_unc to the ltx_unc lane")
 check('detail="LTX 2.5 Uncensored renders one clip per job"' in PLATFORM,
       "platform segment refusal missing")
-check("const HOUSE_MODEL_IDS = ['wan2.2', 'wan22_uncut', 'ltx25_unc'];"
-      in PLATFORM, "studio house model list does not carry ltx25_unc")
+check("const HOUSE_MODEL_IDS = ['wan2.2', 'wan22_uncut', 'ltx25_unc', 'hunyuan15'];"
+      in PLATFORM,
+      "studio house model list does not carry ltx25_unc "
+      "(hunyuan15 joined the list 2026-11-26)")
 check("jp.ltx_unc" in PLATFORM,
       "house price line does not read the ltx_unc job price")
 
