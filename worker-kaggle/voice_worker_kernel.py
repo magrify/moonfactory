@@ -137,8 +137,13 @@ _MODEL = None
 _WHISPER = None
 
 # Pinned specs for the load self-healing loop in setup_engine,
-# keyed by importable module name.
-LOAD_MISS_PINS = {"x_transformers": "x-transformers==2.32.4"}
+# keyed by importable module name. The whisper entry matters:
+# the module is OpenAI's package (openai-whisper), and the
+# bare PyPI name "whisper" is an unrelated package whose
+# install succeeds without ever providing the module (the
+# 2026-11-22 sessions burned all ten heal attempts on it).
+LOAD_MISS_PINS = {"x_transformers": "x-transformers==2.32.4",
+                  "whisper": "openai-whisper==20250625"}
 
 
 def setup_engine():
@@ -159,7 +164,20 @@ def setup_engine():
                 ["inflect==7.6.0"],
                 ["onnxruntime==1.32.0"], ["gdown==6.5.2"],
                 ["soundfile==0.14.0"],
-                ["faster-whisper==1.2.1"], ["matplotlib==3.11.2"],
+                ["faster-whisper==1.2.1"],
+                # The pinned frontend imports the whisper
+                # module at load (cosyvoice/cli/frontend.py),
+                # OpenAI's package: without it the model load
+                # dies and no clone can ever be made (the
+                # lane's standing failure until 2026-11-27).
+                # The 20250625 release, not the era's 20231117:
+                # that sdist no longer builds on Kaggle's
+                # current image (its setup.py needs the
+                # removed pkg_resources at wheel build time,
+                # so every install exits rc=1), while the
+                # newer release ships modern packaging.
+                ["openai-whisper==20250625"],
+                ["matplotlib==3.11.2"],
                 ["networkx==3.1"], ["rich==15.0.0"], ["wget==3.2"],
                 ["protobuf==7.36.2"], ["tensorboard==2.21.0"],
                 ["onnx==1.23.2"]):

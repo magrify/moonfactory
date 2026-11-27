@@ -95,8 +95,9 @@ def solve_pow(challenge: str, difficulty_bits: int) -> str:
         nonce += 1
 
 
-def make_session(user_id: str, secret: str) -> str:
-    payload = {"uid": user_id, "exp": int(time.time()) + 7 * 24 * 3600}
+def make_session(user_id: str, secret: str, epoch: str = "") -> str:
+    payload = {"uid": user_id, "exp": int(time.time()) + 7 * 24 * 3600,
+               "ep": epoch}
     raw = json.dumps(payload, separators=(",", ":")).encode()
     body = base64.urlsafe_b64encode(raw).decode().rstrip("=")
     sig = hmac.new(secret.encode(), body.encode(), hashlib.sha256)
@@ -106,8 +107,13 @@ def make_session(user_id: str, secret: str) -> str:
 def _session_for(user_rec):
     import requests
     s = requests.Session()
+    # The studio's own fetches are same-origin, so the
+    # session carries the platform Origin: the CSRF guard
+    # (2026-11-27) refuses cookie mutations without one.
+    s.headers.update({"Origin": BASE})
     s.cookies.set("mf_session", make_session(
-        user_rec["id"], os.environ["SESSION_SECRET"]))
+        user_rec["id"], os.environ["SESSION_SECRET"],
+        user_rec.get("session_epoch") or ""))
     return s
 
 
