@@ -3933,7 +3933,7 @@ MODEL_PROVIDER = {
     "veo3_lite": "kie",
     "hailuo23": "kie",
     "luma_ray32": "fal",
-    "ltx25": "fal",
+    "ltx25": "spicyapi",
     "ltx25_fast": "fal",
     "pika22": "fal",
     "vidu_q2": "fal",
@@ -12660,6 +12660,13 @@ def api():
         "seedance15pro_unc": "bytedance/seedance-1.5-pro-spicy/image-to-video",
         "ltx23_unc": "lightricks/ltx-2.3-spicy/image-to-video",
         "ltx23_lora_unc": "lightricks/ltx-2.3-spicy-lora/image-to-video",
+        # Regular lanes on per-mode endpoints (route audit,
+        # 2026-11-26): LTX-2.5 publishes a separate endpoint
+        # per mode, keyed here by the job's mode; the submit
+        # resolves the dict form. Its rates are the supplier's
+        # catalog prices ($0.09 / $0.13 / $0.30 per second).
+        "ltx25": {"text": "lightricks/ltx-2.5/text-to-video",
+                  "image": "lightricks/ltx-2.5/image-to-video"},
     }
     # SpicyAPI lanes whose published schema carries a
     # generate_audio field (selected on: the platform ships
@@ -12707,6 +12714,12 @@ def api():
         for Vidu Q3, the same mapping the Novita lane uses."""
         model = job["model"]
         slug = SPICYAPI_MODEL_IDS.get(model)
+        if isinstance(slug, dict):
+            # Per-mode endpoints (LTX-2.5, route audit
+            # 2026-11-26): the regular lanes on this supplier
+            # publish one endpoint per mode, unlike the
+            # uncensored builds' single image-to-video one.
+            slug = slug.get(params["mode"])
         if not slug:
             _submit_failed(job, f"no spicyapi model id for {model}")
         inp = {"prompt": prompt,
@@ -12714,6 +12727,9 @@ def api():
                "resolution": params["resolution"]}
         if model == "vidu_q3_unc" and params["resolution"] == "480p":
             inp["resolution"] = "540p"
+        if model == "ltx25" and params["resolution"] == "4K":
+            # The supplier spells the LTX-2.5 top tier 4k.
+            inp["resolution"] = "4k"
         if model in SPICYAPI_AUDIO_MODELS:
             inp["generate_audio"] = True
         if model in SPICYAPI_ASPECT_MODELS:
@@ -20615,7 +20631,6 @@ def refresh_provider_rates():
     # BUILD-LOG.
     fal_pages = {
         "veo3_fast": [("fal-ai/veo3.1/fast", ("720p", "1080p"))],
-        "ltx25": [("lightricks/ltx-2.5/text-to-video", ("720p", "1080p"))],
         "ltx25_fast": [("lightricks/ltx-2.5/text-to-video/fast", ("720p", "1080p"))],
     }
     found = {}

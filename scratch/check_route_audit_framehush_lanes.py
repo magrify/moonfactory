@@ -64,6 +64,25 @@ check(shelf["wan3"] == {"480p": 3.55, "720p": 7.1, "1080p": 13.6},
 check(shelf["minimax_h3"] == {"480p": 2.0, "720p": 3.0, "1080p": 4.7},
       "minimax_h3 shelf frozen on the BeatAPI-built rates")
 
+check('"ltx25": "spicyapi",' in APP, "ltx25 routes to spicyapi")
+check('"ltx25": {"text": "lightricks/ltx-2.5/text-to-video",' in APP,
+      "ltx25 carries per-mode SpicyAPI endpoints")
+check('slug = slug.get(params["mode"])' in APP,
+      "spicy submit resolves per-mode endpoint dicts")
+check(rates["ltx25"] == {"720p": 9.0, "1080p": 13.0, "4K": 30.0},
+      "ltx25 true rates are SpicyAPI's catalog prices")
+check(pricing.FALLBACK_PROVIDER_RATES_CENTS_PER_SECOND["ltx25"]
+      == {"720p": 12.0, "1080p": 17.0, "4K": 34.0},
+      "ltx25 fal rates recorded as the fallback")
+check(shelf["ltx25"] == {"720p": 12.0, "1080p": 17.0, "4K": 34.0},
+      "ltx25 shelf frozen on the fal-built rates")
+check('"ltx25": [("lightricks/ltx-2.5/text-to-video"' not in APP,
+      "rate refresh no longer reads fal's LTX-2.5 page")
+check('"wan3": ("https://beatapi.io/wan-3-0-api", "")' not in APP,
+      "rate refresh no longer reads BeatAPI's Wan 3.0 page")
+check('required = set()' in APP,
+      "rate refresh has no required page reads left")
+
 if failures:
     print(f"\n{len(failures)} FAILURES")
     sys.exit(1)

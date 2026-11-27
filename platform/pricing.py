@@ -481,11 +481,16 @@ PROVIDER_RATES_CENTS_PER_SECOND = {
     # $2.00 at 5 s, double at 10 s): a flat per-second rate at
     # every duration, carried as published.
     "luma_ray32": {"480p": 10.0, "720p": 20.0, "1080p": 40.0},
-    # LTX-2.5 via fal, Pro tier: $0.12/s at 720p, $0.17/s at
-    # 1080p, $0.34/s at 4K (4K wired 2026-11-17, parity pass:
-    # Higgsfield sells 4K on its shelf; the fal schema value for
-    # the tier is carried as 2160p in app.py, payload-unverified).
-    "ltx25": {"720p": 12.0, "1080p": 17.0, "4K": 34.0},
+    # LTX-2.5 via SpicyAPI (route audit, 2026-11-26): its
+    # catalog prices lightricks/ltx-2.5 at $0.09 / $0.13 /
+    # $0.30 per second (720p / 1080p / 4K), under fal's Pro
+    # tier ($0.12 / $0.17 / $0.34, recorded in the fallback
+    # table below; the fal endpoints stay wired in app.py, so
+    # a fallback is a provider flip). The move also takes the
+    # lane off fal's unfunded account, where it cannot run at
+    # all today. The customer shelf stays frozen on the
+    # fal-built rates (SHELF_PROVIDER_RATES below).
+    "ltx25": {"720p": 9.0, "1080p": 13.0, "4K": 30.0},
     # LTX-2.5 Fast via fal: $0.09/s at 720p, $0.13/s at 1080p.
     # 4K tier (2026-11-17, 4K expansion): fal's own LTX-2.5 Fast
     # page prices 4K at $0.30/s; the fal submit maps the tier to
@@ -733,6 +738,11 @@ PROVIDER_RATES_CENTS_PER_SECOND = {
 # goes away, this table is the starting point.
 FALLBACK_PROVIDER_RATES_CENTS_PER_SECOND = {
     "seedance": {"480p": 21.5, "720p": 46.2},
+    # LTX-2.5 via fal, Pro tier ($0.12 / $0.17 / $0.34 per
+    # second): the lane's primary until the 2026-11-26 route
+    # audit moved it to SpicyAPI; the fal endpoints stay
+    # wired in app.py.
+    "ltx25": {"720p": 12.0, "1080p": 17.0, "4K": 34.0},
     "wan3": {"480p": 5.0, "720p": 10.0, "1080p": 20.0},
     "wan3_prime": {"480p": 6.8, "720p": 14.0, "1080p": 28.0},
     "kling3": {"720p": 12.6, "1080p": 16.8},
@@ -1140,6 +1150,9 @@ SHELF_PROVIDER_RATES_CENTS_PER_SECOND = {
     # frozen there, so no customer price moves.
     "wan3": {"480p": 3.55, "720p": 7.1, "1080p": 13.6},
     "minimax_h3": {"480p": 2.0, "720p": 3.0, "1080p": 4.7},
+    # LTX-2.5's shelf was built on fal's Pro rates; the lane
+    # now runs on SpicyAPI at the lower true rates above.
+    "ltx25": {"720p": 12.0, "1080p": 17.0, "4K": 34.0},
 }
 
 # Built-in lip sync (Jack's product rule, 2026-11-17): every video
