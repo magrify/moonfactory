@@ -3855,11 +3855,15 @@ PER_SECOND_MODELS = (
 # as a fixed 8-second clip, which does not fit the per-second
 # lane shape. Seedance 2.5's fal endpoint stays in FALLBACK notes
 # in pricing.py, not wired, because fal charges over twice the
-# rate and offers no 1080p tier for this model.
+# rate and offers no 1080p tier for this model. Seedance 2.5
+# itself moved to FrameHush on 2026-11-26: its seedance-2-5
+# endpoint undercuts the mixed CometAPI/BeatAPI route at every
+# tier (see pricing.py); both displaced submits stay wired below
+# as spares.
 MODEL_PROVIDER = {
     "wan3": "beatapi",
     "wan3_prime": "cometapi",
-    "seedance": "beatapi",
+    "seedance": "framehush",
     "kling3": "kie",
     # Kling 4.0 rerouted to VidLab 2026-11-23: VidLab's
     # $0.135 / $0.20 per second undercuts Kie's $0.1425 /
@@ -3990,22 +3994,19 @@ PROVIDER_KEY_ENV = {
     "ovhcloud": "OVH_AI_API_KEY",
     "vidlab": "VIDLAB_API_KEY",
     "higgsfield": "HIGGSFIELD_API_KEY",
+    "framehush": "FRAMEHUSH_API_KEY",
 }
-# Per-resolution route overrides: Seedance 2.5's cheapest route
-# is a different supplier at 480p/720p (CometAPI) than at 1080p
-# (BeatAPI), so the provider is a function of (model,
-# resolution), not model alone. The 480p tier joined the
-# CometAPI route in pricing round 2 (2026-11-16): CometAPI's
-# own models API states an actual 480p price of $0.0824/s,
-# below BeatAPI's ~$0.0968/s live read.
-MODEL_PROVIDER_OVERRIDES = {
-    "seedance": {"480p": "cometapi", "720p": "cometapi"},
-    # Veo 3.1's 4K tier rode the fal route from the 2026-11-17
-    # 4K expansion until 2026-11-25, when the lane moved to
-    # Kie, whose Veo 3.1 pricing covers 4K on the same flat
-    # per-clip basis as the other tiers; the override is gone
-    # and fal's rates remain the lane's fallback in pricing.py.
-}
+# Per-resolution route overrides: a lane whose cheapest route
+# is a different supplier at some resolutions than at others
+# records the split here, so the provider is a function of
+# (model, resolution), not model alone. No lane currently
+# splits: Seedance 2.5's split (CometAPI at 480p/720p, BeatAPI
+# at 1080p, from pricing round 2, 2026-11-16) retired on
+# 2026-11-26 when FrameHush took every tier, and Veo 3.1's 4K
+# fal override retired on 2026-11-25 when that lane moved to
+# Kie flat per-clip pricing (fal's rates remain its fallback
+# in pricing.py). The mechanism stays for the next split.
+MODEL_PROVIDER_OVERRIDES = {}
 
 
 def provider_for(model: str, resolution: str = None) -> str:
@@ -4046,7 +4047,7 @@ LANE_AUDIO = {
     "wan_motion": {"native_speech": False, "native_audio": False,
                    "note": "motion transfer: your subject image performs the motion from your reference video; silent, music and voice run in post"},
     "seedance": {"native_speech": True, "native_audio": True,
-                 "note": "Seedance native audio incl. dialogue; audio on for the BeatAPI tiers; the CometAPI 720p tier's audio basis is unconfirmed"},
+                 "note": "Seedance native audio incl. dialogue on the wired FrameHush route (the model's own endpoint; no audio switch exists to send)"},
     "veo3": {"native_speech": True, "native_audio": True,
              "note": "Veo 3.1 native audio incl. dialogue on the wired Kie route; the displaced PiAPI route was the no-audio tier"},
     "veo3_fast": {"native_speech": True, "native_audio": True,
@@ -4217,6 +4218,7 @@ URL_RESULT_PROVIDERS = (
     "fal", "beatapi", "kie", "cometapi", "piapi", "openrouter",
     "novita", "wavespeed", "eachlabs", "runway", "vidu", "minimax",
     "spicyapi", "hotapi", "wiro", "vidlab", "higgsfield",
+    "framehush",
 )
 # Suppliers polled through mirror_api_status (fal and BeatAPI keep
 # their original mirror functions).
@@ -4224,6 +4226,7 @@ API_POLL_PROVIDERS = (
     "kie", "cometapi", "piapi", "openrouter", "novita",
     "wavespeed", "eachlabs", "runway", "vidu", "minimax",
     "spicyapi", "hotapi", "wiro", "vidlab", "higgsfield",
+    "framehush",
 )
 # Bounded poll lifetimes, in seconds from job creation (the
 # universal safety net, 2026-11-17). The SpicyAPI lesson: a
@@ -10949,6 +10952,7 @@ def api():
     # ------------------------------------------------------------------
     KIE_BASE = "https://api.kie.ai"
     COMETAPI_BASE = "https://api.cometapi.com"
+    FRAMEHUSH_BASE = "https://www.framehush.com"
     PIAPI_BASE = "https://api.piapi.ai"
     OPENROUTER_BASE = "https://openrouter.ai"
     NOVITA_BASE = "https://api.novita.ai"
@@ -11681,6 +11685,183 @@ def api():
                     jobs[job["id"]] = job
                 else:
                     _note_unparsed(job, "cometapi", status, data)
+        except Exception:
+            pass
+        return job
+
+    # -- FrameHush ---------------------------------------------------------
+    def _framehush_upload(data: bytes, filename: str, mime: str) -> str:
+        """Upload one media file to FrameHush's assets endpoint
+        and return the signed HTTPS URL it hands back (valid 12
+        hours, far past any job's submit). FrameHush task inputs
+        must be publicly accessible HTTPS URLs; the platform's
+        own inputs arrive as uploads, so they go through the
+        supplier's asset endpoint first, exactly like the
+        BeatAPI file endpoint. PAYLOAD-UNVERIFIED: the endpoint
+        is documented (POST /v1/video-studio/assets), its
+        response envelope is not, so the URL is read from the
+        documented spots in order."""
+        resp = requests.post(
+            f"{FRAMEHUSH_BASE}/v1/video-studio/assets",
+            headers={
+                "Authorization": f"Bearer "
+                f"{os.environ.get('FRAMEHUSH_API_KEY', '')}"
+            },
+            files={"file": (filename, data, mime)},
+            timeout=60,
+        )
+        if resp.status_code not in (200, 201):
+            raise ValueError(f"asset upload http {resp.status_code}")
+        data_json = resp.json() or {}
+        inner = data_json.get("data") or {}
+        url = (inner.get("url") or inner.get("signed_url")
+               or data_json.get("url") or data_json.get("signed_url"))
+        if not url:
+            raise ValueError("asset upload returned no url")
+        return url
+
+    def _framehush_media_url(value: str, kind: str) -> str:
+        """One FrameHush task input as a public HTTPS URL: pass
+        https URLs through, upload anything else (data URLs,
+        raw base64 frames) through the assets endpoint."""
+        if value.startswith("https://"):
+            return value
+        if value.startswith("data:"):
+            header, _, b64 = value.partition(",")
+            mime = header[5:].split(";")[0] or "application/octet-stream"
+            raw = base64.b64decode(b64)
+        else:
+            # Start and end frames arrive as raw base64 PNG.
+            mime = "image/png"
+            raw = base64.b64decode(value)
+        ext = {"image/png": "png", "image/jpeg": "jpg",
+               "video/mp4": "mp4", "audio/mpeg": "mp3"}.get(mime, "bin")
+        return _framehush_upload(raw, f"{kind}.{ext}", mime)
+
+    def submit_framehush_job(job: dict, body: dict, params: dict,
+                             prompt: str):
+        """FrameHush videos API (OpenAI Video interface): POST
+        /v1/videos with a Bearer key, poll GET /v1/videos/{id}.
+        PAYLOAD-UNVERIFIED: the contract is FrameHush's own API
+        guide, read from the signed-in account on 2026-11-26
+        (submit returns a task id; statuses queued /
+        in_progress / completed / failed; a completed answer
+        carries the exact charged_price settlement uses), but
+        no live job has run: the account balance is $0, so the
+        first funded submit is the envelope proof, like the
+        VidLab lanes before it. The lane serves Seedance 2.5
+        (model id seedance-2-5) at every tier. No audio switch
+        is sent: none exists in the documented field list, and
+        the model's native audio is the priced basis. Media the
+        supplier cannot fetch (data URLs, raw frames) goes
+        through its assets endpoint first."""
+        payload = {
+            "model": "seedance-2-5",
+            "prompt": prompt,
+            "resolution": params["resolution"],
+            "duration": int(params["duration"]),
+            "aspect_ratio": params["aspect_ratio"],
+        }
+        try:
+            if params["mode"] == "image":
+                payload["first_frame"] = _framehush_media_url(
+                    params["start_image"], "first-frame")
+                if params.get("end_image"):
+                    payload["last_frame"] = _framehush_media_url(
+                        params["end_image"], "last-frame")
+            elif params["mode"] == "reference":
+                if params["reference_image_urls"]:
+                    payload["image_refs"] = [
+                        _framehush_media_url(u, "reference-image")
+                        for u in params["reference_image_urls"]]
+                if params["reference_video_urls"]:
+                    payload["video_refs"] = [
+                        _framehush_media_url(u, "reference-video")
+                        for u in params["reference_video_urls"]]
+                if params["reference_audio_urls"]:
+                    payload["audio_refs"] = [
+                        _framehush_media_url(u, "reference-audio")
+                        for u in params["reference_audio_urls"]]
+        except Exception as exc:
+            _submit_failed(job, f"media upload failed: {exc}")
+        if isinstance(body.get("seed"), int):
+            payload["seed"] = body["seed"]
+        data = _submit_post(job, f"{FRAMEHUSH_BASE}/v1/videos",
+                            _api_headers("framehush"), payload)
+        task_id = data.get("id") or (data.get("data") or {}).get("id")
+        if not task_id:
+            _submit_failed(job, "submit returned no task id")
+        job["provider_task_id"] = task_id
+        jobs[job["id"]] = job
+
+    def _framehush_result_url(job: dict, data: dict):
+        """The finished file's downloadable URL. The poll
+        answer's output is read first (a URL string, or an
+        object carrying one); FrameHush archives generated
+        videos server-side for only 24 hours, so anything else
+        resolves the artifacts endpoint's signed URL now, while
+        the job is completing, never at delivery time."""
+        output = data.get("output")
+        url = data.get("video_url") or data.get("url")
+        if not url and isinstance(output, dict):
+            url = output.get("url") or output.get("video_url")
+        if not url and isinstance(output, str) \
+                and output.startswith("https://"):
+            url = output
+        if url:
+            return url
+        try:
+            resp = requests.get(
+                f"{FRAMEHUSH_BASE}/v1/tasks/"
+                f"{job['provider_task_id']}/artifacts/video/"
+                f"content/signed-url",
+                headers=_api_headers("framehush"), timeout=15)
+            if resp.status_code == 200:
+                signed = resp.json() or {}
+                inner = signed.get("data") or {}
+                return (inner.get("url") or inner.get("signed_url")
+                        or signed.get("url")
+                        or signed.get("signed_url"))
+        except Exception:
+            pass
+        return None
+
+    def mirror_framehush_status(job: dict) -> dict:
+        if not _poll_gate(job):
+            return job
+        try:
+            resp = requests.get(
+                f"{FRAMEHUSH_BASE}/v1/videos/"
+                f"{job['provider_task_id']}",
+                headers=_api_headers("framehush"), timeout=15)
+            if resp.status_code == 200:
+                data = resp.json() or {}
+                status = str(data.get("status") or "").lower()
+                if status == "completed":
+                    url = _framehush_result_url(job, data)
+                    # Settlement: the completed answer reports
+                    # the exact charged_price (FrameHush charges
+                    # on completion; failed tasks are not
+                    # charged), which is the truest cost there
+                    # is, exactly like VidLab's price_usd.
+                    price = data.get("charged_price")
+                    cost = round(float(price) * 100.0, 2) \
+                        if isinstance(price, (int, float)) else None
+                    duration = data.get("duration")
+                    duration = float(duration) \
+                        if isinstance(duration, (int, float)) else None
+                    if url:
+                        _poll_done(job, url, cost_cents=cost,
+                                   duration=duration)
+                    else:
+                        _poll_retry_or_fail(job)
+                elif status == "failed":
+                    _poll_fail(job, str(data.get("error"))[:200])
+                elif status in ("queued", "in_progress"):
+                    job["status"] = "running"
+                    jobs[job["id"]] = job
+                else:
+                    _note_unparsed(job, "framehush", status, data)
         except Exception:
             pass
         return job
@@ -12910,6 +13091,8 @@ def api():
             submit_kie_job(job, body, params, prompt)
         elif provider == "cometapi":
             submit_cometapi_job(job, body, params, prompt)
+        elif provider == "framehush":
+            submit_framehush_job(job, body, params, prompt)
         elif provider == "piapi":
             submit_piapi_job(job, body, params, prompt)
         elif provider == "openrouter":
@@ -12946,6 +13129,8 @@ def api():
             return mirror_kie_status(job)
         if provider == "cometapi":
             return mirror_cometapi_status(job)
+        if provider == "framehush":
+            return mirror_framehush_status(job)
         if provider == "piapi":
             return mirror_piapi_status(job)
         if provider == "openrouter":
@@ -20005,10 +20190,11 @@ def refresh_provider_rates():
     only when every required model's full price set was re-read, so
     a partial or failed read leaves the staleness pause armed
     instead of quietly extending stale prices. Required reads: the
-    Seedance and Wan 3.0 pages on the BeatAPI supplier's site.
+    Wan 3.0 page on the BeatAPI supplier's site.
     (Wan 3.0 Prime's page was a required read until the follow-up
-    pass moved that lane to CometAPI; its rate is seeded-only
-    now.) The fal
+    pass moved that lane to CometAPI, and Seedance 2.5's BeatAPI
+    page likewise until the 2026-11-26 move to FrameHush; both
+    rates are seeded-only now.) The fal
     pages are read opportunistically (their prices update when the
     pages parse, and the weekly margin report is the backstop
     until they do). Runs on CPU; no key needed, the pages are
@@ -20067,15 +20253,15 @@ def refresh_provider_rates():
 
     # The BeatAPI supplier publishes per-clip prices for 8-second
     # clips on each model's own page; per-second is price / 8.
-    # Seedance's rows used are the no-video-input ones, the same
-    # basis as the seeded table; the Wan pages carry a single rate
-    # per resolution. The pages carry the rows as structured-data
+    # The Wan page carries a single rate per resolution (the
+    # Seedance 2.5 page was read here until that lane moved to
+    # FrameHush on 2026-11-26; its rate is seeded-only now).
+    # The pages carry the rows as structured-data
     # offers ("name": "... 8 sec · 720p ...", "price": 1.5633) and
     # as a rendered table; try both shapes. The offers pattern is
     # pinned to the page's own URL so a cross-sold model's rows on
     # the same page can never land in the wrong lane.
     beatapi_pages = {
-        "seedance": ("https://beatapi.io/seedance-2.5-api", " · no video input"),
         "wan3": ("https://beatapi.io/wan-3-0-api", ""),
     }
     for beat_model, (beat_url, qualifier) in beatapi_pages.items():
@@ -20143,19 +20329,9 @@ def refresh_provider_rates():
     except Exception:
         pass
 
-    required = {"wan3", "seedance"}
+    required = {"wan3"}
     if not required.issubset(found):
         return {"verified": sorted(found), "updated": False}
-    # Seedance's 480p and 720p tiers ride CometAPI (720p since
-    # the follow-up pass, 480p since pricing round 2, both
-    # 2026-11-16); the BeatAPI page read covers only the tier
-    # BeatAPI still serves (1080p), so the seeded CometAPI rates
-    # are never shadowed.
-    if "seedance" in found:
-        found["seedance"] = {
-            res: cents for res, cents in found["seedance"].items()
-            if res not in ("480p", "720p")
-        }
     table = meta.get("provider_rates") or {
         "rates": pricing.PROVIDER_RATES_CENTS_PER_SECOND,
         "updated_at": _now(),

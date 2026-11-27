@@ -214,24 +214,23 @@ PROVIDER_RATES_CENTS_PER_SECOND = {
     # read 2026-11-17). The output follows the driving video's
     # length; the rate is per output second.
     "wan_motion": {"720p": 6.0},
-    # Seedance 2.5, mixed route (follow-up pass, 2026-11-16;
-    # round 2, same day): 480p and 720p via CometAPI at its API
-    # catalog's stated actual prices, $0.0824 / $0.1848 per second
-    # (read 2026-11-16 from CometAPI's own models API, the
-    # seedance-2-5 entry's "Actual price / second" column: 80% of
-    # the official $0.103 / $0.231). The 480p tier moved off
-    # BeatAPI ($0.096 seeded; its live page read ~$0.0968) in
-    # round 2: the CometAPI figure is the cheapest verified 480p
-    # rate anywhere in the sweep. 1080p stays on BeatAPI at
-    # $0.481 per second, no reference video, audio included at no
-    # extra cost (CometAPI surfaces no 1080p for this model; the
-    # displaced BeatAPI 720p rate is in DISPLACED_RATES below).
-    # With reference videos BeatAPI bills a LOWER per-second rate
-    # over output + reference seconds, so estimating every billed
-    # second at the no-reference rate is the conservative
-    # direction, and settlement uses the provider's own reported
-    # charge, never this estimate.
-    "seedance": {"480p": 8.24, "720p": 18.48, "1080p": 48.1},
+    # Seedance 2.5 via FrameHush (rerouted 2026-11-26, route
+    # rule: the cheapest verified route is primary): FrameHush's
+    # seedance-2-5 endpoint bills per generated second at
+    # $0.035 (480p) / $0.047 (720p) / $0.08 (1080p), read
+    # 2026-11-26 from the platform's own signed-in account
+    # (account rates equal the public rates; failed tasks are
+    # not charged, the charge lands on completion, and the
+    # completed response reports the exact charged_price, which
+    # settlement uses, never this estimate). The route this
+    # displaces is the 2026-11-16 mixed route (CometAPI at
+    # 480p/720p, $0.0824 / $0.1848; BeatAPI at 1080p, $0.481);
+    # those rates are recorded in DISPLACED_RATES below and
+    # both submits stay wired in app.py as spares. FrameHush
+    # also publishes a 4K tier at $0.09/s; it is NOT sold here:
+    # no published Higgsfield 4K credit count is on record to
+    # price that tier against (see MODEL_RESOLUTIONS).
+    "seedance": {"480p": 3.5, "720p": 4.7, "1080p": 8.0},
     # Veo 3.1 via Kie (rerouted 2026-11-25, frontier coverage
     # pass): Kie bills the model flat per clip, native audio
     # included — 250 credits ($1.25) per 720p video, 255
@@ -701,8 +700,9 @@ PROVIDER_RATES_CENTS_PER_SECOND = {
 
 # Fallback supplier data, kept for the record and never shown to
 # users: Seedance 2.5 via fal costs $0.215/s (480p) and $0.462/s
-# (720p) with no 1080p tier, which is why the lane's primary
-# supplier is BeatAPI (Pass 2). The Wan and Kling 3.0 rows are
+# (720p) with no 1080p tier (the lane's primary is FrameHush
+# since 2026-11-26; before that the mixed CometAPI/BeatAPI
+# route, whose rates sit in DISPLACED_RATES below). The Wan and Kling 3.0 rows are
 # the fal routes those lanes ran on before the 2026-11-16 route
 # rule made BeatAPI primary; their fal endpoints stay wired in
 # app.py, so a fallback is a provider flip, not a rebuild. The
@@ -818,6 +818,17 @@ DISPLACED_RATES_CENTS_PER_SECOND = {
     # back; the PiAPI submit stays wired in app.py as a spare
     # for the record, like the other displaced routes.
     "veo3_piapi": {"720p": 12.0, "1080p": 12.0},
+    # Seedance 2.5 routes displaced 2026-11-26 when the lane
+    # moved to FrameHush's cheaper per-second endpoint: the
+    # CometAPI tiers the lane ran on from the 2026-11-16
+    # follow-up pass (its own models API "Actual price /
+    # second": 80% of the official $0.103 / $0.231) and the
+    # BeatAPI 1080p tier (BeatAPI's displaced 720p rate is the
+    # plain "seedance" entry above). Both submits stay wired
+    # in app.py as spares, so a flip back needs no
+    # re-derivation.
+    "seedance_cometapi": {"480p": 8.24, "720p": 18.48},
+    "seedance_beatapi": {"1080p": 48.1},
 }
 
 # Resolutions each per-second model can actually be ordered at.
