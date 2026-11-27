@@ -20049,7 +20049,7 @@ x_api_key: str = Header(default="")):
             "avatar_url": avatar_url(owner),
             "lane": job["lane"],
             "model": model_label,
-            "prompt": (job.get("prompt") or "")[:200],
+            "prompt": job.get("prompt") or "",
             "camera_presets": job.get("camera_preset_names") or [],
             "camera_look": job.get("camera_look") or {},
             "effect": job.get("effect_name"),
@@ -21651,6 +21651,14 @@ _CSS = """
   .tile .report:disabled{color:var(--faint);cursor:default}
   .job video{max-width:360px}
   .job img.thumb{width:140px;border-radius:10px}
+  /* Full prompt on cards (Jack, 2026-11-27): the card keeps
+     its short snippet; the whole prompt opens in this bounded,
+     scrollable box so even a 15,000 character prompt cannot
+     stretch the page. */
+  .fullprompt{max-height:220px;overflow:auto;white-space:pre-wrap;word-break:break-word;background:var(--inset);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-top:8px;font-size:14px;line-height:1.55;color:var(--ink)}
+  .prompt-actions{display:inline-flex;gap:8px;margin-top:8px;flex-wrap:wrap}
+  .prompt-actions .btn{padding:7px 14px;font-size:13.5px}
+  .tile .gprompt{margin-top:6px}
   /* Thumbnails only in every listing (Jack, 2026-11-24): a
      card shows the small derivative and a play badge; the
      player element is built on the click, never before. */
@@ -26437,6 +26445,19 @@ function jobCardEl(j) {
       let html = '<strong>' + title + '</strong>' + spec + ' · ' +
         (activeJob ? '<span class="pulse-dot" aria-hidden="true"></span>' : '') + j.status +
         '<br><span class="muted">' + j.prompt.slice(0, 120) + '</span>';
+      // Full prompt (Jack, 2026-11-27): the snippet above is
+      // all the card shows by default, but the whole prompt is
+      // one tap away and copyable. The full text rides on the
+      // element itself (set below), never in the markup, and
+      // the click handler fills the bounded box as text.
+      if (j.prompt) {
+        html += '<br><span class="prompt-actions">' +
+          (j.prompt.length > 120
+            ? '<button class="btn secondary" data-prompt-toggle="' + j.id + '">Full prompt</button>'
+            : '') +
+          '<button class="btn secondary" data-prompt-copy="' + j.id + '">Copy prompt</button></span>' +
+          '<div class="fullprompt" hidden></div>';
+      }
       html += costLine(j);
       if (j.aspect_ratio && j.model_id === 'wan2.2') html += '<br><span class="muted">Shape ' + j.aspect_ratio + '</span>';
       if (j.segments_total > 1) html += '<br><span class="muted">Segment ' + Math.min(j.segments_done + (j.status === 'done' ? 0 : 1), j.segments_total) + ' of ' + j.segments_total + (j.status === 'done' ? ' joined into one video' : '') + '</span>';
@@ -26474,6 +26495,7 @@ function jobCardEl(j) {
           : '') +
         '<button class="btn secondary" data-del="' + j.id + '" data-delkind="' + (j.kind || 'generation') + '" data-ingallery="' + (j.in_gallery ? '1' : '0') + '">Delete</button>';
   div.innerHTML = html;
+  div._prompt = j.prompt || '';
   return div;
 }
 function renderClipResults(jobs) {
@@ -26528,6 +26550,43 @@ async function jobBoxClick(e) {
     open.src = '/api/jobs/' + open.dataset.open + '/file';
     open.removeAttribute('data-open');
     open.style.width = 'min(360px, 100%)';
+    return;
+  }
+  const ptoggle = e.target.closest('[data-prompt-toggle]');
+  if (ptoggle) {
+    const card = ptoggle.closest('.card');
+    const box = card ? card.querySelector('.fullprompt') : null;
+    if (!box) return;
+    if (box.hidden) {
+      box.textContent = (card && card._prompt) || '';
+      box.hidden = false;
+      ptoggle.textContent = 'Hide prompt';
+    } else {
+      box.hidden = true;
+      ptoggle.textContent = 'Full prompt';
+    }
+    return;
+  }
+  const pcopy = e.target.closest('[data-prompt-copy]');
+  if (pcopy) {
+    const card = pcopy.closest('.card');
+    const text = (card && card._prompt) || '';
+    if (!text) return;
+    let ok = false;
+    try { await navigator.clipboard.writeText(text); ok = true; }
+    catch (err) {}
+    if (!ok) {
+      // Plain fallback for browsers where the clipboard API
+      // refuses (insecure context, denied permission).
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      try { ok = document.execCommand('copy'); } catch (err) {}
+      ta.remove();
+    }
+    pcopy.textContent = ok ? 'Copied' : 'Copy failed';
+    setTimeout(() => { pcopy.textContent = 'Copy prompt'; }, 1600);
     return;
   }
   const fix = e.target.closest('[data-drama-fix]');
@@ -28239,7 +28298,48 @@ async function loadGallery() {
           report.disabled = true;
         } catch (e) { report.textContent = 'Report failed, try again'; }
       };
-      t.appendChild(f); t.appendChild(h); t.appendChild(report);
+      t.appendChild(f); t.appendChild(h);
+      if (item.prompt) {
+        const p = document.createElement('div'); p.className = 'gprompt';
+        const snip = document.createElement('span'); snip.className = 'muted';
+        snip.textContent = item.prompt.slice(0, 120);
+        p.appendChild(snip);
+        const full = document.createElement('div');
+        full.className = 'fullprompt'; full.hidden = true;
+        full.textContent = item.prompt;
+        const actions = document.createElement('span');
+        actions.className = 'prompt-actions';
+        if (item.prompt.length > 120) {
+          const tg = document.createElement('button');
+          tg.className = 'btn secondary'; tg.textContent = 'Full prompt';
+          tg.onclick = () => {
+            full.hidden = !full.hidden;
+            tg.textContent = full.hidden ? 'Full prompt' : 'Hide prompt';
+          };
+          actions.appendChild(tg);
+        }
+        const cp = document.createElement('button');
+        cp.className = 'btn secondary'; cp.textContent = 'Copy prompt';
+        cp.onclick = async () => {
+          let ok = false;
+          try { await navigator.clipboard.writeText(item.prompt); ok = true; }
+          catch (e) {}
+          if (!ok) {
+            const ta = document.createElement('textarea');
+            ta.value = item.prompt;
+            ta.style.position = 'fixed'; ta.style.opacity = '0';
+            document.body.appendChild(ta); ta.select();
+            try { ok = document.execCommand('copy'); } catch (e) {}
+            ta.remove();
+          }
+          cp.textContent = ok ? 'Copied' : 'Copy failed';
+          setTimeout(() => { cp.textContent = 'Copy prompt'; }, 1600);
+        };
+        actions.appendChild(cp);
+        p.appendChild(actions); p.appendChild(full);
+        t.appendChild(p);
+      }
+      t.appendChild(report);
       box.appendChild(t);
     }
   } catch (e) {
