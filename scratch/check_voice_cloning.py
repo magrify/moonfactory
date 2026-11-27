@@ -48,6 +48,7 @@ import pricing  # noqa: E402
 
 SRC = (ROOT / "platform" / "app.py").read_text()
 KERNEL = (ROOT / "worker-kaggle" / "voice_worker_kernel.py").read_text()
+CLIPPING = (ROOT / "platform" / "clipping.py").read_text()
 
 failures = []
 
@@ -200,6 +201,23 @@ check('"whisper": "openai-whisper==20250625"' in KERNEL,
       "voice kernel load self-heal does not map the whisper "
       "module to openai-whisper (the bare PyPI name whisper "
       "is an unrelated package)")
+
+# The upload verification probe (fix, 2026-11-27): the
+# voice and audio worker file endpoints verify their wav
+# uploads with the audio probe. They called the video
+# probe when the probe-or-fail rule landed, and a wav has
+# no video track, so the first fully synthesized clone
+# (326,478 bytes uploaded) was failed by its own
+# verification. The presenter claim measures its voiceover
+# with the audio probe too.
+check("def probe_audio" in CLIPPING,
+      "clipping has no audio probe for worker wav uploads")
+check(SRC.count("clipping.probe_audio(out_path)") == 2,
+      "voice and audio worker file endpoints do not both "
+      "verify uploads with the audio probe")
+check("clipping.probe_audio(voice_path)" in SRC,
+      "presenter claim does not measure its voiceover "
+      "with the audio probe")
 
 # Studio markup and payloads: the plain pick in both voice
 # pickers, a reference block in both forms, and the base64

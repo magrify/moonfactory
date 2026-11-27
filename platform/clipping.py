@@ -150,7 +150,8 @@ def _check_frame_bounds(width: int, height: int, fps: float):
             "that video's frame rate is too high to work with")
 
 
-def _measured_duration(path, declared: float) -> float:
+def _measured_duration(path, declared: float,
+                       stream: str = "v:0") -> float:
     """The stream-measured duration (security fix,
     2026-11-27, media-decode-container-duration-lie): the
     container's declared duration is attacker-controlled
@@ -160,7 +161,7 @@ def _measured_duration(path, declared: float) -> float:
     Any failure to measure falls back to declared."""
     try:
         out = _run([
-            "ffprobe", "-v", "error", "-select_streams", "v:0",
+            "ffprobe", "-v", "error", "-select_streams", stream,
             "-show_entries", "packet=pts_time,duration_time",
             "-of", "csv=p=0", str(path)], timeout=600)
         end = 0.0
@@ -197,6 +198,34 @@ def probe(path) -> dict:
     return {"width": w, "height": h,
             "duration": _measured_duration(
                 path, float(data["format"]["duration"]))}
+
+
+def probe_audio(path) -> dict:
+    """Probe an audio-only file (a worker's uploaded wav):
+    the audio twin of probe() above. The upload
+    verification on the voice and audio worker file
+    endpoints called probe() until 2026-11-27, and probe()
+    demands a video track, so every cloned voice and
+    every audio stage upload failed verification after a
+    successful synthesis and the job was marked error.
+    An audio upload verifies by carrying a real audio
+    stream with a positive measured duration; anything
+    else raises, so the endpoints' probe-or-fail rule
+    keeps its teeth."""
+    out = _run([
+        "ffprobe", "-v", "error", "-print_format", "json",
+        "-show_format", "-show_streams", str(path),
+    ])
+    data = json.loads(out)
+    a = next((s for s in data["streams"]
+              if s["codec_type"] == "audio"), None)
+    if not a:
+        raise RuntimeError("This file has no audio track.")
+    duration = _measured_duration(
+        path, float(data["format"]["duration"]), stream="a:0")
+    if duration <= 0:
+        raise RuntimeError("This file has no measurable duration.")
+    return {"duration": duration}
 
 
 def extract_audio(src, wav, max_seconds=MAX_SOURCE_SECONDS):

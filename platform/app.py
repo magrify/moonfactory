@@ -19847,7 +19847,7 @@ document.getElementById('go').onclick = async () => {{
             voice_path = _audio_child_path(job["voice_child_id"])
             try:
                 voice_seconds = float(
-                    clipping.probe(voice_path)["duration"])
+                    clipping.probe_audio(voice_path)["duration"])
             except Exception:
                 voice_seconds = float(job.get("duration_seconds") or 0)
             duration = round(max(1.0, voice_seconds), 2)
@@ -20123,8 +20123,11 @@ document.getElementById('go').onclick = async () => {{
             # an upload that cannot be probed fails the job
             # (and refunds the parent's clone charge through
             # the same helper the fail endpoint uses) instead
-            # of completing it.
-            clipping.probe(out_path)
+            # of completing it. The probe is the audio one:
+            # the upload is a wav, and the video probe's
+            # demand for a video track failed every clone
+            # after a successful synthesis (fix, 2026-11-27).
+            clipping.probe_audio(out_path)
         except Exception as exc:
             job["status"] = "error"
             job["error"] = "the cloned voice could not be made"
@@ -20265,7 +20268,9 @@ document.getElementById('go').onclick = async () => {{
         try:
             # Verification is not optional (security fix,
             # 2026-11-27, worker-upload-verification-fail-open).
-            clipping.probe(out_path)
+            # The audio probe, as on the voice endpoint: the
+            # upload is a wav (fix, 2026-11-27).
+            clipping.probe_audio(out_path)
         except Exception as exc:
             job["status"] = "error"
             job["error"] = "the audio stage could not be made"
