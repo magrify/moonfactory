@@ -41,6 +41,16 @@ KERNELS = {
     "worker-kaggle/comfy_kernel_template.py": "MOONFACTORY_COMFY_KEY",
     "worker-kaggle/comfy_worker_kernel.py": "MOONFACTORY_COMFY_KEY",
 }
+# Each family reads its key from its OWN key dataset
+# (2026-11-27 rotation completion); no kernel may read
+# another family's dataset.
+KEY_DATASETS = {
+    "worker-kaggle/hf_worker_kernel.py": "moonfactory-hf-key",
+    "worker-kaggle/voice_worker_kernel.py": "moonfactory-voice-key",
+    "worker-kaggle/audio_worker_kernel.py": "moonfactory-audio-key",
+    "worker-kaggle/comfy_kernel_template.py": "moonfactory-comfy-key",
+    "worker-kaggle/comfy_worker_kernel.py": "moonfactory-comfy-key",
+}
 FILES = list(KERNELS) + ["modal-worker/app.py",
                          "modal-worker/audio_app.py"]
 SOURCES = {rel: (ROOT / rel).read_text() for rel in FILES}
@@ -63,8 +73,13 @@ for rel, family_secret in KERNELS.items():
           f"{rel} reads its family secret {family_secret}")
     check('"MOONFACTORY_TEMPLATE_KEY"' in src,
           f"{rel} keeps the shared MOONFACTORY_TEMPLATE_KEY fallback")
-    check("moonfactory-hf-key" in src and "worker_key.txt" in src,
-          f"{rel} keeps the dataset key file fallback")
+    check(KEY_DATASETS[rel] in src and "worker_key.txt" in src,
+          f"{rel} keeps its own family dataset key file fallback")
+    for other_rel, other_ds in KEY_DATASETS.items():
+        if other_ds != KEY_DATASETS[rel]:
+            check(other_ds not in src,
+                  f"{rel} must not read another family's key "
+                  f"dataset ({other_ds})")
     check('"X-Claim-Bind": "1"' in src,
           f"{rel} sends X-Claim-Bind: 1 on its claim request")
     check('"X-Claim-Token"' in src,
