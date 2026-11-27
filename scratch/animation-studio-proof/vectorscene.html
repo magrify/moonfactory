@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <script src="gsap.min.js"></script>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { margin: 0; width: 1080px; height: 1920px; overflow: hidden; background: #0c0c0f; }
+      #root { position: relative; width: 1080px; height: 1920px; background: #0c0c0f;
+        font-family: sans-serif; color: #f4f4f1; overflow: hidden; }
+      .bar { position: absolute; left: 90px; top: 780px; width: 180px; height: 14px;
+        background: #6366f1; border-radius: 7px; }
+      .headline { position: absolute; left: 90px; top: 840px; width: 900px;
+        font-size: 104px; font-weight: 700; line-height: 1.08; letter-spacing: -0.02em; }
+      .subline { position: absolute; left: 90px; top: 1240px; width: 860px;
+        font-size: 46px; font-weight: 400; line-height: 1.3; color: #b8b8c0; }
+      .statnum { position: absolute; left: 90px; top: 800px; width: 900px;
+        font-size: 230px; font-weight: 800; line-height: 1.0; color: #6366f1; }
+      .statlabel { position: absolute; left: 90px; top: 1120px; width: 860px;
+        font-size: 54px; font-weight: 500; line-height: 1.3; }
+      .cta { position: absolute; left: 90px; top: 1560px; padding: 28px 44px;
+        background: #6366f1; color: #ffffff; font-size: 44px; font-weight: 600;
+        border-radius: 999px; }
+      .bgvideo { position: absolute; left: 0; top: 0; width: 1080px; height: 1920px;
+        object-fit: cover; }
+      .capwrap { position: absolute; left: 60px; top: 1330px; width: 960px;
+        text-align: center; }
+      .capbar { display: inline-block; width: 150px; height: 12px; border-radius: 6px;
+        background: #6366f1; margin-bottom: 30px; }
+      .caption { font-size: 76px; font-weight: 700; line-height: 1.2;
+        text-shadow: 0 4px 30px rgba(0,0,0,0.85); }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0"
+      data-duration="8" data-width="1080" data-height="1920" data-fps="30">
+      <div id="vs-clip" class="clip" data-start="0" data-duration="8" data-track-index="0" style="position:absolute;left:0;top:0;width:1080px;height:1920px;">
+        <svg width="1080" height="1920" viewBox="0 0 1080 1920" style="position:absolute;left:0;top:0;">
+          <defs>
+            <linearGradient id="vs-sky" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#0b0b12" />
+              <stop offset="1" stop-color="#6366f1" stop-opacity="0.5" />
+            </linearGradient>
+          </defs>
+          <rect width="1080" height="1920" fill="url(#vs-sky)" />
+          <g id="vs-stars">
+          <circle cx="58" cy="210" r="2.6" fill="#ffffff" />
+          <circle cx="891" cy="147" r="2.8" fill="#ffffff" />
+          <circle cx="1011" cy="214" r="2.0" fill="#ffffff" />
+          <circle cx="188" cy="59" r="4.2" fill="#ffffff" />
+          <circle cx="795" cy="63" r="4.4" fill="#ffffff" />
+          <circle cx="695" cy="136" r="3.7" fill="#ffffff" />
+          <circle cx="902" cy="72" r="4.1" fill="#ffffff" />
+          <circle cx="557" cy="419" r="3.5" fill="#ffffff" />
+          <circle cx="725" cy="533" r="3.0" fill="#ffffff" />
+          <circle cx="56" cy="57" r="3.8" fill="#ffffff" />
+          <circle cx="838" cy="148" r="4.2" fill="#ffffff" />
+          <circle cx="879" cy="139" r="3.7" fill="#ffffff" />
+          <circle cx="552" cy="340" r="4.1" fill="#ffffff" />
+          <circle cx="314" cy="691" r="3.2" fill="#ffffff" />
+          <circle cx="714" cy="624" r="2.5" fill="#ffffff" />
+          <circle cx="918" cy="244" r="2.0" fill="#ffffff" />
+          <circle cx="195" cy="91" r="1.9" fill="#ffffff" />
+          <circle cx="718" cy="434" r="1.9" fill="#ffffff" />
+          <circle cx="329" cy="220" r="3.0" fill="#ffffff" />
+          <circle cx="284" cy="44" r="3.4" fill="#ffffff" />
+          <circle cx="136" cy="550" r="4.3" fill="#ffffff" />
+          <circle cx="831" cy="378" r="3.9" fill="#ffffff" />
+          <circle cx="328" cy="319" r="4.1" fill="#ffffff" />
+          <circle cx="287" cy="102" r="1.9" fill="#ffffff" />
+          <circle cx="740" cy="443" r="1.9" fill="#ffffff" />
+          <circle cx="100" cy="472" r="3.7" fill="#ffffff" />
+          </g>
+          <circle id="vs-glow" cx="540" cy="1052" r="330" fill="#6366f1" opacity="0" />
+          <circle id="vs-sun" cx="540" cy="1330" r="118" fill="#6366f1" />
+        <g id="vs-cloud-0" opacity="0">
+          <ellipse cx="190" cy="300" rx="120" ry="34" fill="#ffffff" opacity="0.13" />
+          <ellipse cx="260" cy="308" rx="86" ry="26" fill="#ffffff" opacity="0.13" />
+          <ellipse cx="112" cy="310" rx="72" ry="22" fill="#ffffff" opacity="0.13" />
+        </g>        <g id="vs-cloud-1" opacity="0">
+          <ellipse cx="770" cy="205" rx="90" ry="26" fill="#ffffff" opacity="0.16" />
+          <ellipse cx="822" cy="211" rx="64" ry="20" fill="#ffffff" opacity="0.16" />
+          <ellipse cx="712" cy="212" rx="54" ry="16" fill="#ffffff" opacity="0.16" />
+        </g>        <g id="vs-cloud-2" opacity="0">
+          <ellipse cx="520" cy="445" rx="72" ry="20" fill="#ffffff" opacity="0.09" />
+          <ellipse cx="562" cy="450" rx="52" ry="16" fill="#ffffff" opacity="0.09" />
+          <ellipse cx="473" cy="451" rx="43" ry="13" fill="#ffffff" opacity="0.09" />
+        </g>
+          <path id="vs-hill-far" d="M-80,1240 C140,1120 300,1210 520,1150 C740,1090 900,1180 1160,1120 L1160,1920 L-80,1920 Z" fill="#6366f1" opacity="0.3" />
+          <path id="vs-hill-mid" d="M-80,1470 C160,1360 380,1450 620,1390 C860,1330 1020,1420 1160,1380 L1160,1920 L-80,1920 Z" fill="#1e1e2a" />
+          <path id="vs-hill-near" d="M-80,1700 C200,1600 460,1690 720,1630 C940,1580 1060,1640 1160,1610 L1160,1920 L-80,1920 Z" fill="#12121a" />
+          <path id="vs-river" d="M548,1920 C500,1790 620,1700 566,1590 C520,1496 610,1420 552,1330 C512,1268 560,1210 540,1150" fill="none" stroke="#f4f4f1" stroke-width="9" stroke-linecap="round" opacity="0.45" pathLength="1" style="stroke-dasharray:1;stroke-dashoffset:1;" />
+          <g id="vs-bird-0" opacity="0"><path d="M0,0 Q12,-11 24,0 Q36,-11 48,0" fill="none" stroke="#0a0a10" stroke-width="5" stroke-linecap="round" transform="translate(712,238)" /></g>
+          <g id="vs-bird-1" opacity="0"><path d="M0,0 Q12,-11 24,0 Q36,-11 48,0" fill="none" stroke="#0a0a10" stroke-width="5" stroke-linecap="round" transform="translate(806,308) scale(0.75)" /></g>
+        </svg>
+        <div id="vs-bar" style="position:absolute;left:50%;top:238px;width:170px;height:14px;margin-left:-85px;background:#6366f1;border-radius:7px;"></div>
+        <h1 id="vs-head" style="position:absolute;left:70px;top:286px;width:940px;text-align:center;font-size:84px;font-weight:800;line-height:1.12;letter-spacing:-0.01em;text-shadow:0 6px 44px rgba(0,0,0,0.55);">Morning at the lake house</h1>
+        <p id="vs-sub" style="position:absolute;left:70px;top:486px;width:940px;text-align:center;font-size:44px;font-weight:400;color:#d8d5cc;text-shadow:0 4px 30px rgba(0,0,0,0.6);">Coffee is on at seven</p>
+      </div>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+      tl.fromTo("#vs-hill-far", { y: 70 }, { y: 0, duration: 1.1, ease: "power3.out" }, 0.15);
+      tl.fromTo("#vs-hill-mid", { y: 100 }, { y: 0, duration: 1.15, ease: "power3.out" }, 0.3);
+      tl.fromTo("#vs-hill-near", { y: 130 }, { y: 0, duration: 1.2, ease: "power3.out" }, 0.45);
+      tl.to("#vs-sun", { attr: { cy: 1052 }, duration: 2.9, ease: "power2.out" }, 0.5);
+      tl.to("#vs-glow", { opacity: 0.16, duration: 2.2, ease: "power2.out" }, 0.5);
+      tl.to("#vs-stars", { opacity: 0, duration: 1.6, ease: "power1.inOut" }, 2.7);
+      tl.to("#vs-river", { strokeDashoffset: 0, duration: 1.9, ease: "power2.inOut" }, 2.5);
+      tl.to("#vs-cloud-0", { opacity: 1, duration: 1.2, ease: "power1.out" }, 0.7);
+      tl.to("#vs-cloud-1", { opacity: 1, duration: 1.2, ease: "power1.out" }, 0.85);
+      tl.to("#vs-cloud-2", { opacity: 1, duration: 1.2, ease: "power1.out" }, 1.0);
+      tl.fromTo("#vs-cloud-0", { x: -30 }, { x: 96, duration: 8, ease: "none" }, 0);
+      tl.fromTo("#vs-cloud-1", { x: 24 }, { x: 132, duration: 8, ease: "none" }, 0);
+      tl.fromTo("#vs-cloud-2", { x: -12 }, { x: 64, duration: 8, ease: "none" }, 0);
+      tl.to("#vs-bird-0", { opacity: 0.85, duration: 0.8, ease: "power1.out" }, 3.4);
+      tl.to("#vs-bird-1", { opacity: 0.85, duration: 0.8, ease: "power1.out" }, 3.7);
+      tl.to("#vs-bird-0", { x: -150, duration: 4.4, ease: "none" }, 3.4);
+      tl.to("#vs-bird-1", { x: -120, duration: 4.1, ease: "none" }, 3.7);
+      tl.fromTo("#vs-bar", { scaleX: 0, transformOrigin: "center" }, { scaleX: 1, duration: 0.45, ease: "expo.out" }, 2.3);
+      tl.fromTo("#vs-head", { opacity: 0, y: 36 }, { opacity: 1, y: 0, duration: 0.65, ease: "expo.out" }, 2.45);
+      tl.fromTo("#vs-sub", { opacity: 0, y: 22 }, { opacity: 1, y: 0, duration: 0.5, ease: "power3.out" }, 2.85);
+      tl.to("#vs-clip", { opacity: 0, duration: 0.55, ease: "power1.in" }, 7.4);
+      window.__timelines["main"] = tl;
+    </script>
+  </body>
+</html>

@@ -11,7 +11,10 @@
 # the loop the same way, each with its own scene bundle staged
 # from the same dataset; a presenter job also pulls its
 # voiceover down and computes the mouth curve from it before
-# the render. Kaggle
+# the render. A job that asks for a GIF (2026-11-27) gets one
+# converted from the render's first stretch with ffmpeg's
+# palette pipeline and posted back before the MP4; a GIF
+# failure never fails the job, the MP4 is the product. Kaggle
 # datasets persist, so the whole toolchain (Node 22, the
 # HyperFrames CLI, its Chromium, GSAP) is built once and carried
 # in the magrify/moonfactory-hf-toolchain dataset; a session
@@ -315,6 +318,43 @@ def render_job(job: dict, tools: dict) -> Path:
     return out_path
 
 
+def write_gif(mp4_path: Path, gif_path: Path) -> Path | None:
+    """Convert a finished render's first stretch to a GIF
+    (2026-11-27): fifteen seconds at most, 540 wide, twelve
+    frames a second, through ffmpeg's two pass palette
+    pipeline (a generated palette, then the palette pass
+    with Bayer dithering), the same quality shape a browser
+    encoder like gifenc aims at, from the tools this worker
+    already carries. Returns the path, or None on any
+    failure: a GIF is a bonus beside the MP4, never a reason
+    to fail the job."""
+    palette = gif_path.with_suffix(".palette.png")
+    filters = "fps=12,scale=540:-1:flags=lanczos"
+    try:
+        gen = subprocess.run(
+            ["ffmpeg", "-y", "-t", "15", "-i", str(mp4_path),
+             "-vf", f"{filters},palettegen=stats_mode=diff",
+             str(palette)],
+            capture_output=True, text=True, timeout=300)
+        if gen.returncode != 0 or not palette.exists():
+            return None
+        use = subprocess.run(
+            ["ffmpeg", "-y", "-t", "15", "-i", str(mp4_path),
+             "-i", str(palette),
+             "-lavfi", (f"{filters} [x]; [x][1:v] "
+                        "paletteuse=dither=bayer:bayer_scale=4:"
+                        "diff_mode=rectangle"),
+             str(gif_path)],
+            capture_output=True, text=True, timeout=600)
+        if use.returncode != 0 or not gif_path.exists():
+            return None
+        return gif_path
+    except Exception:
+        return None
+    finally:
+        palette.unlink(missing_ok=True)
+
+
 def fail_job(job_id: str, message: str):
     try:
         requests.post(f"{PLATFORM}/api/worker/hf/jobs/{job_id}/fail",
@@ -353,6 +393,27 @@ def main():
         idle = 0
         try:
             out_path = render_job(job, tools)
+            if job.get("gif"):
+                # The GIF goes first, while the job is still
+                # running: the MP4 post below is what finishes
+                # it. Any failure here is logged and dropped.
+                gif_path = write_gif(
+                    out_path, out_path.with_suffix(".gif"))
+                if gif_path is not None:
+                    try:
+                        with open(gif_path, "rb") as fh:
+                            gup = requests.post(
+                                f"{PLATFORM}/api/worker/hf/jobs/"
+                                f"{job['id']}/gif",
+                                headers=HEADERS, data=fh, timeout=600)
+                        gup.raise_for_status()
+                        log(f"job {job['id']}: gif uploaded")
+                    except Exception:
+                        log(f"job {job['id']}: gif upload failed, "
+                            "continuing with the mp4")
+                else:
+                    log(f"job {job['id']}: gif conversion failed, "
+                        "continuing with the mp4")
             log(f"job {job['id']}: uploading result")
             with open(out_path, "rb") as fh:
                 up = requests.post(

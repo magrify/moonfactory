@@ -39,6 +39,24 @@ mouth curve tool in motion/presenter/mouth_curve.py follows
 the shape of MotionForge's mouth curve tool, with this
 platform's own envelope math.
 
+## Animation studio pass (diagram, particles, vector scene)
+
+Three motion templates added 2026-11-27 are original
+implementations written for this platform, each in the
+spirit of an open source animation project whose shape it
+follows: the diagram explainer follows Motion Canvas
+(github.com/motion-canvas/motion-canvas, MIT), the particle
+burst follows Proton (github.com/drawcall/Proton, MIT), and
+the vector scene follows Two.js (github.com/jonobr1/two.js,
+MIT). No code from those projects is vendored or adapted;
+the compositions are plain HyperFrames pages on the wing's
+existing GSAP shell, built to the same seek contract as
+every other template. The GIF option beside them converts
+on the worker with ffmpeg's palette pipeline, a runtime
+tool the worker already carries; the browser encoder
+gifenc was evaluated for it and not adopted, since the
+worker is not a browser.
+
 ## PeakCut (clipping pipeline)
 
 Moonfactory's Clip mode ports code from PeakCut

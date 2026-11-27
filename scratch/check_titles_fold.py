@@ -131,7 +131,8 @@ check(set(app.HF_TEMPLATES) == {"title", "captions", "stat", "promo",
                                  "kinetic", "intro", "outro", "chart",
                                  "turntable3d", "globe3d", "citypin3d",
                                  "house3d", "bars3d", "presenter",
-                                 "showcase3d", "logodraw"},
+                                 "showcase3d", "logodraw", "diagram",
+                                 "particles", "vectorscene"},
       "the starter templates, the motion wing and the motion pack "
       "templates all exist server side")
 check(app.HF_TEMPLATES["title"]["fields"] == ("headline", "subline"),

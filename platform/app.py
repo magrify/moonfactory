@@ -5369,6 +5369,36 @@ HF_TEMPLATES = {
         "duration": 4.0,
         "fields": ("headline",),
     },
+    # Three more entries (2026-11-27, the animation studio
+    # pass): original compositions in the spirit of three
+    # open source animation tools, each a capability the wing
+    # did not have. The diagram explainer (Motion Canvas's
+    # shape) walks a chain of steps as a node diagram whose
+    # connectors draw in and carry a signal pulse from step
+    # to step. The particle burst (Proton's shape) fires a
+    # deterministic burst of sparks and embers behind the
+    # words, every particle a plain element on the timeline
+    # so a frame is still a pure function of the seek time.
+    # The vector scene (Two.js's shape) is a flat illustrated
+    # landscape, a rising sun, layered hills and a path that
+    # draws itself, with the words landing over the sky. All
+    # three are composition only, no scene bundle, no upload,
+    # zero credits like the rest of the wing.
+    "diagram": {
+        "name": "Diagram explainer",
+        "duration": 9.0,
+        "fields": ("headline", "points"),
+    },
+    "particles": {
+        "name": "Particle burst",
+        "duration": 6.0,
+        "fields": ("headline", "subline"),
+    },
+    "vectorscene": {
+        "name": "Vector scene",
+        "duration": 8.0,
+        "fields": ("headline", "subline"),
+    },
 }
 
 # The templates whose compositions are three.js scenes the
@@ -5445,6 +5475,9 @@ def hf_clean_fields(template_id: str, body: dict) -> dict:
         "presenter": ("script",),
         "showcase3d": ("headline",),
         "logodraw": ("headline",),
+        "diagram": ("headline", "points"),
+        "particles": ("headline",),
+        "vectorscene": ("headline",),
     }[template_id]
     for field in required:
         if not out.get(field):
@@ -5453,6 +5486,11 @@ def hf_clean_fields(template_id: str, body: dict) -> dict:
     if not re.fullmatch(r"#[0-9a-f]{6}", color):
         raise ValueError("that color does not look right, pick one from the color box")
     out["color"] = color
+    # The GIF option (2026-11-27): any template job may ask
+    # for a GIF of its first stretch beside the MP4. The
+    # worker makes it after the render and posts it back;
+    # the flag rides the stored fields to the claim payload.
+    out["gif"] = bool(body.get("gif"))
     if template_id == "presenter":
         # Where the mouth sits on the photo, as percents the
         # form's two small boxes carry. Defaults land where a
@@ -5913,6 +5951,12 @@ def build_hf_composition(template_id: str, fields: dict,
         parts.append("      </div>")
         return _hf_page(9.0, accent, "\n".join(parts),
                         "\n".join(timeline))
+    if template_id == "diagram":
+        return _hf_diagram_page(fields)
+    if template_id == "particles":
+        return _hf_particles_page(fields)
+    if template_id == "vectorscene":
+        return _hf_vectorscene_page(fields)
     if template_id == "logodraw":
         return _hf_logodraw_page(fields)
     if template_id in FORGE3D_TEMPLATES:
@@ -5971,6 +6015,230 @@ def _hf_explainer_page(template_id: str, fields: dict) -> str:
     timeline.append(f"""      tl.to("#root > div", {{ opacity: 0, duration: 0.5, ease: "power2.in" }}, {duration - 0.6:g});""")
     return _hf_page(duration, accent, "\n".join(parts),
                     "\n".join(timeline))
+
+
+def _hf_diagram_page(fields: dict) -> str:
+    """The diagram explainer (2026-11-27, Motion Canvas's
+    shape, original code): the points become a chain of step
+    cards down the middle of the stage. Each connector draws
+    itself in, a signal pulse rides it, and the next card
+    lights up as the pulse lands, the way a diagram in Motion
+    Canvas walks a viewer through a process one signal at a
+    time. Cards start dim and grey; activation is the accent
+    border, a tinted fill and a small pop, in that order."""
+    import html as _html
+
+    esc = _html.escape
+    accent = fields.get("color") or "#6366f1"
+    duration = float(HF_TEMPLATES["diagram"]["duration"])
+    points = [p for p in (fields.get("points") or "").split("\n")
+              if p.strip()]
+    r, g, b = (int(accent[i:i + 2], 16) for i in (1, 3, 5))
+    tint = f"rgba({r},{g},{b},0.18)"
+    node_h, conn = 168, 84
+    n = len(points)
+    y0 = 800 if n >= 3 else (848 if n == 2 else 908)
+    svg_parts = []
+    node_parts = []
+    timeline = [
+        """      tl.fromTo("#dg-bar", { scaleX: 0, transformOrigin: "left center" }, { scaleX: 1, duration: 0.5, ease: "power3.out" }, 0.25);""",
+        """      tl.fromTo("#dg-head", { opacity: 0, y: 48 }, { opacity: 1, y: 0, duration: 0.6, ease: "power3.out" }, 0.4);""",
+    ]
+    for i, point in enumerate(points):
+        top = y0 + i * (node_h + conn)
+        act = 1.15 + i * 1.25
+        if i > 0:
+            y_from = y0 + (i - 1) * (node_h + conn) + node_h
+            y_to = y_from + conn
+            draw = act - 0.62
+            svg_parts.append(f"""          <line id="dg-link-{i}" x1="540" y1="{y_from}" x2="540" y2="{y_to}" stroke="{accent}" stroke-width="6" stroke-linecap="round" pathLength="1" style="stroke-dasharray:1;stroke-dashoffset:1;" />
+          <circle id="dg-pulse-{i}" cx="540" cy="{y_from + 8}" r="34" fill="{accent}" opacity="0" />
+          <circle id="dg-dot-{i}" cx="540" cy="{y_from + 8}" r="13" fill="{accent}" opacity="0" />""")
+            timeline.append(f"""      tl.to("#dg-link-{i}", {{ strokeDashoffset: 0, duration: 0.38, ease: "power2.inOut" }}, {draw:g});""")
+            timeline.append(f"""      tl.fromTo("#dg-dot-{i}", {{ attr: {{ cy: {y_from + 8} }}, opacity: 0 }}, {{ attr: {{ cy: {y_to - 8} }}, opacity: 1, duration: 0.5, ease: "power1.inOut" }}, {draw + 0.04:g});""")
+            timeline.append(f"""      tl.fromTo("#dg-pulse-{i}", {{ attr: {{ cy: {y_from + 8} }}, opacity: 0 }}, {{ attr: {{ cy: {y_to - 8} }}, opacity: 0.25, duration: 0.5, ease: "power1.inOut" }}, {draw + 0.04:g});""")
+            timeline.append(f"""      tl.to(["#dg-dot-{i}", "#dg-pulse-{i}"], {{ opacity: 0, duration: 0.12, ease: "power1.out" }}, {draw + 0.56:g});""")
+        node_parts.append(f"""        <div id="dg-node-{i}" style="position:absolute;left:190px;top:{top}px;width:700px;min-height:{node_h}px;padding:30px 38px;background:rgba(255,255,255,0.03);border:3px solid #3a3a42;border-radius:28px;">
+          <div style="font-size:26px;font-weight:700;letter-spacing:0.14em;color:{accent};">STEP {i + 1}</div>
+          <p id="dg-text-{i}" style="font-size:46px;font-weight:650;line-height:1.22;color:#b8b8c0;margin-top:8px;">{esc(point)}</p>
+        </div>""")
+        timeline.append(f"""      tl.fromTo("#dg-node-{i}", {{ opacity: 0.45, scale: 0.92 }}, {{ opacity: 1, scale: 1, duration: 0.45, ease: "back.out(1.8)" }}, {act:g});""")
+        timeline.append(f"""      tl.to("#dg-node-{i}", {{ borderColor: "{accent}", backgroundColor: "{tint}", duration: 0.4, ease: "power2.out" }}, {act:g});""")
+        timeline.append(f"""      tl.to("#dg-text-{i}", {{ color: "#f4f4f1", duration: 0.4, ease: "power2.out" }}, {act:g});""")
+    timeline.append(f"""      tl.to("#root > div", {{ opacity: 0, duration: 0.5, ease: "power2.in" }}, {duration - 0.6:g});""")
+    clips = f"""      <div class="clip" data-start="0" data-duration="{duration:g}" data-track-index="0" style="position:absolute;left:0;top:0;width:1080px;height:1920px;">
+        <div id="dg-bar" style="position:absolute;left:90px;top:296px;width:180px;height:14px;background:{accent};border-radius:7px;"></div>
+        <h1 id="dg-head" style="position:absolute;left:90px;top:352px;width:900px;font-size:82px;font-weight:800;line-height:1.1;letter-spacing:-0.015em;">{esc(fields.get("headline") or "")}</h1>
+        <svg width="1080" height="1920" viewBox="0 0 1080 1920" style="position:absolute;left:0;top:0;">
+{chr(10).join(svg_parts)}
+        </svg>
+{chr(10).join(node_parts)}
+      </div>"""
+    return _hf_page(duration, accent, clips, "\n".join(timeline))
+
+
+def _hf_particles_page(fields: dict) -> str:
+    """The particle burst (2026-11-27, Proton's shape,
+    original code): a burst of sparks fires from the middle
+    of the stage as the headline lands, a smaller echo burst
+    follows, and embers rise through the whole piece. Every
+    particle is a plain element with its own tweens, placed
+    by a seeded generator at build time, so the page is
+    deterministic and a frame is a pure function of the seek
+    time exactly like the rest of the wing. Ballistics are
+    split the way the renderer's tweens can carry them: the
+    rise decelerates, the fall accelerates, the drift out
+    eases off like drag."""
+    import html as _html
+    import math
+    import random
+
+    esc = _html.escape
+    accent = fields.get("color") or "#6366f1"
+    duration = float(HF_TEMPLATES["particles"]["duration"])
+    rng = random.Random(20261127)
+    palette = [accent, "#ffffff", "#f5d67a", accent]
+    parts = [f"""      <div id="pt-clip" class="clip" data-start="0" data-duration="{duration:g}" data-track-index="0" style="position:absolute;left:0;top:0;width:1080px;height:1920px;">
+        <div id="pt-glow" style="position:absolute;left:190px;top:530px;width:700px;height:700px;border-radius:50%;background:radial-gradient(circle, {accent}59 0%, rgba(0,0,0,0) 70%);opacity:0;"></div>"""]
+    timeline = [
+        """      tl.fromTo("#pt-glow", { scale: 0.4, opacity: 0 }, { scale: 1.15, opacity: 0.55, duration: 0.9, ease: "expo.out" }, 0.45);""",
+        """      tl.to("#pt-glow", { opacity: 0.3, duration: 1.2, ease: "power1.inOut" }, 1.6);""",
+    ]
+
+    def burst(ox, oy, start, count, power, tag):
+        for i in range(count):
+            ang = rng.uniform(0, 2 * math.pi)
+            dist = rng.uniform(110, 520) * power
+            dx = math.cos(ang) * dist
+            up = rng.uniform(50, 260) * power + max(0.0, -math.sin(ang)) * 120 * power
+            drop = rng.uniform(230, 520) * power
+            life = rng.uniform(1.5, 2.8) * (0.8 + 0.3 * power)
+            size = rng.uniform(5, 15)
+            color = palette[rng.randrange(len(palette))]
+            rect = rng.random() < 0.35
+            rad = "3px" if rect else "50%"
+            parts.append(f"""        <div id="pt-{tag}-{i}" style="position:absolute;left:{ox - size / 2:.0f}px;top:{oy - size / 2:.0f}px;width:{size:.0f}px;height:{size:.0f}px;border-radius:{rad};background:{color};opacity:0;"></div>""")
+            timeline.append(f"""      tl.fromTo("#pt-{tag}-{i}", {{ x: 0 }}, {{ x: {dx:.0f}, duration: {life:.2f}, ease: "power1.out" }}, {start:.2f});""")
+            timeline.append(f"""      tl.fromTo("#pt-{tag}-{i}", {{ y: 0 }}, {{ y: {-up:.0f}, duration: {life * 0.42:.2f}, ease: "power2.out" }}, {start:.2f});""")
+            timeline.append(f"""      tl.to("#pt-{tag}-{i}", {{ y: {drop:.0f}, duration: {life * 0.58:.2f}, ease: "power2.in" }}, {start + life * 0.42:.2f});""")
+            timeline.append(f"""      tl.fromTo("#pt-{tag}-{i}", {{ opacity: 0 }}, {{ opacity: 1, duration: 0.07, ease: "power1.out" }}, {start:.2f});""")
+            timeline.append(f"""      tl.to("#pt-{tag}-{i}", {{ opacity: 0, duration: 0.5, ease: "power1.in" }}, {start + life - 0.5:.2f});""")
+            if rect:
+                rot = rng.uniform(-260, 260)
+                timeline.append(f"""      tl.to("#pt-{tag}-{i}", {{ rotation: {rot:.0f}, duration: {life:.2f}, ease: "none" }}, {start:.2f});""")
+
+    burst(540, 880, 0.55, 76, 1.0, "a")
+    burst(540, 880, 3.05, 30, 0.62, "b")
+    for i in range(20):
+        x0 = rng.uniform(30, 1050)
+        size = rng.uniform(4, 8)
+        dur = rng.uniform(5.2, 6.0)
+        sway = rng.uniform(18, 52) * rng.choice((-1, 1))
+        rise = rng.uniform(1850, 1980)
+        color = palette[rng.randrange(len(palette))]
+        parts.append(f"""        <div id="pt-e-{i}" style="position:absolute;left:{x0:.0f}px;top:1952px;width:{size:.0f}px;height:{size:.0f}px;border-radius:50%;background:{color};opacity:0;"></div>""")
+        timeline.append(f"""      tl.to("#pt-e-{i}", {{ y: {-rise:.0f}, duration: {dur:.2f}, ease: "none" }}, 0);""")
+        timeline.append(f"""      tl.fromTo("#pt-e-{i}", {{ x: 0 }}, {{ x: {sway:.0f}, duration: {dur / 2:.2f}, ease: "sine.inOut" }}, 0);""")
+        timeline.append(f"""      tl.to("#pt-e-{i}", {{ x: 0, duration: {dur / 2:.2f}, ease: "sine.inOut" }}, {dur / 2:.2f});""")
+        timeline.append(f"""      tl.fromTo("#pt-e-{i}", {{ opacity: 0 }}, {{ opacity: 0.75, duration: 0.7, ease: "power1.out" }}, 0);""")
+        timeline.append(f"""      tl.to("#pt-e-{i}", {{ opacity: 0, duration: 0.9, ease: "power1.in" }}, {dur - 0.9:.2f});""")
+    sub = fields.get("subline") or ""
+    sub_clip = (
+        f"""        <p id="pt-sub" style="position:absolute;left:90px;top:1006px;width:900px;text-align:center;font-size:46px;font-weight:400;color:#b8b8c0;">{esc(sub)}</p>"""
+        if sub else "")
+    parts.append(f"""        <h1 id="pt-head" style="position:absolute;left:70px;top:796px;width:940px;text-align:center;font-size:98px;font-weight:800;line-height:1.1;letter-spacing:-0.015em;text-shadow:0 6px 44px rgba(0,0,0,0.55);">{esc(fields.get("headline") or "")}</h1>
+{sub_clip}
+      </div>""")
+    timeline.append("""      tl.fromTo("#pt-head", { opacity: 0, scale: 0.8 }, { opacity: 1, scale: 1, duration: 0.55, ease: "back.out(1.6)" }, 0.5);""")
+    if sub:
+        timeline.append("""      tl.fromTo("#pt-sub", { opacity: 0, y: 26 }, { opacity: 1, y: 0, duration: 0.5, ease: "power3.out" }, 0.95);""")
+    timeline.append(f"""      tl.to("#pt-clip", {{ opacity: 0, duration: 0.5, ease: "power2.in" }}, {duration - 0.55:g});""")
+    return _hf_page(duration, accent, "\n".join(parts),
+                    "\n".join(timeline))
+
+
+def _hf_vectorscene_page(fields: dict) -> str:
+    """The vector scene (2026-11-27, Two.js's shape, original
+    code): a flat illustrated landscape drawn as one SVG. The
+    sun rises in the accent color, three hill layers settle
+    at three speeds for parallax, a pale path draws itself
+    up the near hill, clouds drift and the stars give up the
+    sky as the light comes. The words wait for the scene to
+    exist, then land in the sky as the follow-through layer."""
+    import html as _html
+    import random
+
+    esc = _html.escape
+    accent = fields.get("color") or "#6366f1"
+    duration = float(HF_TEMPLATES["vectorscene"]["duration"])
+    rng = random.Random(20261127)
+    stars = "\n".join(
+        f"""          <circle cx="{rng.uniform(20, 1060):.0f}" cy="{rng.uniform(36, 700):.0f}" r="{rng.uniform(1.8, 4.4):.1f}" fill="#ffffff" />"""
+        for _ in range(26))
+    clouds = []
+    for i, (cx, cy, s, op) in enumerate((
+            (190, 300, 1.0, 0.13), (770, 205, 0.75, 0.16),
+            (520, 445, 0.6, 0.09))):
+        clouds.append(f"""        <g id="vs-cloud-{i}" opacity="0">
+          <ellipse cx="{cx}" cy="{cy}" rx="{120 * s:.0f}" ry="{34 * s:.0f}" fill="#ffffff" opacity="{op}" />
+          <ellipse cx="{cx + 70 * s:.0f}" cy="{cy + 8 * s:.0f}" rx="{86 * s:.0f}" ry="{26 * s:.0f}" fill="#ffffff" opacity="{op}" />
+          <ellipse cx="{cx - 78 * s:.0f}" cy="{cy + 10 * s:.0f}" rx="{72 * s:.0f}" ry="{22 * s:.0f}" fill="#ffffff" opacity="{op}" />
+        </g>""")
+    sub = fields.get("subline") or ""
+    sub_clip = (
+        f"""        <p id="vs-sub" style="position:absolute;left:70px;top:486px;width:940px;text-align:center;font-size:44px;font-weight:400;color:#d8d5cc;text-shadow:0 4px 30px rgba(0,0,0,0.6);">{esc(sub)}</p>"""
+        if sub else "")
+    clips = f"""      <div id="vs-clip" class="clip" data-start="0" data-duration="{duration:g}" data-track-index="0" style="position:absolute;left:0;top:0;width:1080px;height:1920px;">
+        <svg width="1080" height="1920" viewBox="0 0 1080 1920" style="position:absolute;left:0;top:0;">
+          <defs>
+            <linearGradient id="vs-sky" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#0b0b12" />
+              <stop offset="1" stop-color="{accent}" stop-opacity="0.5" />
+            </linearGradient>
+          </defs>
+          <rect width="1080" height="1920" fill="url(#vs-sky)" />
+          <g id="vs-stars">
+{stars}
+          </g>
+          <circle id="vs-glow" cx="540" cy="1052" r="330" fill="{accent}" opacity="0" />
+          <circle id="vs-sun" cx="540" cy="1330" r="118" fill="{accent}" />
+{"".join(clouds)}
+          <path id="vs-hill-far" d="M-80,1240 C140,1120 300,1210 520,1150 C740,1090 900,1180 1160,1120 L1160,1920 L-80,1920 Z" fill="{accent}" opacity="0.3" />
+          <path id="vs-hill-mid" d="M-80,1470 C160,1360 380,1450 620,1390 C860,1330 1020,1420 1160,1380 L1160,1920 L-80,1920 Z" fill="#1e1e2a" />
+          <path id="vs-hill-near" d="M-80,1700 C200,1600 460,1690 720,1630 C940,1580 1060,1640 1160,1610 L1160,1920 L-80,1920 Z" fill="#12121a" />
+          <path id="vs-river" d="M548,1920 C500,1790 620,1700 566,1590 C520,1496 610,1420 552,1330 C512,1268 560,1210 540,1150" fill="none" stroke="#f4f4f1" stroke-width="9" stroke-linecap="round" opacity="0.45" pathLength="1" style="stroke-dasharray:1;stroke-dashoffset:1;" />
+          <g id="vs-bird-0" opacity="0"><path d="M0,0 Q12,-11 24,0 Q36,-11 48,0" fill="none" stroke="#0a0a10" stroke-width="5" stroke-linecap="round" transform="translate(712,238)" /></g>
+          <g id="vs-bird-1" opacity="0"><path d="M0,0 Q12,-11 24,0 Q36,-11 48,0" fill="none" stroke="#0a0a10" stroke-width="5" stroke-linecap="round" transform="translate(806,308) scale(0.75)" /></g>
+        </svg>
+        <div id="vs-bar" style="position:absolute;left:50%;top:238px;width:170px;height:14px;margin-left:-85px;background:{accent};border-radius:7px;"></div>
+        <h1 id="vs-head" style="position:absolute;left:70px;top:286px;width:940px;text-align:center;font-size:84px;font-weight:800;line-height:1.12;letter-spacing:-0.01em;text-shadow:0 6px 44px rgba(0,0,0,0.55);">{esc(fields.get("headline") or "")}</h1>
+{sub_clip}
+      </div>"""
+    timeline = """      tl.fromTo("#vs-hill-far", { y: 70 }, { y: 0, duration: 1.1, ease: "power3.out" }, 0.15);
+      tl.fromTo("#vs-hill-mid", { y: 100 }, { y: 0, duration: 1.15, ease: "power3.out" }, 0.3);
+      tl.fromTo("#vs-hill-near", { y: 130 }, { y: 0, duration: 1.2, ease: "power3.out" }, 0.45);
+      tl.to("#vs-sun", { attr: { cy: 1052 }, duration: 2.9, ease: "power2.out" }, 0.5);
+      tl.to("#vs-glow", { opacity: 0.16, duration: 2.2, ease: "power2.out" }, 0.5);
+      tl.to("#vs-stars", { opacity: 0, duration: 1.6, ease: "power1.inOut" }, 2.7);
+      tl.to("#vs-river", { strokeDashoffset: 0, duration: 1.9, ease: "power2.inOut" }, 2.5);
+      tl.to("#vs-cloud-0", { opacity: 1, duration: 1.2, ease: "power1.out" }, 0.7);
+      tl.to("#vs-cloud-1", { opacity: 1, duration: 1.2, ease: "power1.out" }, 0.85);
+      tl.to("#vs-cloud-2", { opacity: 1, duration: 1.2, ease: "power1.out" }, 1.0);
+      tl.fromTo("#vs-cloud-0", { x: -30 }, { x: 96, duration: 8, ease: "none" }, 0);
+      tl.fromTo("#vs-cloud-1", { x: 24 }, { x: 132, duration: 8, ease: "none" }, 0);
+      tl.fromTo("#vs-cloud-2", { x: -12 }, { x: 64, duration: 8, ease: "none" }, 0);
+      tl.to("#vs-bird-0", { opacity: 0.85, duration: 0.8, ease: "power1.out" }, 3.4);
+      tl.to("#vs-bird-1", { opacity: 0.85, duration: 0.8, ease: "power1.out" }, 3.7);
+      tl.to("#vs-bird-0", { x: -150, duration: 4.4, ease: "none" }, 3.4);
+      tl.to("#vs-bird-1", { x: -120, duration: 4.1, ease: "none" }, 3.7);
+      tl.fromTo("#vs-bar", { scaleX: 0, transformOrigin: "center" }, { scaleX: 1, duration: 0.45, ease: "expo.out" }, 2.3);
+      tl.fromTo("#vs-head", { opacity: 0, y: 36 }, { opacity: 1, y: 0, duration: 0.65, ease: "expo.out" }, 2.45);"""
+    if sub:
+        timeline += """
+      tl.fromTo("#vs-sub", { opacity: 0, y: 22 }, { opacity: 1, y: 0, duration: 0.5, ease: "power3.out" }, 2.85);"""
+    timeline += f"""
+      tl.to("#vs-clip", {{ opacity: 0, duration: 0.55, ease: "power1.in" }}, {duration - 0.6:g});"""
+    return _hf_page(duration, accent, clips, timeline)
 
 
 def _hf_story_page(fields: dict) -> str:
@@ -11118,6 +11386,7 @@ def api():
             ),
             "free_tier": bool(job.get("free_tier")),
             "has_file": job["status"] == "done",
+            "has_gif": bool(job.get("gif")) and job["status"] == "done",
             "has_custom_audio": bool(job.get("music_prompt")),
             "has_speech_script": bool(job.get("speech_script")),
             "voiceover_status": job.get("voiceover_status"),
@@ -16996,6 +17265,34 @@ def api():
             f'inline; filename="moonfactory-{job_id}.mp4"')
         return resp
 
+    @web.get("/api/jobs/{job_id}/gif")
+    def job_gif(job_id: str, request: Request,
+                mf_session: str = Cookie(default="")):
+        """The GIF a template job asked for (2026-11-27): the
+        owner's own finished job only, served as a download.
+        A job whose render predates the option, or whose GIF
+        never landed, answers a plain 404."""
+        user = require_user(request, mf_session)
+        job = jobs.get(job_id)
+        if not job or job.get("user_id") != user["id"]:
+            raise HTTPException(status_code=404, detail="unknown job")
+        job = mirror_status(job)
+        if job["status"] != "done" or not job.get("gif"):
+            raise HTTPException(status_code=404, detail="this job has no gif")
+        gif_path = FILES_DIR / f"{job_id}.gif"
+        if not gif_path.exists():
+            try:
+                data_volume.reload()
+            except Exception:
+                pass
+        if not gif_path.exists():
+            raise HTTPException(status_code=404, detail="this job has no gif")
+        return FileResponse(
+            gif_path, media_type="image/gif",
+            filename=f"moonfactory-{job_id}.gif",
+            headers={"Content-Disposition":
+                     f'attachment; filename="moonfactory-{job_id}.gif"'})
+
     @web.get("/api/jobs/{job_id}/poster")
     def job_poster(job_id: str, request: Request, mf_session: str = Cookie(default="")):
         user = require_user(request, mf_session)
@@ -18265,6 +18562,12 @@ def api():
                 job.get("source_duration") or 0.0),
             "has_source": bool(job.get("upload_path")),
         }
+        if (job.get("hf_fields") or {}).get("gif"):
+            # The GIF option (2026-11-27): the worker makes a
+            # GIF of the render's first stretch after rendering
+            # and posts it back before the MP4, while the job
+            # is still running.
+            payload["gif"] = True
         if job["template"] == "story":
             # The worker stages the scene script beside the
             # composition and synthesizes the score before
@@ -18393,6 +18696,36 @@ def api():
         job["stage"] = None
         jobs[job["id"]] = job
         _gallery_feed_finished(job)
+        return {"ok": True, "bytes": len(data)}
+
+    @web.post("/api/worker/hf/jobs/{job_id}/gif")
+    async def hf_job_gif(job_id: str, request: Request,
+                         x_api_key = Header(default="")):
+        """The GIF a template job asked for (2026-11-27): the
+        worker converts the render's first stretch after
+        rendering and posts it here before the MP4, while the
+        job is still running. It is a bonus file beside the
+        MP4, never a status change: the MP4 post is what
+        finishes the job."""
+        if not _hf_worker_ok(x_api_key):
+            raise HTTPException(status_code=401, detail="bad worker key")
+        job = jobs.get(job_id)
+        if not job or job.get("kind") != "template":
+            raise HTTPException(status_code=404, detail="unknown job")
+        if job["status"] != "running":
+            raise HTTPException(status_code=409, detail=f"job status is {job['status']}")
+        data = await request.body()
+        if not data or len(data) > 64 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail="bad file size")
+        if not data.startswith((b"GIF87a", b"GIF89a")):
+            raise HTTPException(status_code=415, detail="not a gif")
+        FILES_DIR.mkdir(parents=True, exist_ok=True)
+        gif_path = FILES_DIR / f"{job_id}.gif"
+        gif_path.write_bytes(data)
+        data_volume.commit()
+        job["gif"] = True
+        job["gif_bytes"] = len(data)
+        jobs[job["id"]] = job
         return {"ok": True, "bytes": len(data)}
 
     @web.post("/api/worker/hf/jobs/{job_id}/fail")
@@ -23940,6 +24273,22 @@ APP_HTML = (
         <input id="mf-logodraw-headline" maxlength="90" placeholder="The words that land under the mark">
         <p class="muted">The Moonfactory mark draws itself in line art over a few seconds, ready to open a longer video.</p>
       </div>
+      <div id="motion-fields-particles" style="display:none">
+        <label>Headline</label>
+        <input id="mf-particles-headline" type="text" maxlength="90" placeholder="We just hit ten thousand guests">
+        <label>Smaller line under it</label>
+        <input id="mf-particles-subline" type="text" maxlength="120" placeholder="Thank you to every one of you">
+        <p class="muted">A burst of sparks in your accent color goes off behind your words while embers rise through the scene.</p>
+      </div>
+      <div id="motion-fields-vectorscene" style="display:none">
+        <label>Headline</label>
+        <input id="mf-vectorscene-headline" type="text" maxlength="90" placeholder="Morning at the lake house">
+        <label>Smaller line under it</label>
+        <input id="mf-vectorscene-subline" type="text" maxlength="120" placeholder="Coffee is on at seven">
+        <p class="muted">A flat illustrated landscape. The sun rises in your accent color, hills settle into place, and a path draws itself while your words land in the sky.</p>
+      </div>
+      <label style="display:block;margin-top:14px"><input id="mf-gif" type="checkbox" style="width:auto;height:auto;margin-right:8px">Also make a GIF</label>
+      <p class="muted">A GIF of the first stretch of the finished video, for sharing where video does not play. It lands in your library with the video.</p>
       <label>Accent color</label>
       <input id="mf-color" type="color" value="#6366f1" style="width:90px;height:44px;padding:2px">
       <p class="muted">Free for everyone. Free accounts count it toward their five free clips.</p>
@@ -26034,7 +26383,10 @@ const MOTION_TEMPLATES = [
   { id: 'bars3d', name: 'Bars 3D' },
   { id: 'presenter', name: 'Photo presenter' },
   { id: 'showcase3d', name: 'Product showcase 3D' },
-  { id: 'logodraw', name: 'Logo draw-in' }
+  { id: 'logodraw', name: 'Logo draw-in' },
+  { id: 'diagram', name: 'Diagram explainer' },
+  { id: 'particles', name: 'Particle burst' },
+  { id: 'vectorscene', name: 'Vector scene' }
 ];
 // Which field block each motion pick shows in the composer.
 const MOTION_BLOCKS = {
@@ -26051,7 +26403,10 @@ const MOTION_BLOCKS = {
   bars3d: 'motion-fields-bars3d',
   presenter: 'motion-fields-presenter',
   showcase3d: 'motion-fields-showcase3d',
-  logodraw: 'motion-fields-logodraw'
+  logodraw: 'motion-fields-logodraw',
+  diagram: 'motion-fields-explainer',
+  particles: 'motion-fields-particles',
+  vectorscene: 'motion-fields-vectorscene'
 };
 const MOTION_NOTES = {
   story: 'A little animated town tells your story, with music made for it. It renders free, so it can take a while to start.',
@@ -26070,7 +26425,10 @@ const MOTION_NOTES = {
   bars3d: 'Your numbers become bars that rise in 3D. It renders free, so it can take a while to start.',
   presenter: 'Your photo talks. It speaks your script out loud and its mouth follows the words. It renders free, so it can take a while to start.',
   showcase3d: 'Your product photo assembles itself on a stand in 3D, piece by piece, under your words. It renders free, so it can take a while to start.',
-  logodraw: 'The Moonfactory mark draws itself in line art over a few seconds, ready to open a longer video. It renders free, so it can take a while to start.'
+  logodraw: 'The Moonfactory mark draws itself in line art over a few seconds, ready to open a longer video. It renders free, so it can take a while to start.',
+  diagram: 'Your points become steps in a diagram, and a signal walks from each step to the next as it lights up. It renders free, so it can take a while to start.',
+  particles: 'A burst of sparks in your accent color behind your words, with embers rising through the scene. It renders free, so it can take a while to start.',
+  vectorscene: 'A flat illustrated landscape with a rising sun and a path that draws itself, and your words land in the sky. It renders free, so it can take a while to start.'
 };
 function isMotionTemplate(id) { return MOTION_TEMPLATES.some(t => t.id === id); }
 function moneyC(c) { return '$' + (c / 100).toFixed(2); }
@@ -26647,6 +27005,7 @@ function buildCreate() {
     // free template lane, same queue and library as everything
     // else, at zero credits.
     const payload = { template: model, color: $('mf-color').value };
+    if ($('mf-gif') && $('mf-gif').checked) payload.gif = true;
     if (model === 'story') {
       payload.title = $('mf-story-title').value;
       payload.lines = $('mf-story-lines').value;
@@ -26693,7 +27052,11 @@ function buildCreate() {
       return built;
     } else if (model === 'logodraw') {
       payload.headline = $('mf-logodraw-headline').value;
-    } else if (['turntable3d', 'globe3d', 'citypin3d', 'house3d'].includes(model)) {
+    } else if (model === 'diagram') {
+      // The diagram style reads the shared explainer boxes.
+      payload.headline = $('mf-expl-headline').value;
+      payload.points = $('mf-expl-points').value;
+    } else if (['turntable3d', 'globe3d', 'citypin3d', 'house3d', 'particles', 'vectorscene'].includes(model)) {
       payload.headline = $('mf-' + model + '-headline').value;
       payload.subline = $('mf-' + model + '-subline').value;
     } else {
@@ -27098,6 +27461,8 @@ function jobCardEl(j) {
       // carry, pointed at the same file route.
       if (j.status === 'done' && j.kind !== 'image') html += '<br><span class="vidbox" data-play="' + j.id + '"><img class="thumb" loading="lazy" decoding="async" src="/api/jobs/' + j.id + '/thumb" alt=""><span class="playbadge">▶</span></span>' +
         '<br>' + saveControlHtml(j.id, 'video');
+      if (j.status === 'done' && j.has_gif) html +=
+        '<br><a class="btn secondary" href="/api/jobs/' + j.id + '/gif" download>Download GIF</a>';
       if (j.status === 'done' && j.kind === 'drama') html +=
         '<br><button class="btn secondary" data-drama-fix="' + j.id + '">Fix a shot</button>' +
         '<div id="drama-fix-' + j.id + '"></div>';

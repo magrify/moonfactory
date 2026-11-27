@@ -39,7 +39,8 @@ check(set(app.HF_TEMPLATES) == {"title", "captions", "stat", "promo",
                                  "kinetic", "intro", "outro", "chart",
                                  "turntable3d", "globe3d", "citypin3d",
                                  "house3d", "bars3d", "presenter",
-                                 "showcase3d", "logodraw"},
+                                 "showcase3d", "logodraw", "diagram",
+                                 "particles", "vectorscene"},
       "starter templates, the motion wing and the motion pack templates exist")
 check(app.HF_TEMPLATES["story"]["name"] == "Animated story short",
       "story template carries its studio name")

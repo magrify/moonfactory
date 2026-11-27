@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <script src="gsap.min.js"></script>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { margin: 0; width: 1080px; height: 1920px; overflow: hidden; background: #0c0c0f; }
+      #root { position: relative; width: 1080px; height: 1920px; background: #0c0c0f;
+        font-family: sans-serif; color: #f4f4f1; overflow: hidden; }
+      .bar { position: absolute; left: 90px; top: 780px; width: 180px; height: 14px;
+        background: #6366f1; border-radius: 7px; }
+      .headline { position: absolute; left: 90px; top: 840px; width: 900px;
+        font-size: 104px; font-weight: 700; line-height: 1.08; letter-spacing: -0.02em; }
+      .subline { position: absolute; left: 90px; top: 1240px; width: 860px;
+        font-size: 46px; font-weight: 400; line-height: 1.3; color: #b8b8c0; }
+      .statnum { position: absolute; left: 90px; top: 800px; width: 900px;
+        font-size: 230px; font-weight: 800; line-height: 1.0; color: #6366f1; }
+      .statlabel { position: absolute; left: 90px; top: 1120px; width: 860px;
+        font-size: 54px; font-weight: 500; line-height: 1.3; }
+      .cta { position: absolute; left: 90px; top: 1560px; padding: 28px 44px;
+        background: #6366f1; color: #ffffff; font-size: 44px; font-weight: 600;
+        border-radius: 999px; }
+      .bgvideo { position: absolute; left: 0; top: 0; width: 1080px; height: 1920px;
+        object-fit: cover; }
+      .capwrap { position: absolute; left: 60px; top: 1330px; width: 960px;
+        text-align: center; }
+      .capbar { display: inline-block; width: 150px; height: 12px; border-radius: 6px;
+        background: #6366f1; margin-bottom: 30px; }
+      .caption { font-size: 76px; font-weight: 700; line-height: 1.2;
+        text-shadow: 0 4px 30px rgba(0,0,0,0.85); }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0"
+      data-duration="9" data-width="1080" data-height="1920" data-fps="30">
+      <div class="clip" data-start="0" data-duration="9" data-track-index="0" style="position:absolute;left:0;top:0;width:1080px;height:1920px;">
+        <div id="dg-bar" style="position:absolute;left:90px;top:296px;width:180px;height:14px;background:#6366f1;border-radius:7px;"></div>
+        <h1 id="dg-head" style="position:absolute;left:90px;top:352px;width:900px;font-size:82px;font-weight:800;line-height:1.1;letter-spacing:-0.015em;">How booking works</h1>
+        <svg width="1080" height="1920" viewBox="0 0 1080 1920" style="position:absolute;left:0;top:0;">
+          <line id="dg-link-1" x1="540" y1="968" x2="540" y2="1052" stroke="#6366f1" stroke-width="6" stroke-linecap="round" pathLength="1" style="stroke-dasharray:1;stroke-dashoffset:1;" />
+          <circle id="dg-pulse-1" cx="540" cy="976" r="34" fill="#6366f1" opacity="0" />
+          <circle id="dg-dot-1" cx="540" cy="976" r="13" fill="#6366f1" opacity="0" />
+          <line id="dg-link-2" x1="540" y1="1220" x2="540" y2="1304" stroke="#6366f1" stroke-width="6" stroke-linecap="round" pathLength="1" style="stroke-dasharray:1;stroke-dashoffset:1;" />
+          <circle id="dg-pulse-2" cx="540" cy="1228" r="34" fill="#6366f1" opacity="0" />
+          <circle id="dg-dot-2" cx="540" cy="1228" r="13" fill="#6366f1" opacity="0" />
+        </svg>
+        <div id="dg-node-0" style="position:absolute;left:190px;top:800px;width:700px;min-height:168px;padding:30px 38px;background:rgba(255,255,255,0.03);border:3px solid #3a3a42;border-radius:28px;">
+          <div style="font-size:26px;font-weight:700;letter-spacing:0.14em;color:#6366f1;">STEP 1</div>
+          <p id="dg-text-0" style="font-size:46px;font-weight:650;line-height:1.22;color:#b8b8c0;margin-top:8px;">Guest finds you</p>
+        </div>
+        <div id="dg-node-1" style="position:absolute;left:190px;top:1052px;width:700px;min-height:168px;padding:30px 38px;background:rgba(255,255,255,0.03);border:3px solid #3a3a42;border-radius:28px;">
+          <div style="font-size:26px;font-weight:700;letter-spacing:0.14em;color:#6366f1;">STEP 2</div>
+          <p id="dg-text-1" style="font-size:46px;font-weight:650;line-height:1.22;color:#b8b8c0;margin-top:8px;">Guest books direct</p>
+        </div>
+        <div id="dg-node-2" style="position:absolute;left:190px;top:1304px;width:700px;min-height:168px;padding:30px 38px;background:rgba(255,255,255,0.03);border:3px solid #3a3a42;border-radius:28px;">
+          <div style="font-size:26px;font-weight:700;letter-spacing:0.14em;color:#6366f1;">STEP 3</div>
+          <p id="dg-text-2" style="font-size:46px;font-weight:650;line-height:1.22;color:#b8b8c0;margin-top:8px;">You keep the fee</p>
+        </div>
+      </div>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+      tl.fromTo("#dg-bar", { scaleX: 0, transformOrigin: "left center" }, { scaleX: 1, duration: 0.5, ease: "power3.out" }, 0.25);
+      tl.fromTo("#dg-head", { opacity: 0, y: 48 }, { opacity: 1, y: 0, duration: 0.6, ease: "power3.out" }, 0.4);
+      tl.fromTo("#dg-node-0", { opacity: 0.45, scale: 0.92 }, { opacity: 1, scale: 1, duration: 0.45, ease: "back.out(1.8)" }, 1.15);
+      tl.to("#dg-node-0", { borderColor: "#6366f1", backgroundColor: "rgba(99,102,241,0.18)", duration: 0.4, ease: "power2.out" }, 1.15);
+      tl.to("#dg-text-0", { color: "#f4f4f1", duration: 0.4, ease: "power2.out" }, 1.15);
+      tl.to("#dg-link-1", { strokeDashoffset: 0, duration: 0.38, ease: "power2.inOut" }, 1.78);
+      tl.fromTo("#dg-dot-1", { attr: { cy: 976 }, opacity: 0 }, { attr: { cy: 1044 }, opacity: 1, duration: 0.5, ease: "power1.inOut" }, 1.82);
+      tl.fromTo("#dg-pulse-1", { attr: { cy: 976 }, opacity: 0 }, { attr: { cy: 1044 }, opacity: 0.25, duration: 0.5, ease: "power1.inOut" }, 1.82);
+      tl.to(["#dg-dot-1", "#dg-pulse-1"], { opacity: 0, duration: 0.12, ease: "power1.out" }, 2.34);
+      tl.fromTo("#dg-node-1", { opacity: 0.45, scale: 0.92 }, { opacity: 1, scale: 1, duration: 0.45, ease: "back.out(1.8)" }, 2.4);
+      tl.to("#dg-node-1", { borderColor: "#6366f1", backgroundColor: "rgba(99,102,241,0.18)", duration: 0.4, ease: "power2.out" }, 2.4);
+      tl.to("#dg-text-1", { color: "#f4f4f1", duration: 0.4, ease: "power2.out" }, 2.4);
+      tl.to("#dg-link-2", { strokeDashoffset: 0, duration: 0.38, ease: "power2.inOut" }, 3.03);
+      tl.fromTo("#dg-dot-2", { attr: { cy: 1228 }, opacity: 0 }, { attr: { cy: 1296 }, opacity: 1, duration: 0.5, ease: "power1.inOut" }, 3.07);
+      tl.fromTo("#dg-pulse-2", { attr: { cy: 1228 }, opacity: 0 }, { attr: { cy: 1296 }, opacity: 0.25, duration: 0.5, ease: "power1.inOut" }, 3.07);
+      tl.to(["#dg-dot-2", "#dg-pulse-2"], { opacity: 0, duration: 0.12, ease: "power1.out" }, 3.59);
+      tl.fromTo("#dg-node-2", { opacity: 0.45, scale: 0.92 }, { opacity: 1, scale: 1, duration: 0.45, ease: "back.out(1.8)" }, 3.65);
+      tl.to("#dg-node-2", { borderColor: "#6366f1", backgroundColor: "rgba(99,102,241,0.18)", duration: 0.4, ease: "power2.out" }, 3.65);
+      tl.to("#dg-text-2", { color: "#f4f4f1", duration: 0.4, ease: "power2.out" }, 3.65);
+      tl.to("#root > div", { opacity: 0, duration: 0.5, ease: "power2.in" }, 8.4);
+      window.__timelines["main"] = tl;
+    </script>
+  </body>
+</html>
