@@ -24,10 +24,11 @@ break it:
 - the submit and mirror functions exist, post the
   documented /v1/videos body for model seedance-2-5 with
   Bearer auth, branch on FrameHush's documented status
-  words, resolve the result URL (the artifacts signed URL
-  is the fallback, because finished files live server-side
-  for only 24 hours), and settle from the completed
-  answer's charged_price.
+  words, resolve the result URL from the task's artifacts
+  list (the live-verified envelope: the completed poll
+  answer carries no URL and no price; finished files live
+  server-side for only 24 hours), and settle from the
+  completed answer's charged_price when one is reported.
 
 No Modal calls, no network, no generation.
 
@@ -167,7 +168,9 @@ check('required = {"wan3"}' in refresh,
 
 submit = func_src("submit_framehush_job")
 check(bool(submit), "submit_framehush_job not found")
-for token in ('"seedance-2-5"', "/v1/videos", '"first_frame"',
+check('"seedance": "seedance-2-5"' in SRC,
+      "FrameHush model id for the seedance lane drifted")
+for token in ("FRAMEHUSH_VIDEO_MODELS", "/v1/videos", '"first_frame"',
               '"last_frame"', '"image_refs"', '"video_refs"',
               '"audio_refs"', "_framehush_media_url",
               "_api_headers(\"framehush\")", "_submit_failed",
@@ -182,8 +185,10 @@ for token in ('"completed"', '"in_progress"', '"queued"',
     check(token in mirror, f"mirror_framehush_status missing {token}")
 resolver = func_src("_framehush_result_url")
 check(bool(resolver), "_framehush_result_url not found")
-check("signed-url" in resolver and "artifacts" in resolver,
-      "result resolver lost the artifacts signed-url fallback")
+check("artifacts" in resolver and "content_url" in resolver
+      and "signed-url" not in resolver,
+      "result resolver lost the artifacts-list content_url read "
+      "(or regained the invented signed-url endpoint)")
 check('provider == "framehush"' in func_src("submit_api_job"),
       "submit_api_job does not dispatch framehush")
 check("mirror_framehush_status" in func_src("mirror_api_status"),

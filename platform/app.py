@@ -3841,7 +3841,8 @@ PER_SECOND_MODELS = (
     "vidu_q3_turbo", "vidu_q3_mix", "skyreels_v4_fast",
     "skyreels_v4_std", "seedance15pro", "seedance10pro_fast",
     "pixverse_v6_max",
-    # MAGI-2 via Higgsfield (2026-11-25).
+    # MAGI-2 via FrameHush (wired via Higgsfield 2026-11-25,
+    # rerouted 2026-11-26).
     "magi2",
 )
 # Which supplier serves each per-second model. Internal only: the
@@ -3966,9 +3967,15 @@ MODEL_PROVIDER = {
     "ltx23_lora_unc": "spicyapi",
     # Motion transfer (2026-11-17): fal's Wan Motion endpoint.
     "wan_motion": "fal",
-    # MAGI-2 (2026-11-25): Higgsfield's own API is the only
-    # route; the model is a Higgsfield exclusive at launch.
-    "magi2": "higgsfield",
+    # MAGI-2 (wired 2026-11-25 on Higgsfield's own API, the
+    # only route known at the time; rerouted 2026-11-26):
+    # FrameHush's catalog carries the model as magi-2-1080P at
+    # $0.06/s against Higgsfield's flat $0.08/s, so the lane
+    # now rides the shared FrameHush client like Seedance 2.5
+    # (see FRAMEHUSH_VIDEO_MODELS). The Higgsfield submit
+    # stays wired below as the spare, its rate recorded in
+    # pricing.py's DISPLACED_RATES as magi2_higgsfield.
+    "magi2": "framehush",
 }
 # The secret env var each supplier's key lives under in the
 # moonfactory-providers Modal secret. Lane state checks the
@@ -5584,17 +5591,27 @@ def _hf_forge3d_page(template_id: str, fields: dict) -> str:
     headline = fields.get("headline") or fields.get("title") or ""
     subline = fields.get("subline") or ""
     sub_clip = (
-        f"""        <p style="position:absolute;left:70px;top:236px;width:940px;text-align:center;font-size:42px;font-weight:400;color:#d8d5cc;text-shadow:0 4px 30px rgba(0,0,0,0.6);">{esc(subline)}</p>"""
+        f"""        <p id="forge3d-sub" style="position:absolute;left:70px;top:236px;width:940px;text-align:center;font-size:42px;font-weight:400;color:#d8d5cc;text-shadow:0 4px 30px rgba(0,0,0,0.6);opacity:0;">{esc(subline)}</p>"""
         if subline else "")
     clips = f"""      <canvas id="gl" class="clip" data-start="0" data-duration="{duration:g}" data-track-index="0" width="1080" height="1920" style="position:absolute;left:0;top:0;width:1080px;height:1920px;"></canvas>
-      <div id="forge3d-title" class="clip" data-start="0" data-duration="{duration:g}" data-track-index="2" style="position:absolute;left:0;top:0;width:1080px;height:1920px;opacity:0;">
-        <div style="position:absolute;left:50%;top:120px;width:170px;height:14px;margin-left:-85px;background:{accent};border-radius:7px;"></div>
-        <h1 style="position:absolute;left:70px;top:160px;width:940px;text-align:center;font-size:76px;font-weight:800;line-height:1.12;letter-spacing:-0.01em;text-shadow:0 6px 44px rgba(0,0,0,0.55);">{esc(headline)}</h1>
+      <div id="forge3d-title" class="clip" data-start="0" data-duration="{duration:g}" data-track-index="2" style="position:absolute;left:0;top:0;width:1080px;height:1920px;">
+        <div id="forge3d-bar" style="position:absolute;left:50%;top:120px;width:170px;height:14px;margin-left:-85px;background:{accent};border-radius:7px;"></div>
+        <h1 id="forge3d-head" style="position:absolute;left:70px;top:160px;width:940px;text-align:center;font-size:76px;font-weight:800;line-height:1.12;letter-spacing:-0.01em;text-shadow:0 6px 44px rgba(0,0,0,0.55);opacity:0;">{esc(headline)}</h1>
 {sub_clip}
       </div>
       <div id="forge3d-fade" style="position:absolute;left:0;top:0;width:1080px;height:1920px;background:#000000;opacity:0;"></div>"""
-    timeline = f"""      tl.fromTo("#forge3d-title", {{ opacity: 0, y: 36 }}, {{ opacity: 1, y: 0, duration: 0.65, ease: "expo.out" }}, 0.35);
-      tl.to("#forge3d-fade", {{ opacity: 1, duration: 0.55, ease: "power1.in" }}, {duration - 0.55:g});"""
+    # The title choreography follows the principles pass
+    # (2026-11-26): the accent bar draws in first
+    # (anticipation), the headline lands on an expo-out
+    # entrance, and the subline arrives after it as the
+    # follow-through layer instead of appearing with it.
+    sub_tl = (
+        f"""      tl.fromTo("#forge3d-sub", {{ opacity: 0, y: 14 }}, {{ opacity: 1, y: 0, duration: 0.5, ease: "power3.out" }}, 1.05);
+"""
+        if subline else "")
+    timeline = f"""      tl.fromTo("#forge3d-bar", {{ scaleX: 0, transformOrigin: "center" }}, {{ scaleX: 1, duration: 0.45, ease: "expo.out" }}, 0.3);
+      tl.fromTo("#forge3d-head", {{ opacity: 0, y: 36 }}, {{ opacity: 1, y: 0, duration: 0.65, ease: "expo.out" }}, 0.45);
+{sub_tl}      tl.to("#forge3d-fade", {{ opacity: 1, duration: 0.55, ease: "power1.in" }}, {duration - 0.55:g});"""
     return f"""<!doctype html>
 <html lang="en">
   <head>
@@ -6473,7 +6490,9 @@ HIGGSFIELD_BASE = "https://api.higgsfield.ai"
 # MAGI-2's mode endpoints on Higgsfield's API (2026-11-25):
 # one path per mode under the model's own name, all at the
 # same $0.08 per generated second (Higgsfield's MAGI-2 model
-# pages, read 2026-11-25).
+# pages, read 2026-11-25). Since 2026-11-26 this is the
+# lane's displaced spare route (FrameHush is primary); the
+# spec stays so a flip back needs no re-derivation.
 HIGGSFIELD_VIDEO_MODELS = {
     "magi2": {
         "text": "sand/magi-2/text-to-video",
@@ -11023,6 +11042,14 @@ def api():
     KIE_BASE = "https://api.kie.ai"
     COMETAPI_BASE = "https://api.cometapi.com"
     FRAMEHUSH_BASE = "https://www.framehush.com"
+    # FrameHush's own model ids, one per lane (its catalog,
+    # read from the platform's own account 2026-11-26): one
+    # shared FrameHush client serves every FrameHush lane;
+    # only the id differs per lane.
+    FRAMEHUSH_VIDEO_MODELS = {
+        "seedance": "seedance-2-5",
+        "magi2": "magi-2-1080P",
+    }
     PIAPI_BASE = "https://api.piapi.ai"
     OPENROUTER_BASE = "https://openrouter.ai"
     NOVITA_BASE = "https://api.novita.ai"
@@ -11812,21 +11839,27 @@ def api():
                              prompt: str):
         """FrameHush videos API (OpenAI Video interface): POST
         /v1/videos with a Bearer key, poll GET /v1/videos/{id}.
+        One shared client for every FrameHush lane; the model
+        id is per lane (FRAMEHUSH_VIDEO_MODELS): Seedance 2.5
+        (seedance-2-5) at every tier, and MAGI-2
+        (magi-2-1080P) since its 2026-11-26 reroute.
         PAYLOAD-UNVERIFIED: the contract is FrameHush's own API
         guide, read from the signed-in account on 2026-11-26
         (submit returns a task id; statuses queued /
-        in_progress / completed / failed; a completed answer
-        carries the exact charged_price settlement uses), but
-        no live job has run: the account balance is $0, so the
-        first funded submit is the envelope proof, like the
-        VidLab lanes before it. The lane serves Seedance 2.5
-        (model id seedance-2-5) at every tier. No audio switch
+        in_progress / completed / failed; the completed poll
+        answer carries no result URL and no price — the mirror
+        resolves the file from the task's artifacts list, that
+        envelope verified live the same day), and
+        MAGI-2's rate is verified against the account through
+        the estimate endpoint, but no live job has run on
+        either lane, so the first real submit is the envelope
+        proof, like the VidLab lanes before it. No audio switch
         is sent: none exists in the documented field list, and
         the model's native audio is the priced basis. Media the
         supplier cannot fetch (data URLs, raw frames) goes
         through its assets endpoint first."""
         payload = {
-            "model": "seedance-2-5",
+            "model": FRAMEHUSH_VIDEO_MODELS[job["model"]],
             "prompt": prompt,
             "resolution": params["resolution"],
             "duration": int(params["duration"]),
@@ -11865,12 +11898,26 @@ def api():
         jobs[job["id"]] = job
 
     def _framehush_result_url(job: dict, data: dict):
-        """The finished file's downloadable URL. The poll
-        answer's output is read first (a URL string, or an
-        object carrying one); FrameHush archives generated
-        videos server-side for only 24 hours, so anything else
-        resolves the artifacts endpoint's signed URL now, while
-        the job is completing, never at delivery time."""
+        """The finished file's downloadable URL. ENVELOPE
+        VERIFIED LIVE 2026-11-26 against a completed task: the
+        /v1/videos poll answer is a flat object carrying status
+        and progress only — no output, no result URL, no
+        charged_price — so the result lives in the task's
+        artifacts list: GET /v1/tasks/{id}/artifacts answers
+        {"artifacts": [{"key": "video", "type": "video",
+        "content_url": "https://.../content?access=..."}],
+        "legacy_content_url": "https://..."}. The content_url
+        carries its own access token, so delivery fetches it
+        without the Bearer key. (The earlier guess, a signed
+        URL JSON endpoint under the content path, answers
+        404 — it does not exist; that guess is what starved
+        the first proof job, whose task had in fact
+        completed.) A URL
+        riding the poll answer is still read first,
+        defensively. FrameHush archives generated videos
+        server-side for only 24 hours, so the artifacts list is
+        resolved now, while the job is completing, never at
+        delivery time."""
         output = data.get("output")
         url = data.get("video_url") or data.get("url")
         if not url and isinstance(output, dict):
@@ -11883,15 +11930,20 @@ def api():
         try:
             resp = requests.get(
                 f"{FRAMEHUSH_BASE}/v1/tasks/"
-                f"{job['provider_task_id']}/artifacts/video/"
-                f"content/signed-url",
+                f"{job['provider_task_id']}/artifacts",
                 headers=_api_headers("framehush"), timeout=15)
             if resp.status_code == 200:
-                signed = resp.json() or {}
-                inner = signed.get("data") or {}
-                return (inner.get("url") or inner.get("signed_url")
-                        or signed.get("url")
-                        or signed.get("signed_url"))
+                listing = resp.json() or {}
+                for artifact in listing.get("artifacts") or []:
+                    if not isinstance(artifact, dict):
+                        continue
+                    if artifact.get("key") not in (None, "video") \
+                            and artifact.get("type") \
+                            not in (None, "video"):
+                        continue
+                    if artifact.get("content_url"):
+                        return artifact["content_url"]
+                return listing.get("legacy_content_url")
         except Exception:
             pass
         return None
@@ -11909,11 +11961,14 @@ def api():
                 status = str(data.get("status") or "").lower()
                 if status == "completed":
                     url = _framehush_result_url(job, data)
-                    # Settlement: the completed answer reports
-                    # the exact charged_price (FrameHush charges
-                    # on completion; failed tasks are not
-                    # charged), which is the truest cost there
-                    # is, exactly like VidLab's price_usd.
+                    # Settlement: the API guide says a completed
+                    # answer reports the exact charged_price, and
+                    # the read below honors it when one is present;
+                    # the live-verified envelope (2026-11-26)
+                    # carries no price field, so cost stays None
+                    # and settlement prices off the seeded rate,
+                    # like every lane whose supplier reports no
+                    # price.
                     price = data.get("charged_price")
                     cost = round(float(price) * 100.0, 2) \
                         if isinstance(price, (int, float)) else None
@@ -13069,10 +13124,13 @@ def api():
         lists, references as public URLs) but does not
         publicly print those modes' field names, so their
         bodies follow the API's own *_url / *_urls naming from
-        its published examples. No Higgsfield key is in the
-        secret store yet, so the lane sits paused until one
-        is; the first keyed submit is the envelope proof, like
-        the VidLab lanes before it."""
+        its published examples. Since 2026-11-26 this route is
+        the lane's displaced SPARE: MAGI-2 runs on FrameHush
+        (cheaper, and no Higgsfield key is in the secret store
+        in any case). The submit stays wired so the lane can
+        be pointed back the day a HIGGSFIELD_API_KEY lands;
+        its first keyed submit would be the envelope proof,
+        like the VidLab lanes before it."""
         model = job["model"]
         spec = HIGGSFIELD_VIDEO_MODELS[model]
         mode = params["mode"]

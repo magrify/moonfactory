@@ -24,7 +24,12 @@ What is pinned:
   every per-second lane and resolution and a spread of
   durations (the debit path covers the flat-per-clip lanes
   too). If a future change wants customer prices to move,
-  it must regenerate these snapshots deliberately.
+  it must regenerate these snapshots deliberately. The same
+  freeze later absorbed MAGI-2's 2026-11-26 FrameHush
+  reroute: its shelf basis carries a frozen shelf provider
+  rate (SHELF_PROVIDER_RATES_CENTS_PER_SECOND, the pre-
+  reroute $0.08/s) over its true $0.06/s rate, so its
+  snapshot figures below stand unchanged too.
 - The finishing outputs are written faststart (moov up
   front): the five delivered-file commands in _process_file
   and _process_api_file, the two word-fix audio swaps and
@@ -89,9 +94,14 @@ for model, resmap in pricing.PROVIDER_RATES_CENTS_PER_SECOND.items():
         check(close(pricing.per_second_lane_cost_cents(model, res),
                     rate + 0.01),
               f"{model} {res}: true lane cost is not rate + 0.01")
+        # The shelf basis carries the lane's frozen shelf rate
+        # where one is recorded (MAGI-2, frozen at its pre-
+        # reroute $0.08/s on 2026-11-26), else the live rate.
+        shelf_rate = pricing.SHELF_PROVIDER_RATES_CENTS_PER_SECOND \
+            .get(model, {}).get(res, rate)
         check(close(pricing.per_second_shelf_cost_cents(model, res),
-                    rate + 0.1),
-              f"{model} {res}: shelf lane cost is not rate + 0.1")
+                    shelf_rate + 0.1),
+              f"{model} {res}: shelf lane cost is not shelf rate + 0.1")
         owner_pic = pricing.frontier_lane(model, res, owner=True)
         check(close(owner_pic["sell_cents_per_second"],
                     round(rate + 0.01, 3)),

@@ -291,18 +291,31 @@ PROVIDER_RATES_CENTS_PER_SECOND = {
     # estimate. BeatAPI's with-input rates (18.0 / 28.0) are in
     # DISPLACED_RATES below.
     "kling4": {"720p": 13.5, "1080p": 20.0},
-    # MAGI-2 by Sand.ai via Higgsfield's own API (wired
-    # 2026-11-25): Higgsfield's published API price is a flat
-    # $0.08 per generated second, 1080p only, generated audio
-    # included (Higgsfield's MAGI-2 API reference,
-    # open.higgsfield.ai/models/sand/magi-2, read 2026-11-25).
-    # Standard pricing (Jack's ruling, 2026-11-25): customers
-    # pay the normal markup through the standard
+    # MAGI-2 by Sand.ai via FrameHush (rerouted 2026-11-26,
+    # route rule: the cheapest verified route is primary):
+    # FrameHush's catalog carries the model as magi-2-1080P at
+    # a flat $0.06 per generated second, 1080p only, generated
+    # audio included, priced live against the platform's own
+    # FrameHush account through its estimate endpoint (4s
+    # $0.24, 5s $0.30, 10s $0.60, 30s $1.80, perfectly linear;
+    # read 2026-11-26). That undercuts the route wired
+    # 2026-11-25, Higgsfield's own API at a flat $0.08/s
+    # (Higgsfield's MAGI-2 API reference,
+    # open.higgsfield.ai/models/sand/magi-2, read 2026-11-25);
+    # its rate is recorded in DISPLACED_RATES below as
+    # magi2_higgsfield and its submit stays wired in app.py as
+    # the spare. Standard pricing (Jack's ruling, 2026-11-25):
+    # customers pay the normal markup through the standard
     # customer_debit_cents path like every regular lane; this
     # lane is NOT an at-cost exception and carries no
     # HIGGSFIELD_POLICY_CENTS_PER_SECOND entry. The owner pays
-    # the raw rate, as on every lane.
-    "magi2": {"1080p": 8.0},
+    # the raw rate, as on every lane. CUSTOMER SHELF FREEZE
+    # (2026-11-26, Jack: "cut OUR cost, not our users'
+    # prices"): the reroute does not move the customer price —
+    # the shelf basis keeps the $0.08/s rate the shelf was
+    # built on (SHELF_PROVIDER_RATES_CENTS_PER_SECOND below)
+    # and the saving lands as margin.
+    "magi2": {"1080p": 6.0},
     # Kling 3.0 Omni via Kie (follow-up pass, 2026-11-16): from
     # $0.0755/s (the from-price does not split standard/pro;
     # carried flat pending console confirmation). fal's with-audio
@@ -829,6 +842,14 @@ DISPLACED_RATES_CENTS_PER_SECOND = {
     # re-derivation.
     "seedance_cometapi": {"480p": 8.24, "720p": 18.48},
     "seedance_beatapi": {"1080p": 48.1},
+    # Higgsfield's own MAGI-2 API rate, displaced 2026-11-26
+    # when the lane moved to FrameHush's magi-2-1080P endpoint
+    # ($0.06/s against this flat $0.08/s, generated audio
+    # included on both routes). The Higgsfield submit stays
+    # wired in app.py as the spare: it lights again if a
+    # HIGGSFIELD_API_KEY ever lands in the secret store and
+    # the lane is pointed back.
+    "magi2_higgsfield": {"1080p": 8.0},
 }
 
 # Resolutions each per-second model can actually be ordered at.
@@ -1086,6 +1107,20 @@ POST_COST_CENTS_PER_SECOND = 0.01
 # above. The two figures differ by a constant 0.09c/s, so a
 # future provider rate change flows through both bases alike.
 SHELF_POST_COST_CENTS_PER_SECOND = 0.1
+
+# Shelf provider rates frozen per lane (2026-11-26): where a
+# cheaper route takes over a lane but the customer shelf price
+# must not move (Jack: "cut OUR cost, not our users' prices"),
+# the shelf basis keeps the provider rate the shelf price was
+# built on and the route saving lands as margin — the same
+# decoupling the shelf post figure above applies platform-
+# wide, one level down. MAGI-2's shelf was built on
+# Higgsfield's direct $0.08/s; the lane now runs on FrameHush
+# at $0.06/s, which PROVIDER_RATES carries as the true rate
+# (the owner price and all cost accounting use it).
+SHELF_PROVIDER_RATES_CENTS_PER_SECOND = {
+    "magi2": {"1080p": 8.0},
+}
 
 # Built-in lip sync (Jack's product rule, 2026-11-17): every video
 # where someone or something is talking gets its mouth matched to
@@ -1453,14 +1488,30 @@ def per_second_lane_cost_cents(model: str, resolution: str, rates=None) -> float
         + POST_COST_CENTS_PER_SECOND
 
 
+def _shelf_provider_rate_cents(model: str, resolution: str, rates=None) -> float:
+    """The provider rate the customer shelf basis carries for
+    one lane: the lane's frozen shelf rate where one is
+    recorded in SHELF_PROVIDER_RATES_CENTS_PER_SECOND (it wins
+    over any rate table, seed or live), else the lane's rate
+    from the table in hand."""
+    frozen = SHELF_PROVIDER_RATES_CENTS_PER_SECOND.get(
+        model, {}).get(resolution)
+    if frozen is not None:
+        return float(frozen)
+    return _provider_rate_cents(model, resolution, rates)
+
+
 def per_second_shelf_cost_cents(model: str, resolution: str, rates=None) -> float:
     """The cost basis customer sell rates are built on: the
-    provider rate plus the FROZEN shelf post figure
+    shelf provider rate plus the FROZEN shelf post figure
     (SHELF_POST_COST_CENTS_PER_SECOND). Identical to the true
     cost until the 2026-11-26 post cut; since then it sits a
     constant 0.09c/s above the true cost, which is exactly the
-    margin the cut creates. Never use this for accounting."""
-    return _provider_rate_cents(model, resolution, rates) \
+    margin the cut creates. A lane whose route got cheaper
+    under a shelf freeze (SHELF_PROVIDER_RATES_CENTS_PER_SECOND)
+    sits higher above its true cost by the route saving too.
+    Never use this for accounting."""
+    return _shelf_provider_rate_cents(model, resolution, rates) \
         + SHELF_POST_COST_CENTS_PER_SECOND
 
 
