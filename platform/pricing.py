@@ -230,10 +230,19 @@ PROVIDER_RATES_CENTS_PER_SECOND = {
     # 480p/720p, $0.0824 / $0.1848; BeatAPI at 1080p, $0.481);
     # those rates are recorded in DISPLACED_RATES below and
     # both submits stay wired in app.py as spares. FrameHush
-    # also publishes a 4K tier at $0.09/s; it is NOT sold here:
-    # no published Higgsfield 4K credit count is on record to
-    # price that tier against (see MODEL_RESOLUTIONS).
-    "seedance": {"480p": 3.5, "720p": 4.7, "1080p": 8.0},
+    # 4K tier (wired 2026-11-27): FrameHush publishes the tier
+    # at $0.09/s (read on the platform's own account through
+    # its estimate endpoint, 2026-11-26), and Higgsfield's own
+    # published Seedance 2.5 credit counts now include a 4K
+    # count (140 credits per 5 s clip; see
+    # HIGGSFIELD_EFFECTIVE_CENTS_PER_CLIP_BY_RESOLUTION), so
+    # the tier prices against a measured Higgsfield figure
+    # like the other three. The FrameHush submit sends the
+    # resolution on every job, so the tier is a real choice
+    # the moment it is priced here and listed in
+    # MODEL_RESOLUTIONS.
+    "seedance": {"480p": 3.5, "720p": 4.7, "1080p": 8.0,
+                 "4K": 9.0},
     # Veo 3.1 via Kie (rerouted 2026-11-25, frontier coverage
     # pass): Kie bills the model flat per clip, native audio
     # included — 250 credits ($1.25) per 720p video, 255
@@ -895,7 +904,7 @@ DISPLACED_RATES_CENTS_PER_SECOND = {
 # Resolutions each per-second model can actually be ordered at.
 # Models absent here accept every entry in RESOLUTIONS.
 MODEL_RESOLUTIONS = {
-    "seedance": ("480p", "720p", "1080p"),
+    "seedance": ("480p", "720p", "1080p", "4K"),
     "seedance2": ("480p", "720p", "1080p", "4K"),
     "veo3": ("720p", "1080p", "4K"),
     "veo3_fast": ("720p", "1080p", "4K"),
@@ -1261,8 +1270,14 @@ HIGGSFIELD_EFFECTIVE_CENTS_PER_CLIP = {
 # charges 17.5 credits per 5 s at 1080p. Cells recorded here
 # replace the scaled figure outright; every other cell keeps the
 # scaled figure.
+# Seedance 2.5's 4K count is 140 credits per 5 s clip
+# (Higgsfield's own MCP connector guide, read 2026-11-27: a
+# 10 s Seedance 2.5 clip costs 280 credits in 4K at
+# Higgsfield's standard credit rates, the same rates its 720p
+# and 1080p counts above come from), recorded here when the
+# 4K tier was wired on 2026-11-27.
 HIGGSFIELD_EFFECTIVE_CENTS_PER_CLIP_BY_RESOLUTION = {
-    "seedance": {"480p": 73.75, "1080p": 393.33},
+    "seedance": {"480p": 73.75, "1080p": 393.33, "4K": 688.33},
     "wan3": {"1080p": 86.04},
 }
 

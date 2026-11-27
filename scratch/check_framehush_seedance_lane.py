@@ -10,10 +10,12 @@ break it:
   and both poll provider lists carrying the new supplier;
   the old per-resolution CometAPI override is gone;
 - the seeded rates are FrameHush's verified account rates
-  ($0.035 / $0.047 / $0.08 per generated second), the
-  displaced CometAPI and BeatAPI rates are recorded in
-  DISPLACED_RATES, and no 4K tier is sold (no published
-  Higgsfield 4K figure is on record to price it against);
+  ($0.035 / $0.047 / $0.08 per generated second, plus the
+  4K tier at $0.09 wired 2026-11-27 once Higgsfield's own
+  published 4K credit count, 140 credits per 5 s clip, was
+  on record to price it against), and the displaced
+  CometAPI and BeatAPI rates are recorded in
+  DISPLACED_RATES;
 - pricing rides the standard machinery: the customer sell
   rates stay on the 0.97x Higgsfield targets (the cheaper
   route widens the margin, it does not move the shelf
@@ -78,7 +80,7 @@ check("seedance" in app.PER_SECOND_MODELS,
       "seedance missing from PER_SECOND_MODELS")
 check(app.MODEL_PROVIDER.get("seedance") == "framehush",
       "seedance does not route to framehush")
-for res in ("480p", "720p", "1080p"):
+for res in ("480p", "720p", "1080p", "4K"):
     check(app.provider_for("seedance", res) == "framehush",
           f"provider_for does not resolve seedance {res} to framehush")
 check("seedance" not in app.MODEL_PROVIDER_OVERRIDES,
@@ -95,8 +97,9 @@ check("https://www.framehush.com" in SRC,
 # -- pricing: standard machinery, displaced routes recorded -------------
 
 check(pricing.PROVIDER_RATES_CENTS_PER_SECOND.get("seedance")
-      == {"480p": 3.5, "720p": 4.7, "1080p": 8.0},
-      "seedance seeded rates drifted from FrameHush's $0.035/$0.047/$0.08")
+      == {"480p": 3.5, "720p": 4.7, "1080p": 8.0, "4K": 9.0},
+      "seedance seeded rates drifted from FrameHush's "
+      "$0.035/$0.047/$0.08/$0.09")
 check(pricing.DISPLACED_RATES_CENTS_PER_SECOND.get("seedance_cometapi")
       == {"480p": 8.24, "720p": 18.48},
       "displaced CometAPI seedance rates not recorded")
@@ -104,14 +107,20 @@ check(pricing.DISPLACED_RATES_CENTS_PER_SECOND.get("seedance_beatapi")
       == {"1080p": 48.1},
       "displaced BeatAPI seedance 1080p rate not recorded")
 check(pricing.MODEL_RESOLUTIONS.get("seedance")
-      == ("480p", "720p", "1080p"),
-      "seedance resolutions drifted (no 4K tier is sold)")
+      == ("480p", "720p", "1080p", "4K"),
+      "seedance resolutions drifted (the 4K tier wired "
+      "2026-11-27 must stay listed)")
+check(app.offered_resolutions(
+    "seedance", pricing.PROVIDER_RATES_CENTS_PER_SECOND)
+    == ["480p", "720p", "1080p", "4K"],
+    "the picker does not offer seedance at 4K")
 rates = pricing.PROVIDER_RATES_CENTS_PER_SECOND
 expected = {
     # res: (provider $/s, owner c/s, customer sell c/s, higgsfield c/s)
     "480p": (3.5, 3.51, 14.308, 14.75),
     "720p": (4.7, 4.71, 33.368, 34.4),
     "1080p": (8.0, 8.01, 76.307, 78.666),
+    "4K": (9.0, 9.01, 133.537, 137.666),
 }
 for res, (provider, owner_sell, sell, higgs) in expected.items():
     lane = pricing.frontier_lane("seedance", res, rates)
