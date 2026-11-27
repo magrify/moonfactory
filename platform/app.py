@@ -20577,12 +20577,13 @@ def refresh_provider_rates():
     the live rate table (design s.6). The table's timestamp advances
     only when every required model's full price set was re-read, so
     a partial or failed read leaves the staleness pause armed
-    instead of quietly extending stale prices. Required reads: the
-    Wan 3.0 page on the BeatAPI supplier's site.
-    (Wan 3.0 Prime's page was a required read until the follow-up
-    pass moved that lane to CometAPI, and Seedance 2.5's BeatAPI
-    page likewise until the 2026-11-26 move to FrameHush; both
-    rates are seeded-only now.) The fal
+    instead of quietly extending stale prices. Required reads:
+    none remain. (Wan 3.0 Prime's page was a required read until
+    the follow-up pass moved that lane to CometAPI, Seedance
+    2.5's BeatAPI page likewise until the 2026-11-26 move to
+    FrameHush, and Wan 3.0's BeatAPI page, the last one, until
+    the route audit later that night moved that lane to
+    FrameHush too; all three rates are seeded-only now.) The fal
     pages are read opportunistically (their prices update when the
     pages parse, and the weekly margin report is the backstop
     until they do). Runs on CPU; no key needed, the pages are
@@ -20641,17 +20642,18 @@ def refresh_provider_rates():
 
     # The BeatAPI supplier publishes per-clip prices for 8-second
     # clips on each model's own page; per-second is price / 8.
-    # The Wan page carries a single rate per resolution (the
-    # Seedance 2.5 page was read here until that lane moved to
-    # FrameHush on 2026-11-26; its rate is seeded-only now).
-    # The pages carry the rows as structured-data
-    # offers ("name": "... 8 sec · 720p ...", "price": 1.5633) and
-    # as a rendered table; try both shapes. The offers pattern is
-    # pinned to the page's own URL so a cross-sold model's rows on
-    # the same page can never land in the wrong lane.
-    beatapi_pages = {
-        "wan3": ("https://beatapi.io/wan-3-0-api", ""),
-    }
+    # No BeatAPI page is read any more: the Seedance 2.5 page was
+    # read here until that lane moved to FrameHush on 2026-11-26,
+    # and the Wan 3.0 page, the last one, until the route audit
+    # later that night moved that lane to FrameHush too; both
+    # rates are seeded-only now. The reader stays for the next
+    # lane that needs a page-tracked rate: the pages carry the
+    # rows as structured-data offers ("name": "... 8 sec · 720p
+    # ...", "price": 1.5633) and as a rendered table; try both
+    # shapes. The offers pattern is pinned to the page's own URL
+    # so a cross-sold model's rows on the same page can never
+    # land in the wrong lane.
+    beatapi_pages = {}
     for beat_model, (beat_url, qualifier) in beatapi_pages.items():
         try:
             resp = _requests.get(
@@ -20717,7 +20719,11 @@ def refresh_provider_rates():
     except Exception:
         pass
 
-    required = {"wan3"}
+    # No required reads remain (see the docstring): every lane
+    # whose page was once required has moved to a seeded-only
+    # rate, so the timestamp advances on each run and the
+    # opportunistic reads below still merge when they parse.
+    required = set()
     if not required.issubset(found):
         return {"verified": sorted(found), "updated": False}
     table = meta.get("provider_rates") or {
