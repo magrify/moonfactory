@@ -1,8 +1,14 @@
 """Pin for the NOWPayments crypto checkout (2026-11-27).
 
 Jack's call: Stripe stays exactly as it is; crypto is an added
-option on the uncensored side only (the 18+ side: accounts with
-the adult confirmation stamp). The IPN callback verifies the
+payment option. It first shipped for the 18+ side only, and
+Jack widened it the same day: "make crypto an option for
+everyone not just 18+." So the checkout endpoints take any
+signed in account (no adult confirmation stamp), and the
+Billing panel renders the crypto section for every signed in
+account. The 18+ stamp still gates the uncensored lanes and
+content; it does not gate this payment method. The IPN
+callback verifies the
 HMAC SHA-512 signature over the key-sorted body, credits only
 finished or confirmed payments, credits the amounts recorded
 on the order at invoice creation (never amounts a callback
@@ -56,9 +62,14 @@ check("config carries the crypto flag",
 check("billing panel has the crypto section",
       'id="crypto-billing"' in SRC and "Pay with crypto" in SRC
       and "data-topup-crypto" in SRC)
-check("the studio renders the section only for the 18+ side",
-      "currentUser.adult_confirmed" in SRC
-      and "cfg.crypto_payments_configured" in SRC)
+render_start = SRC.index("function renderCryptoBilling()")
+render_src = SRC[render_start:render_start + 400]
+check("the studio renders the section for every signed in "
+      "account when configured",
+      "cfg.crypto_payments_configured" in render_src
+      and "currentUser" in render_src)
+check("the studio render does not consult the adult stamp",
+      "adult_confirmed" not in render_src)
 check("the invoice carries the callback URL per invoice",
       '"ipn_callback_url": f"{base}/api/nowpayments/ipn"' in SRC)
 ipn_src = fn("nowpayments_ipn")
@@ -75,12 +86,13 @@ check("top ups land through credit_topup",
       "credit_topup(user, order[\"credit_cents\"]" in ipn_src)
 check("money landing arms autopay through the helper",
       "arm_autopay_on_payment" in ipn_src)
-gate_src = fn("_require_crypto_side")
-check("the crypto gate reads the adult stamp",
-      'user.get("adult_confirmed_at")' in gate_src)
+check("the 18+ crypto gate helper is gone",
+      "_require_crypto_side" not in SRC)
 for endpoint in ("checkout_crypto_topup", "checkout_crypto_plan"):
-    check(f"{endpoint} applies the crypto gate",
-          "_require_crypto_side(user)" in fn(endpoint))
+    ep_src = fn(endpoint)
+    check(f"{endpoint} requires sign in, not the adult stamp",
+          "require_user" in ep_src
+          and "adult_confirmed_at" not in ep_src)
 check("crypto top ups reuse the top up amount rule",
       "pricing.valid_topup_cents" in fn("checkout_crypto_topup"))
 check("the crypto plan charges the Creator price",
@@ -110,7 +122,11 @@ check("a missing signature does not verify",
 check("a missing secret does not verify",
       not sig_ok(body, good, ""))
 
-# -- the checkout gate, for real ---------------------------------
+# -- the checkout endpoints, for real -----------------------------
+# The flip, exercised: a signed in account with NO adult stamp
+# (no adult_confirmed_at key at all) creates both checkouts.
+# Invoice creation is stubbed; sign in itself is require_user's
+# job, covered live (401 without a session).
 
 
 class HTTPException(Exception):
@@ -119,16 +135,62 @@ class HTTPException(Exception):
         self.detail = detail
 
 
-gate_ns = {"HTTPException": HTTPException}
-exec(gate_src, gate_ns)
-require_side = gate_ns["_require_crypto_side"]
+invoice_calls = []
+
+
+def fake_invoice(user, kind, amount_cents, base):
+    invoice_calls.append((user["id"], kind, amount_cents))
+    return "https://nowpayments.example/invoice/1"
+
+
+PLAIN_USER = {"id": "u-plain"}
+
+
+def require_user(request, session):
+    return PLAIN_USER
+
+
+def Cookie(default=None, **kwargs):
+    return default
+
+
+class FakeCheckoutRequest:
+    def __init__(self, payload):
+        self._payload = payload
+
+    async def json(self):
+        return self._payload
+
+
+checkout_ns = {
+    "Request": object, "Cookie": Cookie,
+    "HTTPException": HTTPException,
+    "require_user": require_user, "pricing": pricing,
+    "_nowpayments_create_invoice": fake_invoice,
+    "base_url": lambda request: "https://example.test",
+}
+for endpoint in ("checkout_crypto_topup", "checkout_crypto_plan"):
+    exec(fn(endpoint), checkout_ns)
+topup_ep = checkout_ns["checkout_crypto_topup"]
+plan_ep = checkout_ns["checkout_crypto_plan"]
+
+r = asyncio.run(topup_ep(
+    FakeCheckoutRequest({"pack_cents": 1000}), ""))
+check("an unstamped account creates a top up checkout",
+      r == {"url": "https://nowpayments.example/invoice/1"}
+      and invoice_calls == [("u-plain", "topup", 1000)])
+r = asyncio.run(plan_ep(FakeCheckoutRequest({}), ""))
+check("an unstamped account creates a plan checkout",
+      r == {"url": "https://nowpayments.example/invoice/1"}
+      and invoice_calls[-1]
+      == ("u-plain", "plan", pricing.CREATOR_PRICE_CENTS))
 try:
-    require_side({"id": "u-free"})
-    check("an unstamped account is refused", False)
+    asyncio.run(topup_ep(
+        FakeCheckoutRequest({"pack_cents": 50}), ""))
+    check("a too small top up is still refused", False)
 except HTTPException as e:
-    check("an unstamped account is refused", e.status_code == 403)
-require_side({"id": "u-adult", "adult_confirmed_at": 1.0})
-check("a stamped account passes the gate", True)
+    check("a too small top up is still refused",
+          e.status_code == 422)
 
 # -- the IPN handler, for real -----------------------------------
 
@@ -194,16 +256,16 @@ def run_ipn(payload, sign=True, secret=NPKEY):
     return asyncio.run(ipn(FakeRequest(payload, sig)))
 
 
-users["id:u-adult"] = {"id": "u-adult", "balance_cents": 0,
+users["id:u-plain"] = {"id": "u-plain", "balance_cents": 0,
                        "plan": "free", "usage": {}}
 meta["nowpayments_orders"] = {
-    "ord-topup": {"user_id": "u-adult", "kind": "topup",
+    "ord-topup": {"user_id": "u-plain", "kind": "topup",
                   "credit_cents": 1000, "gross_cents": 1000,
                   "invoice_id": 77, "credited": False},
-    "ord-plan": {"user_id": "u-adult", "kind": "plan",
+    "ord-plan": {"user_id": "u-plain", "kind": "plan",
                  "credit_cents": 0, "gross_cents": 2000,
                  "invoice_id": 78, "credited": False},
-    "ord-partial": {"user_id": "u-adult", "kind": "topup",
+    "ord-partial": {"user_id": "u-plain", "kind": "topup",
                     "credit_cents": 500, "gross_cents": 500,
                     "invoice_id": 79, "credited": False},
 }
@@ -225,16 +287,16 @@ payload = {"order_id": "ord-topup", "payment_id": 501,
 r = run_ipn(payload)
 check("a finished top up is received", r == {"received": True})
 check("the credit is the recorded amount, not the body's claim",
-      calls["credit_topup"] == [("u-adult", 1000, 1000)])
+      calls["credit_topup"] == [("u-plain", 1000, 1000)])
 check("the balance moved by the credit",
-      users["id:u-adult"]["balance_cents"] == 1000)
+      users["id:u-plain"]["balance_cents"] == 1000)
 check("autopay arming ran for the top up",
-      calls["arm"] == [("u-adult", 1000)])
+      calls["arm"] == [("u-plain", 1000)])
 r = run_ipn(payload)
 check("a duplicate IPN is reported as a duplicate",
       r.get("duplicate") is True)
 check("the duplicate credited nothing more",
-      calls["credit_topup"] == [("u-adult", 1000, 1000)])
+      calls["credit_topup"] == [("u-plain", 1000, 1000)])
 
 # A confirmed payment for the plan grants Creator the same way
 # a Stripe plan purchase does.
@@ -243,11 +305,11 @@ r = run_ipn({"order_id": "ord-plan", "payment_id": 502,
 check("a confirmed plan payment is received",
       r == {"received": True})
 check("the plan was granted",
-      users["id:u-adult"]["plan"] == "creator")
+      users["id:u-plain"]["plan"] == "creator")
 check("the plan money counted toward the ceiling",
-      calls["add_net_paid"] == [("u-adult", 2000)])
+      calls["add_net_paid"] == [("u-plain", 2000)])
 check("autopay arming ran for the plan",
-      ("u-adult", None) in calls["arm"])
+      ("u-plain", None) in calls["arm"])
 
 # Partially paid, failed and expired payments credit nothing.
 for status in ("partially_paid", "failed", "expired", "waiting"):

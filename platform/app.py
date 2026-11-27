@@ -9687,10 +9687,10 @@ def api():
             "payments_configured": stripe_mode() != "off",
             # Crypto checkout (NOWPayments, 2026-11-27): the
             # studio shows the Billing panel's crypto section
-            # only when the deployment carries the key, and the
-            # section itself only on the 18+ side (see
-            # renderCryptoBilling); the server enforces the
-            # same gate on the checkout endpoints.
+            # for every signed in account whenever the
+            # deployment carries the key (see
+            # renderCryptoBilling); the checkout endpoints
+            # likewise take any signed in account.
             "crypto_payments_configured": nowpayments_configured(),
             "default_model": DEFAULT_MODEL,
             "clone_default_model": EDITCLONE_CLONE_MODEL,
@@ -24992,18 +24992,21 @@ document.getElementById('go').onclick = async () => {{
                 save_user(user)
         return {"received": True}
 
-    # -- nowpayments (crypto checkout, the uncensored side) --------
+    # -- nowpayments (crypto checkout) ------------------------------
     #
     # Jack's call (2026-11-27): Stripe stays exactly as it is;
-    # crypto is an added option, and only on the uncensored side.
-    # The uncensored side of this app is the 18+ side: accounts
-    # carrying the adult confirmation stamp. The checkout
-    # endpoints refuse anyone without the stamp, and the Billing
-    # panel renders the crypto section only for stamped accounts,
-    # so the moderated side keeps Stripe only. Money lands through
-    # the same paths Stripe payments use: credit_topup for top
-    # ups, the plan grant for Creator, add_net_paid inside both,
-    # and arm_autopay_on_payment wherever money lands (its own
+    # crypto is an added option. It first shipped for the 18+
+    # side only; Jack widened it the same day: "make crypto an
+    # option for everyone not just 18+." So the checkout
+    # endpoints take any signed in account and the Billing
+    # panel renders the crypto section for every signed in
+    # account, whenever the deployment is configured for it.
+    # The 18+ stamp still gates the uncensored lanes and
+    # content exactly as before; it no longer gates the payment
+    # method. Money lands through the same paths Stripe
+    # payments use: credit_topup for top ups, the plan grant
+    # for Creator, add_net_paid inside both, and
+    # arm_autopay_on_payment wherever money lands (its own
     # saved-card guard decides whether arming applies).
     # NOWPayments takes 0.5% on their side; no customer surcharge
     # is added here, and the credited amount is the full ordered
@@ -25079,20 +25082,9 @@ document.getElementById('go').onclick = async () => {{
             meta["nowpayments_orders"] = orders
         return invoice_url
 
-    def _require_crypto_side(user):
-        """The uncensored-side gate for crypto checkout: the
-        account must carry the 18+ stamp, the same stamp the
-        uncensored lanes check."""
-        if not user.get("adult_confirmed_at"):
-            raise HTTPException(
-                status_code=403,
-                detail="paying with crypto is part of the 18+ "
-                       "side of Moonfactory")
-
     @web.post("/api/checkout/crypto/topup")
     async def checkout_crypto_topup(request: Request, mf_session: str = Cookie(default="")):
         user = require_user(request, mf_session)
-        _require_crypto_side(user)
         body = await request.json()
         try:
             pack = int(body.get("pack_cents") or 0)
@@ -25108,7 +25100,6 @@ document.getElementById('go').onclick = async () => {{
     @web.post("/api/checkout/crypto/plan")
     async def checkout_crypto_plan(request: Request, mf_session: str = Cookie(default="")):
         user = require_user(request, mf_session)
-        _require_crypto_side(user)
         url = _nowpayments_create_invoice(
             user, "plan", pricing.CREATOR_PRICE_CENTS,
             base_url(request))
@@ -28646,7 +28637,7 @@ APP_HTML = (
       <p class="muted">Top up once and pay per video from your balance. Your balance never expires.</p>
       <div id="crypto-billing" style="display:none">
         <p class="group-label">Pay with crypto</p>
-        <p class="muted">Crypto checkout is part of the 18+ side and runs through NOWPayments. Your credit lands in your balance when the payment confirms, usually within the hour.</p>
+        <p class="muted">Crypto checkout runs through NOWPayments. Your credit lands in your balance when the payment confirms, usually within the hour.</p>
         <div class="topup-grid">
           <button class="btn secondary" data-topup-crypto="500" type="button">Top up $5 with crypto</button>
           <button class="btn secondary" data-topup-crypto="1000" type="button">Top up $10 with crypto</button>
@@ -30808,17 +30799,18 @@ $('topup-custom-btn').onclick = async () => {
   catch (e) { msg('pay-msg', e.message, 'err'); }
 };
 // Pay with crypto (NOWPayments, 2026-11-27): the crypto
-// section of the Billing panel shows only on the 18+ side,
-// which in this app means a signed in account carrying the
-// adult confirmation stamp, and only when this deployment is
-// configured for crypto payments. The server enforces the
-// same gate on the checkout endpoints, so hiding the section
-// is presentation, not the control.
+// section of the Billing panel shows for every signed in
+// account, and only when this deployment is configured for
+// crypto payments. (It first shipped for the 18+ side only;
+// Jack widened it to everyone the same day. The 18+ stamp
+// still gates the uncensored lanes and content, not this
+// payment method.) The checkout endpoints require sign in,
+// so hiding the section is presentation, not the control.
 function renderCryptoBilling() {
   const box = $('crypto-billing');
   if (!box) return;
   const show = !!(cfg.crypto_payments_configured
-    && currentUser && currentUser.adult_confirmed);
+    && currentUser);
   box.style.display = show ? '' : 'none';
 }
 async function startCryptoTopup(cents) {
