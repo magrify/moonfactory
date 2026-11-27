@@ -8031,6 +8031,39 @@ def api():
         response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
         return response
 
+    @web.middleware("http")
+    async def csrf_origin_guard(request: Request, call_next):
+        """CSRF guard for cookie authenticated mutations
+        (security fix, 2026-11-27, csrf-lax-only): the app
+        is served from a shared registrable domain
+        (modal.run is a public suffix), so SameSite=Lax does
+        not separate this app from a neighbour app an
+        attacker deploys on the same suffix, and Lax never
+        applied to same-site requests anyway. A state
+        changing request that rides the session cookie must
+        therefore carry an Origin (or Referer) on this app's
+        own host. Requests without the cookie (API keys,
+        worker keys, the Stripe webhook, pre-auth flows) are
+        not cookie authenticated and pass untouched, as do
+        safe methods."""
+        if request.method in ("POST", "PUT", "PATCH", "DELETE") \
+                and request.cookies.get("mf_session") \
+                and not request.headers.get("authorization"):
+            origin = request.headers.get("origin") \
+                or request.headers.get("referer") or ""
+            allowed = set()
+            if request.headers.get("host"):
+                allowed.add(request.headers["host"])
+            public = os.environ.get("PUBLIC_BASE_URL") or ""
+            if public:
+                allowed.add(urllib.parse.urlparse(public).netloc)
+            host = urllib.parse.urlparse(origin).netloc if origin else ""
+            if not host or host not in allowed:
+                return JSONResponse(
+                    {"detail": "cross origin request refused"},
+                    status_code=403)
+        return await call_next(request)
+
     @web.exception_handler(404)
     async def not_found(request: Request, exc):
         # API callers keep the JSON contract; browsers get the
