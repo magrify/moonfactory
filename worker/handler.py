@@ -1,4 +1,22 @@
 """
+========================================================================
+NOT DEPLOYABLE -- DO NOT DEPLOY THIS FILE (security audit, 2026-11-27)
+========================================================================
+This RunPod handler was never deployed: the RunPod account was never
+created, and the Modal worker replaced this design before launch
+(see BUILD-LOG.md, README.md, MODAL-AUDIT.md). It is kept in the
+repo for reference only.
+
+The handler has NO caller authentication and trusts job["input"]
+completely: it fetches arbitrary URLs with no scheme/host/private-
+range check or size cap, and derives filesystem paths from the job
+input without containment (audit fingerprint:
+worker-handler-unauthenticated-job-input-ssrf-traversal-unbounded-
+fetch). Deploying it as-is would expose every one of those defects.
+Any future RunPod work must start from an authenticated,
+input-validating rewrite, never from this skeleton.
+========================================================================
+
 Sinclip RunPod Serverless worker handler (SKELETON, untested).
 
 Job flow:
