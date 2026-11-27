@@ -21,11 +21,11 @@ quietly break it:
 - the upload path is untouched: the upload endpoint and its
   meta record are still in app.py, and the fetch functions
   keep their signatures;
-- the cross-container retry layer is in place: the ingest
-  probe fans out over parallel fresh containers (YouTube's
-  answer is a per-container egress draw) and a dead-link
-  download failure re-dispatches the ingest job to a fresh
-  container a bounded number of times.
+- the cross-container retry layer is in place: both link
+  reads (metadata probe and download) live on small
+  dedicated functions (the cpu 4 / 8 GiB container pool drew
+  bot-walled egress in every trial) and fan out over
+  parallel fresh containers.
 
 No Modal calls, no network beyond the URL guards' own DNS
 checks (the same ones check_editclone_section already makes),
@@ -106,20 +106,33 @@ check(list(inspect.signature(clipping.download_any_video)
 
 # -- the cross-container retry layer in app.py ----------------------------
 
-# Whether YouTube answers is a per-container egress draw, so
-# the probe fans out and the download re-dispatches; pin both
-# so a later edit cannot quietly return ingest to a coin flip.
+# Whether YouTube answers is an egress draw that also turns
+# on container size (small containers read, the cpu 4 / 8 GiB
+# pool was bot-walled in every 2026-11-27 trial), so both
+# link reads live on small dedicated functions and fan out in
+# parallel; pin the shape so a later edit cannot quietly
+# return ingest to a single big-container coin flip.
 check("_editclone_probe_any" in SRC
       and "editclone_probe.spawn(url)" in SRC
       and "EDITCLONE_PROBE_ATTEMPTS" in SRC,
       "the parallel ingest probe fan-out is gone")
 check("info = _editclone_probe_any(source_url)" in SRC,
       "the ingest endpoint no longer reads through the fan-out")
-check("ec_fetch_attempts" in SRC
-      and "EDITCLONE_FETCH_ATTEMPTS" in SRC
-      and "process_editclone_job.spawn(job_id)" in SRC
-      and "if not redispatched:" in SRC,
-      "the fresh-container download re-dispatch is gone")
+_probe_def = SRC.index("def editclone_probe")
+check("cpu=1.0" in SRC[_probe_def - 500:_probe_def]
+      and "memory=2048" in SRC[_probe_def - 500:_probe_def],
+      "the probe function lost its small container spec")
+check("def editclone_fetch(" in SRC
+      and "_editclone_fetch_any" in SRC
+      and "editclone_fetch.spawn(url, job_id, attempt)" in SRC
+      and "EDITCLONE_FETCH_ATTEMPTS" in SRC,
+      "the parallel small-container fetch is gone")
+_fetch_def = SRC.index("def editclone_fetch")
+check("cpu=1.0" in SRC[_fetch_def - 500:_fetch_def]
+      and "memory=2048" in SRC[_fetch_def - 500:_fetch_def],
+      "the fetch function lost its small container spec")
+check("src = Path(_editclone_fetch_any(" in SRC,
+      "the ingest job no longer downloads through the fetch fan-out")
 
 # -- the upload path is untouched ------------------------------------------
 

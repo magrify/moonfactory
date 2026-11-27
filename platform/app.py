@@ -959,10 +959,12 @@ EDITCLONE_CLONE_MODEL = "seedance2_mini"
 EDITCLONE_STAGES = ("Getting your video", "Working")
 EDITCLONE_POLL_LIMIT_SECONDS = 3900
 # Link reads from Modal egress are a per-container draw
-# (2026-11-27 link ingest fix; measured about half of fresh
-# containers read a YouTube Short on 2026-11-27), so the
-# ingest probe fans out in parallel and the ingest download
-# re-dispatches to a fresh container before it may fail.
+# (2026-11-27 link ingest fix). Measured on 2026-11-27:
+# small containers (cpu 1, 2 GiB) read a YouTube Short about
+# half the time, while every cpu 4 / 8 GiB container tried
+# was bot-walled, so the two link reads (the probe and the
+# fetch) run on small dedicated functions and fan out in
+# parallel; the heavy job function never reads links itself.
 EDITCLONE_PROBE_ATTEMPTS = 4
 EDITCLONE_FETCH_ATTEMPTS = 4
 
@@ -1071,14 +1073,18 @@ def _save_user_record(user: dict) -> None:
 @app.function(
     image=clip_image,
     volumes={"/data": data_volume, "/worker-models": worker_models},
-    cpu=4.0,
-    memory=8192,
-    timeout=3600,
+    cpu=1.0,
+    memory=2048,
+    timeout=1200,
     scaledown_window=60,
 )
 def editclone_probe(url: str) -> dict:
     """Link metadata (title, channel, duration) for an Edit/Clone
-    link, through the any-site ingest guard."""
+    link, through the any-site ingest guard. The small container
+    spec is deliberate (2026-11-27 link ingest fix): Modal
+    places the cpu 4 / 8 GiB spec on a host pool whose egress
+    YouTube bot-walled in every trial that day, while small
+    containers read fine about half the time."""
     return clipping.fetch_any_info(url)
 
 
@@ -1109,6 +1115,53 @@ def _editclone_probe_any(url: str) -> dict:
 
 @app.function(
     image=clip_image,
+    volumes={"/data": data_volume},
+    cpu=1.0,
+    memory=2048,
+    timeout=1200,
+    scaledown_window=60,
+)
+def editclone_fetch(url: str, job_id: str, attempt: int) -> str:
+    """Download an Edit/Clone link source into the job's work
+    directory on the data volume and return the landed path.
+    A separate small function for the same reason as the
+    probe's spec (2026-11-27 link ingest fix): the heavy job
+    function's cpu 4 / 8 GiB containers draw bot-walled
+    egress, small containers read fine about half the time.
+    Each attempt gets its own subdirectory so the parallel
+    attempts never write over each other."""
+    work = Path("/data/ec-work") / job_id / f"fetch-{attempt}"
+    dest = clipping.download_any_video(
+        url, work, EDITCLONE_MAX_SOURCE_SECONDS,
+        EDITCLONE_MAX_UPLOAD_BYTES)
+    data_volume.commit()
+    return str(dest)
+
+
+def _editclone_fetch_any(url: str, job_id: str) -> str:
+    """The ingest download, fetched in parallel from several
+    small fresh containers (2026-11-27 link ingest fix), the
+    same fan-out as the probe: the first landed file wins; a
+    deterministic refusal (over the Clone limit) raises at
+    once; if every fetch fails, the last failure raises
+    exactly as a single download did."""
+    calls = [editclone_fetch.spawn(url, job_id, attempt)
+             for attempt in range(EDITCLONE_FETCH_ATTEMPTS)]
+    last_exc = None
+    for call in calls:
+        try:
+            return call.get(timeout=1500)
+        except ValueError as exc:
+            if "longer than the Clone limit" in str(exc):
+                raise
+            last_exc = exc
+        except Exception as exc:  # noqa: BLE001 - next container
+            last_exc = exc
+    raise last_exc
+
+
+@app.function(
+    image=clip_image,
     secrets=[modal.Secret.from_name("moonfactory-providers")],
     volumes={"/data": data_volume, "/worker-models": worker_models},
     cpu=4.0,
@@ -1125,12 +1178,10 @@ def process_editclone_job(job_id: str):
     delete routes serve them unchanged."""
     import secrets as _secrets
     import shutil as _shutil
-    import time as _time
 
     job = jobs.get(job_id)
     if not job:
         return
-    redispatched = False
     try:
         data_volume.reload()
     except Exception:
@@ -1154,40 +1205,16 @@ def process_editclone_job(job_id: str):
                 if not src.exists():
                     raise RuntimeError("the uploaded file is missing")
             else:
+                # The download runs on the small fetch
+                # containers, never in this function (2026-11-27
+                # link ingest fix): this function's container
+                # spec draws bot-walled egress for link reads.
+                src = Path(_editclone_fetch_any(
+                    job["source_url"], job_id))
                 try:
-                    src = clipping.download_any_video(
-                        job["source_url"], work,
-                        EDITCLONE_MAX_SOURCE_SECONDS,
-                        EDITCLONE_MAX_UPLOAD_BYTES)
-                except Exception as exc:  # noqa: BLE001
-                    # Fresh-container retry (2026-11-27 link
-                    # ingest fix): a bot-walled read says
-                    # nothing about the next container's egress
-                    # draw, so a dead-link download failure
-                    # re-dispatches this job to a fresh
-                    # container a bounded number of times
-                    # before the job may fail. Deterministic
-                    # refusals (over the Clone limit, oversize)
-                    # never carry the dead-link message and
-                    # never retry.
-                    attempts = int(job.get("ec_fetch_attempts")
-                                   or 0)
-                    if attempts + 1 >= EDITCLONE_FETCH_ATTEMPTS \
-                            or clipping.LINK_DEAD_MESSAGE.split(
-                                ". ")[0] not in str(exc):
-                        raise
-                    job["ec_fetch_attempts"] = attempts + 1
-                    job["stage"] = EDITCLONE_STAGES[0]
-                    job["status"] = "running"
-                    jobs[job_id] = job
-                    data_volume.commit()
-                    process_editclone_job.spawn(job_id)
-                    redispatched = True
-                    # Stay busy briefly so the retry input is
-                    # picked up by a different container, not
-                    # this one again.
-                    _time.sleep(20)
-                    return
+                    data_volume.reload()
+                except Exception:
+                    pass
             info = clipping.probe_media(src)
             duration = float(info["duration"])
             if duration > EDITCLONE_MAX_SOURCE_SECONDS:
@@ -1331,10 +1358,7 @@ def process_editclone_job(job_id: str):
         jobs[job_id] = job
         data_volume.commit()
     finally:
-        # A re-dispatched ingest keeps its work directory: the
-        # retry on the fresh container downloads into it.
-        if not redispatched:
-            _shutil.rmtree(work, ignore_errors=True)
+        _shutil.rmtree(work, ignore_errors=True)
 
 
 @app.function(

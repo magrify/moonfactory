@@ -271,7 +271,11 @@ for route in ("/api/editclone/upload", "/api/editclone/ingest",
     check(f'"{route}"' in SRC, f"endpoint {route} is missing")
 
 worker = func_src("process_editclone_job")
-check("download_any_video" in worker,
+# The download itself moved into the small fetch function the
+# worker fans out to (2026-11-27 link ingest fix); the intent
+# is unchanged: ingest downloads through the any-site fetch.
+check("download_any_video" in func_src("editclone_fetch")
+      and "_editclone_fetch_any" in worker,
       "the ingest worker does not download through the any-site fetch")
 check("trim_opening" in worker,
       "the hook step does not cut through clipping.trim_opening")

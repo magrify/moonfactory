@@ -446,15 +446,16 @@ def _invidious_download(video_id: str, job_dir: Path,
 #   4. YouTube only: the Invidious route above, as the last
 #      resort.
 #
-# Whether YouTube answers at all is mostly a per-container
-# egress draw, measured on 2026-11-27: about half of fresh
-# Modal containers read a test Short through this chain while
-# the other half were bot-walled on every route, and TikTok
-# read and downloaded from every container tried. So the
-# chain always runs to the end before a link is called dead,
-# and the callers in app.py do the rest: the ingest probe
-# fans out over parallel containers and the ingest download
-# re-dispatches to a fresh container, which is what turns a
+# Whether YouTube answers at all is mostly an egress draw,
+# measured on 2026-11-27: small Modal containers (cpu 1,
+# 2 GiB) read a test Short through this chain about half the
+# time and TikTok read and downloaded from every container
+# tried, while every cpu 4 / 8 GiB container tried was
+# bot-walled on every route. So the chain always runs to
+# the end before a link is called dead, and the callers in
+# app.py do the rest: both link reads (the metadata probe
+# and the download) run on small dedicated functions and
+# fan out over parallel containers, which is what turns a
 # per-container coin flip into a reliable read.
 # Vimeo is the known gap: its web client refuses anonymous
 # access outright ("only works when logged-in", two unrelated
