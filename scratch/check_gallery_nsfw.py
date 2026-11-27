@@ -229,7 +229,7 @@ check("_gallery_build" in func_src("gallery_list")
 check(SRC.count('job["gallery_public"] = False') == 3,
       "expected exactly three creation stamps (API path, house "
       "path, Krea 2 Verite queue)")
-for create_fn in ("create_api_job", "create_job"):
+for create_fn in ("create_api_job", "create_job_core"):
     src = func_src(create_fn)
     check("job_is_nsfw(job)" in src
           and 'job["gallery_public"] = False' in src,
@@ -244,7 +244,7 @@ check('job["gallery_public"] = False' in func_src("_queue_krea2_on_kaggle"),
 # confirm words itself by. It still never filters on it: every
 # owned job lists, and no other gallery reference may appear.
 
-_lj = func_src("list_jobs")
+_lj = func_src("list_jobs_core")
 check("job_is_nsfw" not in _lj
       and _lj.count("gallery_visible(job, user)") == 1
       and 'view["in_gallery"] = gallery_visible(job, user)' in _lj,

@@ -165,7 +165,7 @@ check(abs(ns["_cf_neurons_used"]() - 100.0) < 1e-9,
       "release gives a reservation back in full")
 
 # --- source pins: the create flow and the submit -------------------
-create_src = func_src("create_image")
+create_src = func_src("create_image_core")
 check("free_lane = bool(lane.get(\"free\"))" in create_src,
       "create_image reads the lane's free flag")
 check("if not free_lane and not is_paid(user):" in create_src,

@@ -119,7 +119,7 @@ check(SRC.count("free_jobs_total(user) >= FREE_CLIPS_TOTAL") == 5,
       "photo enforces it twice, once per rail (house and the "
       "free shelf lanes such as Cloudflare)")
 
-video = func_src("create_job")
+video = func_src("create_job_core")
 check("free_jobs_total(user) >= FREE_CLIPS_TOTAL" in video,
       "video create enforces the counter before dispatch")
 check("count_generation(user)" in video,
@@ -129,7 +129,7 @@ api_video = func_src("create_api_job")
 check("count_generation(user)" in api_video,
       "API lane videos count toward the 5")
 
-image = func_src("create_image")
+image = func_src("create_image_core")
 check("free_jobs_total(user) >= FREE_CLIPS_TOTAL" in image,
       "photo create enforces the counter before dispatch")
 check(image.count("count_generation(user)") == 1

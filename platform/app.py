@@ -76,6 +76,127 @@ legal_holds = modal.Dict.from_name("moonfactory-legal-holds", create_if_missing=
 refusals = modal.Dict.from_name("moonfactory-refusals", create_if_missing=True)
 user_jobs = modal.Dict.from_name("moonfactory-user-jobs", create_if_missing=True)
 acceptances = modal.Dict.from_name("moonfactory-acceptances", create_if_missing=True)
+api_keys = modal.Dict.from_name("moonfactory-api-keys", create_if_missing=True)
+
+# -- customer API keys (2026-11-27) --------------------------------------
+# A signed-in user mints API keys from their account area and
+# calls /api/v1 with them. A key is a bearer credential for the
+# one account that minted it: it resolves to that account's own
+# record, and every job it creates runs through the website's
+# own create paths, against the same topped up balance the
+# website spends. There is no separate API wallet, no separate
+# top up, and no API credit of any kind. Only the key's SHA-256
+# digest is ever stored; the full key is shown exactly once, at
+# creation. Revocation flips one flag on the stored record and
+# the resolver reads that record on every call, so a revoked
+# key stops working on the very next request.
+API_KEY_PREFIX = "mf_live_"
+API_KEY_MAX_PER_ACCOUNT = 20
+API_KEY_RATE_LIMIT_PER_MINUTE = 120
+
+
+def api_key_digest(full_key: str) -> str:
+    return hashlib.sha256((full_key or "").encode()).hexdigest()
+
+
+def api_key_public_view(entry: dict) -> dict:
+    """What the account area and the create response may show:
+    the key's name, its display prefix, and its lifecycle facts.
+    Never the full key and never its digest."""
+    return {
+        "id": entry.get("id"),
+        "name": entry.get("name") or "",
+        "prefix": entry.get("prefix") or "",
+        "created_at": entry.get("created_at"),
+        "last_used_at": entry.get("last_used_at"),
+        "revoked": bool(entry.get("revoked")),
+    }
+
+
+def api_key_create(store, user_id: str, name: str, now=None) -> tuple:
+    """Mint a key for one account. Returns (full_key, entry);
+    the caller shows the full key once and keeps only the
+    entry. The store is any dict-like (the Modal Dict in
+    production, a plain dict in the local checks)."""
+    if now is None:
+        now = time.time()
+    full_key = API_KEY_PREFIX + pysecrets.token_urlsafe(32)
+    digest = api_key_digest(full_key)
+    entry = {
+        "id": uuid.uuid4().hex[:16],
+        "user_id": user_id,
+        "name": (name or "").strip()[:60],
+        "prefix": full_key[:len(API_KEY_PREFIX) + 4],
+        "created_at": now,
+        "last_used_at": None,
+        "revoked": False,
+    }
+    store[digest] = entry
+    index = list(store.get(f"user:{user_id}") or [])
+    index.append(digest)
+    store[f"user:{user_id}"] = index
+    return full_key, entry
+
+
+def api_key_entries(store, user_id: str) -> list:
+    entries = []
+    for digest in store.get(f"user:{user_id}") or []:
+        entry = store.get(digest)
+        if entry and entry.get("user_id") == user_id:
+            entries.append(entry)
+    return entries
+
+
+def api_key_list(store, user_id: str) -> list:
+    return [api_key_public_view(e) for e in api_key_entries(store, user_id)]
+
+
+def api_key_active_count(store, user_id: str) -> int:
+    return sum(
+        1 for e in api_key_entries(store, user_id) if not e.get("revoked"))
+
+
+def api_key_resolve(store, full_key: str):
+    """The stored entry for a presented key, or None: a key
+    resolves only when it carries the prefix, its digest is on
+    record, and it has not been revoked."""
+    if not full_key or not full_key.startswith(API_KEY_PREFIX):
+        return None
+    entry = store.get(api_key_digest(full_key))
+    if not entry or entry.get("revoked"):
+        return None
+    return entry
+
+
+def api_key_revoke(store, user_id: str, key_id: str) -> bool:
+    """Revoke one of the account's own keys by its id. A key id
+    that belongs to another account, or no account, revokes
+    nothing."""
+    for digest in store.get(f"user:{user_id}") or []:
+        entry = store.get(digest)
+        if entry and entry.get("user_id") == user_id \
+                and entry.get("id") == key_id:
+            if entry.get("revoked"):
+                return False
+            entry["revoked"] = True
+            store[digest] = entry
+            return True
+    return False
+
+
+def api_key_touch(store, full_key: str, now=None) -> None:
+    """Stamp a key's last use, at most once every five minutes:
+    the account area shows the fact, and a stamp per call would
+    cost a store write per call for no better information."""
+    if now is None:
+        now = time.time()
+    digest = api_key_digest(full_key)
+    entry = store.get(digest)
+    if not entry:
+        return
+    if now - float(entry.get("last_used_at") or 0) >= 300:
+        entry["last_used_at"] = now
+        store[digest] = entry
 
 # -- user record store: merge-on-save (security fix, 2026-11-27) ---------
 # Audit finding whole-record-money-race-lost-update (HIGH) and its
@@ -8022,6 +8143,10 @@ def api():
     def support_page():
         return HTMLResponse(SUPPORT_HTML)
 
+    @web.get("/api-docs", response_class=HTMLResponse)
+    def api_docs_page():
+        return HTMLResponse(API_DOCS_HTML)
+
     @web.get("/help", response_class=HTMLResponse)
     def help_index():
         return HTMLResponse(HELP_INDEX_HTML)
@@ -11343,6 +11468,13 @@ def api():
     async def quote_job(request: Request, mf_session: str = Cookie(default="")):
         user = require_user(request, mf_session)
         body = await request.json()
+        return quote_job_core(user, body)
+
+    def quote_job_core(user: dict, body: dict) -> dict:
+        """The one quote calculation behind both quote surfaces
+        (the website's /api/jobs/quote and the customer API's
+        /api/v1/quote), so the two can never quote differently
+        for the same account and the same inputs."""
         model = body.get("model") or DEFAULT_MODEL
         if model not in MODEL_LABELS:
             raise HTTPException(status_code=422, detail="unknown model")
@@ -14234,6 +14366,20 @@ def api():
         body = await request.json()
         if not bot_check_ok(body, client_ip(request), user):
             raise HTTPException(status_code=403, detail="bot check failed")
+        return create_job_core(
+            user, body, base_url(request), client_ip(request))
+
+    def create_job_core(user: dict, body: dict, base: str, ip: str):
+        """The one video creation path behind both create
+        surfaces (the website's /api/jobs and the customer API's
+        /api/v1/jobs). Every gate the website enforces lives
+        here or below: the illegal content gate, the adult gate,
+        the input classifier, the free tier rules, the hard cost
+        ceiling, and the balance debit all run exactly as they
+        do for a website job, because it is the same code. The
+        website wrapper above adds only its session auth, its
+        pace limit, and the browser bot check; the API wrapper
+        adds its key auth and its own pace limit instead."""
         # The default model is Wan 2.2 for every account (Rule 3,
         # Amendment 2); a bigger model is always an active choice.
         model = body.get("model") or DEFAULT_MODEL
@@ -14312,7 +14458,7 @@ def api():
         # create_api_job, which is also where the drama
         # retake route enters).
         enforce_prompt_gate(
-            user, model, client_ip(request),
+            user, model, ip,
             prompt, music_prompt, speech_script,
             clone_reference_text)
         # The 18+ gate (Jack, 2026-11-24): an uncensored scope
@@ -14343,7 +14489,7 @@ def api():
             # The lower third is user text rendered onto the
             # video: it passes the same gate (Jack, 2026-11-24).
             enforce_prompt_gate(
-                user, model, client_ip(request),
+                user, model, ip,
                 lower_third.get("name"), lower_third.get("sub"))
         if speech_script and not is_paid(user):
             raise HTTPException(
@@ -14692,13 +14838,13 @@ def api():
                     sheet_video_index=body.get(
                         "character_sheet_video"))
             return create_api_job(
-                user, body, model, base_url(request), prompt, music_prompt,
+                user, body, model, base, prompt, music_prompt,
                 camera=camera, speech_script=speech_script,
                 speech_voice=speech_voice, captions=captions,
                 caption_style=caption_style, lower_third=lower_third,
                 clone_reference=clone_reference,
                 clone_reference_text=clone_reference_text,
-                created_ip=client_ip(request),
+                created_ip=ip,
             )
         # The input classifier (Jack, 2026-11-24): the house
         # record keeps the start and end frames themselves, so
@@ -14892,7 +15038,7 @@ def api():
             "error": None,
             "bytes": None,
             "created_at": _now(),
-            "created_ip": client_ip(request),
+            "created_ip": ip,
             "charged_cents": charged,
             "free_tier": is_free_job,
             "included_seconds": used_included,
@@ -14957,6 +15103,13 @@ def api():
     @web.get("/api/jobs")
     def list_jobs(request: Request, mf_session: str = Cookie(default="")):
         user = require_user(request, mf_session)
+        return list_jobs_core(
+            user, request.query_params.get("recent") == "1")
+
+    def list_jobs_core(user: dict, recent: bool) -> dict:
+        """The one job list behind both list surfaces (the
+        website's /api/jobs and the customer API's /api/v1/jobs):
+        the caller's own jobs only, in the website's own shape."""
         # The caller's jobs come from the per-user index (perf
         # pass 3, Jack 2026-11-24): the whole-store walk this
         # endpoint used to run — a jobs.get per record in the
@@ -14979,8 +15132,8 @@ def api():
         # page, which reads this same endpoint without the
         # flag. The per kind totals ride along so the homepage
         # knows when a section has more behind its View All
-        # link.
-        recent = request.query_params.get("recent") == "1"
+        # link. The website wrapper passes its recent flag in;
+        # the API list always reads the full library shape.
         total_videos = sum(1 for e in entries if e[2] != "image")
         total_images = len(entries) - total_videos
         if recent:
@@ -15048,6 +15201,13 @@ def api():
         # the studio printed that 405 text as if the image had
         # failed. Mirrors list_jobs' shape and ownership rules.
         user = require_user(request, mf_session)
+        return get_job_core(user, job_id)
+
+    def get_job_core(user: dict, job_id: str) -> dict:
+        """The one single job read behind both read surfaces
+        (the website's /api/jobs/{id} and the customer API's
+        /api/v1/jobs/{id}): the owner's own record only, in the
+        website's own shape."""
         job = jobs.get(job_id)
         if not job or job.get("user_id") != user["id"]:
             raise HTTPException(status_code=404, detail="job not found")
@@ -15067,6 +15227,162 @@ def api():
             if job["id"] in ids:
                 position = ids.index(job["id"]) + 1
         return public_job(job, queue_position=position)
+
+    # -- customer API keys (account area) --------------------------------
+    # A signed-in user manages keys for their own account only:
+    # create with a name, list, revoke. The full key is returned
+    # exactly once, in the create response; every later read
+    # shows the public view. The store helpers at module level
+    # hold the records; these endpoints only resolve the session
+    # and call them.
+
+    @web.get("/api/me/api-keys")
+    def list_api_keys(request: Request, mf_session: str = Cookie(default="")):
+        user = require_user(request, mf_session)
+        return {"keys": api_key_list(api_keys, user["id"])}
+
+    @web.post("/api/me/api-keys")
+    async def create_api_key(request: Request, mf_session: str = Cookie(default="")):
+        user = require_user(request, mf_session)
+        if _rate_limited("apikeycreate", user["id"], 10, 3600):
+            raise HTTPException(status_code=429, detail="too many keys created, slow down")
+        body = await request.json()
+        if api_key_active_count(api_keys, user["id"]) \
+                >= API_KEY_MAX_PER_ACCOUNT:
+            raise HTTPException(
+                status_code=422,
+                detail=f"an account can hold {API_KEY_MAX_PER_ACCOUNT} live API keys. Revoke one first")
+        full_key, entry = api_key_create(
+            api_keys, user["id"], str(body.get("name") or ""))
+        return {"key": full_key, **api_key_public_view(entry)}
+
+    @web.delete("/api/me/api-keys/{key_id}")
+    def delete_api_key(key_id: str, request: Request,
+                       mf_session: str = Cookie(default="")):
+        user = require_user(request, mf_session)
+        if not api_key_revoke(api_keys, user["id"], key_id):
+            raise HTTPException(status_code=404, detail="no such API key")
+        return {"revoked": True}
+
+    # -- customer API (v1) -------------------------------------------------
+    # The developer surface (2026-11-27): both competitors offer
+    # one and Moonfactory was website only. There is no parallel
+    # system here: every endpoint below resolves the key to the
+    # owning account and then calls the very core the website's
+    # own endpoint calls, so a job made through the API is a
+    # normal job in the same library, gated by the same gates
+    # and charged to the same topped up balance the website
+    # spends. The only website step the API skips is the browser
+    # bot check; the key itself, plus a per key pace limit, is
+    # the credential check in its place.
+
+    def require_api_user(authorization: str):
+        """Resolve an Authorization Bearer key to its account.
+        A missing, unknown, or revoked key is refused the same
+        way, so a caller learns nothing about which keys exist.
+        Each key carries its own pace limit on top of the create
+        paths' per account limits."""
+        token = ""
+        if authorization and authorization.lower().startswith("bearer "):
+            token = authorization[7:].strip()
+        entry = api_key_resolve(api_keys, token) if token else None
+        if not entry:
+            raise HTTPException(
+                status_code=401, detail="a valid API key is required")
+        if _rate_limited("apiv1", entry["id"], API_KEY_RATE_LIMIT_PER_MINUTE):
+            raise HTTPException(
+                status_code=429,
+                detail="rate limit reached for this API key, slow down")
+        user = users.get(f"id:{entry['user_id']}")
+        if not user:
+            raise HTTPException(
+                status_code=401, detail="a valid API key is required")
+        api_key_touch(api_keys, token)
+        return user
+
+    def _api_create_account_checks(user: dict, bucket: str):
+        """The account checks the website's create wrappers run,
+        shared by the two v1 create endpoints: the same pace
+        bucket, the same verified and past due refusals."""
+        if _rate_limited(bucket, user["id"], 10):
+            raise HTTPException(status_code=429, detail="too many jobs, slow down")
+        if not user["verified"]:
+            raise HTTPException(status_code=403, detail="verify your email before creating")
+        if user.get("past_due"):
+            raise HTTPException(status_code=403, detail="your subscription payment is past due")
+
+    @web.get("/api/v1/models")
+    def v1_models(authorization: str = Header(default="")):
+        require_api_user(authorization)
+        catalog = config()
+        return {
+            "default_model": catalog["default_model"],
+            "models": catalog["models"],
+            "image_models": catalog["image_models"],
+            "house_lanes": catalog["house_lanes"],
+            "start_image": catalog["start_image"],
+            "effects": catalog["effects"],
+        }
+
+    @web.get("/api/v1/balance")
+    def v1_balance(authorization: str = Header(default="")):
+        user = require_api_user(authorization)
+        view = public_user(user)
+        return {
+            field: view[field]
+            for field in (
+                "plan", "paid_customer", "balance_cents",
+                "free_jobs_used", "free_jobs_limit",
+                "included_budget_cents_used",
+                "included_budget_cents_total",
+                "net_paid_cents", "cost_settled_cents")
+        }
+
+    @web.post("/api/v1/quote")
+    async def v1_quote(request: Request,
+                       authorization: str = Header(default="")):
+        user = require_api_user(authorization)
+        body = await request.json()
+        return quote_job_core(user, body)
+
+    @web.post("/api/v1/images/quote")
+    async def v1_quote_image(request: Request,
+                             authorization: str = Header(default="")):
+        user = require_api_user(authorization)
+        body = await request.json()
+        return quote_image_core(user, body)
+
+    @web.post("/api/v1/jobs")
+    async def v1_create_job(request: Request,
+                            authorization: str = Header(default="")):
+        user = require_api_user(authorization)
+        _api_create_account_checks(user, "jobcreate")
+        body = await request.json()
+        return create_job_core(
+            user, body, base_url(request), client_ip(request))
+
+    @web.post("/api/v1/images")
+    async def v1_create_image(request: Request,
+                              authorization: str = Header(default="")):
+        user = require_api_user(authorization)
+        _api_create_account_checks(user, "imagecreate")
+        body = await request.json()
+        return create_image_core(user, body, client_ip(request))
+
+    @web.get("/api/v1/jobs")
+    def v1_list_jobs(authorization: str = Header(default="")):
+        user = require_api_user(authorization)
+        return list_jobs_core(user, False)
+
+    @web.get("/api/v1/jobs/{job_id}")
+    def v1_get_job(job_id: str, authorization: str = Header(default="")):
+        user = require_api_user(authorization)
+        return get_job_core(user, job_id)
+
+    @web.get("/api/v1/jobs/{job_id}/file")
+    def v1_job_file(job_id: str, authorization: str = Header(default="")):
+        user = require_api_user(authorization)
+        return job_file_core(user, job_id)
 
     # -- start-image generation (Pass 3) --------------------------------
     # An image job is a normal platform job record (kind "image"):
@@ -15120,6 +15436,13 @@ def api():
     async def quote_image(request: Request, mf_session: str = Cookie(default="")):
         user = require_user(request, mf_session)
         body = await request.json()
+        return quote_image_core(user, body)
+
+    def quote_image_core(user: dict, body: dict) -> dict:
+        """The one image quote behind both quote surfaces (the
+        website's /api/images/quote and the customer API's
+        /api/v1/images/quote): same account, same inputs, same
+        price."""
         _image_params(body)
         if body.get("image_model"):
             lane = pricing.IMAGE_LANES.get(str(body["image_model"]))
@@ -15166,12 +15489,23 @@ def api():
         body = await request.json()
         if not bot_check_ok(body, client_ip(request), user):
             raise HTTPException(status_code=403, detail="bot check failed")
+        return create_image_core(user, body, client_ip(request))
+
+    def create_image_core(user: dict, body: dict, ip: str):
+        """The one image creation path behind both create
+        surfaces (the website's /api/images and the customer
+        API's /api/v1/images): the illegal content gate, the
+        adult gate, the input classifier, the free tier rules,
+        the hard cost ceiling, and the balance charge all run
+        here, exactly as they do for a website image. The
+        website wrapper above adds only its session auth, its
+        pace limit, and the browser bot check."""
         prompt, aspect = _image_params(body)
         # The illegal-content gate (Jack, 2026-11-24), before
         # any lane pick, search, hold, or submit below.
         enforce_prompt_gate(
             user, str(body.get("image_model") or "image"),
-            client_ip(request), prompt)
+            ip, prompt)
         if body.get("image_model"):
             # The curated image shelf: provider image models,
             # paid accounts only, charged per image at submit
@@ -15382,7 +15716,7 @@ def api():
                 "provider": lane["provider"], "model": lane_id,
                 "prompt": prompt, "status": "running",
                 "created_at": _now(), "last_poll": 0,
-                "created_ip": client_ip(request),
+                "created_ip": ip,
                 "image_raw_cents": raw, "image_charge_cents": charge,
                 "error": None,
                 # Whether the user supplied the source image an
@@ -16623,6 +16957,13 @@ def api():
     @web.get("/api/jobs/{job_id}/file")
     def job_file(job_id: str, request: Request, mf_session: str = Cookie(default="")):
         user = require_user(request, mf_session)
+        return job_file_core(user, job_id)
+
+    def job_file_core(user: dict, job_id: str):
+        """The one finished file read behind both file surfaces
+        (the website's /api/jobs/{id}/file and the customer
+        API's /api/v1/jobs/{id}/file): the owner's own finished
+        job only."""
         job = jobs.get(job_id)
         if not job or job.get("user_id") != user["id"]:
             raise HTTPException(status_code=404, detail="unknown job")
@@ -22962,6 +23303,126 @@ document.getElementById('help-contact').addEventListener('submit', async (e) => 
 
 
 
+API_DOCS_HTML = _info_page(
+    "Moonfactory API docs",
+    "Create video and image jobs from your own code with the Moonfactory API. Keys, endpoints, prices, and examples.",
+    """
+<h1 style="font-size:34px">Moonfactory API</h1>
+<p>The API lets your own software use the same studio your account
+uses on the website. A job created through the API is a normal job.
+It lands in your library beside your website jobs, it follows the
+same rules, and it is charged the same prices.</p>
+
+<h2>Your balance covers everything</h2>
+<p>API jobs draw from the same balance you top up inside
+Moonfactory. There is no separate API wallet and no separate top
+up, and there is no API credit to buy. The balance on your account
+simply covers website jobs and API jobs alike, and you choose
+which surface spends it. Your plan, your included budget, and your
+free clips work the same way on both surfaces. Nothing about API
+use changes what a job costs.</p>
+
+<h2>Getting a key</h2>
+<p>Sign in and open Account, then find the API keys section. Give
+your key a name and create it. The full key shows one time only,
+on that one screen, so copy it somewhere safe right away. A key
+acts with the full power of your account, so keep it like a
+password and never share it. You can hold up to 20 live keys at
+once. Revoke a key in the same section whenever you want, and a
+revoked key stops working at once.</p>
+
+<h2>Sending your key</h2>
+<p>Send your key on every call in the Authorization header, as a
+Bearer token.</p>
+<pre>Authorization: Bearer mf_live_your_key_here</pre>
+<p>Every call below starts from the same base address as the
+website.</p>
+<pre>https://magrify--moonfactory-api.us-east.modal.run</pre>
+
+<h2>Models and prices</h2>
+<pre>GET /api/v1/models</pre>
+<p>The answer lists the video models and the image models, with
+the sizes and lengths each one makes and the rate your account
+pays. It is the same catalog the website serves, priced for your
+account.</p>
+
+<h2>Quote a job</h2>
+<pre>POST /api/v1/quote
+POST /api/v1/images/quote</pre>
+<p>Ask what a job would cost before you create it. A quote
+charges nothing and creates nothing. Send the same body you would
+send to create, and the answer is the same quote the website
+would show your account for the same inputs.</p>
+
+<h2>Create a video job</h2>
+<pre>curl -X POST https://magrify--moonfactory-api.us-east.modal.run/api/v1/jobs \\
+  -H "Authorization: Bearer mf_live_your_key_here" \\
+  -H "Content-Type: application/json" \\
+  -d '{"model": "seedance", "prompt": "A paper boat crosses a pond at dawn", "duration_seconds": 5, "resolution": "720p"}'</pre>
+<p>A created job answers with the job object and status 202. The
+job is already in your library, and its charge comes out of your
+balance the same way a website job charges it.</p>
+
+<h2>Create an image job</h2>
+<pre>POST /api/v1/images
+
+{"prompt": "A lighthouse at dusk", "image_model": "nano_banana_2", "image_size": "1K"}</pre>
+<p>Add image_model and image_size to pick a shelf model and a
+size, or leave them out to use the built in image maker, which
+takes an aspect_ratio field instead.</p>
+
+<h2>Read your jobs</h2>
+<pre>GET /api/v1/jobs
+GET /api/v1/jobs/{job_id}
+GET /api/v1/jobs/{job_id}/file</pre>
+<p>List your jobs, read one job, and download a finished file. A
+job object carries its status, its model, its prompt, and what it
+charged. A job moves from queued to running to done, and a failed
+job carries a plain words error. The file call answers with the
+finished video or image once the job is done. Poll the job read
+every few seconds until the status is done.</p>
+
+<h2>Read your balance</h2>
+<pre>GET /api/v1/balance</pre>
+<p>The answer shows your plan, your balance in cents, your free
+clips used and their limit, and your included budget for the
+period.</p>
+
+<h2>Errors</h2>
+<p>A failed call answers with an HTTP status and a JSON body with
+one field, detail, whose value says what went wrong in plain
+words.</p>
+<pre>{"detail": "a valid API key is required"}</pre>
+<ul>
+<li>401 means the key is missing, unknown, or revoked.</li>
+<li>402 means your balance or your paid in total cannot cover the job.</li>
+<li>403 means a rule refused the job, such as a paid only feature, a missing adult confirmation, or a suspended account.</li>
+<li>422 means the request itself is shaped wrong, such as an unknown model or a missing prompt.</li>
+<li>429 means you are calling too fast. Slow down and try again.</li>
+<li>503 means the model is unavailable right now.</li>
+</ul>
+
+<h2>Limits</h2>
+<p>Each key may make 120 calls in a minute. Job creation shares
+the website pace limits, and the number of jobs you can have in
+flight follows your plan, counted across both surfaces together.
+There is no separate API price and no separate free tier. The
+free clips on your account are the same free clips, whichever
+surface spends them.</p>
+
+<h2>Rules that still apply</h2>
+<p>Every guard on the website guards the API too. A prompt that
+breaks the rules is refused before anything is charged or
+created. Uploaded images are scanned the same way. Uncensored
+models need the one time adult confirmation on your account
+first, and that confirmation happens on the website. A job made
+through the API counts toward your free clips and your settled
+costs exactly like a website job.</p>
+""",
+)
+
+
+
 APP_HTML = (
     """<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -24109,6 +24570,15 @@ APP_HTML = (
         </div>
         <label class="switch"><input type="checkbox" id="gallery-optout"><span class="track"></span></label>
       </div>
+      <p class="group-label">API keys</p>
+      <p class="muted" style="margin:0 0 6px">Keys let your own software create jobs on this account, charged to the same balance as the website. A key shows in full one time only, at the moment you create it. <a href="/api-docs">Read the API docs</a></p>
+      <div id="api-keys-list"></div>
+      <div class="handle-row">
+        <input id="api-key-name" maxlength="60" placeholder="Key name">
+        <button class="btn secondary" id="api-key-create" type="button">Create key</button>
+      </div>
+      <p id="api-key-new" style="display:none;word-break:break-all"></p>
+      <p id="api-key-msg"></p>
       <p id="profile-msg"></p>
     </div>
   </div>
@@ -24160,7 +24630,7 @@ APP_HTML = (
   </div>
 </div>
 </main>
-<footer><span class="foot-brand"><svg width="20" height="20" viewBox="0 0 48 48" aria-hidden="true"><path fill="#818cf8" d="M23.3 8A16 16 0 1 0 32.6 37.5A16.5 16.5 0 0 1 23.3 8Z"/><path fill="#f5d67a" stroke="#f5d67a" stroke-width="1.6" stroke-linejoin="round" d="M24 18.5L24 27.5L31.5 23Z"/></svg>Moonfactory</span><nav class="foot-links"><a href="/gallery">Gallery</a><a href="/help">Help</a><a href="/terms">Terms</a><a href="/privacy">Privacy</a><a href="/acceptable-use">Acceptable use</a><a href="/support">Support</a></nav></footer>
+<footer><span class="foot-brand"><svg width="20" height="20" viewBox="0 0 48 48" aria-hidden="true"><path fill="#818cf8" d="M23.3 8A16 16 0 1 0 32.6 37.5A16.5 16.5 0 0 1 23.3 8Z"/><path fill="#f5d67a" stroke="#f5d67a" stroke-width="1.6" stroke-linejoin="round" d="M24 18.5L24 27.5L31.5 23Z"/></svg>Moonfactory</span><nav class="foot-links"><a href="/gallery">Gallery</a><a href="/help">Help</a><a href="/api-docs">API docs</a><a href="/terms">Terms</a><a href="/privacy">Privacy</a><a href="/acceptable-use">Acceptable use</a><a href="/support">Support</a></nav></footer>
 <script>
 const $ = id => document.getElementById(id);
 let cfg = { pow_required: true, pow_difficulty_bits: 18, turnstile_site_key: null };
@@ -25189,6 +25659,7 @@ function closePanels() {
 }
 $('menu-account').onclick = e => {
   e.preventDefault(); closeProfileMenu(); openPanel('panel-account');
+  loadApiKeys();
 };
 $('menu-billing').onclick = e => {
   e.preventDefault(); closeProfileMenu(); openPanel('panel-billing');
@@ -26039,6 +26510,55 @@ $('save-handle').onclick = async () => {
     msg('profile-msg', 'Your handle is saved as ' + r.handle, 'ok');
     $('account-handle').textContent = r.handle;
   } catch (e) { msg('profile-msg', e.message, 'err'); }
+};
+async function loadApiKeys() {
+  const box = $('api-keys-list');
+  if (!box) return;
+  try {
+    const r = await api('/api/me/api-keys');
+    box.innerHTML = '';
+    if (!r.keys.length) {
+      const p = document.createElement('p');
+      p.className = 'muted';
+      p.textContent = 'No keys yet.';
+      box.appendChild(p);
+      return;
+    }
+    for (const k of r.keys) {
+      const row = document.createElement('div');
+      row.className = 'stat-row';
+      const label = document.createElement('span');
+      label.textContent = (k.name || 'Unnamed key') + ' · ' + k.prefix + '…' + (k.revoked ? ' · revoked' : '');
+      row.appendChild(label);
+      if (!k.revoked) {
+        const btn = document.createElement('button');
+        btn.className = 'btn secondary';
+        btn.type = 'button';
+        btn.textContent = 'Revoke';
+        btn.onclick = async () => {
+          try {
+            await api('/api/me/api-keys/' + k.id, { method: 'DELETE' });
+            msg('api-key-msg', 'That key is revoked. It stops working at once.', 'ok');
+            loadApiKeys();
+          } catch (e) { msg('api-key-msg', e.message, 'err'); }
+        };
+        row.appendChild(btn);
+      }
+      box.appendChild(row);
+    }
+  } catch (e) { /* signed out or unavailable: the section simply stays empty */ }
+}
+$('api-key-create').onclick = async () => {
+  try {
+    const r = await api('/api/me/api-keys', { method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ name: $('api-key-name').value }) });
+    const el = $('api-key-new');
+    el.style.display = '';
+    el.textContent = 'Your new key is ' + r.key + ' Copy it now. It will not show in full again.';
+    $('api-key-name').value = '';
+    msg('api-key-msg', '', 'ok');
+    loadApiKeys();
+  } catch (e) { msg('api-key-msg', e.message, 'err'); }
 };
 $('gallery-optout').addEventListener('change', async () => {
   try {

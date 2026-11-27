@@ -99,7 +99,7 @@ check(app.image_lane_tier("longcat") == 1,
       "the LongCat lane bands at the $ tier like its label says")
 
 # --- the create-flow route -------------------------------------------
-create_src = func_src("create_image")
+create_src = func_src("create_image_core")
 check('lane_id == "longcat"' in create_src
       and "_queue_longcat_on_kaggle(job)" in create_src,
       "create_image queues a LongCat job on the Kaggle worker")

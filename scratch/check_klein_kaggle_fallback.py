@@ -84,7 +84,7 @@ check(all(v == 0.0 for v in KLEIN["raw_cents"].values()),
       "the Klein lane is $0 at every sold size on both routes")
 
 # --- the create-flow split ---------------------------------------
-create_src = func_src("create_image")
+create_src = func_src("create_image_core")
 check("klein_on_kaggle = False" in create_src
       and "klein_on_kaggle = True" in create_src,
       "create_image carries the Klein route split flag")

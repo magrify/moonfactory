@@ -402,7 +402,7 @@ check('"has_start_image": bool(params.get("start_image"))'
       in func_src("create_api_job"),
       "create_api_job does not store has_start_image on the record")
 check('"has_source_image": bool(source_image)'
-      in func_src("create_image"),
+      in func_src("create_image_core"),
       "create_image does not store has_source_image on the record")
 krea_src = func_src("_queue_krea2_on_kaggle")
 check("if job_is_nsfw(job):" in krea_src

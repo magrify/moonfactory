@@ -128,7 +128,7 @@ check("if not ceiling_allows(user, est[\"cap_raw_cents\"]):" in body,
 
 # House lanes: reload attempt and refusal wrapped in not is_owner,
 # the charge itself unconditional.
-body = func_src("create_job")
+body = func_src("create_job_core")
 check("if not is_owner(user):" in body,
       "house lane create has no owner guard")
 check(body.index("if not is_owner(user):") < body.index("charged = price"),
@@ -143,7 +143,7 @@ check(body.index("if not is_owner(user):")
       "character training reload attempt is not inside the owner guard")
 
 # Provider image shelf: same wrap on the balance refusal.
-body = func_src("create_image")
+body = func_src("create_image_core")
 check("if not is_owner(user):" in body,
       "image create has no owner guard")
 check("if not ceiling_allows(user, pricing.IMAGE_MEASURED_COST_CENTS):"

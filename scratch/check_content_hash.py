@@ -472,9 +472,17 @@ check("x-forwarded-for" in client_ip_src,
 check('"created_ip": created_ip or None' in func_src("create_api_job")
       and "created_ip: str" in func_src("create_api_job"),
       "create_api_job records created_ip from its parameter")
-for name in ("create_job", "create_image", "create_clip",
+for name in ("create_clip",
              "create_template", "create_short", "create_drama"):
     check('"created_ip": client_ip(request)' in func_src(name),
+          f"{name} stamps created_ip from the creating request")
+# The video and image creates were split into shared cores
+# (2026-11-27, the customer API): the cores stamp the ip they
+# are handed, and both wrappers (website and API) hand them
+# client_ip(request), so the stamp is still the creating
+# request's IP on every surface.
+for name in ("create_job_core", "create_image_core"):
+    check('"created_ip": ip' in func_src(name),
           f"{name} stamps created_ip from the creating request")
 check('"created_ip": parent.get("created_ip")'
       in func_src("_drama_create_shot_job"),
@@ -484,9 +492,12 @@ check('"created_ip": parent.get("created_ip")'
       "voice clone children inherit the parent job's creation IP")
 check('"created_ip": job.get("created_ip")' in func_src("_short_ai_scenes"),
       "shorts picture children inherit the short's creation IP")
-check(SRC.count("created_ip=client_ip(request)") == 2,
-      "both create_api_job call sites pass the request IP "
-      "(video create route and drama retake route)")
+check(SRC.count("created_ip=client_ip(request)") == 1
+      and "created_ip=ip" in func_src("create_job_core"),
+      "both create_api_job call sites pass the creating IP "
+      "(the drama retake route reads its request directly; the "
+      "video create route passes the ip its core was handed, "
+      "which both of its wrappers read from their request)")
 
 # ------------------------------------------------------------------
 # 11. Automated vault: seal round-trip, export on hold, failure

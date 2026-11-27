@@ -297,8 +297,8 @@ check("record_illegal_refusal" in gate_src,
 # Every creation path runs the gate.
 for fname, label in (
     ("create_api_job", "API video jobs (and drama retakes)"),
-    ("create_job", "house video jobs"),
-    ("create_image", "image jobs"),
+    ("create_job_core", "house video jobs"),
+    ("create_image_core", "image jobs"),
     ("create_clip", "clips"),
     ("create_template", "templates"),
     ("create_short", "faceless shorts"),
@@ -314,7 +314,7 @@ check(api_src.index("enforce_prompt_gate")
       < api_src.index("per_second_estimate"),
       "create_api_job gates after the quote")
 # In create_image the gate runs before any job is stored.
-img_src = func_src("create_image")
+img_src = func_src("create_image_core")
 check(img_src.index("enforce_prompt_gate")
       < img_src.index("jobs[job"),
       "create_image gates after the job is stored")
@@ -337,7 +337,7 @@ check(drama_src.index("enforce_prompt_gate")
 check('modal.Dict.from_name("moonfactory-refusals"' in SRC,
       "the refusals Dict is not declared")
 for fname in ("public_job", "public_gallery_item",
-              "gallery_list", "list_jobs"):
+              "gallery_list", "list_jobs_core"):
     src = func_src(fname)
     check("refusals" not in src and "illegal_refusals" not in src
           and "suspended" not in src,

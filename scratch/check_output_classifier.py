@@ -578,14 +578,14 @@ check(_tpl.index("enforce_prompt_gate")
       < _tpl.index("presenter_input_refusal"),
       "the illegal gate no longer runs before the presenter "
       "photo gate")
-for fn in ("create_api_job", "create_job", "create_image",
+for fn in ("create_api_job", "create_job_core", "create_image_core",
            "create_drama", "create_short", "create_clip"):
     check("presenter_input_refusal" not in func_src(fn),
           f"{fn} picked up the presenter carve-out")
 
 # -- the input wiring -------------------------------------------------------
 
-for fn in ("create_api_job", "create_job", "create_image",
+for fn in ("create_api_job", "create_job_core", "create_image_core",
            "create_drama"):
     src = func_src(fn)
     check("classify_input_images" in src
@@ -601,12 +601,12 @@ _api = func_src("create_api_job")
 check(_api.index("input_gate_refusal")
       < _api.index("Hold the cap before the provider call"),
       "the api-job input refusal lands after the hold")
-_img = func_src("create_image")
+_img = func_src("create_image_core")
 check(_img.index("input_gate_refusal")
       < _img.index('user["balance_cents"] = '
                    'int(user.get("balance_cents", 0)) - charge'),
       "the image input refusal lands after the charge")
-_job = func_src("create_job")
+_job = func_src("create_job_core")
 check(_job.index("return create_api_job(")
       < _job.index("input_gate_refusal")
       < _job.index("u = usage(user)"),

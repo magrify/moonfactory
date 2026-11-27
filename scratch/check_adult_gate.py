@@ -218,7 +218,7 @@ check('acceptances = modal.Dict.from_name("moonfactory-acceptances"'
       in SRC,
       "the acceptance log is its own dedicated Dict")
 
-create_job_src = func_src("create_job") or ""
+create_job_src = func_src("create_job_core") or ""
 check('adult_gate_refusal(\n            user, {"model": model, "lane": lane})'
       in create_job_src,
       "the video create runs the 18+ gate on the creation probe")
@@ -235,7 +235,7 @@ check(api_job_src.index("adult_gate_refusal")
       < api_job_src.index("api_lane_state(model)"),
       "the per-second gate lands before the quote, hold, and submit")
 
-image_src = func_src("create_image") or ""
+image_src = func_src("create_image_core") or ""
 check('{"image_model": lane_id, "lane": "image",' in image_src
       and "adult_gate_refusal(" in image_src,
       "the image create runs the 18+ gate on the shelf probe")

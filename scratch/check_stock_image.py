@@ -223,7 +223,7 @@ check(pfound[0]["provider"] == "pixabay"
       "rendition with its credit trail")
 
 # --- source pins: the create flow and the submit --------------------
-create_src = func_src("create_image")
+create_src = func_src("create_image_core")
 check("shorts.pexels_search_photos" in create_src,
       "create_image searches Pexels through the shorts stock code")
 check(create_src.index("shorts.pexels_search_photos")

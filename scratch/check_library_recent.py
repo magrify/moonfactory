@@ -100,6 +100,7 @@ def run_list_jobs(jobs, params):
     }
     for name in INDEX_FUNCS:
         exec(func_src(name), ns)
+    exec(func_src("list_jobs_core"), ns)
     exec(func_src("list_jobs"), ns)
     return ns["list_jobs"](Req(params), "")
 
@@ -144,8 +145,9 @@ check(len(small["jobs"]) == 5
       "(totals must equal shown, so no View All renders)")
 
 lj = func_src("list_jobs")
+ljc = func_src("list_jobs_core")
 check('request.query_params.get("recent") == "1"' in lj
-      and '[:3]' in lj,
+      and '[:3]' in ljc,
       "list_jobs does not cut the recent payload per kind")
 
 # -- the served homepage builders, run in node ----------------------------

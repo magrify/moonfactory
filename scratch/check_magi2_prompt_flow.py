@@ -73,7 +73,7 @@ check(app.prompt_max_chars("magi2") == 15000,
 for other in ("seedance", "wan2.2", "veo3", "kling40"):
     check(app.prompt_max_chars(other) == 2000,
           f"prompt_max_chars changed the cap for {other}")
-create_src = func_src("create_job")
+create_src = func_src("create_job_core")
 check("prompt_max_chars(model)" in create_src,
       "create_job does not validate against the per model cap")
 check('"prompt_max_chars": prompt_max_chars(m["id"])' in SRC,

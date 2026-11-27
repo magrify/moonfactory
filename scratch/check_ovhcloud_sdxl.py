@@ -125,7 +125,7 @@ check(reserve() is True and len(meta["ovh_calls"]) == 1,
       "the pruned ledger is written back on a reservation")
 
 # --- source pins: the create flow and the submit --------------------
-create_src = func_src("create_image")
+create_src = func_src("create_image_core")
 check('lane["provider"] == "ovhcloud"' in create_src
       and "_ovh_rate_allows" in create_src,
       "create_image checks the SDXL pace before creating")

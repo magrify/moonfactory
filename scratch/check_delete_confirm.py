@@ -56,7 +56,7 @@ def func_src(name):
 # free of gallery rules, as check_gallery_nsfw pins.)
 
 check('view["in_gallery"] = gallery_visible(job, user)'
-      in func_src("list_jobs"),
+      in func_src("list_jobs_core"),
       "list_jobs does not stamp in_gallery from gallery_visible")
 
 ns = {}

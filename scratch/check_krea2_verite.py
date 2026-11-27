@@ -99,7 +99,7 @@ check(app.image_lane_tier("krea2_verite") == 1,
       "the Krea lane bands at the $ tier like its label says")
 
 # --- the create-flow route -----------------------------------------
-create_src = func_src("create_image")
+create_src = func_src("create_image_core")
 check('lane_id == "krea2_verite"' in create_src
       and "_queue_krea2_on_kaggle(job)" in create_src,
       "create_image queues a Krea job on the Kaggle worker")
