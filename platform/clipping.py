@@ -113,6 +113,63 @@ def _run(cmd, timeout=3600, cwd=None):
 
 # --- media: probe, audio, loudness (ported from media.py) ---------------
 
+# The decode bounds (security fix, 2026-11-27,
+# media-decode-no-dimension-bound-before-ffmpeg-decode):
+# a video's decode cost is its frame size times its frame
+# rate, both attacker-set in the stream header, so both
+# are bounded at probe time, before any decode -- the same
+# 64M pixel cap the photo path has always applied before
+# its decode.
+MAX_FRAME_PIXELS = 64_000_000
+MAX_FRAME_RATE = 120.0
+
+
+def _stream_fps(stream: dict) -> float:
+    raw = str(stream.get("avg_frame_rate") or "0/1")
+    try:
+        num, _, den = raw.partition("/")
+        return float(num) / float(den or 1)
+    except (TypeError, ValueError, ZeroDivisionError):
+        return 0.0
+
+
+def _check_frame_bounds(width: int, height: int, fps: float):
+    if width * height > MAX_FRAME_PIXELS:
+        raise RuntimeError(
+            "that video's picture is too large to work with")
+    if fps and fps > MAX_FRAME_RATE:
+        raise RuntimeError(
+            "that video's frame rate is too high to work with")
+
+
+def _measured_duration(path, declared: float) -> float:
+    """The stream-measured duration (security fix,
+    2026-11-27, media-decode-container-duration-lie): the
+    container's declared duration is attacker-controlled
+    metadata (a patched Matroska header probes a 700 second
+    file as 10), so the duration of record is the end of
+    the last video packet, and never less than declared.
+    Any failure to measure falls back to declared."""
+    try:
+        out = _run([
+            "ffprobe", "-v", "error", "-select_streams", "v:0",
+            "-show_entries", "packet=pts_time,duration_time",
+            "-of", "csv=p=0", str(path)], timeout=600)
+        end = 0.0
+        for line in out.splitlines():
+            parts = line.split(",")
+            try:
+                pts = float(parts[0])
+                dur = float(parts[1]) if len(parts) > 1 \
+                    and parts[1] else 0.0
+            except (TypeError, ValueError):
+                continue
+            end = max(end, pts + dur)
+        return max(float(declared or 0), end)
+    except Exception:
+        return float(declared or 0)
+
+
 def probe(path) -> dict:
     out = _run([
         "ffprobe", "-v", "error", "-print_format", "json",
@@ -128,7 +185,10 @@ def probe(path) -> dict:
     rot = str((v.get("side_data_list") or [{}])[0].get("rotation", "0"))
     if rot.lstrip("-") in ("90", "270"):
         w, h = h, w
-    return {"width": w, "height": h, "duration": float(data["format"]["duration"])}
+    _check_frame_bounds(w, h, _stream_fps(v))
+    return {"width": w, "height": h,
+            "duration": _measured_duration(
+                path, float(data["format"]["duration"]))}
 
 
 def extract_audio(src, wav, max_seconds=MAX_SOURCE_SECONDS):
@@ -340,6 +400,10 @@ def fetch_info(url: str) -> dict:
     opts = {"quiet": True, "no_warnings": True, "noplaylist": True}
     with yt_dlp.YoutubeDL(opts) as ydl:
         info = ydl.extract_info(url, download=False)
+    # Redirect revalidation (security fix, 2026-11-27): the
+    # page the extractor landed on is checked like the
+    # submitted link.
+    validate_final_url(info.get("webpage_url") or info.get("url"))
     if info.get("_type") == "playlist" or info.get("entries"):
         raise ValueError("playlist links are not supported, paste a single video link")
     return {
@@ -398,6 +462,46 @@ def download_video(url: str, job_dir: Path) -> Path:
 # yt-dlp's noplaylist, exactly as on the clipping path.
 
 import ipaddress
+import socket
+
+
+def host_addresses(host: str) -> list:
+    """Every address a host can mean. Literal forms are
+    decoded directly, including the inet_aton encodings
+    (127.1, 0x7f000001, 2130706433, octal) that textual
+    checks miss; names are resolved. Empty when the host
+    decodes and resolves to nothing."""
+    try:
+        return [ipaddress.ip_address(host)]
+    except ValueError:
+        pass
+    try:
+        return [ipaddress.ip_address(socket.inet_aton(host))]
+    except (OSError, ValueError):
+        pass
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except OSError:
+        return []
+    out = []
+    for info in infos:
+        try:
+            out.append(ipaddress.ip_address(info[4][0]))
+        except ValueError:
+            continue
+    return out
+
+
+def assert_public_host(host: str) -> None:
+    """Raise ValueError unless every address the host can
+    mean is a public one (security fix, 2026-11-27,
+    ingest-ssrf-encoded-ip-no-dns-no-redirect-check): the
+    guard validates the resolved address, never the text,
+    so encoded IP forms and names that resolve privately
+    are refused exactly like dotted private literals."""
+    addrs = host_addresses(host)
+    if not addrs or any(not a.is_global for a in addrs):
+        raise ValueError("that host does not point at a public address")
 
 
 def validate_ingest_url(url: str) -> str:
@@ -418,12 +522,25 @@ def validate_ingest_url(url: str) -> str:
     if host == "localhost" or host.endswith(".localhost"):
         raise ValueError("that link does not point at a public video")
     try:
-        ip = ipaddress.ip_address(host)
+        assert_public_host(host)
     except ValueError:
-        ip = None
-    if ip is not None and not ip.is_global:
         raise ValueError("that link does not point at a public video")
     return url
+
+
+def validate_final_url(url: str) -> None:
+    """Re-validate where a fetch actually landed after
+    redirects (security fix, 2026-11-27): the submitted URL
+    passing says nothing about a redirect target, so the
+    final host goes through the same resolved-address
+    check before any bytes are downloaded from it."""
+    try:
+        u = urllib.parse.urlparse(str(url or ""))
+    except ValueError:
+        return
+    host = (u.hostname or "").lower()
+    if host:
+        assert_public_host(host)
 
 
 def fetch_any_info(url: str) -> dict:
@@ -438,6 +555,7 @@ def fetch_any_info(url: str) -> dict:
     opts = {"quiet": True, "no_warnings": True, "noplaylist": True}
     with yt_dlp.YoutubeDL(opts) as ydl:
         info = ydl.extract_info(url, download=False)
+    validate_final_url(info.get("webpage_url") or info.get("url"))
     if info.get("_type") == "playlist" or info.get("entries"):
         raise ValueError(
             "playlist links are not supported, paste a single video link")
@@ -475,6 +593,13 @@ def download_any_video(url: str, job_dir: Path, max_seconds: float,
         "outtmpl": str(job_dir / "source.%(ext)s"),
     }
     with yt_dlp.YoutubeDL(opts) as ydl:
+        # Resolve first and re-validate where the link
+        # actually lands (security fix, 2026-11-27): a
+        # redirect to a private address is refused before
+        # any bytes are downloaded from it.
+        info = ydl.extract_info(url, download=False)
+        validate_final_url(
+            info.get("webpage_url") or info.get("url"))
         ydl.download([url])
     files = sorted(job_dir.glob("source.*"))
     if not files:
@@ -498,15 +623,19 @@ def probe_media(path) -> dict:
     rot = str((v.get("side_data_list") or [{}])[0].get("rotation", "0"))
     if rot.lstrip("-") in ("90", "270"):
         w, h = h, w
+    _check_frame_bounds(w, h, _stream_fps(v))
     return {"width": w, "height": h,
-            "duration": float(data["format"]["duration"])}
+            "duration": _measured_duration(
+                path, float(data["format"]["duration"]))}
 
 
 def make_poster(src, out_path, at_seconds: float = 1.0):
     """One frame as a JPEG poster beside the video it came from."""
     _run([
         "ffmpeg", "-y", "-v", "error", "-ss", f"{at_seconds:.2f}",
-        "-i", str(src), "-frames:v", "1", "-q:v", "3", str(out_path),
+        "-i", str(src), "-frames:v", "1",
+        "-vf", "scale=w='min(1280,iw)':h=-2",
+        "-q:v", "3", str(out_path),
     ])
     return Path(out_path)
 

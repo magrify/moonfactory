@@ -1044,14 +1044,20 @@ def process_editclone_job(job_id: str):
             # Land the source as an mp4 whatever it arrived as:
             # a stream copy when the codecs allow it, a re-encode
             # when they do not.
+            # The output bound (security fix, 2026-11-27,
+            # media-decode-container-duration-lie): whatever
+            # the container declares, the landed file can
+            # never run past the Clone limit.
             try:
                 clipping._run([
                     "ffmpeg", "-y", "-v", "error", "-i", str(src),
+                    "-t", str(EDITCLONE_MAX_SOURCE_SECONDS),
                     "-c", "copy", "-movflags", "+faststart",
                     str(dest)], timeout=900)
             except Exception:
                 clipping._run([
                     "ffmpeg", "-y", "-v", "error", "-i", str(src),
+                    "-t", str(EDITCLONE_MAX_SOURCE_SECONDS),
                     "-c:v", "libx264", "-crf", "21", "-preset",
                     "veryfast", "-pix_fmt", "yuv420p", "-c:a", "aac",
                     "-movflags", "+faststart", str(dest)], timeout=1800)
@@ -11072,16 +11078,56 @@ document.getElementById('go').onclick = async () => {{
         used = float(meta.get(key) or 0.0)
         meta[key] = max(0.0, used - estimate)
 
+    CF_SOURCE_MAX_BYTES = 32 * 1024 * 1024
+
     def _cf_source_bytes(source_image: str) -> bytes:
         """The edit source as raw bytes for the multipart
         form: a data URL decodes in place, an https URL is
-        fetched. Same two forms the other edit lanes take."""
+        fetched. The fetch is guarded (security fix,
+        2026-11-27, cf-source-bytes-user-url-fetch): the
+        host must resolve public, redirects are followed by
+        hand and re-validated at every hop (an https to http
+        downgrade is refused), and the body streams under a
+        byte cap instead of buffering whole."""
         if source_image.startswith("data:image/"):
-            return base64.b64decode(source_image.split(",", 1)[1])
-        got = requests.get(source_image, timeout=60)
-        if got.status_code != 200:
-            raise RuntimeError("edit source image could not be fetched")
-        return got.content
+            data = base64.b64decode(source_image.split(",", 1)[1])
+            if len(data) > CF_SOURCE_MAX_BYTES:
+                raise RuntimeError("edit source image is too large")
+            return data
+        url = source_image
+        for _hop in range(6):
+            parsed = urllib.parse.urlparse(url)
+            host = (parsed.hostname or "").lower()
+            if parsed.scheme != "https" or not host:
+                raise RuntimeError(
+                    "edit source image could not be fetched")
+            try:
+                clipping.assert_public_host(host)
+            except ValueError:
+                raise RuntimeError(
+                    "edit source image could not be fetched")
+            got = requests.get(url, timeout=60, stream=True,
+                               allow_redirects=False)
+            if got.status_code in (301, 302, 303, 307, 308):
+                location = got.headers.get("Location")
+                got.close()
+                if not location:
+                    raise RuntimeError(
+                        "edit source image could not be fetched")
+                url = urllib.parse.urljoin(url, location)
+                continue
+            if got.status_code != 200:
+                raise RuntimeError(
+                    "edit source image could not be fetched")
+            body = bytearray()
+            for chunk in got.iter_content(65536):
+                body += chunk
+                if len(body) > CF_SOURCE_MAX_BYTES:
+                    got.close()
+                    raise RuntimeError(
+                        "edit source image is too large")
+            return bytes(body)
+        raise RuntimeError("edit source image could not be fetched")
 
     def _submit_cloudflare_image(job: dict, prompt: str,
                                  source_image: str = None):
@@ -18776,10 +18822,26 @@ document.getElementById('go').onclick = async () => {{
             frames = clipping.grab_frames(
                 FILES_DIR / f"{src['id']}.mp4", work, "frame",
                 duration, fractions=EDITCLONE_FRAME_FRACTIONS)
+            # Judged before they are hosted (security fix,
+            # 2026-11-27, input-classifier-character-
+            # laundering): the frames' bytes are in hand
+            # here, and the Clone lanes are regular lanes,
+            # so a flagged or unjudged frame set refuses
+            # like any other upload.
+            blobs = [fp.read_bytes() for fp in frames]
+            verdict = classify_input_images(
+                b64_images=[base64.b64encode(b).decode()
+                            for b in blobs])
+            refusal = input_gate_refusal(
+                {"model": "editclone", "lane": "editclone"},
+                verdict)
+            if refusal:
+                raise HTTPException(
+                    status_code=400, detail=refusal)
             urls = []
-            for fp in frames:
+            for fp, blob in zip(frames, blobs):
                 url = _fal_upload_bytes(
-                    fp.read_bytes(), "image/jpeg", fp.name)
+                    blob, "image/jpeg", fp.name)
                 if not url:
                     raise HTTPException(
                         status_code=503,
