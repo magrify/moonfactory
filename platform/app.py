@@ -2940,9 +2940,12 @@ MODELS = [
     {"id": "kling3", "label": "Kling 3.0", "paid_only": True},
     # Full shelf (2026-11-16 availability audit): every model the
     # audit confirmed addable through the two wired suppliers.
-    # Confirmed-unavailable models (Sora 2, Cinema Studio, DoP,
-    # Kling 4.0 Flash) are not listed and were not wired.
+    # Confirmed-unavailable models (Sora 2, Cinema Studio, DoP)
+    # are not listed and were not wired. Kling 4.0 Flash sat on
+    # that unavailable list in 2026-11-16; the 2026-11-27 Kling
+    # route hunt found it live on Kie and it is wired below.
     {"id": "kling4", "label": "Kling 4.0", "paid_only": True},
+    {"id": "kling4_flash", "label": "Kling 4.0 Flash", "paid_only": True},
     {"id": "kling3_omni", "label": "Kling 3.0 Omni", "paid_only": True},
     {"id": "seedance2", "label": "Seedance 2.0", "paid_only": True},
     {"id": "seedance2_fast", "label": "Seedance 2.0 Fast", "paid_only": True},
@@ -3874,7 +3877,7 @@ def image_lane_name(lane_id: str) -> str:
 PRICE_TIER_BANDS_CENTS_PER_SECOND = (5.0, 12.0, 25.0)
 PER_SECOND_MODELS = (
     "wan3", "wan3_prime", "seedance", "veo3", "veo3_fast", "kling3",
-    "kling4", "kling3_omni", "seedance2", "seedance2_fast",
+    "kling4", "kling4_flash", "kling3_omni", "seedance2", "seedance2_fast",
     "seedance2_mini", "veo3_lite", "omni12", "omni11", "hailuo23",
     "minimax_h3", "grok", "grok15", "grok15_lite", "luma_ray32",
     "ltx25", "ltx25_fast",
@@ -3923,6 +3926,10 @@ MODEL_PROVIDER = {
     # $0.135 / $0.20 per second undercuts Kie's $0.1425 /
     # $0.2125. The Kie submit path stays wired as the spare.
     "kling4": "vidlab",
+    # Kling 4.0 Flash via Kie (2026-11-27, Kling route hunt):
+    # Kie's flash endpoints price at a flat $0.085/s at 720p,
+    # under Higgsfield's $0.1475/s at the standard markup.
+    "kling4_flash": "kie",
     "seedance2": "beatapi",
     # Seedance 2.0 Fast rerouted to VidLab 2026-11-23 the
     # same way ($0.05 / $0.11 vs Kie's $0.059 / $0.124); the
@@ -4144,6 +4151,8 @@ LANE_AUDIO = {
                "note": "Kling sound on by default on the wired route; dialogue native"},
     "kling4": {"native_speech": True, "native_audio": True,
                "note": "Kling native audio incl. dialogue"},
+    "kling4_flash": {"native_speech": True, "native_audio": True,
+                     "note": "Kling native audio incl. dialogue; the Flash endpoints generate native audio by default"},
     "kling3_omni": {"native_speech": True, "native_audio": True,
                     "note": "Kling native audio incl. dialogue"},
     "seedance2": {"native_speech": True, "native_audio": True,
@@ -6055,6 +6064,7 @@ MODEL_DURATION_BOUNDS = {
     "veo3_fast": (4, 8),
     "kling3": (3, 15),
     "kling4": (3, 30),
+    "kling4_flash": (3, 20),
     "kling3_omni": (3, 15),
     "seedance2": (4, 15),
     "seedance2_fast": (4, 15),
@@ -6249,6 +6259,11 @@ MODEL_REF_CAPS = {
     # input and no audio inputs (Kling's own higher published
     # limits governed the Kie route, not this one).
     "kling4": (1, 1, 0),
+    # Kling 4.0 Flash's Kie route (2026-11-27): the Flash
+    # reference endpoint takes up to 10 reference images and
+    # 5 reference videos and no reference audio (the endpoint
+    # schema carries no voice input).
+    "kling4_flash": (10, 5, 0),
     "kling3_omni": (10, 5, 5),
     # VidLab lanes (2026-11-23), from each model's published
     # input caps on the route.
@@ -11909,6 +11924,13 @@ def api():
             ("kling4", "text"): "kling-4.0/reference-to-video",
             ("kling4", "reference"): "kling-4.0/reference-to-video",
             ("kling4", "image"): "kling-4.0/keyframe-to-video",
+            # Kling 4.0 Flash (2026-11-27): Kie's catalog
+            # carries the same endpoint pair under the flash
+            # slugs; text rides the reference endpoint with no
+            # references, exactly like Kling 4.0 above.
+            ("kling4_flash", "text"): "kling-4.0/flash-reference-to-video",
+            ("kling4_flash", "reference"): "kling-4.0/flash-reference-to-video",
+            ("kling4_flash", "image"): "kling-4.0/flash-keyframe-to-video",
             ("kling3", "text"): "kling-3.0/reference-to-video",
             ("kling3", "reference"): "kling-3.0/reference-to-video",
             ("kling3", "image"): "kling-3.0/keyframe-to-video",
@@ -11951,7 +11973,7 @@ def api():
             _submit_failed(job, f"no kie slug for {model}/{mode}")
         inp = {"prompt": prompt, "duration": params["duration"],
                "aspect_ratio": params["aspect_ratio"]}
-        if model in ("kling3", "kling4", "kling3_omni"):
+        if model in ("kling3", "kling4", "kling4_flash", "kling3_omni"):
             inp["sound"] = True
         elif model == "seedance2_fast":
             inp["generate_audio"] = True
@@ -25288,6 +25310,7 @@ const MODEL_OPTS = {
   veo3_fast: { durations: LENGTHS, resolutions: ['720p', '1080p', '4K'] },
   kling3: { durations: LENGTHS, resolutions: ['720p', '1080p', '4K'] },
   kling4: { durations: LENGTHS, resolutions: ['720p', '1080p'] },
+  kling4_flash: { durations: LENGTHS, resolutions: ['720p'] },
   kling3_omni: { durations: LENGTHS, resolutions: ['720p', '1080p', '4K'] },
   seedance2: { durations: LENGTHS, resolutions: ['480p', '720p', '1080p', '4K'] },
   seedance2_fast: { durations: LENGTHS, resolutions: ['480p', '720p'] },
