@@ -4957,6 +4957,14 @@ TEMPLATE_POLL_LIMIT_SECONDS = 3600
 HF_KERNEL_SLUG = "magrify/moonfactory-hyperframes-worker"
 HF_TOOLCHAIN_DATASET = "magrify/moonfactory-hf-toolchain"
 HF_KEY_DATASET = "magrify/moonfactory-hf-key"
+# Per-family worker key datasets (2026-11-27, key rotation
+# completion): each Kaggle worker family reads its own key
+# from its own tiny private dataset, the pattern the HF
+# worker above established, so no kernel ever presents
+# another family's key.
+VOICE_KEY_DATASET = "magrify/moonfactory-voice-key"
+AUDIO_KEY_DATASET = "magrify/moonfactory-audio-key"
+COMFY_KEY_DATASET = "magrify/moonfactory-comfy-key"
 HF_WORKER_SCRIPT_PATH = Path("/platform/hf_worker_kernel.py")
 # Paid accounts get a fair daily cap on the free lane (free
 # accounts are bounded by the lifetime free cap instead).
@@ -5144,7 +5152,7 @@ def _wake_comfy_kernel() -> None:
         ok, detail = kaggle_push(
             token, script_text, slug=COMFY_KERNEL_SLUG,
             title="Moonfactory Comfy Worker",
-            datasets=[HF_KEY_DATASET], gpu=True)
+            datasets=[COMFY_KEY_DATASET], gpu=True)
         if not ok:
             meta["comfy:last_trigger_error"] = detail
     except Exception:
@@ -5186,7 +5194,7 @@ def _wake_voice_kernel() -> None:
         ok, detail = kaggle_push(
             token, script_text, slug=VOICE_KERNEL_SLUG,
             title="Moonfactory Voice Worker",
-            datasets=[HF_KEY_DATASET], gpu=True)
+            datasets=[VOICE_KEY_DATASET], gpu=True)
         if not ok:
             meta["voice:last_trigger_error"] = detail
     except Exception:
@@ -5278,7 +5286,7 @@ def _wake_audio_kernel() -> None:
         ok, detail = kaggle_push(
             token, script_text, slug=AUDIO_KERNEL_SLUG,
             title="Moonfactory Audio Worker",
-            datasets=[HF_KEY_DATASET], gpu=True)
+            datasets=[AUDIO_KEY_DATASET], gpu=True)
         if not ok:
             meta["audio:last_trigger_error"] = detail
     except Exception:

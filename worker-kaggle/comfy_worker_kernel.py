@@ -13,9 +13,9 @@
 # platform queues jobs, wakes this kernel with a version push
 # when no heartbeat is fresh, and the kernel claims jobs one at
 # a time through the platform's worker endpoints, renders, and
-# uploads the finished file back. The worker key rides in the
-# same tiny private dataset the HyperFrames worker uses
-# (magrify/moonfactory-hf-key); it is read into memory only.
+# uploads the finished file back. The worker key rides in
+# this family's own tiny private dataset
+# (magrify/moonfactory-comfy-key); it is read into memory only.
 #
 # Models live only in the Modal volume (Jack's single copy
 # decision), so a session downloads the model families it
@@ -636,7 +636,7 @@ def read_key() -> str:
                 return value.strip()
     except Exception:
         pass
-    key_file = find_dataset_file("moonfactory-hf-key", "worker_key.txt")
+    key_file = find_dataset_file("moonfactory-comfy-key", "worker_key.txt")
     return key_file.read_text().strip()
 
 

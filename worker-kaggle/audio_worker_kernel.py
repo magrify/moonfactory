@@ -23,8 +23,8 @@
 # with a version push when no heartbeat is fresh, and the
 # kernel claims jobs one at a time through the platform's
 # worker endpoints, makes the wav, and uploads it back. The
-# worker key rides in the same tiny private dataset the
-# other workers use (magrify/moonfactory-hf-key); it is read
+# worker key rides in this family's own tiny private
+# dataset (magrify/moonfactory-audio-key); it is read
 # into memory only.
 #
 # Setup (the ACE-Step repo and its uv environment, the
@@ -640,7 +640,7 @@ def find_dataset_file(slug: str, filename: str) -> Path:
     raise RuntimeError(f"dataset {slug} is not attached (no {filename})")
 
 
-KEY_FILE = find_dataset_file("moonfactory-hf-key", "worker_key.txt")
+KEY_FILE = find_dataset_file("moonfactory-audio-key", "worker_key.txt")
 
 
 def read_key() -> str:

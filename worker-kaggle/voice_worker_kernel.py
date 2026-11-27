@@ -17,8 +17,8 @@
 # kernel with a version push when no heartbeat is fresh, and
 # the kernel claims jobs one at a time through the platform's
 # worker endpoints, synthesizes, and uploads the finished wav
-# back. The worker key rides in the same tiny private dataset
-# the other workers use (magrify/moonfactory-hf-key); it is
+# back. The worker key rides in this family's own tiny
+# private dataset (magrify/moonfactory-voice-key); it is
 # read into memory only.
 #
 # Setup (the CosyVoice repo, its Python deps, and the model
@@ -74,7 +74,7 @@ def find_dataset_file(slug: str, filename: str) -> Path:
     raise RuntimeError(f"dataset {slug} is not attached (no {filename})")
 
 
-KEY_FILE = find_dataset_file("moonfactory-hf-key", "worker_key.txt")
+KEY_FILE = find_dataset_file("moonfactory-voice-key", "worker_key.txt")
 
 
 def read_key() -> str:

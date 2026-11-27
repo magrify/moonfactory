@@ -127,7 +127,7 @@ check('AUDIO_KERNEL_SLUG = "magrify/moonfactory-audio-worker"' in PLATFORM,
       "the audio kernel slug is not pinned")
 wake = fn_source(PTREE, "_wake_audio_kernel")
 check("kaggle_push" in wake and "AUDIO_KERNEL_SLUG" in wake
-      and "HF_KEY_DATASET" in wake and "gpu=True" in wake,
+      and "AUDIO_KEY_DATASET" in wake and "gpu=True" in wake,
       "the audio wake does not ride kaggle_push like the other workers")
 check('meta.get("audio:heartbeat")' in PLATFORM
       and 'meta["audio:heartbeat"]' in PLATFORM,
@@ -354,8 +354,8 @@ for route in ("/api/worker/audio/heartbeat", "/api/worker/audio/jobs/next",
 check("IDLE_LIMIT_SECONDS = 600" in KERNEL
       and "SESSION_CAP_SECONDS" in KERNEL,
       "the kernel lost its idle shutdown or session cap")
-check("moonfactory-hf-key" in KERNEL and "worker_key.txt" in KERNEL,
-      "the kernel does not read the shared worker key dataset")
+check("moonfactory-audio-key" in KERNEL and "worker_key.txt" in KERNEL,
+      "the kernel does not read its family worker key dataset")
 
 # --- kernel revision discipline ----------------------------------------------
 # A stale session left over from an older push must neither

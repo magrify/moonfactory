@@ -44,7 +44,7 @@ data_volume = modal.Volume.from_name("moonfactory-data",
 
 KERNEL_PATH = Path("/assets/audio_worker_kernel.py")
 SLUG = "magrify/moonfactory-audio-worker"
-KEY_DATASET = "magrify/moonfactory-hf-key"
+KEY_DATASET = "magrify/moonfactory-audio-key"
 
 BED_PAYLOAD = {"caption": "gentle uplifting instrumental "
                           "background music, soft piano melody, "
