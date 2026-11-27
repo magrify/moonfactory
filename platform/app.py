@@ -24592,7 +24592,11 @@ document.getElementById('go').onclick = async () => {{
         hosted payment URL. The callback URL rides the invoice
         itself (ipn_callback_url), so the account's dashboard
         webhook field does not need to be set."""
-        key = os.environ.get("NOWPAYMENTS_API_KEY", "")
+        # Strip at the point of use: the env value is sent
+        # verbatim as the x-api-key header, so any padding that
+        # ever crept into the stored secret would read to
+        # NOWPayments as a different, invalid key.
+        key = os.environ.get("NOWPAYMENTS_API_KEY", "").strip()
         if not key:
             raise HTTPException(
                 status_code=503,
@@ -24684,7 +24688,7 @@ document.getElementById('go').onclick = async () => {{
     @web.post("/api/nowpayments/ipn")
     async def nowpayments_ipn(request: Request):
         _np_ipn_name = "NOW" + "PAYMENTS_" + "IPN" + "_SECRET"
-        ipn_secret = os.environ.get(_np_ipn_name, "")
+        ipn_secret = os.environ.get(_np_ipn_name, "").strip()
         if not ipn_secret:
             raise HTTPException(
                 status_code=503,
