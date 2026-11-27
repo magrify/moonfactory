@@ -874,7 +874,34 @@ def transcribe(wav_path, model_base: Path, on_progress=None) -> list:
 # --- moment picking (ported from brain.py) -------------------------------
 
 WINDOW_SEC, OVERLAP_SEC = 15 * 60, 60
-LENGTH_RANGES = {"short": (15, 35), "medium": (30, 60), "long": (45, 90)}
+LENGTH_RANGES = {"short": (15, 35), "medium": (30, 60), "long": (45, 90),
+                 "auto": (15, 90)}
+
+# Auto (2026-11-27, Jack's order): the Clip form's Auto choices.
+# Auto length spans the union of the fixed bands above; inside
+# find_clips each picked moment keeps the span the picker chose
+# for it, cleaned to the closest complete-sentence end (see
+# _snap's "nearest" mode), so lengths vary per clip inside
+# 15 to 90 seconds instead of one bucket for the whole job.
+# Auto count asks the picker for up to auto_clip_cap(duration)
+# moments and then keeps only the strong ones (score at or
+# above AUTO_MIN_SCORE), always keeping at least the single
+# best, so the count follows how many strong moments the
+# video actually has.
+AUTO_MIN_SCORE = 60
+AUTO_SECONDS_PER_CLIP = 300
+
+
+def auto_clip_cap(duration) -> int:
+    """The most clips an Auto count job may make from a source
+    of this length: about one per five minutes of source,
+    never fewer than one, never more than the per-job cap."""
+    try:
+        seconds = float(duration or 0)
+    except (TypeError, ValueError):
+        seconds = 0.0
+    return max(1, min(MAX_CLIPS_PER_JOB,
+                      math.ceil(seconds / AUTO_SECONDS_PER_CLIP)))
 
 HEAD = """You are a clip scout for short-form videos (YouTube Shorts, Reels, TikTok).
 Below is a timestamped transcript of part of a video. Each line starts with [seconds]. Lines marked (LOUD)
@@ -913,6 +940,13 @@ Answer with JSON only: a list of objects with start, end, score, category, hook,
 description, hashtags, highlight_words, reason.
 """
 
+AUTO_RULES = """
+Auto length is on for this job: size each clip to its own moment. A quick joke or
+reaction stays short, and a story runs as long as its payoff needs inside the
+bounds above. Do not pad a short moment out, and do not cut a payoff short just
+to hit a length.
+"""
+
 
 def make_lines(words, z):
     lines, cur = [], []
@@ -948,10 +982,27 @@ def _sentence_ends(words):
     return [w["e"] for w in words if w["w"][-1:] in ".?!"]
 
 
-def _snap(clip, words, min_len, max_len, duration):
+def _snap(clip, words, min_len, max_len, duration, mode="extend"):
     s = max(0.0, float(clip.get("start") or 0))
     e = min(duration, float(clip.get("end") or 0))
     ends = _sentence_ends(words)
+    if mode == "nearest":
+        # Auto length: the picker chose where this moment ends
+        # (right after its payoff), so clean that choice to the
+        # closest complete-sentence end inside the bounds
+        # instead of stretching the clip to the last sentence
+        # end in the window the way the fixed bands do. The
+        # bounds still hold: too short grows to the first
+        # sentence end past the minimum, too long is cut.
+        cands = [x for x in ends if s < x <= min(duration, s + max_len)]
+        if cands:
+            e = min(cands, key=lambda x: abs(x - e))
+        if e - s < min(min_len, duration):
+            later = [x for x in ends if x >= s + min(min_len, duration)]
+            e = later[0] if later else min(duration, s + min_len)
+        if e - s > max_len:
+            e = s + max_len
+        return s, e
     later = [x for x in ends if s + min_len * 0.6 <= x <= min(duration, s + max_len)]
     if later:
         e = later[-1]
@@ -1076,10 +1127,17 @@ def _llm_fallback_available() -> bool:
 
 
 def find_clips(words, db, duration, title="", uploader="", max_clips=6,
-               length="medium", api_key="", log=print):
+               length="medium", api_key="", log=print, min_score=None):
     """Pick moments. AI picking when the platform key is configured;
     the loudness fallback otherwise or when a window fails. Returns
-    (clips, {"mode": "ai"|"loudness", "note": str})."""
+    (clips, {"mode": "ai"|"loudness", "note": str}).
+
+    length "auto" sizes each clip to its own moment (see _snap's
+    "nearest" mode). min_score, when given, is the Auto count
+    rule: after picking, only moments at or above the score bar
+    survive, and at least the single best always survives, so
+    the number of clips follows how many strong moments the
+    video has, up to max_clips."""
     min_len, max_len = LENGTH_RANGES.get(length, LENGTH_RANGES["medium"])
     lines = make_lines(words, loud_zscore(db))
     if not lines:
@@ -1103,6 +1161,8 @@ def find_clips(words, db, duration, title="", uploader="", max_clips=6,
                 + RULES.format(min_len=min_len, max_len=max_len,
                                transcript=_fmt(chunk))
             )
+            if length == "auto":
+                prompt += AUTO_RULES
             out = None
             if api_key:
                 try:
@@ -1128,7 +1188,8 @@ def find_clips(words, db, duration, title="", uploader="", max_clips=6,
         return found, {"mode": "loudness", "note": note}
     clips = []
     for c in sorted(found, key=lambda c: -float(c.get("score") or 0)):
-        s, e = _snap(c, words, min_len, max_len, duration)
+        s, e = _snap(c, words, min_len, max_len, duration,
+                     mode="nearest" if length == "auto" else "extend")
         if e - s < min(min_len, duration) - 1:
             continue
         if any(not (e <= p["start"] or s >= p["end"]) for p in clips):
@@ -1136,6 +1197,12 @@ def find_clips(words, db, duration, title="", uploader="", max_clips=6,
         clips.append(_tidy(c, s, e))
         if len(clips) >= max_clips:
             break
+    if min_score is not None and len(clips) > 1:
+        # Auto count: only the strong moments survive. clips is
+        # still in score order here, so when nothing clears the
+        # bar the single best pick survives on its own.
+        strong = [c for c in clips if c["score"] >= min_score]
+        clips = strong if strong else clips[:1]
     clips.sort(key=lambda c: c["start"])
     if not clips:
         clips = fallback_by_loudness(db, words, max_clips, max_len, duration, min_len)
@@ -1154,6 +1221,17 @@ STYLES = {
               "base": "FFFFFF", "active": "6BD7FF", "outline": 5, "per": 4, "upper": False},
 }
 STYLE_NAMES = {k: v["label"] for k, v in STYLES.items()}
+
+# "No captions" (2026-11-27, Jack's order): the caption
+# picker's top choice and its default. It is a real style
+# value, not a label over the caption render: render_clip
+# honors it by skipping the caption burn entirely, so the
+# clip carries no word-by-word captions and no hook pill
+# (both come out of build_ass). It has no STYLES entry
+# because nothing is drawn. CAPTION_STYLES is the full set
+# the create path validates against, in picker order.
+NO_CAPTION_STYLE = "none"
+CAPTION_STYLES = {NO_CAPTION_STYLE: "No captions", **STYLE_NAMES}
 LAYOUTS = {"blur": "Fill with blur", "zoom": "Zoom", "crop": "Crop"}
 
 
@@ -1286,17 +1364,26 @@ def render_clip(src, out_dir: Path, name: str, clip: dict, words: list,
     out_dir.mkdir(parents=True, exist_ok=True)
     start, end = clip["start"], clip["end"]
     layout, fg_h, hook_y, cap_y = geometry(src_w, src_h, clip.get("layout", "blur"))
-    ass = build_ass(words, start, end, clip.get("hook", ""),
-                    clip.get("style", "bounce"), clip.get("highlight_words", []),
-                    hook_y, cap_y)
+    # "No captions": no ass file is built and no caption filter
+    # is chained, so nothing is burned in, neither the
+    # word-by-word captions nor the hook pill.
+    no_captions = clip.get("style", "bounce") == NO_CAPTION_STYLE
+    ass = None
+    if not no_captions:
+        ass = build_ass(words, start, end, clip.get("hook", ""),
+                        clip.get("style", "bounce"), clip.get("highlight_words", []),
+                        hook_y, cap_y)
     work = Path(tempfile.mkdtemp(prefix="mfclip"))
     try:
-        (work / f"{name}.ass").write_text(ass, encoding="utf-8")
-        (work / "f").mkdir()
-        if fonts_dir and Path(fonts_dir).is_dir():
-            for f in Path(fonts_dir).glob("*.ttf"):
-                shutil.copyfile(f, work / "f" / f.name)
-        fc = _filter(layout, fg_h) + f"[v0]ass={name}.ass:fontsdir=f[v]"
+        if no_captions:
+            fc = _filter(layout, fg_h) + "[v0]null[v]"
+        else:
+            (work / f"{name}.ass").write_text(ass, encoding="utf-8")
+            (work / "f").mkdir()
+            if fonts_dir and Path(fonts_dir).is_dir():
+                for f in Path(fonts_dir).glob("*.ttf"):
+                    shutil.copyfile(f, work / "f" / f.name)
+            fc = _filter(layout, fg_h) + f"[v0]ass={name}.ass:fontsdir=f[v]"
         cmd = [
             "ffmpeg", "-y", "-v", "error", "-ss", f"{start:.2f}",
             "-t", f"{end - start:.2f}", "-i", str(src),

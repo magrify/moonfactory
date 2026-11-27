@@ -802,14 +802,26 @@ def process_clip_job(job_id: str):
             jobs[job_id] = job
 
         set_stage(CLIP_STAGES[2])
+        # Auto count resolves here, where the real duration
+        # and the transcript exist: the picker may return up
+        # to the duration cap, and only its strong moments
+        # survive (find_clips' min_score rule).
+        if job.get("clip_count") == "auto":
+            pick_cap = clipping.auto_clip_cap(duration)
+            pick_min_score = clipping.AUTO_MIN_SCORE
+        else:
+            pick_cap = int(job.get("clip_count") or 3)
+            pick_min_score = None
         picks, pick_info = clipping.find_clips(
             words, db, duration, title=title, uploader=uploader,
-            max_clips=int(job.get("clip_count") or 3),
+            max_clips=pick_cap,
             length=job.get("length") or "medium",
             api_key=os.environ.get("GEMINI_API_KEY", ""),
+            min_score=pick_min_score,
         )
         job["pick_mode"] = pick_info.get("mode")
         job["pick_note"] = pick_info.get("note") or ""
+        job["clips_made"] = len(picks)
         jobs[job_id] = job
         if not picks:
             raise RuntimeError("no clips could be picked from this video")
@@ -819,7 +831,7 @@ def process_clip_job(job_id: str):
         for pick in picks:
             child_id = _secrets.token_hex(8)
             spec = dict(pick)
-            spec["style"] = job.get("caption_style") or "bounce"
+            spec["style"] = job.get("caption_style") or clipping.NO_CAPTION_STYLE
             spec["layout"] = job.get("layout") or "blur"
             clipping.render_clip(
                 src, files_dir, child_id, spec, words,
@@ -9289,6 +9301,10 @@ def api():
             "max_source_seconds": pricing.CLIP_MAX_SOURCE_SECONDS,
             "max_upload_bytes": pricing.CLIP_MAX_UPLOAD_BYTES,
             "max_clips_per_job": pricing.CLIP_MAX_CLIPS_PER_JOB,
+            "length_ranges": {k: list(v)
+                              for k, v in clipping.LENGTH_RANGES.items()},
+            "auto_min_score": clipping.AUTO_MIN_SCORE,
+            "caption_styles": dict(clipping.CAPTION_STYLES),
             "picking_mode": "ai" if os.environ.get("GEMINI_API_KEY") else "loudness",
         }
         data["api_lanes"] = lanes
@@ -17491,7 +17507,7 @@ document.getElementById('go').onclick = async () => {{
                 "clip_count": parent.get("clip_count") or 3,
                 "length": parent.get("length") or "medium",
                 "caption_style": parent.get("caption_style")
-                or "bounce",
+                or clipping.NO_CAPTION_STYLE,
                 "layout": parent.get("layout") or "blur",
                 **bot,
             }
@@ -18633,23 +18649,33 @@ document.getElementById('go').onclick = async () => {{
             raise HTTPException(status_code=403, detail="bot check failed")
         if not is_paid(user):
             raise HTTPException(status_code=403, detail="clipping is a paid feature")
-        try:
-            clip_count = int(body.get("clip_count") or 3)
-        except (TypeError, ValueError):
-            clip_count = 3
-        if clip_count < 1 or clip_count > pricing.CLIP_MAX_CLIPS_PER_JOB:
-            raise HTTPException(
-                status_code=422,
-                detail=f"clip count must be between 1 and {pricing.CLIP_MAX_CLIPS_PER_JOB}")
+        # "auto" is a real clip count (2026-11-27, Jack's
+        # order): the job stores it as-is and the pipeline
+        # resolves it from the source itself, the duration
+        # cap plus the picker's strong moments (see
+        # clipping.auto_clip_cap and find_clips' min_score).
+        raw_count = body.get("clip_count")
+        if isinstance(raw_count, str) \
+                and raw_count.strip().lower() == "auto":
+            clip_count = "auto"
+        else:
+            try:
+                clip_count = int(raw_count or 3)
+            except (TypeError, ValueError):
+                clip_count = 3
+            if clip_count < 1 or clip_count > pricing.CLIP_MAX_CLIPS_PER_JOB:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"clip count must be between 1 and {pricing.CLIP_MAX_CLIPS_PER_JOB}")
         length = body.get("length") or "medium"
         if length not in clipping.LENGTH_RANGES:
-            raise HTTPException(status_code=422, detail="length must be short, medium or long")
-        caption_style = body.get("caption_style") or "bounce"
-        if caption_style not in clipping.STYLES:
+            raise HTTPException(status_code=422, detail="length must be auto, short, medium or long")
+        caption_style = body.get("caption_style") or clipping.NO_CAPTION_STYLE
+        if caption_style not in clipping.CAPTION_STYLES:
             raise HTTPException(
                 status_code=422,
                 detail="caption style must be one of "
-                + ", ".join(clipping.STYLE_NAMES.values()))
+                + ", ".join(clipping.CAPTION_STYLES.values()))
         layout = body.get("layout") or "blur"
         if layout not in clipping.LAYOUTS:
             raise HTTPException(
@@ -26647,9 +26673,10 @@ APP_HTML = (
       <div class="grow">
         <label>How many clips</label>
         <select id="clip-count">
+          <option value="auto" selected>Auto</option>
           <option value="1">1</option>
           <option value="2">2</option>
-          <option value="3" selected>3</option>
+          <option value="3">3</option>
           <option value="4">4</option>
           <option value="5">5</option>
           <option value="6">6</option>
@@ -26658,16 +26685,19 @@ APP_HTML = (
       <div class="grow">
         <label>Clip length</label>
         <select id="clip-length">
-          <option value="short">Short</option>
-          <option value="medium" selected>Medium</option>
-          <option value="long">Long</option>
+          <option value="auto" selected>Auto (15 to 90 seconds, picked per clip)</option>
+          <option value="short">Short (15 to 35 seconds)</option>
+          <option value="medium">Medium (30 to 60 seconds)</option>
+          <option value="long">Long (45 to 90 seconds)</option>
         </select>
       </div>
     </div>
+    <p class="muted">Auto lets the picker decide from the video itself how many clips to make and how long each one runs.</p>
     <div class="row">
       <div class="grow">
         <label>Caption style</label>
         <select id="clip-style">
+          <option value="none" selected>No captions</option>
           <option value="bounce">Bounce</option>
           <option value="hype">Hype</option>
           <option value="clean">Clean</option>
@@ -29673,7 +29703,7 @@ $('make-clips').onclick = async () => {
     msg('clip-msg', 'Working on the bot check...');
     btnLabel(btn, 'Working on the bot check...');
     const bot = await botFields('botcheck3');
-    const payload = { clip_count: Number($('clip-count').value), length: $('clip-length').value,
+    const payload = { clip_count: $('clip-count').value === 'auto' ? 'auto' : Number($('clip-count').value), length: $('clip-length').value,
       caption_style: $('clip-style').value, layout: $('clip-layout').value, ...bot };
     if (clipUploadId) payload.upload_id = clipUploadId;
     else if ($('clip-url').value.trim()) payload.url = $('clip-url').value.trim();
