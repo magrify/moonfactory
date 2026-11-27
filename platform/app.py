@@ -8867,6 +8867,8 @@ def api():
             "has_password": bool(user.get("pw")),
             "has_saved_card": bool(user.get("stripe_customer_id")
                                    and user.get("stripe_payment_method_id")),
+            "card_brand": user.get("card_brand"),
+            "card_last4": user.get("card_last4"),
             "auto_reload_enabled": bool(
                 (user.get("auto_reload") or {}).get("enabled")
                 and (user.get("auto_reload") or {}).get("explicit")),
@@ -10778,7 +10780,8 @@ document.getElementById('go').onclick = async () => {{
         # and the refund path on a failed submit stays exact.
         if not is_owner(user):
             if int(user.get("balance_cents", 0)) < charge:
-                attempt_auto_reload(user, reload_state)
+                attempt_auto_reload(user, reload_state,
+                                    needed_cents=charge)
             if int(user.get("balance_cents", 0)) < charge:
                 raise HTTPException(
                     status_code=402,
@@ -15490,7 +15493,8 @@ document.getElementById('go').onclick = async () => {{
             voice_clone=(speech_voice == CLONE_VOICE_ID),
         )
         if not ceiling_allows(user, est["cap_raw_cents"]):
-            attempt_auto_reload(user, reload_state)
+            attempt_auto_reload(user, reload_state,
+                                needed_cents=int(est["cap_balance_cents"]))
         if not ceiling_allows(user, est["cap_raw_cents"]):
             raise HTTPException(
                 status_code=402,
@@ -15519,7 +15523,7 @@ document.getElementById('go').onclick = async () => {{
             hold_kind = "balance"
             hold_amount = est["cap_balance_cents"]
             user["balance_cents"] = int(user.get("balance_cents", 0)) - int(hold_amount)
-        elif attempt_auto_reload(user, reload_state) and int(user.get("balance_cents", 0)) >= est["cap_balance_cents"]:
+        elif attempt_auto_reload(user, reload_state, needed_cents=int(est["cap_balance_cents"])) and int(user.get("balance_cents", 0)) >= est["cap_balance_cents"]:
             hold_kind = "balance"
             hold_amount = est["cap_balance_cents"]
             user["balance_cents"] = int(user.get("balance_cents", 0)) - int(hold_amount)
@@ -16269,7 +16273,8 @@ document.getElementById('go').onclick = async () => {{
                 # is taken from his balance whatever it holds.
                 if not is_owner(user):
                     if user.get("balance_cents", 0) < price:
-                        attempt_auto_reload(user, reload_state)
+                        attempt_auto_reload(user, reload_state,
+                                            needed_cents=int(price))
                     if user.get("balance_cents", 0) < price:
                         detail = (
                             f"included time used up; this job costs {price} cents of prepaid balance"
@@ -17051,7 +17056,8 @@ document.getElementById('go').onclick = async () => {{
             # is taken from his balance whatever it holds.
             if not is_owner(user):
                 if int(user.get("balance_cents", 0)) < charge:
-                    attempt_auto_reload(user, reload_state)
+                    attempt_auto_reload(user, reload_state,
+                                        needed_cents=charge)
                 if int(user.get("balance_cents", 0)) < charge:
                     raise HTTPException(
                         status_code=402,
@@ -17186,20 +17192,31 @@ document.getElementById('go').onclick = async () => {{
         else:
             # Amendment 2 ceiling, before dispatch, as on every
             # paid path.
+            reload_state = {}
+            if not ceiling_allows(user, pricing.IMAGE_MEASURED_COST_CENTS):
+                attempt_auto_reload(user, reload_state)
             if not ceiling_allows(user, pricing.IMAGE_MEASURED_COST_CENTS):
                 raise HTTPException(
                     status_code=402,
-                    detail="this job would exceed the total generation your payments cover",
+                    detail=reload_fail_detail(reload_state, "this job would exceed the total generation your payments cover"),
                 )
             payment = _image_payment(user)
             if payment["method"] == "included":
                 used_budget = float(pricing.IMAGE_MEASURED_COST_CENTS)
             elif payment["method"] == "balance":
                 charged = payment["charge_cents"]
+            elif attempt_auto_reload(
+                    user, reload_state,
+                    needed_cents=int(payment["charge_cents"])) \
+                    and _image_payment(user)["method"] == "balance":
+                # Autopay (Jack, 2026-11-27): the one automatic
+                # top up landed, so the balance rail now covers
+                # the frame.
+                charged = payment["charge_cents"]
             else:
                 raise HTTPException(
                     status_code=402,
-                    detail=f"included budget used up. A first frame costs {payment['charge_cents']} cents of prepaid balance")
+                    detail=reload_fail_detail(reload_state, f"included budget used up. A first frame costs {payment['charge_cents']} cents of prepaid balance"))
             job_cost_cents = float(pricing.IMAGE_MEASURED_COST_CENTS)
         # The house image lane runs on the Kaggle ComfyUI
         # worker (2026-11-19), like the house video lanes: no
@@ -18726,7 +18743,8 @@ document.getElementById('go').onclick = async () => {{
         q = pricing.clip_quote(duration, owner=is_owner(user))
         reload_state = {}
         if not ceiling_allows(user, q["worst_case_cost_cents"]):
-            attempt_auto_reload(user, reload_state)
+            attempt_auto_reload(user, reload_state,
+                                needed_cents=int(q["balance_charge_cents"]))
         if not ceiling_allows(user, q["worst_case_cost_cents"]):
             raise HTTPException(
                 status_code=402,
@@ -18751,7 +18769,7 @@ document.getElementById('go').onclick = async () => {{
             hold_kind = "balance"
             hold_amount = q["balance_charge_cents"]
             user["balance_cents"] = int(user.get("balance_cents", 0)) - int(hold_amount)
-        elif attempt_auto_reload(user, reload_state) and int(user.get("balance_cents", 0)) >= q["balance_charge_cents"]:
+        elif attempt_auto_reload(user, reload_state, needed_cents=int(q["balance_charge_cents"])) and int(user.get("balance_cents", 0)) >= q["balance_charge_cents"]:
             hold_kind = "balance"
             hold_amount = q["balance_charge_cents"]
             user["balance_cents"] = int(user.get("balance_cents", 0)) - int(hold_amount)
@@ -21158,7 +21176,8 @@ document.getElementById('go').onclick = async () => {{
         if clone_add:
             reload_state = {}
             if int(user.get("balance_cents", 0)) < clone_add:
-                attempt_auto_reload(user, reload_state)
+                attempt_auto_reload(user, reload_state,
+                                    needed_cents=clone_add)
             if int(user.get("balance_cents", 0)) < clone_add:
                 raise HTTPException(
                     status_code=402,
@@ -21281,7 +21300,8 @@ document.getElementById('go').onclick = async () => {{
         (hold_kind, hold_amount) with the user record saved."""
         reload_state = {}
         if not ceiling_allows(user, est["cap_raw_cents"]):
-            attempt_auto_reload(user, reload_state)
+            attempt_auto_reload(user, reload_state,
+                                needed_cents=int(est["cap_balance_cents"]))
         if not ceiling_allows(user, est["cap_raw_cents"]):
             raise HTTPException(
                 status_code=402,
@@ -21306,7 +21326,7 @@ document.getElementById('go').onclick = async () => {{
             hold_amount = est["cap_balance_cents"]
             user["balance_cents"] = \
                 int(user.get("balance_cents", 0)) - int(hold_amount)
-        elif attempt_auto_reload(user, reload_state) and \
+        elif attempt_auto_reload(user, reload_state, needed_cents=int(est["cap_balance_cents"])) and \
                 int(user.get("balance_cents", 0)) >= est["cap_balance_cents"]:
             hold_kind = "balance"
             hold_amount = est["cap_balance_cents"]
@@ -22902,34 +22922,126 @@ document.getElementById('go').onclick = async () => {{
                 - pricing.net_of(take))
         return take
 
-    def attempt_auto_reload(user: dict, state: dict) -> bool:
-        """Auto reload (Jack, 2026-11-17). When a job is blocked
-        because the balance can no longer cover it, charge the
-        saved card once for the reload amount the customer picked,
-        credit the balance through the top up path, and let the
-        job proceed. The state dict is per job, so there is never
-        more than one attempt per blocked job. A failed charge
-        changes nothing; the job then fails the way it already
-        did, with the reload named in the message. Only the Stripe
-        customer id and payment method id are ever stored, never
-        card numbers."""
+    def arm_autopay_on_payment(user: dict,
+                                 amount_hint_cents=None) -> None:
+        """Autopay on payment (Jack, 2026-11-27): any successful
+        payment, a plan purchase or a top up, turns auto reload
+        on for the account, so a later job never stops just
+        because the balance ran out. A new payment re-enables it
+        even after the customer turned it off in Billing; that
+        re-enable is the rule, and the payment flows say so in
+        plain words before the customer pays. Arming needs a
+        saved payment method on the record (a payment that saved
+        no card arms nothing), and it never touches the owner
+        account, whose balance is not real money. An existing
+        valid reload amount is kept; a first arming starts at
+        the amount the Terms promise: the largest reload
+        denomination not larger than a top up's credit, or $10
+        for a plan payment."""
+        if is_owner(user):
+            return
+        if not (user.get("stripe_customer_id")
+                and user.get("stripe_payment_method_id")):
+            return
+        cfg = dict(user.get("auto_reload") or {})
+        amount = int(cfg.get("amount_cents") or 0)
+        if amount not in pricing.RELOAD_AMOUNTS_CENTS:
+            amount = 1000
+            if amount_hint_cents:
+                for denom in pricing.RELOAD_AMOUNTS_CENTS:
+                    if denom <= int(amount_hint_cents):
+                        amount = denom
+        user["auto_reload"] = {"enabled": True,
+                               "amount_cents": amount,
+                               "explicit": True}
+
+    def _save_payment_method(user: dict, stripe, pm_id) -> None:
+        """Store the saved payment method id, and the card brand
+        and last 4 the Billing panel shows, best effort. Only the
+        ids and the display facts are ever stored, never card
+        numbers."""
+        if not pm_id:
+            return
+        user["stripe_payment_method_id"] = pm_id
+        try:
+            pm = stripe.PaymentMethod.retrieve(pm_id)
+            card = getattr(pm, "card", None) if pm else None
+            if card:
+                user["card_brand"] = getattr(card, "brand", None)
+                user["card_last4"] = getattr(card, "last4", None)
+        except Exception:
+            pass
+
+    def _auto_reload_charge_cents(base_amount: int,
+                                  balance_cents: int,
+                                  needed_cents) -> int | None:
+        """The size of one autopay charge (Jack, 2026-11-27).
+        The customer's reload amount is the floor. When the
+        blocked job needs a higher balance than that reaches,
+        the charge grows to the smallest reload denomination
+        that covers the shortfall, or the shortfall rounded up
+        to whole dollars past the largest denomination. The
+        charge never exceeds the $50 ceiling; when the shortfall
+        alone exceeds the ceiling there is no charge at all
+        (None), and the job refuses the way it always has."""
+        if needed_cents is None:
+            return int(base_amount)
+        shortfall = int(needed_cents) - int(balance_cents)
+        if shortfall <= 0:
+            return int(base_amount)
+        if shortfall > pricing.AUTOPAY_MAX_CHARGE_CENTS:
+            return None
+        cover = None
+        for denom in pricing.RELOAD_AMOUNTS_CENTS:
+            if denom >= shortfall:
+                cover = denom
+                break
+        if cover is None:
+            cover = -(-shortfall // 100) * 100
+        return max(int(base_amount), int(cover))
+
+    def attempt_auto_reload(user: dict, state: dict,
+                            needed_cents=None) -> bool:
+        """Auto reload (Jack, 2026-11-17; autopay sizing and
+        arming, Jack, 2026-11-27). When a job is blocked because
+        the balance can no longer cover it, charge the saved card
+        once, credit the balance through the top up path, and let
+        the job proceed. The charge is sized by
+        _auto_reload_charge_cents against needed_cents, the
+        balance the job is about to require, under a $50 ceiling.
+        The state dict is per job, so there is never more than
+        one attempt per blocked job. A failed charge changes
+        nothing; the job then fails the way it already did, with
+        the reload named in the message. Only the Stripe customer
+        id and payment method id are ever stored, never card
+        numbers."""
         if state.get("tried"):
             return bool(state.get("ok"))
+        if is_owner(user):
+            return False
         cfg = user.get("auto_reload") or {}
         amount = int(cfg.get("amount_cents") or 0)
         # Explicit opt-in only (security fix, 2026-11-27,
         # billing-autoreload-webhook-arm-without-explicit-opt-in):
-        # a reload fires only for a config the customer set
-        # in the billing panel, which stamps explicit=True.
-        # Configs armed as a webhook side effect before this
-        # fix carry no stamp, so they stop firing until the
-        # customer turns reload on again in the panel -- the
-        # migration to explicit opt-in.
+        # a reload fires only for a config carrying the explicit
+        # stamp, which the billing panel toggle sets and which
+        # arm_autopay_on_payment sets when the customer's own
+        # payment lands (Jack's autopay rule, 2026-11-27: the
+        # payment is the opt-in act, and the flows say so before
+        # the customer pays). Configs armed before either stamp
+        # existed carry none and never fire.
         if (not cfg.get("enabled")
                 or not cfg.get("explicit")
                 or amount not in pricing.RELOAD_AMOUNTS_CENTS
                 or not user.get("stripe_customer_id")
                 or not user.get("stripe_payment_method_id")):
+            return False
+        charge = _auto_reload_charge_cents(
+            amount, int(user.get("balance_cents", 0)), needed_cents)
+        if charge is None:
+            # The job needs more than the $50 ceiling covers on
+            # top of the balance: no charge is attempted and the
+            # job refuses exactly as it did before autopay.
             return False
         state["tried"] = True
         state["attempted"] = True
@@ -22939,7 +23051,7 @@ document.getElementById('go').onclick = async () => {{
             return False
         try:
             pi = stripe.PaymentIntent.create(
-                amount=amount,
+                amount=charge,
                 currency="usd",
                 customer=user["stripe_customer_id"],
                 payment_method=user["stripe_payment_method_id"],
@@ -22947,7 +23059,7 @@ document.getElementById('go').onclick = async () => {{
                 confirm=True,
                 statement_descriptor_suffix="MOONFACTORY",
                 metadata={"user_id": user["id"], "kind": "auto_reload",
-                          "credit_cents": str(amount)},
+                          "credit_cents": str(charge)},
             )
         except Exception:
             state["ok"] = False
@@ -22959,7 +23071,7 @@ document.getElementById('go').onclick = async () => {{
         if pi.id not in credited:
             credited[pi.id] = True
             meta["reload_credited"] = credited
-            credit_topup(user, amount, pi.amount_received or amount)
+            credit_topup(user, charge, pi.amount_received or charge)
             save_user(user)
         state["ok"] = True
         return True
@@ -23144,7 +23256,9 @@ document.getElementById('go').onclick = async () => {{
         return {"auto_reload_enabled": bool(cfg.get("enabled")),
                 "auto_reload_amount_cents": int(cfg.get("amount_cents") or 0),
                 "has_saved_card": bool(user.get("stripe_customer_id")
-                                       and user.get("stripe_payment_method_id"))}
+                                       and user.get("stripe_payment_method_id")),
+                "card_brand": user.get("card_brand"),
+                "card_last4": user.get("card_last4")}
 
     @web.post("/api/stripe/webhook")
     async def stripe_webhook(request: Request):
@@ -23185,13 +23299,15 @@ document.getElementById('go').onclick = async () => {{
                         try:
                             si = stripe.SetupIntent.retrieve(si_id)
                             if si and si.payment_method:
-                                user["stripe_payment_method_id"] = si.payment_method
+                                _save_payment_method(
+                                    user, stripe, si.payment_method)
                         except Exception:
                             pass
-                    # Saving a card never arms auto reload
-                    # (security fix, 2026-11-27): only the
-                    # billing panel endpoint enables it, with
-                    # an amount the customer picked.
+                    # Saving a card never arms auto reload by
+                    # itself: it is not a payment. Payments arm
+                    # it through arm_autopay_on_payment (Jack,
+                    # 2026-11-27), and the billing panel toggle
+                    # arms it with an amount the customer picked.
                 elif obj.get("mode") == "subscription":
                     user["plan"] = "creator"
                     user["past_due"] = False
@@ -23206,9 +23322,12 @@ document.getElementById('go').onclick = async () => {{
                             if pms and pms.data:
                                 pm = pms.data[0].id
                         if pm:
-                            user["stripe_payment_method_id"] = pm
+                            _save_payment_method(user, stripe, pm)
                     except Exception:
                         pass
+                    # A plan purchase is a payment (Jack,
+                    # 2026-11-27): it turns autopay on.
+                    arm_autopay_on_payment(user)
                     u = user.get("usage") or {}
                     u["included_seconds"] = 0.0
                     u["included_cost_cents"] = 0.0
@@ -23217,6 +23336,7 @@ document.getElementById('go').onclick = async () => {{
                     # which fires for the first subscription payment
                     # too; counting it here as well would double it.
                 elif obj.get("mode") == "payment":
+                    topup_granted = 0
                     credit = int((obj.get("metadata") or {}).get("credit_cents") or 0)
                     # Reconcile the two amount sources
                     # (security fix, 2026-11-27,
@@ -23261,6 +23381,7 @@ document.getElementById('go').onclick = async () => {{
                             user, credit,
                             obj.get("amount_total") or credit,
                             pi=obj.get("payment_intent"))
+                        topup_granted = credit
                     user["stripe_customer_id"] = obj.get("customer") or user.get("stripe_customer_id")
                     pi_id = obj.get("payment_intent")
                     if pi_id:
@@ -23273,9 +23394,17 @@ document.getElementById('go').onclick = async () => {{
                             # account never claims a saved card it
                             # cannot use.
                             if pi and pi.payment_method and obj.get("customer"):
-                                user["stripe_payment_method_id"] = pi.payment_method
+                                _save_payment_method(
+                                    user, stripe, pi.payment_method)
                         except Exception:
                             pass
+                    if topup_granted:
+                        # A landed top up is a payment (Jack,
+                        # 2026-11-27): it turns autopay on. A
+                        # parked (not yet paid) credit arms
+                        # nothing; its grant at
+                        # payment_intent.succeeded arms it there.
+                        arm_autopay_on_payment(user, topup_granted)
                 save_user(user)
         elif etype == "invoice.paid":
             counted = meta.get("net_counted_invoices") or {}
@@ -23295,6 +23424,10 @@ document.getElementById('go').onclick = async () => {{
                     u["included_cost_cents"] = 0.0
                     user["usage"] = u
                     user["past_due"] = False
+                    # A paid invoice is a successful payment
+                    # (Jack, 2026-11-27): it turns autopay on,
+                    # first payment and renewals alike.
+                    arm_autopay_on_payment(user)
                     if first_count:
                         add_net_paid(user, obj.get("amount_paid"))
                         _record_stripe_credit(
@@ -23325,7 +23458,8 @@ document.getElementById('go').onclick = async () => {{
             uid = (obj.get("metadata") or {}).get("user_id")
             user = users.get(f"id:{uid}") if uid else None
             if user and obj.get("payment_method"):
-                user["stripe_payment_method_id"] = obj.get("payment_method")
+                _save_payment_method(
+                    user, stripe, obj.get("payment_method"))
                 if obj.get("customer"):
                     user["stripe_customer_id"] = obj.get("customer")
                 save_user(user)
@@ -23343,6 +23477,11 @@ document.getElementById('go').onclick = async () => {{
                         f"pi:{obj.get('id')}", user,
                         park["credit_cents"], park["gross_cents"],
                         pi=obj.get("id"))
+                    # The delayed top up has now landed, so it
+                    # arms autopay like any payment (Jack,
+                    # 2026-11-27).
+                    arm_autopay_on_payment(
+                        user, park["credit_cents"])
                     save_user(user)
             elif md.get("kind") == "auto_reload":
                 credited = meta.get("reload_credited") or {}
@@ -24818,7 +24957,8 @@ amount starts at the size of the credit pack you bought. If you only
 choose a plan, it starts at $10. You can change the amount or turn
 auto reload off at any time in Billing in the studio.</p>
 <p>With auto reload on, when your balance cannot cover a job, we
-charge your saved card the reload amount once, add it to your
+charge your saved card once, for the reload amount or for what
+the job needs when that is more, up to $50, add it to your
 balance, and the job goes ahead. This repeats as your balance runs
 out, one charge for each job that needs it.</p>
 <p>If a reload charge fails, the job it was meant to cover can stop,
@@ -26848,7 +26988,7 @@ APP_HTML = (
   <div class="overlay" id="panel-billing" style="display:none">
     <div class="panel" role="dialog" aria-label="Billing">
       <div class="panel-head"><h2>Billing</h2><button type="button" class="panel-close" data-close-panel aria-label="Close">×</button></div>
-      <p class="muted">Paying saves your card. Turn on auto reload below whenever you want, so your work never stops over balance.</p>
+      <p class="muted">Paying saves your card and turns auto reload on, so your work never stops over balance. You can turn it off below at any time.</p>
       <p class="group-label">Monthly plan</p>
       <p class="muted">The plan is optional. You can skip it and just top up credits and pay per video instead.</p>
       <p>
@@ -26871,6 +27011,7 @@ APP_HTML = (
       <p class="muted">Top up once and pay per video from your balance. Your balance never expires.</p>
       <p class="group-label">Auto reload</p>
       <p class="muted" id="autoreload-note"></p>
+      <p class="muted" id="autoreload-card" style="display:none"></p>
       <p>
         <button class="btn secondary" id="save-card" type="button">Save a card</button>
       </p>
@@ -28953,13 +29094,22 @@ function renderAutoReload(s) {
   const has = !!s.has_saved_card;
   $('save-card').style.display = has ? 'none' : '';
   $('autoreload-controls').style.display = has ? '' : 'none';
+  const cardEl = $('autoreload-card');
+  if (cardEl) {
+    cardEl.style.display = has ? '' : 'none';
+    cardEl.textContent = has
+      ? (s.card_brand && s.card_last4
+          ? 'Saved card, ' + s.card_brand + ' ending in ' + s.card_last4 + '.'
+          : 'Saved card on file.')
+      : '';
+  }
   if (s.auto_reload_amount_cents) $('autoreload-amount').value = String(s.auto_reload_amount_cents);
   $('autoreload-off').style.display = s.auto_reload_enabled ? '' : 'none';
   $('autoreload-note').textContent = !has
-    ? 'Save a card and you can turn on auto reload.'
+    ? 'Pay once and your card is saved and auto reload turns on. You can also save a card now and turn it on yourself.'
     : s.auto_reload_enabled
-      ? 'Auto reload is on. If your balance cannot cover a job, your saved card is charged once for the amount below and the job goes ahead.'
-      : 'Auto reload is off. Pick an amount and save to turn it on.';
+      ? 'Auto reload is on. If your balance cannot cover a job, your saved card is charged once to cover it and the job goes ahead.'
+      : 'Auto reload is off. Pick an amount and save to turn it on. It also turns on by itself the next time you pay.';
 }
 $('save-card').onclick = async () => {
   try { const r = await api('/api/billing/setup-card', { method: 'POST' }); location.href = r.url; }

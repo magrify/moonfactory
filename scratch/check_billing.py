@@ -7,11 +7,12 @@ checkout.session.async_payment_failed; a delayed payment
 method's credit is parked at checkout completion and granted
 only when the money lands.
 
-billing-autoreload-webhook-arm-without-explicit-opt-in: no
-webhook branch arms auto reload; only the billing endpoint
-enables it, stamping explicit=True, and attempt_auto_reload
-requires the stamp (which also migrates every previously
-webhook-armed account to opt-in-required).
+billing-autoreload-webhook-arm-without-explicit-opt-in: a
+reload fires only for a config carrying the explicit stamp.
+The stamp is set by the billing endpoint, and since Jack's
+autopay rule (2026-11-27) also by arm_autopay_on_payment when
+the customer's own payment lands; saving a card alone never
+arms. attempt_auto_reload requires the stamp.
 
 The reversal helper is exercised for real below: it is
 AST-extracted from app.py and run against plain dicts with
@@ -54,9 +55,12 @@ check("checkout credit is recorded in the ledger",
 check("unpaid async credit is parked, not granted",
       'obj.get("payment_status") == "unpaid"' in webhook)
 
-# No webhook branch arms auto reload anymore.
-check("no webhook branch sets auto_reload enabled",
-      'cfg["enabled"] = True' not in webhook
+# Autopay arming (Jack, 2026-11-27) supersedes the
+# opt-in-only rule this pin first encoded: the webhook arms
+# auto reload only through arm_autopay_on_payment, called
+# where money lands, and never by setting the config inline.
+check("the webhook arms autopay only through the helper",
+      "arm_autopay_on_payment" in webhook
       and '"enabled": True' not in webhook)
 endpoint = fn("billing_autoreload")
 check("the billing endpoint stamps explicit opt-in",

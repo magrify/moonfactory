@@ -85,6 +85,11 @@ CREATOR_PRICE_CENTS = 2000  # $20/mo
 TOPUP_PACKS_CENTS = [500, 1000, 2000, 5000, 10000]
 TOPUP_MIN_CENTS = 100
 RELOAD_AMOUNTS_CENTS = [100, 500, 1000, 2000]
+# Autopay charge ceiling (Jack, 2026-11-27): one automatic
+# top up triggered by a blocked job never exceeds $50. When
+# a job needs more than that on top of the balance, no charge
+# is attempted and the job refuses the way it always has.
+AUTOPAY_MAX_CHARGE_CENTS = 5000
 
 
 def valid_topup_cents(amount) -> bool:
