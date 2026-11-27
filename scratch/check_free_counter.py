@@ -113,14 +113,15 @@ check(free_jobs_total(legacy) == 4,
       "counting continues from the migrated total")
 
 # --- enforcement and counting, pinned per create flow ---------------------------
-check(SRC.count("free_jobs_total(user) >= FREE_CLIPS_TOTAL") == 5,
-      "the before dispatch enforcement stands on the four "
-      "free eligible flows (video, photo, titles, shorts); "
-      "photo enforces it twice, once per rail (house and the "
-      "free shelf lanes such as Cloudflare)")
+check(SRC.count("free_jobs_total(fresh) >= FREE_CLIPS_TOTAL") == 1,
+      "the cap comparison lives in exactly one place, the "
+      "atomic reserve_free_slot every free eligible flow "
+      "claims through (security fix 2026-11-27: the check and "
+      "the count are one locked step, not five copies of a "
+      "check now and a count later)")
 
 video = func_src("create_job_core")
-check("free_jobs_total(user) >= FREE_CLIPS_TOTAL" in video,
+check("reserve_free_slot(user)" in video,
       "video create enforces the counter before dispatch")
 check("count_generation(user)" in video,
       "paid house videos count toward the 5")
@@ -130,8 +131,9 @@ check("count_generation(user)" in api_video,
       "API lane videos count toward the 5")
 
 image = func_src("create_image_core")
-check("free_jobs_total(user) >= FREE_CLIPS_TOTAL" in image,
-      "photo create enforces the counter before dispatch")
+check(image.count("reserve_free_slot(user)") == 2,
+      "photo create enforces the counter before dispatch on "
+      "both rails (house and the free shelf lanes)")
 check(image.count("count_generation(user)") == 1
       and "count_generation(user, free_job=served_free)" in image,
       "photos count on both photo rails (shelf and house); the "
@@ -139,13 +141,13 @@ check(image.count("count_generation(user)") == 1
       "serving a free account also moves the platform ceiling")
 
 short = func_src("create_short")
-check("free_jobs_total(user) >= FREE_CLIPS_TOTAL" in short,
+check("reserve_free_slot(user)" in short,
       "shorts create enforces the counter before dispatch")
 check("count_generation(user)" in short,
       "paid shorts count toward the 5")
 
 template = func_src("create_template")
-check("free_jobs_total(user) >= FREE_CLIPS_TOTAL" in template,
+check("reserve_free_slot(user)" in template,
       "titles create enforces the counter before dispatch")
 check("count_generation(user)" in template,
       "paid title and motion videos count toward the 5")
