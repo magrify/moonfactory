@@ -3891,7 +3891,7 @@ PER_SECOND_MODELS = (
 # tier (see pricing.py); both displaced submits stay wired below
 # as spares.
 MODEL_PROVIDER = {
-    "wan3": "beatapi",
+    "wan3": "framehush",
     "wan3_prime": "cometapi",
     "seedance": "framehush",
     "kling3": "kie",
@@ -3912,7 +3912,7 @@ MODEL_PROVIDER = {
     "grok15": "kie",
     "grok15_lite": "fal",
     "happyhorse": "openrouter",
-    "minimax_h3": "beatapi",
+    "minimax_h3": "framehush",
     # Veo 3.1 and Veo 3.1 Fast ride Kie since 2026-11-25
     # (frontier coverage pass): Kie bills both flat per clip
     # with native audio ($1.25 / $1.275 / $1.85 per Quality
@@ -11077,6 +11077,15 @@ def api():
     FRAMEHUSH_VIDEO_MODELS = {
         "seedance": "seedance-2-5",
         "magi2": "magi-2-1080P",
+        # Route audit (2026-11-26): Wan 3.0 and MiniMax H3
+        # moved here from BeatAPI on FrameHush's own estimate
+        # prices, read on the platform's account (Wan 3.0
+        # 3.0 / 6.0 / 9.7 per second; MiniMax H3 a flat 1.5).
+        # Their BeatAPI submits stay wired above as the flip
+        # back; the first live job on each is the payload
+        # proof, like the lanes before them.
+        "wan3": "wan-3.0",
+        "minimax_h3": "MiniMax-H3",
     }
     PIAPI_BASE = "https://api.piapi.ai"
     OPENROUTER_BASE = "https://openrouter.ai"
@@ -11869,8 +11878,10 @@ def api():
         /v1/videos with a Bearer key, poll GET /v1/videos/{id}.
         One shared client for every FrameHush lane; the model
         id is per lane (FRAMEHUSH_VIDEO_MODELS): Seedance 2.5
-        (seedance-2-5) at every tier, and MAGI-2
-        (magi-2-1080P) since its 2026-11-26 reroute.
+        (seedance-2-5) at every tier, MAGI-2 (magi-2-1080P)
+        since its 2026-11-26 reroute, and Wan 3.0 (wan-3.0)
+        plus MiniMax H3 (MiniMax-H3) since the route audit
+        later that night.
         PAYLOAD-UNVERIFIED: the contract is FrameHush's own API
         guide, read from the signed-in account on 2026-11-26
         (submit returns a task id; statuses queued /

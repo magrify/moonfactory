@@ -193,15 +193,18 @@ RESOLUTIONS = ("480p", "720p", "1080p")
 # rather than quote from a table older than
 # PROVIDER_RATE_STALE_SECONDS (Rule 2 auto-pause).
 PROVIDER_RATES_CENTS_PER_SECOND = {
-    # Wan 3.0 via BeatAPI (route rule, Jack 2026-11-16: the
-    # cheapest route is primary). BeatAPI publishes $0.284 /
-    # $0.568 / $1.088 per 8-second clip = 3.55 / 7.10 / 13.60 per
-    # second; fal's route (5.0 / 10.0 / 20.0) is recorded as the
-    # fallback below. This supplier bills reference-video seconds
-    # at the output rate (its Prime page notes a 1.5x factor on
-    # video references); settlement uses the provider's own
-    # reported charge, never this estimate.
-    "wan3": {"480p": 3.55, "720p": 7.1, "1080p": 13.6},
+    # Wan 3.0 via FrameHush (route audit, 2026-11-26: the
+    # cheapest route is primary). FrameHush's estimate endpoint,
+    # read on the platform's own account, prices wan-3.0 at
+    # $0.15 / $0.30 / $0.485 per 5-second clip = 3.0 / 6.0 / 9.7
+    # per second, under BeatAPI's $0.284 / $0.568 / $1.088 per
+    # 8-second clip (3.55 / 7.10 / 13.60, recorded in
+    # DISPLACED_RATES below as wan3_beatapi); fal's route
+    # (5.0 / 10.0 / 20.0) is recorded as the fallback below.
+    # The customer shelf stays frozen on the BeatAPI-built
+    # rates (SHELF_PROVIDER_RATES below); the saving lands
+    # as margin.
+    "wan3": {"480p": 3.0, "720p": 6.0, "1080p": 9.7},
     # Wan 3.0 Prime via CometAPI (follow-up pass, 2026-11-16):
     # CometAPI publishes a single $0.0544/s figure with no
     # resolution split, carried flat at every resolution (flagged:
@@ -431,11 +434,16 @@ PROVIDER_RATES_CENTS_PER_SECOND = {
     # is silent on every route (no native audio). fal's per-clip
     # rates are the fallback below.
     "hailuo23": {"720p": 2.5},
-    # MiniMax H3 via BeatAPI (route rule: $0.02/s entry vs fal's
-    # $0.05/s): $0.16 / $0.24 / $0.376 per 8-second clip.
-    # Reference videos bill at the output rate on this supplier,
-    # so the output + reference-second estimate is exact.
-    "minimax_h3": {"480p": 2.0, "720p": 3.0, "1080p": 4.7},
+    # MiniMax H3 via FrameHush (route audit, 2026-11-26):
+    # FrameHush's estimate endpoint, read on the platform's
+    # own account, prices MiniMax-H3 at a flat $0.075 per
+    # 5-second clip at every tier = 1.5 per second, under
+    # BeatAPI's $0.16 / $0.24 / $0.376 per 8-second clip
+    # (2.0 / 3.0 / 4.7, recorded in DISPLACED_RATES below as
+    # minimax_h3_beatapi). The flat estimate is carried flat;
+    # the customer shelf stays frozen on the BeatAPI-built
+    # rates (SHELF_PROVIDER_RATES below).
+    "minimax_h3": {"480p": 1.5, "720p": 1.5, "1080p": 1.5},
     # Grok Imagine Video 1.5 via Kie (follow-up pass, 2026-11-16):
     # Kie publishes $0.012/s at 480p and $0.0225/s at 720p, the
     # cheapest route at both resolutions. BeatAPI's rates ($0.20 /
@@ -763,6 +771,12 @@ FALLBACK_PROVIDER_RATES_CENTS_PER_SECOND = {
 # reads this table; it exists so a route flip never has to
 # re-derive a published price.
 DISPLACED_RATES_CENTS_PER_SECOND = {
+    # BeatAPI rates displaced by the 2026-11-26 route audit's
+    # FrameHush moves (Wan 3.0 and MiniMax H3; the suppliers'
+    # model ids stay wired in app.py, so a flip back is a
+    # provider change, not a rebuild).
+    "wan3_beatapi": {"480p": 3.55, "720p": 7.1, "1080p": 13.6},
+    "minimax_h3_beatapi": {"480p": 2.0, "720p": 3.0, "1080p": 4.7},
     # BeatAPI rates displaced by Kie / CometAPI / OpenRouter.
     "wan3_prime": {"480p": 6.05, "720p": 10.5, "1080p": 21.0},
     "kling3": {"720p": 11.0, "1080p": 13.0},
@@ -1120,6 +1134,12 @@ SHELF_POST_COST_CENTS_PER_SECOND = 0.1
 # (the owner price and all cost accounting use it).
 SHELF_PROVIDER_RATES_CENTS_PER_SECOND = {
     "magi2": {"1080p": 8.0},
+    # Route audit (2026-11-26): Wan 3.0 and MiniMax H3 moved
+    # to FrameHush at lower true rates (PROVIDER_RATES above);
+    # their shelves were built on the BeatAPI rates and stay
+    # frozen there, so no customer price moves.
+    "wan3": {"480p": 3.55, "720p": 7.1, "1080p": 13.6},
+    "minimax_h3": {"480p": 2.0, "720p": 3.0, "1080p": 4.7},
 }
 
 # Built-in lip sync (Jack's product rule, 2026-11-17): every video
