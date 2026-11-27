@@ -14,6 +14,11 @@ Pins the tab's shape so a later edit cannot quietly break it:
 - the clone prompt is prefilled with Jack's template word for
   word: the served textarea, the CLONE_PROMPT_TEMPLATE
   constant and this file's own copy must all three agree;
+- the library source is picked through a Choose from your
+  Moonfactory library button and a thumbnail panel headed
+  Your Moonfactory library (Jack, 2026-11-27), never a
+  dropdown of full prompts; the picked job id rides the
+  hidden ec-library input into the same Add flow;
 - ingest takes any public video site through the yt-dlp guard
   (TikTok, YouTube, X, Instagram pass; non-http schemes,
   localhost and private address literals are refused), with
@@ -144,6 +149,47 @@ for el in ("ec-url", "ec-file", "ec-library", "ec-add", "ec-hook",
            "ec-clone", "botcheck4"):
     check(f'id="{el}"' in html,
           f"the Clone control {el} is missing")
+
+# -- the library picker: a button and thumbnail panel, no select --------
+# (Jack, 2026-11-27: the option stays, the dropdown of full
+# prompts goes.) The picked job id rides the hidden ec-library
+# input, the same value the old select handed the Add flow.
+check('<select id="ec-library">' not in html,
+      "the library source is still a native select")
+check("Choose a video you already have" not in html,
+      "the old select heading still renders")
+check('id="ec-library-btn"' in html
+      and "Choose from your Moonfactory library" in html,
+      "the Choose from your Moonfactory library button is missing")
+check("<h2>Your Moonfactory library</h2>" in html,
+      "the library picker panel does not name the Moonfactory library")
+check('<input type="hidden" id="ec-library" value="">' in html,
+      "the hidden input carrying the picked job id is missing")
+check('id="panel-ec-library"' in html and 'id="ec-library-grid"' in html,
+      "the library picker panel is missing")
+check('id="ec-library-empty"' in html
+      and "No finished videos in your library yet." in html,
+      "the picker has no plain empty state")
+for el in ("ec-library-picked", "ec-library-picked-thumb",
+           "ec-library-picked-label", "ec-library-change",
+           "ec-library-clear"):
+    check(f'id="{el}"' in html,
+          f"the picked-source display is missing {el}")
+check("j.kind !== 'image' && j.status === 'done'" in html,
+      "the picker no longer offers the select's done-video set")
+check("'/api/jobs/' + j.id + '/thumb'" in html,
+      "the picker cards do not carry the job thumbnails")
+check("function ecShortLabel" in html and "slice(0, 64)" in html,
+      "the picker labels are not truncated short labels")
+check("card.dataset.libpick = j.id" in html
+      and "ecPickLibrary(card.dataset.libpick)" in html,
+      "tapping a card does not pick that job")
+check("$('ec-library').value = id" in html,
+      "the pick does not land in the ec-library value")
+check("const libId = $('ec-library').value" in html
+      and "ecJobsCache.find(j => j.id === libId)" in html
+      and "ecSetSource(job)" in html,
+      "the Add flow no longer resolves the picked id to the source job")
 
 # -- the model picker: same catalog as Create, feed line ------------------
 

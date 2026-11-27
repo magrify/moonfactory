@@ -24335,6 +24335,14 @@ _CSS = """
   .vidbox .playbadge{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:32px;line-height:1;color:#fff;text-shadow:0 1px 10px rgba(0,0,0,.65);pointer-events:none}
   .tile .frame .vidbox{display:block;width:100%;height:100%}
   img.thumb[data-open]{cursor:pointer}
+  .libgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:14px;margin-top:10px}
+  .libcard{cursor:pointer}
+  .libcard .vidbox{display:block}
+  .libcard img.thumb{width:100%;border-radius:10px;display:block}
+  .libcard-label{display:block;margin-top:6px;font-size:13px;word-break:break-word}
+  .libpicked{display:flex;align-items:center;gap:12px;margin:2px 0 10px}
+  .libpicked img.thumb{width:84px;border-radius:9px;flex:none}
+  .libpicked .libcard-label{margin-top:0;flex:1}
   /* Footer (layout fix, 2026-11-24): brand on its own line,
      links in a wrapping flex row with even gaps and real tap
      targets, instead of two spans squeezed onto one row. */
@@ -26734,7 +26742,14 @@ APP_HTML = (
     <label>Or upload a video file</label>
     <input id="ec-file" type="file" accept="video/*">
     <label>Or pick a video from your library</label>
-    <select id="ec-library"><option value="">Choose a video you already have</option></select>
+    <p><button class="btn secondary" id="ec-library-btn" type="button">Choose from your Moonfactory library</button></p>
+    <input type="hidden" id="ec-library" value="">
+    <div class="libpicked" id="ec-library-picked" style="display:none">
+      <img class="thumb" id="ec-library-picked-thumb" alt="">
+      <span class="libcard-label" id="ec-library-picked-label"></span>
+      <button class="btn secondary" id="ec-library-change" type="button">Change</button>
+      <button class="btn secondary" id="ec-library-clear" type="button">Clear</button>
+    </div>
     <p><button class="btn secondary" id="ec-add" type="button">Add this video</button></p>
     <div id="botcheck4"></div>
     <p id="ec-msg"></p>
@@ -26878,6 +26893,14 @@ APP_HTML = (
       </div>
       <p id="pay-msg"></p>
       <p class="muted">Any payment unlocks every model, custom music, and hiding your clips from the gallery.</p>
+    </div>
+  </div>
+
+  <div class="overlay" id="panel-ec-library" style="display:none">
+    <div class="panel" role="dialog" aria-label="Your Moonfactory library">
+      <div class="panel-head"><h2>Your Moonfactory library</h2><button type="button" class="panel-close" data-close-panel aria-label="Close">×</button></div>
+      <div class="libgrid" id="ec-library-grid"></div>
+      <p class="muted" id="ec-library-empty" style="display:none">No finished videos in your library yet.</p>
     </div>
   </div>
 </div>
@@ -27963,6 +27986,7 @@ function openPanel(id) {
 function closePanels() {
   $('panel-account').style.display = 'none';
   $('panel-billing').style.display = 'none';
+  $('panel-ec-library').style.display = 'none';
 }
 $('menu-account').onclick = e => {
   e.preventDefault(); closeProfileMenu(); openPanel('panel-account');
@@ -27974,7 +27998,7 @@ $('menu-billing').onclick = e => {
 document.querySelectorAll('[data-close-panel]').forEach(b => {
   b.onclick = () => closePanels();
 });
-for (const pid of ['panel-account', 'panel-billing']) {
+for (const pid of ['panel-account', 'panel-billing', 'panel-ec-library']) {
   $(pid).addEventListener('click', e => { if (e.target === $(pid)) closePanels(); });
 }
 $('menu-logout').onclick = async () => { try { await api('/api/logout', { method: 'POST' }); } catch (e) {} location.reload(); };
@@ -29828,21 +29852,86 @@ async function ecRefreshCharacters() {
     sel.value = keep;
   } catch (e) { /* refreshed again on the next action */ }
 }
+// The library source picker (Jack, 2026-11-27): a button and
+// a thumbnail panel instead of a dropdown of full prompts.
+// The picked job id rides the hidden ec-library input, exactly
+// the value the old select submitted to the Add flow.
+function ecLibraryJobs() {
+  return ecJobsCache.filter(j => j.kind !== 'image' && j.status === 'done');
+}
+function ecShortLabel(j) {
+  const t = String(j.prompt || 'Video').trim();
+  return (t.length > 64 ? t.slice(0, 64).trimEnd() + '…' : t) +
+    ' (' + (j.duration_seconds || '?') + 's)';
+}
+function ecRenderLibrary() {
+  const jobs = ecLibraryJobs();
+  const grid = $('ec-library-grid');
+  grid.innerHTML = '';
+  $('ec-library-empty').style.display = jobs.length ? 'none' : '';
+  for (const j of jobs) {
+    const card = document.createElement('div');
+    card.className = 'libcard';
+    card.dataset.libpick = j.id;
+    const box = document.createElement('span');
+    box.className = 'vidbox';
+    const img = document.createElement('img');
+    img.className = 'thumb';
+    img.loading = 'lazy';
+    img.decoding = 'async';
+    img.src = '/api/jobs/' + j.id + '/thumb';
+    img.alt = '';
+    const badge = document.createElement('span');
+    badge.className = 'playbadge';
+    badge.textContent = '▶';
+    box.appendChild(img);
+    box.appendChild(badge);
+    const label = document.createElement('span');
+    label.className = 'libcard-label';
+    label.textContent = ecShortLabel(j);
+    card.appendChild(box);
+    card.appendChild(label);
+    grid.appendChild(card);
+  }
+  ecRenderLibraryPicked();
+}
+function ecRenderLibraryPicked() {
+  const id = $('ec-library').value;
+  const job = ecJobsCache.find(j => j.id === id);
+  const box = $('ec-library-picked');
+  if (!job) {
+    box.style.display = 'none';
+    if (id) $('ec-library').value = '';
+    return;
+  }
+  box.style.display = '';
+  $('ec-library-picked-thumb').src = '/api/jobs/' + job.id + '/thumb';
+  $('ec-library-picked-label').textContent = ecShortLabel(job);
+}
+function ecOpenLibrary() {
+  ecRenderLibrary();
+  openPanel('panel-ec-library');
+}
+function ecPickLibrary(id) {
+  $('ec-library').value = id;
+  ecRenderLibraryPicked();
+  closePanels();
+}
+$('ec-library-btn').onclick = ecOpenLibrary;
+$('ec-library-change').onclick = ecOpenLibrary;
+$('ec-library-clear').onclick = () => {
+  $('ec-library').value = '';
+  ecRenderLibraryPicked();
+};
+$('ec-library-grid').onclick = e => {
+  const card = e.target.closest('[data-libpick]');
+  if (card) ecPickLibrary(card.dataset.libpick);
+};
 async function ecRefresh() {
   try {
     const r = await api('/api/jobs');
     ecJobsCache = r.jobs || [];
-    const sel = $('ec-library');
-    const keep = sel.value;
-    sel.innerHTML = '<option value="">Choose a video you already have</option>';
-    for (const j of ecJobsCache) {
-      if (j.kind === 'image' || j.status !== 'done') continue;
-      const o = document.createElement('option');
-      o.value = j.id;
-      o.textContent = (j.prompt || 'Video') + ' (' + (j.duration_seconds || '?') + 's)';
-      sel.appendChild(o);
-    }
-    sel.value = keep;
+    ecRenderLibrary();
     if (ecSource) {
       const fresh = ecJobsCache.find(j => j.id === ecSource.id);
       if (fresh) ecSetSource(fresh);
