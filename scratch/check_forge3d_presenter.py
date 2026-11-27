@@ -124,7 +124,11 @@ assert "child = jobs.get(child_id)" in claim
 claim = APP[APP.index("def hf_next_job"):APP.index("def hf_job_source")]
 assert 'child.get("status") == "error"' in claim
 assert "not Path(voice_path).exists()" in claim
-assert "clipping.probe(voice_path)" in claim
+# The voiceover is a wav: the claim measures it with the
+# audio probe (fix, 2026-11-27). It called the video probe
+# until then, which demands a video track, so the measured
+# duration always fell back to the job's stored value.
+assert "clipping.probe_audio(voice_path)" in claim
 
 # The studio: each entry is its own picker row with its own
 # field block, and the presenter uploads through the template
