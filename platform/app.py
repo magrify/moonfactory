@@ -1117,6 +1117,12 @@ def process_editclone_job(job_id: str):
                 if not hosted:
                     raise RuntimeError("character image hosting failed")
                 stored.append({"b64": raw, "fal_url": hosted})
+            # Judged and stamped at ingestion, like the
+            # direct character path (security fix,
+            # 2026-11-27, input-classifier-character-
+            # laundering): the frames' bytes are in hand here.
+            input_verdict = classify_input_images(
+                b64_images=[im["b64"] for im in stored])
             character = {
                 "id": _secrets.token_hex(8),
                 "name": job.get("character_name") or "Character",
@@ -1124,6 +1130,7 @@ def process_editclone_job(job_id: str):
                 "lora_url": None,
                 "train_status": "none",
                 "created_at": _now(),
+                "input_verdict": input_verdict,
             }
             characters.append(character)
             user["characters"] = characters
@@ -2456,6 +2463,113 @@ def retained_upload_reaper():
     removed = reap_retained_uploads()
     print(f"retained upload reaper: {len(removed)} reaped")
     return removed
+
+
+def reconcile_training_characters():
+    """The eager training reconciler (security fix,
+    2026-11-27, train-character-limbo-reconciled-only-on-list):
+    settle training characters without waiting for a list
+    read. A record whose queue URL never landed (the
+    provider accepted, the URL persistence failed) is
+    failed and refunded once it is ten minutes old; a
+    record the provider reports FAILED or ERROR is failed
+    and refunded; a record past the poll limit is settled
+    from one final poll; a COMPLETED record is finished
+    and booked here. Refunds and booking mirror
+    _refresh_character_training exactly, so the two paths
+    can never settle the same record twice: both move the
+    status out of training in the same write."""
+    settled = []
+    headers = {"Authorization":
+               f"Key {os.environ.get('FAL_KEY', '')}"}
+    for key in list(users.keys()):
+        if not key.startswith("id:"):
+            continue
+        try:
+            user = users.get(key)
+            if not user:
+                continue
+            changed = False
+            for character in user.get("characters") or []:
+                if character.get("train_status") != "training":
+                    continue
+                started = character.get("train_started_at") or 0
+                age = _now() - float(started or 0)
+                status_url = character.get("train_status_url")
+                verdict = None
+                if not status_url:
+                    if age > 600:
+                        verdict = "failed"
+                elif age > TRAINING_POLL_LIMIT_SECONDS:
+                    verdict = "failed"
+                    try:
+                        resp = requests.get(
+                            status_url, headers=headers, timeout=20)
+                        state = (resp.json() or {}).get("status")
+                        if state == "COMPLETED":
+                            verdict = "completed"
+                    except Exception:
+                        pass
+                else:
+                    try:
+                        resp = requests.get(
+                            status_url, headers=headers, timeout=20)
+                        state = (resp.json() or {}).get("status")
+                        if state in ("FAILED", "ERROR"):
+                            verdict = "failed"
+                        elif state == "COMPLETED":
+                            verdict = "completed"
+                    except Exception:
+                        continue
+                if verdict == "failed":
+                    charge = int(
+                        character.get("train_charge_cents") or 0)
+                    if charge:
+                        user["balance_cents"] = int(
+                            user.get("balance_cents", 0)) + charge
+                    character["train_status"] = "failed"
+                    character["train_charge_cents"] = 0
+                    changed = True
+                    settled.append(character.get("id"))
+                elif verdict == "completed":
+                    try:
+                        resp = requests.get(
+                            character.get("train_response_url") or "",
+                            headers=headers, timeout=30)
+                        payload = resp.json() or {}
+                    except Exception:
+                        continue
+                    lora = ((payload.get("diffusers_lora_file")
+                             or {}).get("url"))
+                    if not lora:
+                        continue
+                    character["lora_url"] = lora
+                    character["train_status"] = "ready"
+                    character["train_charge_cents"] = 0
+                    user["cost_settled_cents"] = int(
+                        user.get("cost_settled_cents", 0)) \
+                        + int(pricing.CHARACTER_TRAIN_RAW_CENTS)
+                    changed = True
+                    settled.append(character.get("id"))
+            if changed:
+                _save_user_record(user)
+        except Exception:
+            continue
+    return settled
+
+
+@app.function(
+    image=image,
+    secrets=[modal.Secret.from_name("moonfactory-providers")],
+    schedule=modal.Period(hours=1),
+    timeout=600,
+)
+def training_reconciler():
+    """Hourly: settle training characters eagerly (see
+    reconcile_training_characters)."""
+    settled = reconcile_training_characters()
+    print(f"training reconciler: {len(settled)} settled")
+    return settled
 
 
 def _short_word_check(job: dict, out_path: Path):
@@ -4836,6 +4950,14 @@ SHORTS_DAILY_CAP_PAID = 20
 # holds and settles the episode price once. The poll bound
 # gives four sequential provider jobs plus assembly room.
 DRAMA_POLL_LIMIT_SECONDS = 7200
+# The lifetime dispatch budget for one drama shot (security
+# fix, 2026-11-27, drama-resume-resets-attempts): the
+# per-cycle attempt counter pauses an episode at two, but
+# resume used to reset it to zero, so one episode price
+# bought unbounded provider dispatches. The lifetime
+# counter is never reset by resume or retry; at this many
+# lifetime attempts a shot stays failed for good.
+DRAMA_SHOT_LIFETIME_ATTEMPTS = 6
 SHORTS_STAGES = (
     "Finding footage",
     "Recording the narration",
@@ -10350,6 +10472,9 @@ document.getElementById('go').onclick = async () => {{
         if not is_paid(user):
             raise HTTPException(
                 status_code=403, detail="characters are a paid feature")
+        # The suspension bar (security fix, 2026-11-27):
+        # character creation never crossed the gate.
+        enforce_prompt_gate(user, "character", client_ip(request))
         body = await request.json()
         name = (body.get("name") or "").strip()[:60]
         if not name:
@@ -10381,6 +10506,16 @@ document.getElementById('go').onclick = async () => {{
                 data, mime,
                 f"character-{pysecrets.token_hex(4)}.{ext}")
             stored.append({"b64": raw, "fal_url": hosted})
+        # The input classifier (security fix, 2026-11-27,
+        # input-classifier-character-laundering): the
+        # platform holds these pictures' bytes right here,
+        # so they are judged now and the verdict is stamped
+        # on the character. Before this, the pictures were
+        # hosted unjudged and later rode generation lanes as
+        # trusted references, laundering an unjudged image
+        # into a reusable identity.
+        input_verdict = classify_input_images(
+            b64_images=[im["b64"] for im in stored])
         character = {
             "id": pysecrets.token_hex(8),
             "name": name,
@@ -10388,6 +10523,7 @@ document.getElementById('go').onclick = async () => {{
             "lora_url": None,
             "train_status": "none",
             "created_at": _now(),
+            "input_verdict": input_verdict,
         }
         characters.append(character)
         user["characters"] = characters
@@ -10413,6 +10549,23 @@ document.getElementById('go').onclick = async () => {{
         if not is_paid(user):
             raise HTTPException(
                 status_code=403, detail="characters are a paid feature")
+        # The shared account gates (security fix, 2026-11-27,
+        # train-character-account-gates-absent): training is
+        # a paid provider submit and it crossed none of the
+        # gates its sibling money paths cross -- verified,
+        # past due, the suspension bar, and a pace limit all
+        # apply here too.
+        if not user["verified"]:
+            raise HTTPException(
+                status_code=403, detail="verify your email before creating")
+        if user.get("past_due"):
+            raise HTTPException(
+                status_code=403,
+                detail="your subscription payment is past due")
+        enforce_prompt_gate(user, "train", client_ip(request))
+        if _rate_limited("train", user["id"], 6):
+            raise HTTPException(
+                status_code=429, detail="too many jobs, slow down")
         character = _find_character(user, character_id)
         if not character:
             raise HTTPException(status_code=404, detail="unknown character")
@@ -10429,6 +10582,15 @@ document.getElementById('go').onclick = async () => {{
         charge = int(pricing.CHARACTER_TRAIN_RAW_CENTS) if is_owner(user) \
             else int(pricing.CHARACTER_TRAIN_RAW_CENTS
                      * pricing.FRONTIER_MIN_MARKUP)
+        # The hard cost ceiling (security fix, 2026-11-27,
+        # train-character-hard-cost-ceiling-not-consulted):
+        # the training's raw cost books against the ceiling
+        # at completion, so it is checked here before the
+        # deduction and the submit, like every sibling path.
+        if not ceiling_allows(user, pricing.CHARACTER_TRAIN_RAW_CENTS):
+            raise HTTPException(
+                status_code=402,
+                detail="this job would exceed the total generation your payments cover")
         reload_state = {}
         # The owner never balance blocks (Jack, 2026-11-17): the
         # charge below is taken from his balance whatever it holds,
@@ -10454,11 +10616,32 @@ document.getElementById('go').onclick = async () => {{
             f"character-{character['id']}.zip")
         if not zip_url:
             raise HTTPException(status_code=503, detail=MODEL_UNAVAILABLE)
-        user["balance_cents"] = int(user.get("balance_cents", 0)) - charge
-        character["train_charge_cents"] = charge
-        character["train_status"] = "training"
-        character["train_started_at"] = _now()
-        save_user(user)
+        # Claim the character before the submit (security
+        # fix, 2026-11-27,
+        # train-character-concurrent-submit-lost-update):
+        # under the account lock, reload the record and move
+        # the character to training in the same step as the
+        # deduction, so two overlapping submits cannot both
+        # pass the status check and double charge.
+        with _user_lock(user["id"]):
+            fresh = users.get(f"id:{user['id']}") or user
+            fresh_character = _find_character(fresh, character_id)
+            if fresh_character is None:
+                raise HTTPException(
+                    status_code=404, detail="unknown character")
+            if fresh_character.get("train_status") == "training":
+                raise HTTPException(
+                    status_code=409,
+                    detail="this character is already training")
+            fresh["balance_cents"] = \
+                int(fresh.get("balance_cents", 0)) - charge
+            fresh_character["train_charge_cents"] = charge
+            fresh_character["train_status"] = "training"
+            fresh_character["train_started_at"] = _now()
+            save_user(fresh)
+            user = fresh
+            character = fresh_character
+        sub = None
         try:
             resp = requests.post(
                 f"https://queue.fal.run/{pricing.CHARACTER_TRAIN_MODEL}",
@@ -10473,11 +10656,6 @@ document.getElementById('go').onclick = async () => {{
             if resp.status_code != 200:
                 raise RuntimeError(f"train submit {resp.status_code}")
             sub = resp.json() or {}
-            character["train_status_url"] = sub.get("status_url")
-            character["train_response_url"] = sub.get("response_url")
-            if not character["train_status_url"]:
-                raise RuntimeError("train submit returned no queue urls")
-            save_user(user)
         except Exception:
             # Nothing was accepted: refund in full, back to none.
             user = users.get(f"id:{user['id']}") or user
@@ -10487,6 +10665,22 @@ document.getElementById('go').onclick = async () => {{
             character["train_charge_cents"] = 0
             save_user(user)
             raise HTTPException(status_code=503, detail=MODEL_UNAVAILABLE)
+        # fal has accepted the training (security fix,
+        # 2026-11-27,
+        # train-character-refund-after-fal-accept-orphans-job):
+        # from here the refund path is closed. The queue URLs
+        # are persisted; if the submit answer carried none,
+        # the record keeps the request id and the reconciler
+        # (reconcile_training_characters) owns the record
+        # from here, never a silent refund of a running job.
+        user = users.get(f"id:{user['id']}") or user
+        character = _find_character(user, character_id) or character
+        character["train_status_url"] = sub.get("status_url")
+        character["train_response_url"] = sub.get("response_url")
+        character["train_request_id"] = sub.get("request_id")
+        if not character["train_status_url"]:
+            character["train_recovery"] = True
+        save_user(user)
         return _public_character(character)
 
     # -- jobs ---------------------------------------------------------------
@@ -14962,7 +15156,7 @@ document.getElementById('go').onclick = async () => {{
         enforce_prompt_gate(
             user, model, created_ip,
             prompt, music_prompt, speech_script,
-            clone_reference_text)
+            clone_reference_text, body.get("negative_prompt"))
         # The 18+ gate (Jack, 2026-11-24), before the quote,
         # the hold, and the submit, on the same model pair the
         # input classifier judges below.
@@ -14990,6 +15184,7 @@ document.getElementById('go').onclick = async () => {{
             {"model": model, "lane": model}, input_verdict)
         if refusal:
             raise HTTPException(status_code=400, detail=refusal)
+        char_verdict = body.get("_char_verdict")
         reload_state = {}
         state = api_lane_state(model)
         if state["paused"]:
@@ -15145,6 +15340,14 @@ document.getElementById('go').onclick = async () => {{
         if job_is_nsfw(job):
             job["gallery_public"] = False
         stamp_input_verdict(job, input_verdict)
+        if char_verdict and char_verdict.get("flagged") \
+                and not job.get("input_flagged"):
+            # A flagged character's verdict stamps the job
+            # too (security fix, 2026-11-27): its hosted
+            # references are remote URLs the classifier call
+            # above could not judge, so without this the job
+            # would carry no flag from its character input.
+            stamp_input_verdict(job, char_verdict)
         if speech_voice == CLONE_VOICE_ID:
             # Voice cloning (fold, Jack 2026-11-23): the clone
             # price is already inside the estimate, the hold and
@@ -15274,7 +15477,7 @@ document.getElementById('go').onclick = async () => {{
         enforce_prompt_gate(
             user, model, ip,
             prompt, music_prompt, speech_script,
-            clone_reference_text)
+            clone_reference_text, body.get("negative_prompt"))
         # The 18+ gate (Jack, 2026-11-24): an uncensored scope
         # pick refuses an account without the one time
         # confirmation, here before any quote, hold, charge,
@@ -15385,6 +15588,29 @@ document.getElementById('go').onclick = async () => {{
             if not character:
                 raise HTTPException(status_code=404, detail="unknown character")
             char_images = character.get("images") or []
+            # The character's pictures were judged at
+            # creation and the verdict is stamped on the
+            # character (security fix, 2026-11-27,
+            # input-classifier-character-laundering). A
+            # character that predates the stamp is judged
+            # now, from the bytes the record still holds,
+            # and the stamp is saved. On a regular lane a
+            # flagged or unjudged character refuses here,
+            # before its hosted references can ride; on an
+            # uncensored lane the verdict rides the body and
+            # stamps the job in create_api_job.
+            char_verdict = character.get("input_verdict")
+            if char_verdict is None and char_images:
+                char_verdict = classify_input_images(
+                    b64_images=[im.get("b64") for im in char_images])
+                character["input_verdict"] = char_verdict
+                save_user(user)
+            refusal = input_gate_refusal(
+                {"model": model, "lane": model}, char_verdict)
+            if refusal:
+                raise HTTPException(status_code=400, detail=refusal)
+            if char_verdict:
+                body["_char_verdict"] = char_verdict
             if char_images and not start_image:
                 start_image = char_images[0].get("b64")
                 body["start_image_png_b64"] = start_image
@@ -16864,16 +17090,23 @@ document.getElementById('go').onclick = async () => {{
             # resumes: the failed shots go back to ready and
             # the episode makes them again. The episode was
             # already counted and held at creation; a resume
-            # never counts or charges again.
+            # never counts or charges again. The account-state
+            # checks and the lifetime attempt cap are shared
+            # with resume (security fix, 2026-11-27,
+            # drama-resume-resets-attempts and the suspension
+            # record's retry branch).
+            _drama_resume_checks(user, request)
+            if not bot_check_ok(bot, client_ip(request), user):
+                raise HTTPException(
+                    status_code=403, detail="bot check failed")
             rec = dramas.get(parent.get("drama_id") or "")
             if not rec:
                 raise HTTPException(status_code=404,
                                     detail="episode not found")
-            for shot in rec.get("shots") or []:
-                if shot.get("status") == "failed":
-                    shot["status"] = "ready"
-                    shot["attempts"] = 0
-                    shot["child_job_id"] = None
+            if not _drama_requeue_failed_shots(rec):
+                raise HTTPException(
+                    status_code=409,
+                    detail="That shot has been tried too many times to make again.")
             rec["status"] = "making"
             dramas[rec["id"]] = rec
             parent["status"] = "running"
@@ -18272,6 +18505,12 @@ document.getElementById('go').onclick = async () => {{
         return job
 
     def _editclone_new_job(user: dict, request: Request, **fields) -> dict:
+        # The suspension bar (security fix, 2026-11-27,
+        # suspension-not-enforced-on-all-create-paths): every
+        # Clone creation is built here, and this path never
+        # crossed the gate, so a suspended account could keep
+        # creating. The gate with no texts is the bar alone.
+        enforce_prompt_gate(user, "editclone", client_ip(request))
         job = {
             "id": pysecrets.token_hex(8),
             "user_id": user["id"],
@@ -20265,6 +20504,8 @@ document.getElementById('go').onclick = async () => {{
                 detail="pick one of the draft models on the list")
         draft_model = llm_providers.normalize_draft_model(
             raw_draft_model)
+        enforce_prompt_gate(
+            user, "prompt-help", client_ip(request), text)
         try:
             improved = shorts.improve_prompt(
                 text, draft_model, kind, language)
@@ -21068,6 +21309,29 @@ document.getElementById('go').onclick = async () => {{
                 continue
             child_id = shot.get("child_job_id")
             if not child_id:
+                # The suspension bar at the dispatch point
+                # itself (security fix, 2026-11-27,
+                # drama-resume-resets-attempts): a suspended
+                # account's episode dispatches nothing, even
+                # one created before the suspension. The
+                # episode waits; it does not error.
+                if user.get("suspended"):
+                    job["stage"] = "Paused"
+                    jobs[job["id"]] = job
+                    return job
+                if int(shot.get("lifetime_attempts") or 0) \
+                        >= DRAMA_SHOT_LIFETIME_ATTEMPTS:
+                    shot["status"] = "failed"
+                    job["status"] = "error"
+                    job["error"] = (
+                        "One shot could not be made. Your finished "
+                        "shots are saved.")
+                    job["stage"] = None
+                    job["drama_state"] = "paused"
+                    jobs[job["id"]] = job
+                    rec["status"] = "paused"
+                    dramas[rec["id"]] = rec
+                    return job
                 _drama_create_shot_job(user, job, rec, shot)
                 job["stage"] = \
                     f"Making shot {shot['index'] + 1} of 4"
@@ -21078,6 +21342,8 @@ document.getElementById('go').onclick = async () => {{
                 child = mirror_status(child)
             if not child or child.get("status") == "error":
                 shot["attempts"] = int(shot.get("attempts") or 0) + 1
+                shot["lifetime_attempts"] = int(
+                    shot.get("lifetime_attempts") or 0) + 1
                 if shot["attempts"] >= 2:
                     shot["status"] = "failed"
                     job["status"] = "error"
@@ -21254,7 +21520,9 @@ document.getElementById('go').onclick = async () => {{
                       rec.get("summary")]
         for person in entities["people"]:
             gate_texts += [person.get("name"),
-                           person.get("description")]
+                           person.get("description"),
+                           person.get("wardrobe"),
+                           person.get("role")]
         gate_texts += [entities["place"].get("name"),
                        entities["place"].get("description")]
         for shot in shots:
@@ -21421,9 +21689,49 @@ document.getElementById('go').onclick = async () => {{
             } for s in rec.get("shots") or []],
         }
 
+    def _drama_resume_checks(user: dict, request: Request):
+        """The account-state checks resume and the retry
+        endpoint's drama branch share (security fix,
+        2026-11-27, drama-resume-resets-attempts): the
+        sibling standard -- pace limit, verified, past due,
+        and the suspension bar through the gate."""
+        if _rate_limited("dramacreate", user["id"], 10):
+            raise HTTPException(
+                status_code=429, detail="too many jobs, slow down")
+        if not user["verified"]:
+            raise HTTPException(
+                status_code=403,
+                detail="verify your email before creating")
+        if user.get("past_due"):
+            raise HTTPException(
+                status_code=403,
+                detail="your subscription payment is past due")
+        enforce_prompt_gate(user, "drama", client_ip(request))
+
+    def _drama_requeue_failed_shots(rec: dict) -> int:
+        """Failed shots go back to ready for the driver,
+        WITHOUT resetting their counters (security fix,
+        2026-11-27): attempts used to reset to zero here,
+        which made the dispatch budget per resume instead
+        of per episode. A shot at its lifetime cap stays
+        failed. Returns how many shots were requeued."""
+        requeued = 0
+        for shot in rec.get("shots") or []:
+            if shot.get("status") != "failed":
+                continue
+            if int(shot.get("lifetime_attempts") or 0) \
+                    >= DRAMA_SHOT_LIFETIME_ATTEMPTS:
+                continue
+            shot["status"] = "ready"
+            shot["attempts"] = 0
+            shot["child_job_id"] = None
+            requeued += 1
+        return requeued
+
     @web.post("/api/drama/{job_id}/resume")
     async def resume_drama(job_id: str, request: Request, mf_session: str = Cookie(default="")):
         user = require_user(request, mf_session)
+        _drama_resume_checks(user, request)
         job = jobs.get(job_id)
         if not job or job.get("user_id") != user["id"] \
                 or job.get("kind") != "drama":
@@ -21435,11 +21743,10 @@ document.getElementById('go').onclick = async () => {{
         rec = dramas.get(job.get("drama_id") or "")
         if not rec:
             raise HTTPException(status_code=404, detail="episode not found")
-        for shot in rec["shots"]:
-            if shot["status"] == "failed":
-                shot["status"] = "ready"
-                shot["attempts"] = 0
-                shot["child_job_id"] = None
+        if not _drama_requeue_failed_shots(rec):
+            raise HTTPException(
+                status_code=409,
+                detail="That shot has been tried too many times to make again.")
         rec["status"] = "making"
         dramas[rec["id"]] = rec
         job["status"] = "running"
