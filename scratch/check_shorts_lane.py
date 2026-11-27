@@ -590,7 +590,7 @@ check('!= "none"' in processor and "ass_path = None" in processor,
 check("short_lower_third" not in processor,
       "the runner never reads a stored opening title, so "
       "one left on an old job record stays inert")
-check("snap_durations_to_beat" in processor
+check("_snap_scenes_to_bed_beats" in processor
       and "short_beat_sync" in processor,
       "the runner snaps scene lengths to the beat when the pick is on")
 check("scene_durations=scene_durations" in processor,

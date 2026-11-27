@@ -1286,6 +1286,70 @@ def snap_durations_to_beat(durations, bpm):
     return snapped
 
 
+def detect_beat_times(path, hint_bpm=None):
+    """The beat times (seconds, ascending) actually heard in
+    an audio file, from librosa's beat tracker (2026-11-26,
+    the beat sync playbook's second half: the bed the ACE-Step
+    stage makes is a real performance, and its tempo drifts
+    around the style's nominal BPM, so the cuts should follow
+    the heard grid, not the label). hint_bpm is the style's
+    nominal tempo, passed as the tracker's start prior when
+    known. Returns None whenever detection is unavailable
+    (librosa missing, file unreadable, under a second of
+    audio, no beats found): every caller falls back to the
+    nominal-tempo snap, so a detection failure costs nothing.
+    """
+    try:
+        import librosa
+    except Exception:
+        return None
+    try:
+        y, sr = librosa.load(str(path), sr=22050, mono=True)
+        if y is None or len(y) < sr:
+            return None
+        kwargs = {}
+        if hint_bpm:
+            try:
+                kwargs["start_bpm"] = float(hint_bpm)
+            except (TypeError, ValueError):
+                pass
+        _tempo, beats = librosa.beat.beat_track(
+            y=y, sr=sr, units="time", **kwargs)
+        times = sorted(float(b) for b in beats if float(b) > 0.0)
+        return times or None
+    except Exception:
+        return None
+
+
+def snap_durations_to_beats(durations, beat_times):
+    """Snap scene lengths so every cut lands on a heard beat:
+    walking the scenes in order, each scene runs out to the
+    first beat at or after its natural end, so a scene only
+    ever grows (the narration inside it is never cut) and the
+    cuts accumulate on the grid. Beats that run out (a bed
+    shorter than the short) leave the remaining lengths
+    untouched. Returns None when there is no grid to snap to,
+    so the caller falls back to the nominal-tempo snap."""
+    import bisect
+
+    if not beat_times:
+        return None
+    beats = sorted(float(b) for b in beat_times if float(b) > 0.0)
+    if not beats:
+        return None
+    snapped = []
+    cursor = 0.0
+    for duration in durations:
+        target = cursor + float(duration)
+        i = bisect.bisect_left(beats, target - 1e-9)
+        end = beats[i] if i < len(beats) else target
+        if end <= cursor:
+            end = target
+        snapped.append(round(end - cursor, 4))
+        cursor = end
+    return snapped
+
+
 def assemble_short(scene_paths: list, scene_durations: list,
                    narration_path, captions_ass: Path,
                    out_path: Path, work_dir: Path,

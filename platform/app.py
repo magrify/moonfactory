@@ -324,7 +324,7 @@ clip_image = (
     modal.Image.debian_slim(python_version="3.12")
     .apt_install("ffmpeg", "fonts-dejavu-core")
     .pip_install("sherpa-onnx", "yt-dlp", "numpy", "requests",
-                 "onnxruntime", "pillow")
+                 "onnxruntime", "pillow", "librosa")
     .add_local_file(str(Path(__file__).parent / "pricing.py"), "/platform/pricing.py")
     .add_local_file(
         str(Path(__file__).parent.parent
@@ -2396,6 +2396,34 @@ def _short_bed_for_job(job: dict):
         return BED_PATH if BED_PATH.exists() else None
 
 
+def _snap_scenes_to_bed_beats(job: dict, scene_durations, bpm):
+    """Beat sync against the bed the job will actually run
+    under (2026-11-26): fetch the bed first (the same cached
+    file the assembly mixes, so this costs one stage call at
+    most, and only on a style's first short), hear its beats
+    with librosa, and snap the cuts to the heard grid. Any
+    miss along the way (no bed, detection unavailable, no
+    beats heard) falls back to the nominal-tempo snap the
+    lane shipped with, and the job record says which grid
+    the cuts followed."""
+    beats = None
+    try:
+        bed_path = _short_bed_for_job(job)
+        if bed_path is not None:
+            beats = shorts.detect_beat_times(bed_path, hint_bpm=bpm)
+    except Exception:
+        beats = None
+    if beats:
+        snapped = shorts.snap_durations_to_beats(
+            scene_durations, beats)
+        if snapped:
+            job["short_beat_source"] = "detected"
+            job["short_beat_count"] = len(beats)
+            return snapped
+    job["short_beat_source"] = "tempo"
+    return shorts.snap_durations_to_beat(scene_durations, bpm)
+
+
 @app.function(
     image=clip_image,
     secrets=[
@@ -2574,8 +2602,8 @@ def process_short_job(job_id: str):
             bpm = (SHORTS_MUSIC_STYLES.get(
                 job.get("short_music") or "none") or {}).get(
                     "bpm") or 100
-            scene_durations = shorts.snap_durations_to_beat(
-                scene_durations, bpm)
+            scene_durations = _snap_scenes_to_bed_beats(
+                job, scene_durations, bpm)
             job["short_beat_bpm"] = bpm
             jobs[job_id] = job
         narration = shorts.build_narration_track(
