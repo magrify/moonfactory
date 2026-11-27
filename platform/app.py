@@ -553,8 +553,15 @@ def _prune_active(user_id: str, dead_ids):
 image = (
     modal.Image.debian_slim(python_version="3.12")
     .apt_install("ffmpeg", "fonts-dejavu-core")
-    .pip_install("fastapi[standard]", "requests", "stripe", "pynacl",
-                 "onnxruntime", "numpy", "pillow")
+    # Pinned installs (security fix, 2026-11-27,
+    # floating-runtime-clones-and-unpinned-installs): every
+    # package in the secret-holding images is pinned to an
+    # exact version, so an upstream release cannot change
+    # the code that runs beside production credentials.
+    .pip_install("fastapi[standard]==0.165.0", "requests==2.34.2",
+                 "stripe==17.1.0", "pynacl==1.6.2",
+                 "onnxruntime==1.32.0", "numpy==2.5.5",
+                 "pillow==13.0.0")
     .add_local_file(str(Path(__file__).parent / "pricing.py"), "/platform/pricing.py")
     .add_local_file(
         str(Path(__file__).parent.parent
@@ -614,8 +621,10 @@ image = (
 clip_image = (
     modal.Image.debian_slim(python_version="3.12")
     .apt_install("ffmpeg", "fonts-dejavu-core")
-    .pip_install("sherpa-onnx", "yt-dlp", "numpy", "requests",
-                 "onnxruntime", "pillow", "librosa")
+    .pip_install("sherpa-onnx==2.0.3", "yt-dlp==2026.11.23",
+                 "numpy==2.5.5", "requests==2.34.2",
+                 "onnxruntime==1.32.0", "pillow==13.0.0",
+                 "librosa==1.0.1")
     .add_local_file(str(Path(__file__).parent / "pricing.py"), "/platform/pricing.py")
     .add_local_file(
         str(Path(__file__).parent.parent
