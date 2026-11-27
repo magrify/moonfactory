@@ -10,9 +10,13 @@ the take. A stage failure flags the job "unavailable" and never
 blocks delivery, and the check is never a charge.
 
 No Modal, no network, no generation: the pure alignment, ratio,
-status and splice functions are extracted from
-modal-worker/audio_app.py and exercised against plain data and
-fake speak/transcribe callables, and the platform wrapper's
+status and splice functions are extracted from the LIVE copy
+(the Kaggle audio kernel's WORDCHECK_SCRIPT, where the stage
+has run since the 2026-11-26 move off the Modal audio app)
+and exercised against plain data and fake speak/transcribe
+callables; their agreement with the dormant Modal spare
+(modal-worker/audio_app.py, kept untouched as the flip back)
+is asserted on the same inputs, and the platform wrapper's
 placement and failure handling are asserted in app.py source.
 
 Run:  ~/workspace/sinclip/modal-venv/bin/python scratch/check_word_check.py
@@ -38,12 +42,23 @@ def check(cond, msg):
 
 AUDIO_SRC = (ROOT / "modal-worker" / "audio_app.py").read_text()
 AUDIO_TREE = ast.parse(AUDIO_SRC)
+KERNEL_SRC = (ROOT / "worker-kaggle"
+              / "audio_worker_kernel.py").read_text()
+KERNEL_TREE = ast.parse(KERNEL_SRC)
+WC_SRC = ""
+for _node in KERNEL_TREE.body:
+    if isinstance(_node, ast.Assign) and any(
+            isinstance(t, ast.Name) and t.id == "WORDCHECK_SCRIPT"
+            for t in _node.targets) \
+            and isinstance(_node.value, ast.Constant):
+        WC_SRC = _node.value.value
+WC_TREE = ast.parse(WC_SRC)
 APP_SRC = (ROOT / "platform" / "app.py").read_text()
 APP_TREE = ast.parse(APP_SRC)
 PRICING_SRC = (ROOT / "platform" / "pricing.py").read_text()
 
 
-def audio_ns():
+def audio_ns(tree, src):
     wanted_funcs = {
         "_int_words", "_token_words", "normalize_words",
         "_flat_heard", "_alignment_pairs", "evaluate_script",
@@ -57,19 +72,21 @@ def audio_ns():
     import re
     ns["difflib"] = difflib
     ns["re"] = re
-    for node in AUDIO_TREE.body:
+    ns["np"] = np
+    for node in tree.body:
         if isinstance(node, ast.FunctionDef) \
                 and node.name in wanted_funcs:
-            exec(ast.get_source_segment(AUDIO_SRC, node), ns)
+            exec(ast.get_source_segment(src, node), ns)
         elif isinstance(node, ast.Assign):
             names = {t.id for t in node.targets
                      if isinstance(t, ast.Name)}
             if names & wanted_assigns:
-                exec(ast.get_source_segment(AUDIO_SRC, node), ns)
+                exec(ast.get_source_segment(src, node), ns)
     return ns
 
 
-NS = audio_ns()
+NS = audio_ns(WC_TREE, WC_SRC)
+NS_ORIG = audio_ns(AUDIO_TREE, AUDIO_SRC)
 normalize_words = NS["normalize_words"]
 evaluate_script = NS["evaluate_script"]
 decide_status = NS["decide_status"]
@@ -103,6 +120,29 @@ check(normalize_words("paid 3.5 dollars") ==
 check(normalize_words("over 1,000 views") ==
       ["over", "one", "thousand", "views"],
       "a comma number does not become its spoken words")
+
+# -- the live port agrees with the dormant Modal spare ---------------------
+
+for _script, _heard_words in (
+        ("the quick brown fox jumps",
+         heard(["the", "quick", "brown", "wolf", "jumps"])),
+        ("I have 42 apples and 3.5 liters, don't I?",
+         heard(["i", "have", "42", "apples", "and", "three",
+                "point", "five", "liters", "do", "not", "i"])),
+        ("One two. Three four five! Six?",
+         heard(["one", "two", "three", "four", "five", "six"]))):
+    check(NS["evaluate_script"](_script, _heard_words)
+          == NS_ORIG["evaluate_script"](_script, _heard_words),
+          "the kernel port's alignment disagrees with the "
+          "Modal spare")
+    check(NS["normalize_words"](_script)
+          == NS_ORIG["normalize_words"](_script),
+          "the kernel port's normalization disagrees with "
+          "the Modal spare")
+    check(NS["sentence_spans"](_script)
+          == NS_ORIG["sentence_spans"](_script),
+          "the kernel port's sentence spans disagree with "
+          "the Modal spare")
 
 # -- alignment and ratio math ----------------------------------------------
 
@@ -253,8 +293,23 @@ check("except Exception:" in body,
       "the wrapper can raise into the finishing path")
 check('job.get("voiceover_status") == "ready"' in body,
       "the fix pass is not limited to platform voiced jobs")
-check('"sinclip-audio", "word_check"' in body,
-      "the wrapper does not call the sinclip-audio word check")
+check("_word_check_via_kaggle(" in body,
+      "the wrapper does not route through the Kaggle audio "
+      "worker helper")
+check('"sinclip-audio"' not in body,
+      "the wrapper still calls the Modal audio app")
+check('"sinclip-audio", "word_check"' not in APP_SRC
+      and '"sinclip-audio", "transcribe"' not in APP_SRC,
+      "a live sinclip-audio callable remains in app.py")
+check("_transcribe_via_kaggle(" in APP_SRC,
+      "the captions stage does not route through the Kaggle "
+      "audio worker helper")
+check('"/api/worker/audio/jobs/{job_id}/result"' in APP_SRC
+      and '"/api/worker/audio/jobs/{job_id}/source"' in APP_SRC,
+      "the worker result/source endpoints are missing")
+check('job.get("audio_stage") == "wordcheck"' in APP_SRC,
+      "the file endpoint does not hold wordcheck children "
+      "open for their result post")
 
 body = func_src(APP_TREE, APP_SRC, "ensure_processed")
 check("_word_check_for_job(job, out_path)" in body,
@@ -301,12 +356,14 @@ check('"word_check_listen_at": job.get("word_check_listen_at")'
       "the job payload does not expose the listen list")
 
 check('raise ValueError("word check needs a speech script")'
-      in AUDIO_SRC, "word_check does not refuse an empty script")
-check('raise ValueError("word check needs audio bytes")'
-      in AUDIO_SRC, "word_check does not refuse empty audio")
-check("faster-whisper==1.2.1" in AUDIO_SRC
-      and '"av<19"' in AUDIO_SRC,
-      "the word check image lost its faster-whisper pin")
+      in WC_SRC, "the live word check does not refuse an "
+      "empty script")
+check("faster-whisper==1.2.1" in KERNEL_SRC
+      and '"av<19"' in KERNEL_SRC,
+      "the kernel's whisper setup lost its faster-whisper pin")
+check("def make_wordcheck(job: dict):" in KERNEL_SRC
+      and 'stage in ("wordcheck", "transcribe")' in KERNEL_SRC,
+      "the kernel does not dispatch the word check stages")
 check("word_check" not in PRICING_SRC,
       "the word check leaked into pricing; it is not a charge")
 

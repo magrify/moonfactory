@@ -155,8 +155,9 @@ check("except Exception:" in stage,
       "the stage can raise into the finishing path")
 check('job.get("voiceover_status") in ("ready", "native")' in stage,
       "the speech gate does not cover voiceover and native jobs")
-check('"sinclip-audio", "transcribe"' in stage,
-      "the stage does not fall back to the sinclip-audio transcribe")
+check("_transcribe_via_kaggle(" in stage,
+      "the stage does not fall back to the audio worker's "
+      "transcribe stage")
 check("_CAPTION_TRANSCRIPTS.pop" in stage,
       "the stage does not reuse the word check transcription")
 check("subtitles=" in stage and "libx264" in stage,

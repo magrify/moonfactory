@@ -168,6 +168,389 @@ print(f"VOICEOVER {len(data)} samples", flush=True)
 '''
 
 
+# The word check recipe (2026-11-26): the Modal audio
+# app's word_check / transcribe logic (modal-worker/
+# audio_app.py), ported unchanged in substance: the same
+# normalization, alignment, ratio and splice code, the
+# same faster-whisper base model pass, and the same
+# Kokoro fix pass, speaking through the venv's own
+# KPipeline. It runs under the Python 3.12 venv python
+# like the voiceover recipe, because faster-whisper's
+# stack shares that venv's constraints; the model runs
+# on the session's GPU (float16) when it can and falls
+# back to CPU int8, the Modal stage's own configuration.
+# The kernel drives it through /tmp/wc_params.json and
+# reads /tmp/wc_result.json plus an optional repaired
+# /tmp/wc_fixed.wav.
+WORDCHECK_SCRIPT = r'''
+import difflib, json, re
+import numpy as np
+import soundfile as sf
+
+TAKE_FAIL_RATIO = 0.20
+
+_CONTRACTIONS = {
+    "don't": "do not", "doesn't": "does not", "didn't": "did not",
+    "can't": "cannot", "cannot": "cannot", "won't": "will not",
+    "isn't": "is not", "aren't": "are not", "wasn't": "was not",
+    "weren't": "were not", "couldn't": "could not",
+    "shouldn't": "should not", "wouldn't": "would not",
+    "it's": "it is", "that's": "that is", "there's": "there is",
+    "what's": "what is", "here's": "here is", "let's": "let us",
+    "you're": "you are", "we're": "we are", "i'm": "i am",
+    "i've": "i have", "we'll": "we will", "you'll": "you will",
+    "he's": "he is", "she's": "she is",
+}
+
+_ONES = [
+    "zero", "one", "two", "three", "four", "five", "six", "seven",
+    "eight", "nine", "ten", "eleven", "twelve", "thirteen",
+    "fourteen", "fifteen", "sixteen", "seventeen", "eighteen",
+    "nineteen",
+]
+_TENS = [
+    "", "", "twenty", "thirty", "forty", "fifty", "sixty",
+    "seventy", "eighty", "ninety",
+]
+
+
+def _int_words(n: int) -> list:
+    if n < 20:
+        return [_ONES[n]]
+    if n < 100:
+        out = [_TENS[n // 10]]
+        if n % 10:
+            out.append(_ONES[n % 10])
+        return out
+    if n < 1000:
+        out = [_ONES[n // 100], "hundred"]
+        if n % 100:
+            out += _int_words(n % 100)
+        return out
+    out = _int_words(n // 1000) + ["thousand"]
+    if n % 1000:
+        out += _int_words(n % 1000)
+    return out
+
+
+def _token_words(token: str) -> list:
+    t = token.strip().lower().strip(".,!?;:\"()[]{}")
+    if not t:
+        return []
+    if t in _CONTRACTIONS:
+        return _CONTRACTIONS[t].split()
+    t = t.replace(",", "").strip(".,!?;:\"()[]{}")
+    if not t:
+        return []
+    if re.fullmatch(r"\d+", t):
+        try:
+            return _int_words(int(t))
+        except Exception:
+            return [t]
+    if re.fullmatch(r"\d+\.\d+", t):
+        whole, _, frac = t.partition(".")
+        out = []
+        try:
+            out += _int_words(int(whole))
+            out.append("point")
+            for d in frac:
+                out.append(_ONES[int(d)])
+            return out
+        except Exception:
+            return [t]
+    return [t.replace("'", "")]
+
+
+def normalize_words(text: str) -> list:
+    out = []
+    for token in (text or "").split():
+        out += _token_words(token)
+    return out
+
+
+def _flat_heard(heard_words) -> list:
+    flat = []
+    for w in heard_words or []:
+        for nw in _token_words(str(w.get("word", "")).strip().lower()):
+            flat.append((nw, float(w.get("start", 0.0)),
+                         float(w.get("end", 0.0))))
+    return flat
+
+
+def _alignment_pairs(script_words, flat_heard) -> dict:
+    heard_words = [h[0] for h in flat_heard]
+    sm = difflib.SequenceMatcher(a=script_words, b=heard_words,
+                                 autojunk=False)
+    pairs = {}
+    for tag, i1, i2, j1, j2 in sm.get_opcodes():
+        if tag == "equal":
+            for k in range(i2 - i1):
+                pairs[i1 + k] = (flat_heard[j1 + k][1],
+                                 flat_heard[j1 + k][2])
+        elif tag == "replace":
+            for k in range(min(i2 - i1, j2 - j1)):
+                pairs[i1 + k] = (flat_heard[j1 + k][1],
+                                 flat_heard[j1 + k][2])
+    return pairs
+
+
+def evaluate_script(script, heard_words) -> dict:
+    script_words = normalize_words(script)
+    flat = _flat_heard(heard_words)
+    heard_list = [h[0] for h in flat]
+    sm = difflib.SequenceMatcher(a=script_words, b=heard_list,
+                                 autojunk=False)
+    wrong = []
+    for tag, i1, i2, j1, j2 in sm.get_opcodes():
+        if tag == "equal" or tag == "insert":
+            continue
+        for k in range(i1, i2):
+            off = k - i1
+            heard_word = None
+            at = 0.0
+            end = 0.0
+            if tag == "replace" and j1 + off < j2:
+                heard_word = flat[j1 + off][0]
+                at = flat[j1 + off][1]
+                end = flat[j1 + off][2]
+            elif j1 > 0:
+                at = end = flat[j1 - 1][2]
+            elif j2 < len(flat):
+                at = end = flat[j2][1]
+            wrong.append({
+                "expected": script_words[k],
+                "heard": heard_word,
+                "at": round(float(at), 2),
+                "end": round(float(end), 2),
+                "index": k,
+            })
+    total = len(script_words)
+    return {
+        "total": total,
+        "wrong": wrong,
+        "ratio": (len(wrong) / total) if total else 0.0,
+    }
+
+
+def decide_status(initial_ratio: float, final_ratio: float,
+                  fix_applied: bool) -> str:
+    if initial_ratio == 0:
+        return "passed"
+    if final_ratio > TAKE_FAIL_RATIO:
+        return "take_failed"
+    if fix_applied and final_ratio == 0:
+        return "fixed"
+    return "flagged"
+
+
+def sentence_spans(text) -> list:
+    spans = []
+    idx = 0
+    for m in re.finditer(r"[^.!?]+[.!?]*", text or ""):
+        piece = m.group(0).strip()
+        if not piece:
+            continue
+        n = len(normalize_words(piece))
+        if n == 0:
+            continue
+        spans.append({"text": piece, "start": idx, "end": idx + n})
+        idx += n
+    return spans
+
+
+def _match_format(seg, src_rate, dst_rate, dst_channels):
+    seg = np.asarray(seg, dtype=np.float32)
+    if seg.ndim == 1:
+        seg = seg[:, None]
+    if len(seg) and src_rate != dst_rate:
+        n_out = max(1, int(round(len(seg) * dst_rate / src_rate)))
+        xs = np.linspace(0, len(seg) - 1, n_out)
+        base = np.arange(len(seg))
+        seg = np.stack(
+            [np.interp(xs, base, seg[:, c]) for c in range(seg.shape[1])],
+            axis=1)
+    if seg.shape[1] != dst_channels:
+        if seg.shape[1] == 1:
+            seg = np.repeat(seg, dst_channels, axis=1)
+        else:
+            mono = seg.mean(axis=1, keepdims=True)
+            seg = np.repeat(mono, dst_channels, axis=1) \
+                if dst_channels > 1 else mono
+    return seg.astype(np.float32)
+
+
+def apply_splices(samples, rate, splices):
+    out = np.asarray(samples, dtype=np.float32)
+    if out.ndim == 1:
+        out = out[:, None]
+    for start_s, end_s, repl in sorted(
+            splices, key=lambda s: s[0], reverse=True):
+        repl = np.asarray(repl, dtype=np.float32)
+        if repl.ndim == 1:
+            repl = repl[:, None]
+        a = max(0, min(len(out), int(round(start_s * rate))))
+        b = max(0, min(len(out), int(round(end_s * rate))))
+        if b < a:
+            b = a
+        seg = repl.copy()
+        f = min(int(0.005 * rate), len(seg) // 2, b - a)
+        if f > 0:
+            ramp = np.linspace(0.0, 1.0, f, dtype=np.float32)[:, None]
+            seg[:f] = seg[:f] * ramp + out[a:a + f] * (1.0 - ramp)
+            seg[-f:] = seg[-f:] * (1.0 - ramp) + out[b - f:b] * ramp
+        out = np.concatenate([out[:a], seg, out[b:]], axis=0)
+    return out
+
+
+def run_word_fix(samples, rate, script, wrong, speak_sentence,
+                 transcribe_samples):
+    samples = np.asarray(samples, dtype=np.float32)
+    if samples.ndim == 1:
+        samples = samples[:, None]
+    channels = samples.shape[1]
+    script_words = normalize_words(script)
+    spans = sentence_spans(script)
+    by_sentence = {}
+    for w in wrong:
+        for si, sp in enumerate(spans):
+            if sp["start"] <= w["index"] < sp["end"]:
+                by_sentence.setdefault(si, []).append(w)
+                break
+    splices = []
+    for si, wlist in by_sentence.items():
+        sp = spans[si]
+        try:
+            clean, clean_rate = speak_sentence(sp["text"])
+            clean_heard = transcribe_samples(clean, clean_rate)
+        except Exception:
+            continue
+        clean = np.asarray(clean, dtype=np.float32)
+        if clean.ndim == 1:
+            clean = clean[:, None]
+        sent_words = script_words[sp["start"]:sp["end"]]
+        pairs = _alignment_pairs(sent_words, _flat_heard(clean_heard))
+        for w in wlist:
+            local = w["index"] - sp["start"]
+            if local not in pairs:
+                continue
+            cs, ce = pairs[local]
+            seg = clean[int(round(cs * clean_rate)):
+                        int(round(ce * clean_rate))]
+            if not len(seg):
+                continue
+            seg = _match_format(seg, clean_rate, rate, channels)
+            splices.append((max(0.0, w["at"] - 0.02),
+                            max(0.0, w["end"] + 0.02), seg))
+    if not splices:
+        return samples, 0
+    return apply_splices(samples, rate, splices), len(splices)
+
+
+def _transcribe_words(model, audio_path) -> list:
+    segments, _info = model.transcribe(
+        str(audio_path), word_timestamps=True, language="en",
+        beam_size=1)
+    heard = []
+    for seg in segments:
+        for w in (seg.words or []):
+            heard.append({"word": w.word, "start": float(w.start),
+                          "end": float(w.end)})
+    return heard
+
+
+def _load_model():
+    from faster_whisper import WhisperModel
+    try:
+        return WhisperModel(
+            "base", device="cuda", compute_type="float16",
+            download_root="/tmp/whisper-cache")
+    except Exception:
+        return WhisperModel(
+            "base", device="cpu", compute_type="int8",
+            download_root="/tmp/whisper-cache")
+
+
+def main():
+    with open("/tmp/wc_params.json") as fh:
+        spec = json.load(fh)
+    mode = spec["mode"]
+    source = spec["source"]
+    model = _load_model()
+    heard = _transcribe_words(model, source)
+    if mode == "transcribe":
+        with open("/tmp/wc_result.json", "w") as fh:
+            json.dump({"words": heard}, fh)
+        print(f"TRANSCRIBE {len(heard)} words", flush=True)
+        return
+    script = (spec.get("script") or "").strip()
+    voice = spec.get("voice") or ""
+    if not script:
+        raise ValueError("word check needs a speech script")
+    samples, rate = sf.read(source, dtype="float32",
+                            always_2d=True)
+
+    def transcribe_samples(s, r):
+        p = "/tmp/wc_seg.wav"
+        sf.write(p, s, r)
+        return _transcribe_words(model, p)
+
+    first = evaluate_script(script, heard)
+    final = first
+    final_heard = heard
+    applied = 0
+    if first["wrong"] and voice:
+        holder = {}
+
+        def speak_sentence(text):
+            if "pipeline" not in holder:
+                from kokoro import KPipeline
+                lang = "b" if voice.startswith("b") else "a"
+                holder["pipeline"] = KPipeline(lang_code=lang)
+            chunks = []
+            for _g, _p, audio in holder["pipeline"](
+                    text, voice=voice):
+                if audio is not None:
+                    chunks.append(
+                        np.asarray(audio, dtype=np.float32))
+            if not chunks:
+                raise RuntimeError("Kokoro produced no audio")
+            data = np.concatenate(chunks) \
+                if len(chunks) > 1 else chunks[0]
+            return data[:, None], 24000
+
+        new_samples, applied = run_word_fix(
+            samples, rate, script, first["wrong"], speak_sentence,
+            transcribe_samples)
+        if applied:
+            fixed_heard = transcribe_samples(new_samples, rate)
+            final = evaluate_script(script, fixed_heard)
+            if final["ratio"] <= TAKE_FAIL_RATIO:
+                sf.write("/tmp/wc_fixed.wav", new_samples, rate,
+                         format="WAV", subtype="PCM_16")
+                final_heard = fixed_heard
+    status = decide_status(first["ratio"], final["ratio"],
+                           bool(applied))
+    result = {
+        "status": status,
+        "wrong": [
+            {"expected": w["expected"], "heard": w["heard"],
+             "at": w["at"]}
+            for w in final["wrong"]
+        ],
+        "listen_at": [w["at"] for w in final["wrong"]],
+        "wrong_ratio": round(final["ratio"], 4),
+        "initial_wrong_ratio": round(first["ratio"], 4),
+        "words": final_heard,
+    }
+    with open("/tmp/wc_result.json", "w") as fh:
+        json.dump(result, fh)
+    print(f"WORDCHECK {status}", flush=True)
+
+
+main()
+'''
+
+
 def log(msg):
     print(f"[audio-worker] {msg}", flush=True)
 
@@ -595,6 +978,109 @@ def make_voiceover_onnx(job: dict, text: str,
     return out_path
 
 
+_WHISPER_READY = False
+
+
+def setup_whisper():
+    """Install faster-whisper into the Python 3.12 venv
+    the speech stage already uses (the Modal word check's
+    own pins: faster-whisper 1.2.1, av<19), so the word
+    check and transcribe stages can run here. The venv
+    usually exists already (the Kokoro setup made it);
+    its setup thread is joined first, without inheriting
+    a speech failure: the check needs the venv, not the
+    speech engine. Runs once per session."""
+    global _WHISPER_READY
+    if _WHISPER_READY:
+        return
+    thread = _SETUP_THREADS.get("kokoro")
+    if thread is not None:
+        thread.join()
+    uv = uv_path()
+    if not KOKORO_VENV_PYTHON.exists():
+        KOKORO_ROOT.mkdir(parents=True, exist_ok=True)
+        r = subprocess.run(
+            [uv, "venv", "--python", "3.12",
+             str(KOKORO_ROOT / ".venv")],
+            capture_output=True, text=True, timeout=900)
+        if r.returncode != 0 or not KOKORO_VENV_PYTHON.exists():
+            raise RuntimeError(
+                f"whisper venv create failed: "
+                f"{(r.stdout + r.stderr)[-280:]}")
+    r = subprocess.run(
+        [uv, "pip", "install", "--python",
+         str(KOKORO_VENV_PYTHON),
+         "faster-whisper==1.2.1", "av<19", "soundfile", "numpy"],
+        capture_output=True, text=True, timeout=1800)
+    log(f"uv pip install faster-whisper -> rc={r.returncode}")
+    if r.returncode != 0:
+        raise RuntimeError(
+            f"uv pip install faster-whisper failed: "
+            f"{(r.stdout + r.stderr)[-280:]}")
+    _WHISPER_READY = True
+    log("faster-whisper ready (word check / transcribe)")
+
+
+def make_wordcheck(job: dict):
+    """One word check stage (wordcheck or transcribe):
+    download the job's final audio through the source
+    endpoint, run the check script under the 3.12 venv
+    python (the Modal stage's own logic, ported in
+    WORDCHECK_SCRIPT), upload any repaired wav through
+    the file endpoint, and post the outcome through the
+    result endpoint, which is what marks the child
+    done."""
+    setup_whisper()
+    job_id = job["id"]
+    src_path = WORKING / f"wc-source-{job_id}.wav"
+    resp = requests.get(
+        f"{PLATFORM}/api/worker/audio/jobs/{job_id}/source",
+        headers=HEADERS, timeout=600)
+    resp.raise_for_status()
+    src_path.write_bytes(resp.content)
+    Path("/tmp/wc_params.json").write_text(json.dumps({
+        "mode": job.get("stage") or "",
+        "source": str(src_path),
+        "script": job.get("script") or "",
+        "voice": job.get("voice") or "",
+    }))
+    script_path = Path("/tmp/run_wordcheck.py")
+    script_path.write_text(WORDCHECK_SCRIPT)
+    for stale in (Path("/tmp/wc_result.json"),
+                  Path("/tmp/wc_fixed.wav")):
+        if stale.exists():
+            stale.unlink()
+    env = dict(os.environ)
+    env["HF_HOME"] = str(KOKORO_HF_HOME)
+    proc = subprocess.run(
+        [str(KOKORO_VENV_PYTHON), str(script_path)],
+        capture_output=True, text=True,
+        timeout=GEN_TIMEOUT_SECONDS, env=env)
+    print(proc.stdout[-3000:], flush=True)
+    if proc.returncode != 0:
+        print(proc.stderr[-3000:], flush=True)
+        raise RuntimeError(
+            f"word check subprocess failed rc={proc.returncode}")
+    result_path = Path("/tmp/wc_result.json")
+    if not result_path.exists():
+        raise RuntimeError("word check produced no result")
+    result = json.loads(result_path.read_text())
+    fixed_path = Path("/tmp/wc_fixed.wav")
+    if fixed_path.exists():
+        log(f"job {job_id}: uploading repaired wav")
+        with open(fixed_path, "rb") as fh:
+            up = requests.post(
+                f"{PLATFORM}/api/worker/audio/jobs/"
+                f"{job_id}/file",
+                headers=HEADERS, data=fh, timeout=600)
+        up.raise_for_status()
+    posted = requests.post(
+        f"{PLATFORM}/api/worker/audio/jobs/{job_id}/result",
+        headers=HEADERS, json=result, timeout=60)
+    posted.raise_for_status()
+    log(f"job {job_id}: word check result posted")
+
+
 def fail_job(job_id: str, message: str):
     try:
         requests.post(
@@ -685,15 +1171,22 @@ def main():
                 out_path = make_bed(job)
             elif stage == "voiceover":
                 out_path = make_voiceover(job)
+            elif stage in ("wordcheck", "transcribe"):
+                # These stages deliver for themselves: any
+                # repaired wav through the file endpoint and
+                # the outcome through the result endpoint.
+                make_wordcheck(job)
+                out_path = None
             else:
                 raise RuntimeError(f"unknown audio stage {stage!r}")
-            log(f"job {job['id']}: uploading result")
-            with open(out_path, "rb") as fh:
-                up = requests.post(
-                    f"{PLATFORM}/api/worker/audio/jobs/"
-                    f"{job['id']}/file",
-                    headers=HEADERS, data=fh, timeout=600)
-            up.raise_for_status()
+            if out_path is not None:
+                log(f"job {job['id']}: uploading result")
+                with open(out_path, "rb") as fh:
+                    up = requests.post(
+                        f"{PLATFORM}/api/worker/audio/jobs/"
+                        f"{job['id']}/file",
+                        headers=HEADERS, data=fh, timeout=600)
+                up.raise_for_status()
             log(f"job {job['id']}: done")
         except Exception:
             message = traceback.format_exc()[-280:]

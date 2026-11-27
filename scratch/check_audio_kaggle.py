@@ -4,16 +4,21 @@ Jack's order: Modal is almost maxed out, so the platform's
 self-contained audio stages move to Kaggle like the house
 lanes did. The ACE-Step music bed stage (per-job custom
 beds and the cached named-style beds) and the Kokoro
-voiceover stage now run on the Kaggle audio worker; the
-word check and the transcription stage stay on the Modal
-audio app (both run inside the delivery path against the
-finished audio). This suite pins the move's shape without
-any network, Modal, or Kaggle call:
+voiceover stage now run on the Kaggle audio worker. The
+word check and the transcription stage stayed on the
+Modal audio app through that move and joined the same
+worker on 2026-11-26 (the cost pass: they were the last
+live calls on the Modal app), riding the same child-job
+seam with a source download and a result post added.
+This suite pins the moves' shape without any network,
+Modal, or Kaggle call:
 
 - every bed and voiceover call site routes through the
   _audio_bytes seam and no generate_bed / generate_voiceover
-  callable is invoked from the platform anymore, while the
-  word check and transcribe calls stay;
+  callable is invoked from the platform anymore, and the
+  word check and transcribe call sites route through the
+  _wordcheck_result seam with no sinclip-audio callable
+  invoked from the platform at all;
 - the callers' fallbacks are untouched (the house bed with
   music_fallback / audio_fallback, the voiceover
   "unavailable" flag);
@@ -76,10 +81,14 @@ def fn_source(tree, name):
 check('"sinclip-audio", "generate_bed"' not in PLATFORM
       and '"sinclip-audio", "generate_voiceover"' not in PLATFORM,
       "a bed or voiceover callable is still invoked from the platform")
-check('"sinclip-audio", "word_check"' in PLATFORM,
-      "the word check no longer rides the Modal audio app")
-check('"sinclip-audio", "transcribe"' in PLATFORM,
-      "the transcription stage no longer rides the Modal audio app")
+check('"sinclip-audio", "word_check"' not in PLATFORM
+      and '"sinclip-audio", "transcribe"' not in PLATFORM,
+      "a word check or transcribe callable is still invoked "
+      "from the platform")
+check("_word_check_via_kaggle(" in PLATFORM
+      and "_transcribe_via_kaggle(" in PLATFORM,
+      "the word check stages do not route through the "
+      "Kaggle seam helpers")
 
 for fn_name, stage in (("_short_custom_bed_for_job", "bed"),
                        ("_short_bed_for_job", "bed"),

@@ -93,8 +93,8 @@ check("VIDLAB_VIDEO_MODELS" in refresh and "/v1/models" in refresh,
 
 vidlab_models = sorted(
     m for m, p in app.MODEL_PROVIDER.items() if p == "vidlab")
-check(len(vidlab_models) == 25,
-      f"expected 25 vidlab video models, found {len(vidlab_models)}")
+check(len(vidlab_models) == 23,
+      f"expected 23 vidlab video models, found {len(vidlab_models)}")
 model_ids = {m["id"] for m in app.MODELS}
 for model in vidlab_models:
     check(model in model_ids, f"{model} missing from MODELS")
@@ -118,9 +118,11 @@ for model in vidlab_models:
     check(app.provider_for(model, tiers[0]) == "vidlab",
           f"{model} does not resolve to vidlab")
 
-# The reroutes and unpauses.
-for model in ("kling4", "seedance2_fast", "seedance25_flash",
-              "pixverse_v6", "vidu_q4"):
+# The reroutes and unpauses. (Seedance 2.0 Fast and Vidu Q4
+# left VidLab in the 2026-11-26 route audit, to SpicyAPI and
+# Kie; their new routes are pinned in
+# check_route_audit_framehush_lanes.py.)
+for model in ("kling4", "seedance25_flash", "pixverse_v6"):
     check(app.MODEL_PROVIDER.get(model) == "vidlab",
           f"{model} was not rerouted to vidlab")
 check(pricing.PROVIDER_RATES_CENTS_PER_SECOND["kling4"]

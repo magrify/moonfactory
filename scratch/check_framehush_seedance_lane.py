@@ -161,8 +161,8 @@ refresh = func_src("refresh_provider_rates")
 check(bool(refresh), "refresh_provider_rates not found")
 check("beatapi.io/seedance" not in refresh,
       "rate refresh still reads BeatAPI's Seedance page")
-check('required = {"wan3"}' in refresh,
-      "rate refresh required set still names seedance")
+check("required = set()" in refresh,
+      "rate refresh required set not emptied by the audit moves")
 
 # -- submit and mirror ----------------------------------------------------
 
