@@ -184,30 +184,32 @@ def setup_engine():
         pip_install(pkg)
     heartbeat()
     # The pinned frontend normalizes text with the wetext
-    # package, whose kaldifst dependency may have no wheel
-    # for Kaggle's Python. If the real package will not
-    # import, drop in a pass-through shim under the same
-    # name: the frontend still spells numbers out itself
+    # package. The real package is never used here, in any
+    # session: its Normalizer downloads its rule files from
+    # ModelScope at first use, and ModelScope rate-limits
+    # this network (a live clone died on exactly that
+    # answer, 2026-11-27), and its kaldifst dependency may
+    # also have no wheel for Kaggle's Python. The measured
+    # recipe (similarity 0.8599, WER 0.0, 2026-11-22) ran
+    # with the normalizer stubbed pass-through, so the shim
+    # goes in unconditionally, first on sys.path: the
+    # frontend still spells numbers out itself
     # (spell_out_number runs after the normalizer), so
     # cloning keeps working, just without wetext's extra
     # cleanup rules.
-    try:
-        import wetext  # noqa: F401
-        log("wetext available")
-    except Exception as exc:
-        log(f"wetext unavailable ({exc}); writing the shim")
-        shim_dir = WORKING / "shims"
-        shim_dir.mkdir(exist_ok=True)
-        (shim_dir / "wetext.py").write_text(
-            '"""Pass-through stand-in for the wetext package\n'
-            '(see voice_worker_kernel.setup_engine)."""\n\n\n'
-            "class Normalizer:\n"
-            "    def __init__(self, *args, **kwargs):\n"
-            "        pass\n\n"
-            "    def normalize(self, text):\n"
-            "        return text\n")
-        if str(shim_dir) not in sys.path:
-            sys.path.insert(0, str(shim_dir))
+    shim_dir = WORKING / "shims"
+    shim_dir.mkdir(exist_ok=True)
+    (shim_dir / "wetext.py").write_text(
+        '"""Pass-through stand-in for the wetext package\n'
+        '(see voice_worker_kernel.setup_engine)."""\n\n\n'
+        "class Normalizer:\n"
+        "    def __init__(self, *args, **kwargs):\n"
+        "        pass\n\n"
+        "    def normalize(self, text):\n"
+        "        return text\n")
+    if str(shim_dir) not in sys.path:
+        sys.path.insert(0, str(shim_dir))
+    log("wetext pass-through shim in place")
     repo = WORKING / "CosyVoice"
     if not repo.exists():
         # Full clone, then pin to the weights' era commit:

@@ -164,6 +164,12 @@ check("engine setup in background" in KERNEL
       "first claimed job")
 check("wetext shim" in KERNEL or "pass-through shim" in KERNEL,
       "voice kernel has no wetext fallback shim")
+check("wetext pass-through shim in place" in KERNEL,
+      "voice kernel does not force the wetext pass-through "
+      "shim: the real package's Normalizer downloads its "
+      "rule files from ModelScope at first use, which "
+      "rate-limits this network and kills the clone mid "
+      "synthesis (the measured recipe ran with the stub)")
 check("FunAudioLLM/CosyVoice" in KERNEL,
       "voice kernel does not fetch the official CosyVoice repo")
 for route in ("/api/worker/voice/heartbeat", "/api/worker/voice/jobs/next",
