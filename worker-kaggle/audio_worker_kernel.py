@@ -541,13 +541,39 @@ def _load_model():
             download_root="/tmp/whisper-cache")
 
 
+_MODEL = {}
+
+
+def _transcribe(audio_path) -> list:
+    """Transcribe with the stage's one model, rebuilt on
+    CPU after any failure (2026-11-27). _load_model's
+    fallback covers a CUDA model that fails to construct;
+    it cannot cover a CUDA model that constructs cleanly
+    and then fails at inference, which a rented GPU image
+    can produce (the ctranslate2 runtime libraries are the
+    known case), nor a model download that only fails on
+    its first attempt. The first failure of any kind
+    rebuilds the model on CPU int8 and retries once, and
+    the rebuilt model is the one every later transcription
+    in this run uses, the fix pass's included."""
+    if "model" not in _MODEL:
+        _MODEL["model"] = _load_model()
+    try:
+        return _transcribe_words(_MODEL["model"], audio_path)
+    except Exception:
+        from faster_whisper import WhisperModel
+        _MODEL["model"] = WhisperModel(
+            "base", device="cpu", compute_type="int8",
+            download_root="/tmp/whisper-cache")
+        return _transcribe_words(_MODEL["model"], audio_path)
+
+
 def main():
     with open("/tmp/wc_params.json") as fh:
         spec = json.load(fh)
     mode = spec["mode"]
     source = spec["source"]
-    model = _load_model()
-    heard = _transcribe_words(model, source)
+    heard = _transcribe(source)
     if mode == "transcribe":
         heard = _align_words(source, heard)
         with open("/tmp/wc_result.json", "w") as fh:
@@ -564,7 +590,7 @@ def main():
     def transcribe_samples(s, r):
         p = "/tmp/wc_seg.wav"
         sf.write(p, s, r)
-        return _transcribe_words(model, p)
+        return _transcribe(p)
 
     first = evaluate_script(script, heard)
     final = first
@@ -1115,7 +1141,8 @@ def setup_whisper():
         [uv, "pip", "install", "--python",
          str(KOKORO_VENV_PYTHON),
          "faster-whisper==1.2.1", "av==18.1.1",
-         "soundfile==0.14.0", "numpy==2.5.5"],
+         "soundfile==0.14.0", "numpy==2.5.5",
+         "ctranslate2==4.9.1", "tokenizers==0.23.3"],
         capture_output=True, text=True, timeout=1800)
     log(f"uv pip install faster-whisper -> rc={r.returncode}")
     if r.returncode != 0:
@@ -1136,6 +1163,27 @@ def setup_whisper():
          "whisperx==3.8.6", "faster-whisper==1.2.1", "av==18.1.1"],
         capture_output=True, text=True, timeout=1800)
     log(f"uv pip install whisperx (best effort) -> rc={r.returncode}")
+    # Repair pass (2026-11-27): the WhisperX install above
+    # re-resolves this shared venv, and the word check
+    # subprocess runs whatever it leaves behind; a session
+    # claimed its first word check and the subprocess died
+    # with a bare rc=1 in exactly that state. Re-applying
+    # the stage's pinned set last makes the venv's final
+    # state the proven one, the set a clean install of
+    # these pins resolves to and the stage passes against,
+    # whatever WhisperX's resolver moved to make room.
+    r = subprocess.run(
+        [uv, "pip", "install", "--python",
+         str(KOKORO_VENV_PYTHON),
+         "faster-whisper==1.2.1", "av==18.1.1",
+         "soundfile==0.14.0", "numpy==2.5.5",
+         "ctranslate2==4.9.1", "tokenizers==0.23.3"],
+        capture_output=True, text=True, timeout=1800)
+    log(f"uv pip install wordcheck pins (repair) -> rc={r.returncode}")
+    if r.returncode != 0:
+        raise RuntimeError(
+            f"uv pip install wordcheck pins failed: "
+            f"{(r.stdout + r.stderr)[-280:]}")
     _WHISPER_READY = True
     log("faster-whisper ready (word check / transcribe)")
 
@@ -1178,8 +1226,19 @@ def make_wordcheck(job: dict):
     print(proc.stdout[-3000:], flush=True)
     if proc.returncode != 0:
         print(proc.stderr[-3000:], flush=True)
+        # The subprocess's own last line rides the raised
+        # message so the child's platform record carries
+        # the real cause, not just the return code: the
+        # kernel log holding the full stderr cannot be
+        # read back while the session lives (and this
+        # kernel's output tree is a whole venv besides),
+        # and a bare rc=1 left a failed stage undiagnosable
+        # from the records on 2026-11-27.
+        tail = (proc.stderr or "").strip().splitlines()
+        last = tail[-1][-160:] if tail else ""
         raise RuntimeError(
-            f"word check subprocess failed rc={proc.returncode}")
+            f"word check subprocess failed rc={proc.returncode}: "
+            f"{last}")
     result_path = Path("/tmp/wc_result.json")
     if not result_path.exists():
         raise RuntimeError("word check produced no result")

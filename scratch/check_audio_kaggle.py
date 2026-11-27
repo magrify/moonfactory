@@ -398,6 +398,28 @@ check('ensure_engine("bed")' in KERNEL
       and 'ensure_engine("voiceover")' in KERNEL,
       "the kernel engines no longer set up independently per stage")
 
+# --- the word check subprocess hardening (2026-11-27) -----------------------
+# A freshly woken session claimed its first word check and
+# the subprocess died with a bare rc=1: the stage had no
+# inference-time fallback and its setup left the shared
+# venv in whatever state the WhisperX resolver produced.
+# These pins hold the three repairs.
+
+check("def _transcribe(audio_path)" in KERNEL
+      and '_MODEL["model"] = WhisperModel(' in KERNEL
+      and 'device="cpu", compute_type="int8"' in KERNEL,
+      "the word check lost its rebuild-on-CPU transcription fallback")
+check("heard = _transcribe(source)" in KERNEL
+      and "return _transcribe(p)" in KERNEL,
+      "a word check call site bypasses the guarded transcription")
+check(KERNEL.count('"ctranslate2==4.9.1", "tokenizers==0.23.3"') >= 2
+      and "wordcheck pins (repair)" in KERNEL,
+      "the whisper setup no longer re-applies the pinned set "
+      "after the WhisperX install")
+check('f"word check subprocess failed rc={proc.returncode}: "' in KERNEL
+      and "tail[-1][-160:]" in KERNEL,
+      "a failed word check no longer carries its cause to the record")
+
 # --- the revert path ---------------------------------------------------------
 
 check("def generate_bed(" in AUDIO_APP
