@@ -1,0 +1,108 @@
+"""Pin for the billing cluster (security fixes, 2026-11-27).
+
+stripe-refund-dispute-no-clawback: the webhook records every
+credit in a ledger and handles charge.refunded,
+charge.dispute.created, charge.dispute.closed, and
+checkout.session.async_payment_failed; a delayed payment
+method's credit is parked at checkout completion and granted
+only when the money lands.
+
+billing-autoreload-webhook-arm-without-explicit-opt-in: no
+webhook branch arms auto reload; only the billing endpoint
+enables it, stamping explicit=True, and attempt_auto_reload
+requires the stamp (which also migrates every previously
+webhook-armed account to opt-in-required).
+
+The reversal helper is exercised for real below: it is
+AST-extracted from app.py and run against plain dicts with
+the repo's own pricing module.
+"""
+import ast
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+SRC = (ROOT / "platform" / "app.py").read_text()
+TREE = ast.parse(SRC)
+sys.path.insert(0, str(ROOT / "platform"))
+import pricing  # noqa: E402
+
+
+def fn(name):
+    for node in ast.walk(TREE):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) \
+                and node.name == name:
+            return ast.get_source_segment(SRC, node)
+    raise AssertionError(f"function {name} not found")
+
+
+def check(label, cond):
+    if not cond:
+        print(f"FAIL: {label}")
+        sys.exit(1)
+    print(f"ok: {label}")
+
+
+webhook = fn("stripe_webhook")
+for etype in ("charge.refunded", "charge.dispute.created",
+              "charge.dispute.closed",
+              "checkout.session.async_payment_failed"):
+    check(f"webhook handles {etype}", f'"{etype}"' in webhook)
+check("checkout credit is recorded in the ledger",
+      "_record_stripe_credit" in webhook
+      and "stripe_pending_credits" in webhook)
+check("unpaid async credit is parked, not granted",
+      'obj.get("payment_status") == "unpaid"' in webhook)
+
+# No webhook branch arms auto reload anymore.
+check("no webhook branch sets auto_reload enabled",
+      'cfg["enabled"] = True' not in webhook
+      and '"enabled": True' not in webhook)
+endpoint = fn("billing_autoreload")
+check("the billing endpoint stamps explicit opt-in",
+      '"explicit": True' in endpoint)
+attempt = fn("attempt_auto_reload")
+check("attempt_auto_reload requires the explicit stamp",
+      'cfg.get("explicit")' in attempt)
+
+# Exercise the reversal helper for real.
+seg = fn("_reverse_stripe_money")
+ns = {"pricing": pricing}
+exec(seg, ns)
+reverse = ns["_reverse_stripe_money"]
+
+user = {"balance_cents": 5000, "net_paid_cents": 10000.0}
+entry = {"credit_cents": 2000, "gross_cents": 2000,
+         "reversed_gross": 0}
+took = reverse(user, entry, 2000)
+check("full refund reverses the full credit",
+      took == 2000 and user["balance_cents"] == 3000)
+check("full refund removes the net paid",
+      abs(user["net_paid_cents"]
+          - (10000.0 - pricing.net_of(2000))) < 1e-9)
+check("a replayed refund reverses nothing twice",
+      reverse(user, entry, 2000) == 0
+      and user["balance_cents"] == 3000)
+
+user = {"balance_cents": 1000, "net_paid_cents": 5000.0}
+entry = {"credit_cents": 2000, "gross_cents": 2000,
+         "reversed_gross": 0}
+reverse(user, entry, 500)
+check("a partial refund reverses proportionally",
+      user["balance_cents"] == 500
+      and entry["reversed_gross"] == 500)
+reverse(user, entry, 2000)
+check("cumulative refunds stop at the payment total",
+      entry["reversed_gross"] == 2000
+      and user["balance_cents"] == -1000)
+
+user = {"balance_cents": 800, "net_paid_cents": 0.0}
+entry = {"credit_cents": 2000, "gross_cents": 2000,
+         "reversed_gross": 0, "dispute_gross": 2000}
+reverse(user, entry, 2000, net_already_removed=True)
+check("a lost dispute reverses credit without double "
+      "removing net paid",
+      user["balance_cents"] == -1200
+      and user["net_paid_cents"] == 0.0)
+
+print("check_billing: all pins hold")

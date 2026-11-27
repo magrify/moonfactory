@@ -8764,7 +8764,9 @@ def api():
             "has_password": bool(user.get("pw")),
             "has_saved_card": bool(user.get("stripe_customer_id")
                                    and user.get("stripe_payment_method_id")),
-            "auto_reload_enabled": bool((user.get("auto_reload") or {}).get("enabled")),
+            "auto_reload_enabled": bool(
+                (user.get("auto_reload") or {}).get("enabled")
+                and (user.get("auto_reload") or {}).get("explicit")),
             "auto_reload_amount_cents": int((user.get("auto_reload") or {}).get("amount_cents") or 0),
             "free_jobs_used": free_jobs_total(user),
             "free_jobs_limit": FREE_CLIPS_TOTAL,
@@ -22421,6 +22423,86 @@ document.getElementById('go').onclick = async () => {{
         user["balance_cents"] = int(user.get("balance_cents", 0)) + int(credit_cents)
         add_net_paid(user, gross_cents)
 
+    # The refund and dispute clawback (security fix, 2026-11-27,
+    # stripe-refund-dispute-no-clawback). Every webhook credit
+    # is recorded in a meta ledger keyed by payment intent (or
+    # by invoice for subscription payments), so a later refund
+    # or dispute can reverse exactly what the payment granted:
+    # the balance credit comes back off the balance and the
+    # gross comes back out of net paid, which is what the hard
+    # cost ceiling reads. Reversals track the gross already
+    # reversed, so cumulative refund events and replays can
+    # never reverse the same money twice.
+    def _record_stripe_credit(key, user, credit_cents,
+                              gross_cents, pi=None):
+        if not key:
+            return
+        credits = meta.get("stripe_credits") or {}
+        credits[key] = {
+            "user_id": user["id"],
+            "credit_cents": int(credit_cents or 0),
+            "gross_cents": int(gross_cents or 0),
+            "reversed_gross": 0,
+            "pi": pi,
+        }
+        meta["stripe_credits"] = credits
+
+    def _find_stripe_credit(pi, invoice):
+        credits = meta.get("stripe_credits") or {}
+        if pi and f"pi:{pi}" in credits:
+            return f"pi:{pi}", credits[f"pi:{pi}"]
+        if invoice and f"in:{invoice}" in credits:
+            return f"in:{invoice}", credits[f"in:{invoice}"]
+        if pi:
+            for key, entry in credits.items():
+                if entry.get("pi") == pi:
+                    return key, entry
+        return None, None
+
+    def _user_for_charge(obj):
+        customer = obj.get("customer")
+        for key in list(users.keys()):
+            if not key.startswith("id:"):
+                continue
+            candidate = users.get(key)
+            if candidate \
+                    and candidate.get("stripe_customer_id") == customer:
+                return candidate
+        return None
+
+    def _reverse_stripe_money(user, entry, gross_cents,
+                              net_already_removed=False):
+        """Take gross_cents of a payment back out of the
+        account: the proportional share of its balance credit
+        off the balance, and the net of the gross out of net
+        paid (unless a dispute freeze already removed it).
+        Returns the gross actually reversed."""
+        gross_cents = int(gross_cents or 0)
+        if gross_cents <= 0:
+            return 0
+        if entry and entry.get("gross_cents"):
+            already = int(entry.get("reversed_gross") or 0)
+            take = min(int(entry["gross_cents"]) - already,
+                       gross_cents)
+            if take <= 0:
+                return 0
+            credit_take = int(
+                int(entry.get("credit_cents") or 0) * take
+                // int(entry["gross_cents"]))
+            entry["reversed_gross"] = already + take
+        else:
+            # A payment from before the ledger existed: its
+            # credit tracked its gross one to one.
+            take = gross_cents
+            credit_take = take
+        user["balance_cents"] = \
+            int(user.get("balance_cents", 0)) - credit_take
+        if not net_already_removed:
+            user["net_paid_cents"] = max(
+                0.0, float(user.get("net_paid_cents") or 0.0)
+                - pricing.net_of(take))
+        return take
+
     def attempt_auto_reload(user: dict, state: dict) -> bool:
         """Auto reload (Jack, 2026-11-17). When a job is blocked
         because the balance can no longer cover it, charge the
@@ -22436,7 +22518,16 @@ document.getElementById('go').onclick = async () => {{
             return bool(state.get("ok"))
         cfg = user.get("auto_reload") or {}
         amount = int(cfg.get("amount_cents") or 0)
+        # Explicit opt-in only (security fix, 2026-11-27,
+        # billing-autoreload-webhook-arm-without-explicit-opt-in):
+        # a reload fires only for a config the customer set
+        # in the billing panel, which stamps explicit=True.
+        # Configs armed as a webhook side effect before this
+        # fix carry no stamp, so they stop firing until the
+        # customer turns reload on again in the panel -- the
+        # migration to explicit opt-in.
         if (not cfg.get("enabled")
+                or not cfg.get("explicit")
                 or amount not in pricing.RELOAD_AMOUNTS_CENTS
                 or not user.get("stripe_customer_id")
                 or not user.get("stripe_payment_method_id")):
@@ -22642,7 +22733,9 @@ document.getElementById('go').onclick = async () => {{
                 raise HTTPException(
                     status_code=422,
                     detail="save a card first, then turn auto reload on")
-            user["auto_reload"] = {"enabled": True, "amount_cents": amount}
+            user["auto_reload"] = {"enabled": True,
+                                   "amount_cents": amount,
+                                   "explicit": True}
         else:
             cfg = dict(user.get("auto_reload") or {})
             cfg["enabled"] = False
@@ -22696,11 +22789,10 @@ document.getElementById('go').onclick = async () => {{
                                 user["stripe_payment_method_id"] = si.payment_method
                         except Exception:
                             pass
-                    if user.get("stripe_payment_method_id"):
-                        cfg = dict(user.get("auto_reload") or {})
-                        cfg["enabled"] = True
-                        cfg["amount_cents"] = int(cfg.get("amount_cents") or 1000)
-                        user["auto_reload"] = cfg
+                    # Saving a card never arms auto reload
+                    # (security fix, 2026-11-27): only the
+                    # billing panel endpoint enables it, with
+                    # an amount the customer picked.
                 elif obj.get("mode") == "subscription":
                     user["plan"] = "creator"
                     user["past_due"] = False
@@ -22718,11 +22810,6 @@ document.getElementById('go').onclick = async () => {{
                             user["stripe_payment_method_id"] = pm
                     except Exception:
                         pass
-                    if user.get("stripe_payment_method_id"):
-                        cfg = dict(user.get("auto_reload") or {})
-                        cfg["enabled"] = True
-                        cfg["amount_cents"] = int(cfg.get("amount_cents") or 1000)
-                        user["auto_reload"] = cfg
                     u = user.get("usage") or {}
                     u["included_seconds"] = 0.0
                     u["included_cost_cents"] = 0.0
@@ -22732,7 +22819,33 @@ document.getElementById('go').onclick = async () => {{
                     # too; counting it here as well would double it.
                 elif obj.get("mode") == "payment":
                     credit = int((obj.get("metadata") or {}).get("credit_cents") or 0)
-                    credit_topup(user, credit, obj.get("amount_total") or credit)
+                    if obj.get("payment_status") == "unpaid":
+                        # A delayed payment method (security
+                        # fix, 2026-11-27): the session
+                        # completed but the money has not
+                        # arrived, so the credit is parked,
+                        # not granted. payment_intent.succeeded
+                        # grants it when the money lands;
+                        # checkout.session.async_payment_failed
+                        # drops the park.
+                        pending = meta.get(
+                            "stripe_pending_credits") or {}
+                        pending[obj.get("payment_intent")] = {
+                            "user_id": user["id"],
+                            "credit_cents": credit,
+                            "gross_cents": int(
+                                obj.get("amount_total") or credit),
+                        }
+                        meta["stripe_pending_credits"] = pending
+                    else:
+                        credit_topup(
+                            user, credit,
+                            obj.get("amount_total") or credit)
+                        _record_stripe_credit(
+                            f"pi:{obj.get('payment_intent')}",
+                            user, credit,
+                            obj.get("amount_total") or credit,
+                            pi=obj.get("payment_intent"))
                     user["stripe_customer_id"] = obj.get("customer") or user.get("stripe_customer_id")
                     pi_id = obj.get("payment_intent")
                     if pi_id:
@@ -22748,9 +22861,6 @@ document.getElementById('go').onclick = async () => {{
                                 user["stripe_payment_method_id"] = pi.payment_method
                         except Exception:
                             pass
-                    if user.get("stripe_payment_method_id") and credit:
-                        user["auto_reload"] = {"enabled": True,
-                                                "amount_cents": credit}
                 save_user(user)
         elif etype == "invoice.paid":
             counted = meta.get("net_counted_invoices") or {}
@@ -22772,6 +22882,10 @@ document.getElementById('go').onclick = async () => {{
                     user["past_due"] = False
                     if first_count:
                         add_net_paid(user, obj.get("amount_paid"))
+                        _record_stripe_credit(
+                            f"in:{invoice_id}", user, 0,
+                            obj.get("amount_paid"),
+                            pi=obj.get("payment_intent"))
                     save_user(user)
         elif etype == "invoice.payment_failed":
             customer = obj.get("customer")
@@ -22799,14 +22913,23 @@ document.getElementById('go').onclick = async () => {{
                 user["stripe_payment_method_id"] = obj.get("payment_method")
                 if obj.get("customer"):
                     user["stripe_customer_id"] = obj.get("customer")
-                cfg = dict(user.get("auto_reload") or {})
-                cfg["enabled"] = True
-                cfg["amount_cents"] = int(cfg.get("amount_cents") or 1000)
-                user["auto_reload"] = cfg
                 save_user(user)
         elif etype == "payment_intent.succeeded":
             md = obj.get("metadata") or {}
-            if md.get("kind") == "auto_reload":
+            pending = meta.get("stripe_pending_credits") or {}
+            if obj.get("id") in pending:
+                park = pending.pop(obj.get("id"))
+                meta["stripe_pending_credits"] = pending
+                user = users.get(f"id:{park['user_id']}")
+                if user:
+                    credit_topup(user, park["credit_cents"],
+                                  park["gross_cents"])
+                    _record_stripe_credit(
+                        f"pi:{obj.get('id')}", user,
+                        park["credit_cents"], park["gross_cents"],
+                        pi=obj.get("id"))
+                    save_user(user)
+            elif md.get("kind") == "auto_reload":
                 credited = meta.get("reload_credited") or {}
                 if obj.get("id") not in credited:
                     uid = md.get("user_id")
@@ -22814,9 +22937,84 @@ document.getElementById('go').onclick = async () => {{
                     if user:
                         credited[obj["id"]] = True
                         meta["reload_credited"] = credited
-                        credit_topup(user, int(md.get("credit_cents") or 0),
-                                      obj.get("amount_received") or obj.get("amount") or 0)
+                        gross = (obj.get("amount_received")
+                                 or obj.get("amount") or 0)
+                        credit_topup(
+                            user, int(md.get("credit_cents") or 0),
+                            gross)
+                        _record_stripe_credit(
+                            f"pi:{obj.get('id')}", user,
+                            int(md.get("credit_cents") or 0), gross,
+                            pi=obj.get("id"))
                         save_user(user)
+        elif etype == "checkout.session.async_payment_failed":
+            # The delayed payment never arrived (security fix,
+            # 2026-11-27): drop the parked credit. Nothing was
+            # granted, so nothing is reversed.
+            pending = meta.get("stripe_pending_credits") or {}
+            if pending.pop(obj.get("payment_intent"), None) \
+                    is not None:
+                meta["stripe_pending_credits"] = pending
+        elif etype == "charge.refunded":
+            # Reverse what the refunded payment granted
+            # (security fix, 2026-11-27). amount_refunded is
+            # cumulative on the charge; the ledger's reversed
+            # tracking makes the reversal match it exactly.
+            key, entry = _find_stripe_credit(
+                obj.get("payment_intent"), obj.get("invoice"))
+            user = (users.get(f"id:{entry['user_id']}")
+                    if entry else _user_for_charge(obj))
+            if user:
+                _reverse_stripe_money(
+                    user, entry, obj.get("amount_refunded"))
+                if entry:
+                    credits = meta.get("stripe_credits") or {}
+                    credits[key] = entry
+                    meta["stripe_credits"] = credits
+                save_user(user)
+        elif etype == "charge.dispute.created":
+            # Freeze the disputed money's spend headroom now
+            # (security fix, 2026-11-27): the disputed gross
+            # leaves net paid while the dispute is open, so
+            # the ceiling stops authorizing spend against
+            # money the platform may not keep. The balance
+            # credit itself reverses only if the dispute is
+            # lost (charge.dispute.closed).
+            key, entry = _find_stripe_credit(
+                obj.get("payment_intent"), None)
+            user = (users.get(f"id:{entry['user_id']}")
+                    if entry else _user_for_charge(obj))
+            if user and entry is not None \
+                    and not entry.get("dispute_gross"):
+                amount = int(obj.get("amount") or 0)
+                entry["dispute_gross"] = amount
+                user["net_paid_cents"] = max(
+                    0.0, float(user.get("net_paid_cents") or 0.0)
+                    - pricing.net_of(amount))
+                credits = meta.get("stripe_credits") or {}
+                credits[key] = entry
+                meta["stripe_credits"] = credits
+                save_user(user)
+        elif etype == "charge.dispute.closed":
+            key, entry = _find_stripe_credit(
+                obj.get("payment_intent"), None)
+            user = (users.get(f"id:{entry['user_id']}")
+                    if entry else _user_for_charge(obj))
+            if user and entry is not None \
+                    and entry.get("dispute_gross"):
+                amount = int(entry.pop("dispute_gross"))
+                if obj.get("status") == "won":
+                    user["net_paid_cents"] = (
+                        float(user.get("net_paid_cents") or 0.0)
+                        + pricing.net_of(amount))
+                elif obj.get("status") == "lost":
+                    _reverse_stripe_money(
+                        user, entry, amount,
+                        net_already_removed=True)
+                credits = meta.get("stripe_credits") or {}
+                credits[key] = entry
+                meta["stripe_credits"] = credits
+                save_user(user)
         return {"received": True}
 
     # -- per-second lane completion callback ----------------------------
@@ -26200,7 +26398,7 @@ APP_HTML = (
   <div class="overlay" id="panel-billing" style="display:none">
     <div class="panel" role="dialog" aria-label="Billing">
       <div class="panel-head"><h2>Billing</h2><button type="button" class="panel-close" data-close-panel aria-label="Close">×</button></div>
-      <p class="muted">Paying saves your card and turns on auto reload, so your work never stops over balance. Change the amount or turn it off below at any time.</p>
+      <p class="muted">Paying saves your card. Turn on auto reload below whenever you want, so your work never stops over balance.</p>
       <p class="group-label">Monthly plan</p>
       <p class="muted">The plan is optional. You can skip it and just top up credits and pay per video instead.</p>
       <p>
