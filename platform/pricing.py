@@ -2430,6 +2430,38 @@ IMAGE_LANES = {
         "endpoint": "microsoft/mai-image-2.6-flash/text-to-image",
         "raw_cents": {"1K": 1.65, "2K": 1.65},
     },
+    "mai_image27": {
+        # MAI Image 2.7 (frontier sweep, 2026-11-27): Microsoft's
+        # successor to the 2.6 pair above, released 2026-11-17 and
+        # carried here as its own lane the moment a wired supplier
+        # listed it. fal is the cheapest verified route: fal's own
+        # token card ($34 per million output image tokens; a
+        # 1024x1024 image measures 1,024 tokens, $0.034816) and
+        # LiteLLM's fal price read ($0.0349 per image, checked
+        # 2026-11-27) agree, and both sit far under SpicyAPI's
+        # $0.084 at 1K. fal bills per token, so like the GPT Image
+        # 2.6 fal lanes the only size sold is the measured
+        # 1024x1024 until a funded pass measures the real charge
+        # at other sizes. PAYLOAD-UNVERIFIED like every fal image
+        # lane until a real job proves it; no proof job ran under
+        # the Modal spend gate.
+        "label": "MAI Image 2.7 · $$", "provider": "fal",
+        "endpoint": "microsoft/mai-image-2.7/text-to-image",
+        "raw_cents": {"1024x1024": 3.49},
+    },
+    "mai_image27_flash": {
+        # MAI Image 2.7 Flash (frontier sweep, 2026-11-27): the
+        # speed tier of the same 2026-11-17 Microsoft release,
+        # carried as its own lane beside the flagship. Same fal
+        # route and same reasoning: fal's token card ($10 per
+        # million output image tokens, $0.01024 at 1024x1024) and
+        # LiteLLM's fal read ($0.0103 per image, checked
+        # 2026-11-27) agree, under SpicyAPI's $0.030 at 1K. Only
+        # the measured 1024x1024 size sells, as on the flagship.
+        "label": "MAI Image 2.7 Flash · $", "provider": "fal",
+        "endpoint": "microsoft/mai-image-2.7/flash/text-to-image",
+        "raw_cents": {"1024x1024": 1.03},
+    },
     "hunyuan_image35": {
         "label": "Hunyuan Image 3.5 Preview · $$",
         "provider": "vidlab",
