@@ -11754,6 +11754,39 @@ document.getElementById('go').onclick = async () => {{
             if not task_id:
                 raise RuntimeError("image submit returned no task id")
             job["provider_task_id"] = task_id
+        elif provider == "cometapi":
+            # CometAPI Midjourney lanes (2026-11-27): the
+            # relay's imagine endpoint. The lane carries its
+            # bot type and its version flag (the native --v /
+            # --niji prompt parameter); the size key carries
+            # the speed mode and the optional aspect, the
+            # aspect riding the prompt as the native --ar
+            # flag and the mode going out as the account
+            # filter the relay routes on. The answer is the
+            # relay envelope: code 1 with the task id in
+            # result; any other code is a refusal whose
+            # description is the error. PAYLOAD-UNVERIFIED
+            # until a funded job proves it, like the other
+            # shelf branches.
+            mode, _, aspect = size.partition("-")
+            full_prompt = prompt
+            if aspect:
+                full_prompt += f" --ar {aspect}"
+            full_prompt += " " + lane["mj_version"]
+            data = _submit_post(
+                job, f"{COMETAPI_BASE}/mj/submit/imagine",
+                _api_headers("cometapi"),
+                {"botType": lane["mj_bot"], "prompt": full_prompt,
+                 "accountFilter": {"modes": [mode.upper()]}})
+            if int(data.get("code") or 0) != 1:
+                raise RuntimeError(
+                    "image submit refused: "
+                    + str(data.get("description")
+                          or "unknown")[:200])
+            task_id = data.get("result")
+            if not task_id:
+                raise RuntimeError("image submit returned no task id")
+            job["provider_task_id"] = task_id
         elif provider == "cloudflare":
             # The free image lanes: a synchronous route that
             # settles the job inside its own submit.
@@ -11773,12 +11806,17 @@ document.getElementById('go').onclick = async () => {{
             raise RuntimeError(f"no image route for {provider}")
         jobs[job["id"]] = job
 
-    def _settle_provider_image(job: dict, image_url: str):
+    def _settle_provider_image(job: dict, image_url: str,
+                               headers=None):
         """Download a finished shelf image onto the Volume and
         settle it: the balance was charged at submit (the
         character-training pattern), so settling only books the
-        raw provider cost onto the account's ceiling total."""
-        resp = requests.get(image_url, timeout=120)
+        raw provider cost onto the account's ceiling total.
+        A provider whose result media is access controlled
+        (CometAPI's Midjourney relay) passes its auth headers
+        for the download."""
+        resp = requests.get(image_url, timeout=120,
+                            headers=headers)
         if resp.status_code != 200:
             raise RuntimeError("finished image download failed")
         FILES_DIR.mkdir(parents=True, exist_ok=True)
@@ -12002,6 +12040,36 @@ document.getElementById('go').onclick = async () => {{
                             _fail_provider_image(
                                 job, "the image came back empty, nothing was charged")
                     elif status == "failed":
+                        _fail_provider_image(
+                            job, "the image could not be made, nothing was charged")
+                    else:
+                        job["status"] = "running"
+                        jobs[job["id"]] = job
+            elif provider == "cometapi":
+                resp = requests.get(
+                    f"{COMETAPI_BASE}/mj/task/"
+                    f"{job['provider_task_id']}/fetch",
+                    headers=_api_headers("cometapi"), timeout=15)
+                if resp.status_code == 200:
+                    data = resp.json() or {}
+                    status = str(data.get("status")
+                                 or "").upper()
+                    if status == "SUCCESS":
+                        # The documented result location: the
+                        # task's imageUrl (the finished 2x2
+                        # grid). The media is access controlled,
+                        # so the settle downloads it with the
+                        # account's key, as the relay's docs
+                        # require.
+                        url = data.get("imageUrl")
+                        if url:
+                            _settle_provider_image(
+                                job, url,
+                                headers=_api_headers("cometapi"))
+                        else:
+                            _fail_provider_image(
+                                job, "the image came back empty, nothing was charged")
+                    elif status in ("FAILURE", "FAILED"):
                         _fail_provider_image(
                             job, "the image could not be made, nothing was charged")
                     else:

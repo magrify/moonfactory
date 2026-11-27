@@ -2371,6 +2371,75 @@ IMAGE_LANES = {
         "endpoint": "midjourney-v7",
         "raw_cents": {"relax": 6.0, "fast": 7.0, "turbo": 13.0},
     },
+    "midjourney_v82": {
+        # Midjourney V8.2 via CometAPI (frontier pass,
+        # 2026-11-27): Midjourney's current default version
+        # (since 2026-07-24) had no lane here; the only
+        # Midjourney lane was V7 on VidLab above. Midjourney
+        # sells no API of its own, Kie removed Midjourney in
+        # 2025 and fal never carried it; CometAPI relays it
+        # (POST /mj/submit/imagine, the version riding the
+        # prompt as its native --v flag, the bot and speed
+        # mode carried on the lane and size key) and the
+        # platform already holds a CometAPI key for the Wan
+        # 3.0 Prime lane. CometAPI prices the imagine
+        # operation by speed mode, not by version: its live
+        # catalog (read 2026-11-27) lists mj_fast_imagine
+        # at $0.105 per task and mj_turbo_imagine at
+        # $0.315, each with the 0.8 pricing ratio its
+        # storefront applies, rendering $0.084 / $0.252
+        # payable per task; the rendered figures are the
+        # raw cost on every CometAPI version lane (V8.2,
+        # V8.1, V6.1, Niji 7 below). No relax imagine model
+        # exists in CometAPI's catalog, so relax does not
+        # sell on these lanes. One imagine task returns one
+        # 2x2 grid image, the same deliverable as the VidLab
+        # V7 lane. PAYLOAD-UNVERIFIED until a funded job
+        # proves the submit; no proof job ran under the
+        # Modal spend gate.
+        "label": "Midjourney V8.2 · $$$$",
+        "provider": "cometapi",
+        "endpoint": "mj/submit/imagine",
+        "mj_bot": "MID_JOURNEY", "mj_version": "--v 8.2",
+        "raw_cents": {"fast": 8.4, "turbo": 25.2},
+    },
+    "midjourney_v81": {
+        # Midjourney V8.1 via CometAPI (frontier pass,
+        # 2026-11-27): the prior version of the current
+        # line (default 2026-06-10 to 2026-07-23), carried
+        # as its own lane beside V8.2 on the same relay and
+        # the same per mode figures as the V8.2 lane above.
+        "label": "Midjourney V8.1 · $$$$",
+        "provider": "cometapi",
+        "endpoint": "mj/submit/imagine",
+        "mj_bot": "MID_JOURNEY", "mj_version": "--v 8.1",
+        "raw_cents": {"fast": 8.4, "turbo": 25.2},
+    },
+    "midjourney_v61": {
+        # Midjourney V6.1 via CometAPI (frontier pass,
+        # 2026-11-27): the legacy version CometAPI's own
+        # imagine documentation uses as its worked example
+        # (--v 6.1), carried as its own lane on the same
+        # relay and the same per mode figures as above.
+        "label": "Midjourney V6.1 · $$$$",
+        "provider": "cometapi",
+        "endpoint": "mj/submit/imagine",
+        "mj_bot": "MID_JOURNEY", "mj_version": "--v 6.1",
+        "raw_cents": {"fast": 8.4, "turbo": 25.2},
+    },
+    "midjourney_niji7": {
+        # Niji 7 via CometAPI (frontier pass, 2026-11-27):
+        # the current Niji anime line (January 2026),
+        # carried as its own lane on the same relay: the
+        # NIJI_JOURNEY bot with its --niji 7 flag, at the
+        # same per mode figures as the Midjourney lanes
+        # above. Niji V8 (launched 2026-11-24) has no API
+        # announced anywhere and is not wired.
+        "label": "Niji 7 · $$$$", "provider": "cometapi",
+        "endpoint": "mj/submit/imagine",
+        "mj_bot": "NIJI_JOURNEY", "mj_version": "--niji 7",
+        "raw_cents": {"fast": 8.4, "turbo": 25.2},
+    },
     "qwen_image20": {
         "label": "Qwen Image 2.0 · $$", "provider": "vidlab",
         "endpoint": "qwen-image-2.0",
@@ -2586,6 +2655,11 @@ IMAGE_SIZE_LABELS = {
     "flux_kontext_pro": {"square": "Square"},
     "midjourney_v7": {"relax": "Relax speed", "fast": "Fast speed",
                       "turbo": "Turbo speed"},
+    "midjourney_v82": {"fast": "Fast speed", "turbo": "Turbo speed"},
+    "midjourney_v81": {"fast": "Fast speed", "turbo": "Turbo speed"},
+    "midjourney_v61": {"fast": "Fast speed", "turbo": "Turbo speed"},
+    "midjourney_niji7": {"fast": "Fast speed",
+                         "turbo": "Turbo speed"},
     "qwen_image20": {"square": "Square"},
     "qwen_image20_pro": {"square": "Square"},
     "qwen_image30": {"1K": "1024 x 1024", "2K": "2048 x 2048"},
@@ -2668,6 +2742,16 @@ IMAGE_ASPECTS = {
     "flux3_klein": ("16:9", "9:16", "4:3", "3:4", "3:2", "2:3"),
     "flux_kontext_pro": ("16:9", "9:16", "4:3", "3:4", "3:2", "2:3"),
     "midjourney_v7": ("16:9", "9:16", "4:3", "3:4", "3:2", "2:3"),
+    # CometAPI Midjourney lanes (2026-11-27): Midjourney
+    # takes the same six non-square ratios through its
+    # native --ar flag, and the relay prices by speed
+    # mode alone, so every shape sells at its mode's raw
+    # price, the V7 lane's shape on its new route.
+    "midjourney_v82": ("16:9", "9:16", "4:3", "3:4", "3:2", "2:3"),
+    "midjourney_v81": ("16:9", "9:16", "4:3", "3:4", "3:2", "2:3"),
+    "midjourney_v61": ("16:9", "9:16", "4:3", "3:4", "3:2", "2:3"),
+    "midjourney_niji7": ("16:9", "9:16", "4:3", "3:4", "3:2",
+                         "2:3"),
     "qwen_image20": ("16:9", "9:16", "4:3", "3:4", "3:2", "2:3"),
     "qwen_image20_pro": ("16:9", "9:16", "4:3", "3:4", "3:2", "2:3"),
     "qwen_image30": ("16:9", "9:16", "4:3", "3:4", "3:2", "2:3"),
