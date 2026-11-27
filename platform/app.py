@@ -67,6 +67,7 @@ worker_models = modal.Volume.from_name("sinclip-models", create_if_missing=False
 data_volume = modal.Volume.from_name("moonfactory-data", create_if_missing=True)
 
 users = modal.Dict.from_name("moonfactory-users", create_if_missing=True)
+handles = modal.Dict.from_name("moonfactory-handles", create_if_missing=True)
 jobs = modal.Dict.from_name("moonfactory-jobs", create_if_missing=True)
 dramas = modal.Dict.from_name("moonfactory-dramas", create_if_missing=True)
 meta = modal.Dict.from_name("moonfactory-meta", create_if_missing=True)
@@ -2474,9 +2475,12 @@ def reap_retained_uploads(now=None) -> list:
 )
 def retained_upload_reaper():
     """Every six hours: reap retained upload sources past
-    their life (see reap_retained_uploads)."""
+    their life (see reap_retained_uploads), and sweep the
+    meta Dict's expired ephemeral keys."""
     removed = reap_retained_uploads()
-    print(f"retained upload reaper: {len(removed)} reaped")
+    swept = sweep_expired_meta()
+    print(f"retained upload reaper: {len(removed)} reaped, "
+          f"{swept} meta keys swept")
     return removed
 
 
@@ -8111,6 +8115,16 @@ def _hash_password(password: str) -> str:
     return f"{salt.hex()}${digest.hex()}"
 
 
+# A real scrypt hash of a password nobody has (security
+# fix, 2026-11-27, login-no-botcheck-scrypt): login attempts
+# for unknown emails verify against it, so they spend the
+# same work as attempts on real accounts.
+_DUMMY_PW_HASH = (
+    "3f8a1c94d2e647b0a5f19c83d6e7204b"
+    "$00f79e2a487fb97c2a54f2ce3cc2e1eb3939b14eea53685901278b379bd1dfe2"
+)
+
+
 def _check_password(password: str, stored: str) -> bool:
     try:
         salt_hex, digest_hex = stored.split("$")
@@ -8260,6 +8274,39 @@ def _rate_limited(bucket: str, ident: str, limit: int, window: int = 60) -> bool
     return record["count"] > limit
 
 
+def sweep_expired_meta() -> int:
+    """Expiry for the meta Dict's ephemeral keys (security
+    fix, 2026-11-27, ratelimit-meta-keys-grow-unbounded):
+    rate-limit windows, proof-of-work challenges, and login
+    failure records used to be write-once, so the shared
+    meta Dict grew by one permanent key per identity
+    forever. Anything whose window or expiry is an hour
+    past is deleted here; the retained upload reaper runs
+    this on its six hour cadence."""
+    removed = 0
+    now = _now()
+    for key in list(meta.keys()):
+        try:
+            if key.startswith("rl:"):
+                record = meta.get(key) or {}
+                if now - float(record.get("start") or 0) > 3600:
+                    del meta[key]
+                    removed += 1
+            elif key.startswith("pow:"):
+                record = meta.get(key) or {}
+                if float(record.get("expires") or 0) < now - 3600:
+                    del meta[key]
+                    removed += 1
+            elif key.startswith("loginfail:"):
+                record = meta.get(key) or {}
+                if now - float(record.get("last") or 0) > 3600:
+                    del meta[key]
+                    removed += 1
+        except Exception:
+            continue
+    return removed
+
+
 # ---------------------------------------------------------------------------
 # Bot check: Cloudflare Turnstile when configured, else proof of work.
 # ---------------------------------------------------------------------------
@@ -8272,11 +8319,17 @@ def _turnstile_configured() -> bool:
 def _verify_bot_check(req_body: dict, remote_ip: str) -> bool:
     import requests
 
-    # Turnstile when the browser sends a token; the proof-of-work
-    # challenge stays accepted as a fallback check (it is also what
-    # the end-to-end smoke test uses, since it has no browser).
+    # Turnstile when configured is the check (security fix,
+    # 2026-11-27, pow-fallback-preauth-imbalance): the
+    # proof-of-work challenge is the fallback for deployments
+    # WITHOUT Turnstile, never a substitute a caller can
+    # choose instead of it -- an 18 bit solve costs an
+    # attacker well under a second, against a blocking
+    # scrypt plus an outbound email per accepted signup.
     token = req_body.get("turnstile_token") or ""
-    if _turnstile_configured() and token:
+    if _turnstile_configured():
+        if not token:
+            return False
         try:
             resp = requests.post(
                 "https://challenges.cloudflare.com/turnstile/v0/siteverify",
@@ -8306,7 +8359,11 @@ def _verify_bot_check(req_body: dict, remote_ip: str) -> bool:
         return False
     digest = hashlib.sha256(f"{record['challenge']}:{nonce}".encode()).hexdigest()
     ok = int(digest, 16) >> (256 - POW_DIFFICULTY_BITS) == 0
-    if ok:
+    if nonce:
+        # One attempt per challenge (security fix,
+        # 2026-11-27): a submitted nonce spends the
+        # challenge whether it solves or not, so solving
+        # cannot be retried freely against one issue.
         record["used"] = True
         meta[f"pow:{challenge_id}"] = record
     return ok
@@ -9477,9 +9534,41 @@ def api():
             raise HTTPException(status_code=429, detail="too many attempts, slow down")
         body = await request.json()
         email = (body.get("email") or "").strip().lower()
+        # Progressive per-account delay (security fix,
+        # 2026-11-27, login-no-botcheck-scrypt): login has no
+        # bot-check token channel in the shipped client, so
+        # the cost is imposed here instead -- after five
+        # failures the account demands a growing pause
+        # between attempts (2, 4, 8 ... up to 300 seconds),
+        # keyed by account, so rotating IPs buys nothing.
+        # An unknown email spends the same scrypt against a
+        # dummy hash, so existence is not oracleable by cost
+        # or timing either.
+        fail_key = f"loginfail:{email}"
+        fails = meta.get(fail_key) or {"count": 0, "last": 0}
+        if _now() - float(fails.get("last") or 0) > 3600:
+            fails = {"count": 0, "last": 0}
+        if int(fails.get("count") or 0) >= 5:
+            wait = min(2 ** (int(fails["count"]) - 5), 300)
+            if _now() - float(fails.get("last") or 0) < wait:
+                raise HTTPException(
+                    status_code=429,
+                    detail="too many attempts, slow down")
         user = users.get(f"email:{email}")
-        if not user or not _check_password(body.get("password") or "", user["pw"]):
+        if not user:
+            _check_password(body.get("password") or "",
+                            _DUMMY_PW_HASH)
+            meta[fail_key] = {
+                "count": int(fails.get("count") or 0) + 1,
+                "last": _now()}
             raise HTTPException(status_code=401, detail="email or password is wrong")
+        if not _check_password(body.get("password") or "", user["pw"]):
+            meta[fail_key] = {
+                "count": int(fails.get("count") or 0) + 1,
+                "last": _now()}
+            raise HTTPException(status_code=401, detail="email or password is wrong")
+        if fail_key in meta:
+            del meta[fail_key]
         if user.get("verified") is False:
             # Security fix (2026-11-27, pre-account-takeover):
             # a password proves nothing until the mailbox has
@@ -10253,6 +10342,9 @@ document.getElementById('go').onclick = async () => {{
     @web.post("/api/me/handle")
     async def set_handle(request: Request, mf_session: str = Cookie(default="")):
         user = require_user(request, mf_session)
+        if _rate_limited("handle", user["id"], 10):
+            raise HTTPException(
+                status_code=429, detail="too many changes, slow down")
         body = await request.json()
         handle = (body.get("handle") or "").strip()
         if not HANDLE_RE.fullmatch(handle):
@@ -10260,13 +10352,29 @@ document.getElementById('go').onclick = async () => {{
                 status_code=422,
                 detail="handle must be 3 to 20 characters, using letters, numbers, _ or -",
             )
-        for key in list(users.keys()):
-            if not key.startswith("id:"):
-                continue
-            other = users.get(key)
-            if (other and other["id"] != user["id"]
-                    and (other.get("handle") or "").lower() == handle.lower()):
-                raise HTTPException(status_code=409, detail="that handle is taken")
+        # Uniqueness through the handle index (security fix,
+        # 2026-11-27, handle-scan-unratelimited): a dedicated
+        # Dict maps handle to user id, so the check is O(1)
+        # instead of a full users scan per change. The index
+        # is built once from the store (handles were only
+        # ever written by this endpoint) and maintained on
+        # every change after.
+        if not meta.get("handles_index_built"):
+            for key in list(users.keys()):
+                if not key.startswith("id:"):
+                    continue
+                other = users.get(key)
+                if other and other.get("handle"):
+                    handles[other["handle"].lower()] = other["id"]
+            meta["handles_index_built"] = True
+        owner_id = handles.get(handle.lower())
+        if owner_id and owner_id != user["id"]:
+            raise HTTPException(status_code=409, detail="that handle is taken")
+        old = (user.get("handle") or "").lower()
+        if old and old != handle.lower() \
+                and handles.get(old) == user["id"]:
+            del handles[old]
+        handles[handle.lower()] = user["id"]
         user["handle"] = handle
         save_user(user)
         return {"handle": handle}
@@ -10283,6 +10391,18 @@ document.getElementById('go').onclick = async () => {{
             )
         user["gallery_opt_out"] = opt_out
         save_user(user)
+        if opt_out:
+            # Leave the listing now, not at the next rebuild
+            # (security fix, 2026-11-27, gallery-optout-feed-
+            # not-invalidated): the user's items come out of
+            # the warm cache and the persisted feed in this
+            # same request. (Opting back in lets the next
+            # rebuild list the items again; the serve-time
+            # re-check covers the gap either way.)
+            try:
+                _gallery_drop_user_items(user["id"])
+            except Exception:
+                pass
         return {"gallery_opt_out": opt_out}
 
     @web.post("/api/me/photo")
@@ -18050,6 +18170,16 @@ document.getElementById('go').onclick = async () => {{
         the episode under the same id, so its media caches for
         an hour only."""
         scope = "public" if public else "private"
+        if public:
+            # Public gallery media is removable (security
+            # fix, 2026-11-27, gallery-media-immutable-
+            # cache): a year of immutable caching made
+            # removal and opt-out unrecallable, so gallery
+            # copies revalidate after an hour instead. The
+            # owner's own media keeps the long cache: those
+            # files never change under the job id and are
+            # not the removal surface.
+            return "public, max-age=3600, must-revalidate"
         if job.get("kind") == "drama":
             return f"{scope}, max-age=3600"
         return f"{scope}, max-age=31536000, immutable"
@@ -22212,6 +22342,28 @@ document.getElementById('go').onclick = async () => {{
         except Exception:
             pass
 
+    def _gallery_drop_user_items(user_id):
+        """Remove one owner's items from the warm feed cache
+        and the persisted feed (security fix, 2026-11-27)."""
+        def mine(item):
+            job = jobs.get(item.get("id") or "")
+            return bool(job) and job.get("user_id") == user_id
+
+        if _gallery_cache["items"] is not None:
+            _gallery_cache["items"] = [
+                item for item in _gallery_cache["items"]
+                if not mine(item)]
+            _gallery_persist(_gallery_cache["items"])
+        try:
+            stored = meta.get(GALLERY_FEED_META_KEY) or {}
+            if stored.get("items") is not None:
+                kept = [item for item in stored["items"]
+                        if not mine(item)]
+                if len(kept) != len(stored["items"]):
+                    meta[GALLERY_FEED_META_KEY] = {"items": kept}
+        except Exception:
+            pass
+
     def _gallery_cache_clear(job_id=None):
         """Drop one item from the cached feed in place, or
         the whole feed when no job is named."""
@@ -22338,6 +22490,21 @@ document.getElementById('go').onclick = async () => {{
         except Exception:
             pass
 
+    def _gallery_visible_items(items):
+        """The serve-time visibility re-check (security fix,
+        2026-11-27, gallery-optout-feed-not-invalidated):
+        the cached feed is a snapshot, so every item is
+        re-checked against the live job record on the way
+        out, exactly like the media routes already do. An
+        opt-out, a removal, or a hold therefore leaves the
+        listing on the next read, not the next rebuild."""
+        out = []
+        for item in items or []:
+            job = jobs.get(item.get("id") or "")
+            if job and gallery_visible(job):
+                out.append(item)
+        return out
+
     @web.get("/api/gallery")
     def gallery_list():
         items = _gallery_cache["items"]
@@ -22345,7 +22512,7 @@ document.getElementById('go').onclick = async () => {{
             if time.time() - _gallery_cache["at"] \
                     >= GALLERY_CACHE_SECONDS:
                 _gallery_kick()
-            return {"items": items}
+            return {"items": _gallery_visible_items(items)}
         # Fresh container (perf pass, 2026-11-24): serve the
         # persisted last build immediately and rebuild in the
         # background. Only a platform whose feed was never
@@ -22359,12 +22526,12 @@ document.getElementById('go').onclick = async () => {{
             _gallery_cache["items"] = items
             _gallery_cache["at"] = 0.0
             _gallery_kick()
-            return {"items": items}
+            return {"items": _gallery_visible_items(items)}
         items = _gallery_build()
         _gallery_cache["at"] = time.time()
         _gallery_cache["items"] = items
         _gallery_persist(items)
-        return {"items": items}
+        return {"items": _gallery_visible_items(items)}
 
     def _image_media_type(path: Path) -> str:
         """The real type of a finished image from its first bytes.
@@ -22464,9 +22631,37 @@ document.getElementById('go').onclick = async () => {{
         reason = ""
         if isinstance(body, dict):
             reason = (body.get("reason") or "").strip()[:500]
-        reports = meta.get("reports") or []
-        reports.append({"job_id": job_id, "reason": reason, "at": _now()})
-        meta["reports"] = reports[-500:]
+        # Durable per-job records (security fix, 2026-11-27,
+        # gallery-reports-global-fifo-eviction): reports
+        # used to append to one global list truncated to the
+        # last 500, so 25 minutes of junk from one address
+        # evicted every genuine report the operator had.
+        # Now each job carries its own record: a count, the
+        # recent reasons, and the set of reporters (hashed)
+        # who have counted against it -- one counted report
+        # per reporter per job, and no report can ever push
+        # another job's reports out.
+        all_reports = meta.get("gallery_reports") or {}
+        entry = all_reports.get(job_id) or {
+            "job_id": job_id, "count": 0, "reporters": {},
+            "reasons": [], "first_at": _now(), "last_at": None}
+        reporter = hashlib.sha256(
+            client_ip(request).encode()).hexdigest()[:16]
+        if reporter not in entry["reporters"]:
+            entry["reporters"][reporter] = _now()
+            if len(entry["reporters"]) > 500:
+                oldest = sorted(
+                    entry["reporters"].items(),
+                    key=lambda kv: kv[1])[:100]
+                for key, _at in oldest:
+                    entry["reporters"].pop(key, None)
+            entry["count"] = int(entry.get("count") or 0) + 1
+            entry["last_at"] = _now()
+            if reason:
+                entry["reasons"] = (
+                    entry.get("reasons") or [])[-4:] + [reason]
+            all_reports[job_id] = entry
+            meta["gallery_reports"] = all_reports
         return {"status": "reported"}
 
     def add_net_paid(user: dict, gross_cents) -> None:
@@ -23134,7 +23329,15 @@ document.getElementById('go').onclick = async () => {{
     @web.get("/api/admin/reports")
     def admin_reports(x_admin_key: str = Header(default="")):
         require_admin(x_admin_key)
-        return {"reports": meta.get("reports") or []}
+        # The durable per-job aggregates (security fix,
+        # 2026-11-27), most reported first. The legacy flat
+        # list rides along for anything still reading it.
+        aggregated = sorted(
+            (meta.get("gallery_reports") or {}).values(),
+            key=lambda e: int(e.get("count") or 0),
+            reverse=True)
+        return {"reports": meta.get("reports") or [],
+                "aggregated": aggregated}
 
     @web.post("/api/admin/gallery/{job_id}/remove")
     def admin_gallery_remove(job_id: str, x_admin_key: str = Header(default="")):
