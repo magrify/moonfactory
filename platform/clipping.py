@@ -271,16 +271,18 @@ def loud_zscore(db) -> list:
 # --- fetch (ported from media.py: yt-dlp, audio first) -------------------
 
 # --- YouTube resolution via public Invidious instances -----------------
-# YouTube bot-walls Modal's datacenter egress, so yt-dlp against
-# youtube.com is dead from the platform (verified repeatedly; the
-# finish run of 2026-11-16 replaced the route). Public Invidious
-# instances answer from their own servers: their JSON API gives the
-# metadata and signed stream URLs (direct googlevideo links, or
-# instance-proxied with ?local=true when a direct link refuses the
-# egress IP). Instances are tried in order with short timeouts and
-# any failure moves to the next; a dead instance costs seconds,
-# never the job. Twitch and Kick keep the yt-dlp path below, and
-# yt-dlp stays the last-resort fallback for YouTube too.
+# Last-resort YouTube route (the only route from the finish run of
+# 2026-11-16 until the 2026-11-27 link ingest fix): public
+# Invidious instances answer from their own servers, their JSON
+# API giving the metadata and signed stream URLs (direct
+# googlevideo links, or instance-proxied with ?local=true when a
+# direct link refuses the egress IP). Instances are tried in order
+# with short timeouts and any failure moves to the next; a dead
+# instance costs seconds, never the job. Every instance on the
+# list was unreachable from Modal egress on 2026-11-27, which is
+# what killed paste-a-link ingest; the route stays because a
+# revived instance is a free extra chance after the yt-dlp chain
+# below has had its turn.
 INVIDIOUS_INSTANCES = (
     "https://inv.nadeko.net",
     "https://invidious.nerdvpn.de",
@@ -426,28 +428,184 @@ def _invidious_download(video_id: str, job_dir: Path,
         f"{LINK_DEAD_MESSAGE} (download detail: {'; '.join(errors)[:300]})")
 
 
-def fetch_info(url: str) -> dict:
-    """Metadata for a link job, through the same allowlist guard."""
-    validate_fetch_url(url)
-    video_id = _youtube_video_id(url)
-    if video_id:
-        return _invidious_info(video_id)
+# --- yt-dlp fetch stack (2026-11-27 link ingest fix) -------------------
+# YouTube from datacenter egress is an arms race, so no single
+# route is trusted alone. Every link fetch walks the same chain
+# and stops at the first route that answers:
+#
+#   1. yt-dlp with its default clients. The CPU media image pins
+#      yt-dlp[default]==2026.11.23 (the [default] extra brings
+#      yt-dlp-ejs) and Deno 2.9.8, the JS runtime yt-dlp uses to
+#      solve YouTube's player challenges.
+#   2. The same plus curl_cffi browser impersonation, for the
+#      egress IPs YouTube serves by TLS fingerprint.
+#   3. YouTube only: the mweb client with a PO token minted
+#      locally by the bgutil provider (pinned 2.0.2, script mode
+#      via Deno; no account, no cookies, nothing logged in). The
+#      token answers YouTube's GVS check when it demands one.
+#   4. YouTube only: the Invidious route above, as the last
+#      resort.
+#
+# Whether YouTube answers at all is mostly a per-container
+# egress draw, measured on 2026-11-27: about half of fresh
+# Modal containers read a test Short through this chain while
+# the other half were bot-walled on every route, and TikTok
+# read and downloaded from every container tried. So the
+# chain always runs to the end before a link is called dead,
+# and the callers in app.py do the rest: the ingest probe
+# fans out over parallel containers and the ingest download
+# re-dispatches to a fresh container, which is what turns a
+# per-container coin flip into a reliable read.
+# Vimeo is the known gap: its web client refuses anonymous
+# access outright ("only works when logged-in", two unrelated
+# videos tested), gallery-dl has no Vimeo extractor at all, and
+# no credential is wired for it by design, so Vimeo links keep
+# landing on the plain dead-link message.
+#
+# The chain changes nothing about the guards: the submitted URL
+# is validated as before, and where a fetch actually landed is
+# re-validated (validate_final_url) on the winning route before
+# its metadata is trusted or any bytes are downloaded.
+
+YTDLP_POT_SERVER_HOME = "/opt/bgutil/server"
+_YTDLP_FORMAT = "bv*[height<=720]+ba/b[height<=720]/b"
+_YTDLP_FORMAT_FALLBACK = "b[height<=720]/18/b"
+
+
+def _ytdlp_impersonate() -> dict:
+    """curl_cffi Chrome impersonation as a YoutubeDL option, or
+    nothing when the impersonation stack is not installed (a
+    local test environment): impersonation is one layer of the
+    chain, never a requirement. The 2026 yt-dlp API takes the
+    target object, not the CLI's string."""
+    try:
+        from yt_dlp.networking.impersonate import ImpersonateTarget
+
+        return {"impersonate": ImpersonateTarget.from_str("chrome")}
+    except Exception:  # noqa: BLE001 - the layer is simply absent
+        return {}
+
+
+def _ytdlp_overlays(youtube: bool) -> list:
+    """Option overlays for one fetch, most capable first; the
+    base options are merged under each in turn."""
+    overlays = [{}]
+    if youtube:
+        overlays.append({
+            **_ytdlp_impersonate(),
+            "remote_components": ["ejs:github"],
+        })
+        overlays.append({
+            **_ytdlp_impersonate(),
+            "remote_components": ["ejs:github"],
+            "extractor_args": {
+                "youtube": {"player_client": ["mweb"]},
+                "youtubepot-bgutilscript": {
+                    "server_home": [YTDLP_POT_SERVER_HOME]},
+            },
+        })
+    else:
+        overlays.append(_ytdlp_impersonate())
+    return overlays
+
+
+def _ytdlp_base_opts() -> dict:
+    return {"quiet": True, "no_warnings": True, "noplaylist": True,
+            "socket_timeout": 30}
+
+
+def _extract_info_any(url: str, youtube: bool) -> dict:
+    """Raw yt-dlp info through the route chain, with the
+    redirect revalidation (security fix, 2026-11-27) applied to
+    the winning route's answer: the page the extractor landed
+    on is checked like the submitted link. Raises the last
+    route's error when every route fails; a playlist answer is
+    refused at once, as on the old single-route path."""
     import yt_dlp
 
-    opts = {"quiet": True, "no_warnings": True, "noplaylist": True}
-    with yt_dlp.YoutubeDL(opts) as ydl:
-        info = ydl.extract_info(url, download=False)
-    # Redirect revalidation (security fix, 2026-11-27): the
-    # page the extractor landed on is checked like the
-    # submitted link.
-    validate_final_url(info.get("webpage_url") or info.get("url"))
-    if info.get("_type") == "playlist" or info.get("entries"):
-        raise ValueError("playlist links are not supported, paste a single video link")
+    last_exc = None
+    for overlay in _ytdlp_overlays(youtube):
+        try:
+            with yt_dlp.YoutubeDL(
+                    {**_ytdlp_base_opts(), **overlay}) as ydl:
+                info = ydl.extract_info(url, download=False)
+        except Exception as exc:  # noqa: BLE001 - next route
+            last_exc = exc
+            continue
+        validate_final_url(info.get("webpage_url") or info.get("url"))
+        if info.get("_type") == "playlist" or info.get("entries"):
+            raise ValueError(
+                "playlist links are not supported, "
+                "paste a single video link")
+        return info
+    raise last_exc
+
+
+def _download_any(url: str, job_dir: Path, youtube: bool,
+                  max_bytes: int) -> Path:
+    """Download through the route chain (best up to 720p, merged
+    mp4; the muxed fallback format second within each route, for
+    the clients that only expose muxed streams). Each route
+    resolves first and re-validates where the link lands before
+    any bytes move (security fix, 2026-11-27), and the caller's
+    size cap rides every attempt. Raises the last route's error
+    when every route fails."""
+    import yt_dlp
+
+    job_dir.mkdir(parents=True, exist_ok=True)
+    last_exc = None
+    for overlay in _ytdlp_overlays(youtube):
+        try:
+            with yt_dlp.YoutubeDL(
+                    {**_ytdlp_base_opts(), **overlay}) as ydl:
+                info = ydl.extract_info(url, download=False)
+        except Exception as exc:  # noqa: BLE001 - next route
+            last_exc = exc
+            continue
+        validate_final_url(info.get("webpage_url") or info.get("url"))
+        for fmt in (_YTDLP_FORMAT, _YTDLP_FORMAT_FALLBACK):
+            for stale in job_dir.glob("source.*"):
+                stale.unlink(missing_ok=True)
+            opts = {
+                **_ytdlp_base_opts(), **overlay,
+                "format": fmt,
+                "merge_output_format": "mp4",
+                "max_filesize": int(max_bytes),
+                "outtmpl": str(job_dir / "source.%(ext)s"),
+            }
+            try:
+                with yt_dlp.YoutubeDL(opts) as ydl:
+                    ydl.download([url])
+            except Exception as exc:  # noqa: BLE001 - next format
+                last_exc = exc
+                continue
+            files = sorted(job_dir.glob("source.*"))
+            if files:
+                return files[0]
+            last_exc = RuntimeError("download produced no file")
+    raise last_exc
+
+
+def _info_view(info: dict) -> dict:
     return {
         "title": info.get("title") or "",
         "uploader": info.get("uploader") or info.get("channel") or "",
         "duration": float(info.get("duration") or 0),
     }
+
+
+def fetch_info(url: str) -> dict:
+    """Metadata for a link job, through the same allowlist guard."""
+    validate_fetch_url(url)
+    video_id = _youtube_video_id(url)
+    if video_id:
+        try:
+            return _info_view(_extract_info_any(url, youtube=True))
+        except ValueError:
+            raise
+        except Exception:  # noqa: BLE001 - Invidious last resort
+            return _invidious_info(video_id)
+    return _info_view(_extract_info_any(url, youtube=False))
 
 
 def download_video(url: str, job_dir: Path) -> Path:
@@ -458,30 +616,20 @@ def download_video(url: str, job_dir: Path) -> Path:
     validate_fetch_url(url)
     video_id = _youtube_video_id(url)
     if video_id:
-        return _invidious_download(video_id, job_dir)
-    import yt_dlp
-
-    job_dir.mkdir(parents=True, exist_ok=True)
-    opts = {
-        "quiet": True, "no_warnings": True, "noplaylist": True,
-        "format": "bv*[height<=720]+ba/b[height<=720]/b",
-        "merge_output_format": "mp4",
-        # The size bound (security fix, 2026-11-27,
-        # clips-download-no-size-bound): the yt-dlp branches
-        # of both download functions take the caller's cap,
-        # and a failed download cleans its work directory
-        # instead of leaving partial files behind.
-        "max_filesize": int(DOWNLOAD_MAX_BYTES),
-        "outtmpl": str(job_dir / "source.%(ext)s"),
-    }
+        try:
+            return _download_any(url, job_dir, youtube=True,
+                                 max_bytes=DOWNLOAD_MAX_BYTES)
+        except Exception:  # noqa: BLE001 - Invidious last resort
+            for stale in job_dir.glob("source.*"):
+                stale.unlink(missing_ok=True)
+            return _invidious_download(video_id, job_dir)
     try:
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            ydl.download([url])
-        files = sorted(job_dir.glob("source.*"))
-        if not files:
-            raise RuntimeError("download produced no file")
-        return files[0]
+        return _download_any(url, job_dir, youtube=False,
+                             max_bytes=DOWNLOAD_MAX_BYTES)
     except Exception:
+        # A failed download cleans its work directory instead
+        # of leaving partial files behind (security fix,
+        # 2026-11-27, clips-download-no-size-bound).
         shutil.rmtree(job_dir, ignore_errors=True)
         raise
 
@@ -493,9 +641,9 @@ def download_video(url: str, job_dir: Path) -> Path:
 # public video site (TikTok, YouTube, X, Instagram and the rest of
 # what yt-dlp supports), so the guard is different in kind: http or
 # https only, a real host, and never a loopback, private or
-# reserved address typed as a literal. YouTube still resolves
-# through Invidious (Modal's egress is bot-walled there); every
-# other site goes straight to yt-dlp. Playlists are refused by
+# reserved address typed as a literal. Every site resolves through
+# the yt-dlp route chain above (YouTube gets the extra PO token
+# route and the Invidious last resort). Playlists are refused by
 # yt-dlp's noplaylist, exactly as on the clipping path.
 
 import ipaddress
@@ -582,25 +730,17 @@ def validate_final_url(url: str) -> None:
 
 def fetch_any_info(url: str) -> dict:
     """Metadata for an Edit/Clone link: title, uploader, duration.
-    YouTube reads through Invidious like the clipping path does."""
+    YouTube walks the yt-dlp route chain, then Invidious."""
     validate_ingest_url(url)
     video_id = _youtube_video_id(url)
     if video_id:
-        return _invidious_info(video_id)
-    import yt_dlp
-
-    opts = {"quiet": True, "no_warnings": True, "noplaylist": True}
-    with yt_dlp.YoutubeDL(opts) as ydl:
-        info = ydl.extract_info(url, download=False)
-    validate_final_url(info.get("webpage_url") or info.get("url"))
-    if info.get("_type") == "playlist" or info.get("entries"):
-        raise ValueError(
-            "playlist links are not supported, paste a single video link")
-    return {
-        "title": info.get("title") or "",
-        "uploader": info.get("uploader") or info.get("channel") or "",
-        "duration": float(info.get("duration") or 0),
-    }
+        try:
+            return _info_view(_extract_info_any(url, youtube=True))
+        except ValueError:
+            raise
+        except Exception:  # noqa: BLE001 - Invidious last resort
+            return _invidious_info(video_id)
+    return _info_view(_extract_info_any(url, youtube=False))
 
 
 def download_any_video(url: str, job_dir: Path, max_seconds: float,
@@ -612,36 +752,21 @@ def download_any_video(url: str, job_dir: Path, max_seconds: float,
     validate_ingest_url(url)
     video_id = _youtube_video_id(url)
     if video_id:
-        dest = _invidious_download(video_id, job_dir,
-                                   max_bytes=max_bytes)
+        try:
+            dest = _download_any(url, job_dir, youtube=True,
+                                 max_bytes=max_bytes)
+        except Exception:  # noqa: BLE001 - Invidious last resort
+            for stale in job_dir.glob("source.*"):
+                stale.unlink(missing_ok=True)
+            dest = _invidious_download(video_id, job_dir,
+                                       max_bytes=max_bytes)
         info = probe_media(dest)
         if float(info["duration"]) > max_seconds:
             raise ValueError(
                 "this video is longer than the Clone limit")
         return dest
-    import yt_dlp
-
-    job_dir.mkdir(parents=True, exist_ok=True)
-    opts = {
-        "quiet": True, "no_warnings": True, "noplaylist": True,
-        "format": "bv*[height<=720]+ba/b[height<=720]/b",
-        "merge_output_format": "mp4",
-        "max_filesize": int(max_bytes),
-        "outtmpl": str(job_dir / "source.%(ext)s"),
-    }
-    with yt_dlp.YoutubeDL(opts) as ydl:
-        # Resolve first and re-validate where the link
-        # actually lands (security fix, 2026-11-27): a
-        # redirect to a private address is refused before
-        # any bytes are downloaded from it.
-        info = ydl.extract_info(url, download=False)
-        validate_final_url(
-            info.get("webpage_url") or info.get("url"))
-        ydl.download([url])
-    files = sorted(job_dir.glob("source.*"))
-    if not files:
-        raise RuntimeError("download produced no file")
-    return files[0]
+    return _download_any(url, job_dir, youtube=False,
+                         max_bytes=max_bytes)
 
 
 def probe_media(path) -> dict:

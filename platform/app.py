@@ -621,11 +621,33 @@ image = (
 
 clip_image = (
     modal.Image.debian_slim(python_version="3.12")
-    .apt_install("ffmpeg", "fonts-dejavu-core")
-    .pip_install("sherpa-onnx==2.0.3", "yt-dlp==2026.11.23",
+    .apt_install("ffmpeg", "fonts-dejavu-core", "curl", "unzip",
+                 "git", "ca-certificates")
+    .pip_install("sherpa-onnx==2.0.3",
+                 "yt-dlp[default,curl-cffi]==2026.11.23",
+                 "bgutil-ytdlp-pot-provider==2.0.2",
                  "numpy==2.5.5", "requests==2.34.2",
                  "onnxruntime==1.32.0", "pillow==13.0.0",
                  "librosa==1.0.1")
+    # The link fetch stack (2026-11-27 link ingest fix; the
+    # route chain itself lives in clipping.py): Deno, pinned, is
+    # yt-dlp's JS runtime for YouTube's player challenges and
+    # the runtime the bgutil PO token script runs on; the
+    # bgutil provider source sits at the pinned tag matching
+    # the pip plugin above, and its script mints PO tokens
+    # locally (no account, no cookies).
+    .run_commands(
+        "curl -fsSL https://dl.deno.land/release/v2.9.8/"
+        "deno-x86_64-unknown-linux-gnu.zip -o /tmp/deno.zip && "
+        "unzip -o /tmp/deno.zip -d /usr/local/bin && "
+        "rm /tmp/deno.zip",
+        "deno --version",
+        "git clone --single-branch --branch 2.0.2 --depth 1 "
+        "https://github.com/Brainicism/bgutil-ytdlp-pot-provider.git "
+        "/opt/bgutil",
+        "cd /opt/bgutil/server && "
+        "deno install --allow-scripts=npm:canvas --frozen",
+    )
     .add_local_file(str(Path(__file__).parent / "pricing.py"), "/platform/pricing.py")
     .add_local_file(
         str(Path(__file__).parent.parent
@@ -936,6 +958,13 @@ EDITCLONE_HOOK_SECONDS = 5                # the hook: the first 5s
 EDITCLONE_CLONE_MODEL = "seedance2_mini"
 EDITCLONE_STAGES = ("Getting your video", "Working")
 EDITCLONE_POLL_LIMIT_SECONDS = 3900
+# Link reads from Modal egress are a per-container draw
+# (2026-11-27 link ingest fix; measured about half of fresh
+# containers read a YouTube Short on 2026-11-27), so the
+# ingest probe fans out in parallel and the ingest download
+# re-dispatches to a fresh container before it may fail.
+EDITCLONE_PROBE_ATTEMPTS = 4
+EDITCLONE_FETCH_ATTEMPTS = 4
 
 # Movie assembly (Jack, 2026-11-27): the guided flow's last
 # step in Create and Clone, "Put them together". The user
@@ -1053,6 +1082,31 @@ def editclone_probe(url: str) -> dict:
     return clipping.fetch_any_info(url)
 
 
+def _editclone_probe_any(url: str) -> dict:
+    """The ingest probe, read in parallel from several fresh
+    containers (2026-11-27 link ingest fix): whether YouTube
+    answers a read from Modal egress is a per-container draw
+    (measured about half of containers on 2026-11-27), so a
+    single read is a coin flip and four parallel reads find a
+    working container about nineteen times in twenty. The
+    first success wins; a deterministic refusal (a playlist
+    link) raises at once; if every read fails, the last
+    failure raises exactly as the single read did."""
+    calls = [editclone_probe.spawn(url)
+             for _ in range(EDITCLONE_PROBE_ATTEMPTS)]
+    last_exc = None
+    for call in calls:
+        try:
+            return call.get(timeout=900)
+        except ValueError as exc:
+            if "playlist" in str(exc):
+                raise
+            last_exc = exc
+        except Exception as exc:  # noqa: BLE001 - next container
+            last_exc = exc
+    raise last_exc
+
+
 @app.function(
     image=clip_image,
     secrets=[modal.Secret.from_name("moonfactory-providers")],
@@ -1071,10 +1125,12 @@ def process_editclone_job(job_id: str):
     delete routes serve them unchanged."""
     import secrets as _secrets
     import shutil as _shutil
+    import time as _time
 
     job = jobs.get(job_id)
     if not job:
         return
+    redispatched = False
     try:
         data_volume.reload()
     except Exception:
@@ -1098,10 +1154,40 @@ def process_editclone_job(job_id: str):
                 if not src.exists():
                     raise RuntimeError("the uploaded file is missing")
             else:
-                src = clipping.download_any_video(
-                    job["source_url"], work,
-                    EDITCLONE_MAX_SOURCE_SECONDS,
-                    EDITCLONE_MAX_UPLOAD_BYTES)
+                try:
+                    src = clipping.download_any_video(
+                        job["source_url"], work,
+                        EDITCLONE_MAX_SOURCE_SECONDS,
+                        EDITCLONE_MAX_UPLOAD_BYTES)
+                except Exception as exc:  # noqa: BLE001
+                    # Fresh-container retry (2026-11-27 link
+                    # ingest fix): a bot-walled read says
+                    # nothing about the next container's egress
+                    # draw, so a dead-link download failure
+                    # re-dispatches this job to a fresh
+                    # container a bounded number of times
+                    # before the job may fail. Deterministic
+                    # refusals (over the Clone limit, oversize)
+                    # never carry the dead-link message and
+                    # never retry.
+                    attempts = int(job.get("ec_fetch_attempts")
+                                   or 0)
+                    if attempts + 1 >= EDITCLONE_FETCH_ATTEMPTS \
+                            or clipping.LINK_DEAD_MESSAGE.split(
+                                ". ")[0] not in str(exc):
+                        raise
+                    job["ec_fetch_attempts"] = attempts + 1
+                    job["stage"] = EDITCLONE_STAGES[0]
+                    job["status"] = "running"
+                    jobs[job_id] = job
+                    data_volume.commit()
+                    process_editclone_job.spawn(job_id)
+                    redispatched = True
+                    # Stay busy briefly so the retry input is
+                    # picked up by a different container, not
+                    # this one again.
+                    _time.sleep(20)
+                    return
             info = clipping.probe_media(src)
             duration = float(info["duration"])
             if duration > EDITCLONE_MAX_SOURCE_SECONDS:
@@ -1245,7 +1331,10 @@ def process_editclone_job(job_id: str):
         jobs[job_id] = job
         data_volume.commit()
     finally:
-        _shutil.rmtree(work, ignore_errors=True)
+        # A re-dispatched ingest keeps its work directory: the
+        # retry on the fresh container downloads into it.
+        if not redispatched:
+            _shutil.rmtree(work, ignore_errors=True)
 
 
 @app.function(
@@ -19325,7 +19414,7 @@ document.getElementById('go').onclick = async () => {{
             except ValueError as exc:
                 raise HTTPException(status_code=422, detail=str(exc))
             try:
-                info = editclone_probe.remote(source_url)
+                info = _editclone_probe_any(source_url)
             except ValueError as exc:
                 raise HTTPException(status_code=422, detail=str(exc))
             except Exception:

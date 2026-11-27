@@ -7,7 +7,21 @@ section's any-site ingest) run through yt-dlp
 (https://github.com/yt-dlp/yt-dlp), released into the public
 domain under the Unlicense. It is a runtime dependency of
 the CPU media image; no yt-dlp code is vendored into this
-repository.
+repository. The image installs it with its [default] extra
+(yt-dlp-ejs, for YouTube's player challenges) and its
+[curl-cffi] extra (curl_cffi, for browser impersonation),
+both the projects' own companion packages.
+
+## bgutil-ytdlp-pot-provider (link ingest)
+
+YouTube proof-of-origin tokens for the link fetch chain are
+minted locally by bgutil-ytdlp-pot-provider
+(https://github.com/Brainicism/bgutil-ytdlp-pot-provider),
+MIT licensed: the pip plugin runs inside yt-dlp and the
+provider's script runs on Deno in the CPU media image. It
+operates without any account or cookies. The Deno runtime
+itself (https://deno.com, MIT licensed) is also yt-dlp's
+JavaScript runtime for YouTube's player challenges.
 
 ## HunyuanVideo 1.5 (house video lane)
 

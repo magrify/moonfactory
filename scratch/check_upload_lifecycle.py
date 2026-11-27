@@ -126,7 +126,11 @@ inv = func_src("_invidious_download", ctree, CLIP)
 check("DownloadTooLarge" in inv and "written > max_bytes" in inv,
       "the Invidious stream aborts at the caller's cap")
 dv = func_src("download_video", ctree, CLIP)
-check('"max_filesize"' in dv and "shutil.rmtree" in dv,
+da = func_src("_download_any", ctree, CLIP)
+# The size bound rides the shared route chain download_video
+# delegates to (2026-11-27 link ingest fix); the cleanup on
+# failure stays in download_video itself.
+check('"max_filesize"' in da and "shutil.rmtree" in dv,
       "the clip download is size bounded and cleans up on failure")
 
 if failures:
