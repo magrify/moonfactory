@@ -1232,7 +1232,8 @@ STYLE_NAMES = {k: v["label"] for k, v in STYLES.items()}
 # the create path validates against, in picker order.
 NO_CAPTION_STYLE = "none"
 CAPTION_STYLES = {NO_CAPTION_STYLE: "No captions", **STYLE_NAMES}
-LAYOUTS = {"blur": "Fill with blur", "zoom": "Zoom", "crop": "Crop"}
+LAYOUTS = {"blur": "Fill with blur", "zoom": "Zoom backdrop",
+           "solid": "Solid background"}
 
 
 def _ts(t):
@@ -1259,18 +1260,24 @@ def _groups(words, per):
 
 
 def geometry(src_w, src_h, layout):
-    if src_h >= src_w and layout != "crop":
-        layout = "crop"
-    if layout == "blur":
-        fg_h = min(OUT_H, int(round(OUT_W * src_h / src_w / 2)) * 2)
-    elif layout == "zoom":
-        fg_h = 1000
-    else:
-        fg_h = OUT_H
+    """Fit geometry for a source (Jack's rule, 2026-11-27):
+    every layout fits the COMPLETE source frame inside the
+    output, whatever its orientation, landscape, square,
+    portrait or taller than the output. Nothing is cropped,
+    so the old "crop" layout is gone (its name survives only
+    as a stored value on older jobs, resolved here to the
+    blur fit) and portrait sources are no longer forced into
+    a fill that discards their top and bottom. Returns
+    (layout, fg_w, fg_h, hook_y, cap_y): the foreground's
+    fitted size and where the captions sit around it."""
+    if layout not in LAYOUTS:
+        layout = "blur"
+    scale = min(OUT_W / src_w, OUT_H / src_h)
+    fg_w = int(round(src_w * scale / 2)) * 2
+    fg_h = int(round(src_h * scale / 2)) * 2
     top = (OUT_H - fg_h) // 2
-    if layout == "crop":
-        return layout, fg_h, 300, 1380
-    return layout, fg_h, max(230, top - 190), min(1640, top + fg_h + 180)
+    return layout, fg_w, fg_h, max(230, top - 190), \
+        min(1640, top + fg_h + 180)
 
 
 def build_ass(words, start, end, hook, style_name, highlight, hook_y, cap_y) -> str:
@@ -1342,16 +1349,37 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
 
 def _filter(layout, fg_h):
-    if layout == "crop":
-        return (f"[0:v]fps={OUT_FPS},scale={OUT_W}:{OUT_H}:"
-                f"force_original_aspect_ratio=increase,crop={OUT_W}:{OUT_H},setsar=1[v0];")
-    return (
-        f"[0:v]fps={OUT_FPS},split=2[a][b];"
-        f"[a]scale=270:480:force_original_aspect_ratio=increase,crop=270:480,boxblur=6:2,"
-        f"scale={OUT_W}:{OUT_H},eq=brightness=-0.14:saturation=1.15[bg];"
-        f"[b]scale={OUT_W}:{fg_h}:force_original_aspect_ratio=increase,crop={OUT_W}:{fg_h}[fg];"
-        f"[bg][fg]overlay=0:(H-h)/2,setsar=1[v0];"
-    )
+    """The render filter for a layout. The foreground leg is
+    the whole source frame scaled DOWN to fit inside the
+    output (force_original_aspect_ratio=decrease, never a
+    crop), centred over the backdrop; only the blurred
+    backdrop legs crop, and they are decoration behind the
+    complete frame, never the frame itself."""
+    fg = (f"[b]scale={OUT_W}:{OUT_H}:"
+          f"force_original_aspect_ratio=decrease[fg];")
+    place = f"[bg][fg]overlay=(W-w)/2:(H-h)/2,setsar=1[v0];"
+    if layout == "solid":
+        # The colour source never ends on its own, so the
+        # overlay stops with the foreground (shortest=1);
+        # without it this render runs forever.
+        return (
+            f"color=c=0x101018:s={OUT_W}x{OUT_H}:r={OUT_FPS}[bg];"
+            f"[0:v]fps={OUT_FPS},scale={OUT_W}:{OUT_H}:"
+            f"force_original_aspect_ratio=decrease[fg];"
+            f"[bg][fg]overlay=(W-w)/2:(H-h)/2:shortest=1,setsar=1[v0];"
+        )
+    if layout == "zoom":
+        # The backdrop is the same blurred fill pushed in
+        # tighter (a centre crop of the blurred copy); the
+        # frame in front of it stays complete.
+        bg = (f"[a]scale=540:960:force_original_aspect_ratio=increase,"
+              f"crop=405:720,boxblur=8:3,scale={OUT_W}:{OUT_H},"
+              f"eq=brightness=-0.18:saturation=1.25[bg];")
+    else:
+        bg = (f"[a]scale=270:480:force_original_aspect_ratio=increase,"
+              f"crop=270:480,boxblur=6:2,scale={OUT_W}:{OUT_H},"
+              f"eq=brightness=-0.14:saturation=1.15[bg];")
+    return f"[0:v]fps={OUT_FPS},split=2[a][b];" + bg + fg + place
 
 
 def render_clip(src, out_dir: Path, name: str, clip: dict, words: list,
@@ -1363,7 +1391,8 @@ def render_clip(src, out_dir: Path, name: str, clip: dict, words: list,
 
     out_dir.mkdir(parents=True, exist_ok=True)
     start, end = clip["start"], clip["end"]
-    layout, fg_h, hook_y, cap_y = geometry(src_w, src_h, clip.get("layout", "blur"))
+    layout, fg_w, fg_h, hook_y, cap_y = geometry(
+        src_w, src_h, clip.get("layout", "blur"))
     # "No captions": no ass file is built and no caption filter
     # is chained, so nothing is burned in, neither the
     # word-by-word captions nor the hook pill.

@@ -18677,6 +18677,11 @@ document.getElementById('go').onclick = async () => {{
                 detail="caption style must be one of "
                 + ", ".join(clipping.CAPTION_STYLES.values()))
         layout = body.get("layout") or "blur"
+        if layout == "crop":
+            # Jobs made before the no-crop rule (2026-11-27)
+            # carry "crop"; it renders as the blur fit now,
+            # the whole frame kept.
+            layout = "blur"
         if layout not in clipping.LAYOUTS:
             raise HTTPException(
                 status_code=422,
@@ -26714,9 +26719,9 @@ APP_HTML = (
       <div class="grow">
         <label>Layout</label>
         <select id="clip-layout">
-          <option value="blur">Fill with blur</option>
-          <option value="zoom">Zoom</option>
-          <option value="crop">Crop</option>
+          <option value="blur">Fill with blur (whole video fits)</option>
+          <option value="zoom">Zoom backdrop (whole video fits)</option>
+          <option value="solid">Solid background (whole video fits)</option>
         </select>
       </div>
     </div>

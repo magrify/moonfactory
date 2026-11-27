@@ -251,6 +251,54 @@ finally:
     clipping._run = real_run
     clipping.build_ass = real_build
 
+# --- layouts: nothing gets cut off ----------------------------------
+check(list(clipping.LAYOUTS) == ["blur", "zoom", "solid"],
+      "LAYOUTS is not blur, zoom, solid (crop must be gone)")
+layout_opts = options("clip-layout")
+check([o[0] for o in layout_opts] == list(clipping.LAYOUTS),
+      "layout options do not match LAYOUTS")
+check([o[2] for o in layout_opts]
+      == ["Fill with blur (whole video fits)",
+          "Zoom backdrop (whole video fits)",
+          "Solid background (whole video fits)"],
+      "layout labels do not state the whole video fits")
+check('if layout == "crop":' in SRC,
+      "create_clip does not map the legacy crop value")
+
+SOURCES = [(1920, 1080), (1000, 1000), (1080, 1920), (1080, 2400),
+           (720, 1280), (3840, 2160)]
+for src_w, src_h in SOURCES:
+    for want in ("blur", "zoom", "solid", "crop"):
+        layout, fg_w, fg_h, hook_y, cap_y = clipping.geometry(
+            src_w, src_h, want)
+        check(layout in clipping.LAYOUTS,
+              f"geometry({src_w}x{src_h}, {want}) kept layout {layout}")
+        check(fg_w <= clipping.OUT_W and fg_h <= clipping.OUT_H,
+              f"geometry({src_w}x{src_h}, {want}) foreground "
+              f"{fg_w}x{fg_h} exceeds the output")
+        check(fg_w >= clipping.OUT_W - 2 or fg_h >= clipping.OUT_H - 2,
+              f"geometry({src_w}x{src_h}, {want}) foreground "
+              f"{fg_w}x{fg_h} does not touch the frame it fits")
+        check(abs(fg_w / fg_h - src_w / src_h) < 0.01,
+              f"geometry({src_w}x{src_h}, {want}) foreground "
+              f"{fg_w}x{fg_h} distorts the source aspect")
+check(clipping.geometry(1080, 1920, "solid")[0] == "solid",
+      "a portrait source is still forced out of its chosen layout")
+check(clipping.geometry(1080, 2400, "zoom")[2] == clipping.OUT_H,
+      "an extra tall source does not fit by height")
+
+for name in ("blur", "zoom", "solid"):
+    fc = clipping._filter(name, 608)
+    fg_leg = next(seg for seg in fc.split(";") if "[fg]" in seg)
+    check("force_original_aspect_ratio=decrease" in fg_leg
+          and "crop" not in fg_leg,
+          f"{name} foreground leg is not a crop free fit")
+check("crop" not in clipping._filter("solid", 608),
+      "the solid layout filter crops somewhere")
+check("shortest=1" in clipping._filter("solid", 608),
+      "the solid overlay does not stop with the foreground "
+      "(its colour source is endless, the render would hang)")
+
 if failures:
     print("CLIP AUTO CHECKS FAILED:")
     for f in failures:
