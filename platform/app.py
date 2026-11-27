@@ -361,6 +361,35 @@ def _job_index_entry(job: dict) -> list:
                   or job.get("clone_parent")) else 1]
 
 
+def _note_claimable(job: dict):
+    """Append a freshly queued job to its worker family's
+    claim queue (fix, 2026-11-27, worker-claim-full-dict-scan):
+    claims used to scan the whole jobs Dict on every poll.
+    The queue is a hint, never the truth: claim functions
+    verify each id against the record and fall back to a
+    full scan (which refreshes the queue) when it yields
+    nothing, so a job queued through any path is found."""
+    if not job or job.get("status") != "queued" \
+            or not job.get("id"):
+        return
+    kind = job.get("kind")
+    if kind == "template":
+        family = "hf"
+    elif kind == "voice_clone":
+        family = "voice"
+    elif kind == "audio_stage":
+        family = "audio"
+    elif job.get("provider") == "kaggle-comfy":
+        family = "comfy"
+    else:
+        return
+    key = f"claimq:{family}"
+    queue = list(meta.get(key) or [])
+    if job["id"] not in queue:
+        queue.append(job["id"])
+        meta[key] = queue[-1000:]
+
+
 def _index_job(job: dict):
     """Record a freshly stored job in the index. Idempotent:
     re-calling for an existing job (a drama resume reopens its
@@ -380,6 +409,7 @@ def _index_job(job: dict):
         active.append(job["id"])
         ent["active"] = active
     user_jobs[uid] = ent
+    _note_claimable(job)
     if entry[3]:
         gent = user_jobs.get(JOB_INDEX_ALL_KEY) or {"ids": []}
         gids = gent.get("ids") or []
@@ -5025,6 +5055,7 @@ def _queue_audio_child(stage: str, payload: dict, parent):
             **payload,
         }
         jobs[child_id] = child
+        _note_claimable(child)
         _wake_audio_kernel()
         return child
     except Exception:
@@ -18608,9 +18639,154 @@ document.getElementById('go').onclick = async () => {{
             pass
 
     def _hf_worker_ok(x_api_key: str) -> bool:
-        expected = os.environ.get("TEMPLATE_WORKER_KEY", "")
-        return bool(expected) and hmac.compare_digest(
-            x_api_key or "", expected)
+        return _family_worker_ok("TEMPLATE", x_api_key)
+
+    # -- worker plane auth (security fix, 2026-11-27) ---------------------
+    # Audit findings worker-endpoints-no-claim-binding (HIGH),
+    # worker-key-readable-by-in-session-third-party-code
+    # (HIGH), worker-result-body-buffered-before-cap,
+    # worker-upload-verification-fail-open, and
+    # audio-result-arbitrary-json-trusted (MEDIUMs). The
+    # worker plane used to be one shared key and nothing
+    # else: any holder of the key could read any job's
+    # inputs and post results or failures for any job,
+    # including jobs never claimed (failing one triggers
+    # refunds). Now:
+    #   * each family has its own key (env <FAMILY>_WORKER_KEY,
+    #     falling back to the shared TEMPLATE_WORKER_KEY so
+    #     the rollout needs no flag day), and each family's
+    #     previous key is accepted during rotation
+    #     (<NAME>_PREV), so a key that leaks inside one
+    #     Kaggle session no longer opens the other families;
+    #   * a claim that carries X-Claim-Bind: 1 is issued a
+    #     per-job claim token (only its SHA-256 is stored);
+    #     every per-job endpoint then requires that token,
+    #     so the shared key alone can no longer touch a
+    #     claimed job, and a token is bound to the one job
+    #     its session claimed;
+    #   * source endpoints refuse jobs that are done, and
+    #     fail endpoints refuse jobs that were never claimed.
+
+    def _family_worker_ok(family: str, provided: str) -> bool:
+        names = [f"{family}_WORKER_KEY", f"{family}_WORKER_KEY_PREV",
+                 "TEMPLATE_WORKER_KEY", "TEMPLATE_WORKER_KEY_PREV"]
+        for name in names:
+            expected = os.environ.get(name, "")
+            if expected and hmac.compare_digest(provided or "",
+                                                 expected):
+                return True
+        return False
+
+    def _issue_claim_token(job: dict, bind: str):
+        if bind != "1":
+            return None
+        token = pysecrets.token_urlsafe(32)
+        job["claim_token_hash"] = hashlib.sha256(
+            token.encode()).hexdigest()
+        return token
+
+    def _require_claim(job: dict, x_claim_token: str):
+        want = job.get("claim_token_hash")
+        if not want:
+            return  # legacy claim: key-only, pre-token kernels
+        got = hashlib.sha256(
+            (x_claim_token or "").encode()).hexdigest()
+        if not hmac.compare_digest(got, want):
+            raise HTTPException(
+                status_code=403,
+                detail="this job was claimed by another worker session")
+
+    def _refuse_finished_source(job: dict):
+        if job.get("status") in ("done", "error"):
+            raise HTTPException(
+                status_code=404, detail="the job is finished")
+
+    def _check_declared_size(request: Request, cap: int):
+        declared = request.headers.get("content-length")
+        if declared:
+            try:
+                if int(declared) > cap:
+                    raise HTTPException(
+                        status_code=413, detail="bad file size")
+            except ValueError:
+                pass
+
+    def _claim_candidates(family: str, match) -> list:
+        """Queued jobs for one worker family: the claim
+        queue first (each id verified against its record),
+        a full scan only when the queue yields nothing, and
+        the scan refreshes the queue for the next poll."""
+        ids = list(meta.get(f"claimq:{family}") or [])
+        found, keep = [], []
+        for jid in ids:
+            job = jobs.get(jid)
+            if job and match(job):
+                found.append(job)
+                keep.append(jid)
+        if found:
+            if keep != ids:
+                meta[f"claimq:{family}"] = keep
+            return found
+        scanned = []
+        for key in list(jobs.keys()):
+            job = jobs.get(key)
+            if job and match(job):
+                scanned.append(job)
+        meta[f"claimq:{family}"] = [j["id"] for j in scanned][-1000:]
+        return scanned
+
+    def _validate_audio_result(job: dict, body) -> dict:
+        """The word check verdict, rebuilt server side from
+        validated fields only (security fix, 2026-11-27):
+        the worker's JSON used to be stored and trusted
+        verbatim, so a compromised session could stamp any
+        outcome onto a job it never checked. Only the fields
+        the waiting caller reads survive, each type checked,
+        and only for the stage that produces them."""
+        if not isinstance(body, dict):
+            raise HTTPException(status_code=400, detail="bad result")
+        stage = job.get("audio_stage")
+        if stage not in ("wordcheck", "transcribe"):
+            raise HTTPException(
+                status_code=400,
+                detail="this stage takes no result")
+
+        def word_list(value, cap):
+            out = []
+            if isinstance(value, list):
+                for item in value[:cap]:
+                    if isinstance(item, dict):
+                        entry = {}
+                        for key in ("word", "start", "end", "at"):
+                            val = item.get(key)
+                            if isinstance(val, (str, int, float)) \
+                                    and not isinstance(val, bool):
+                                entry[key] = val
+                        out.append(entry)
+            return out
+
+        if stage == "transcribe":
+            return {"words": word_list(body.get("words"), 5000)}
+        status = body.get("status")
+        if status not in ("passed", "take_failed", "fixed",
+                          "flagged"):
+            raise HTTPException(
+                status_code=400, detail="bad result status")
+        clean = {"status": status,
+                 "wrong": word_list(body.get("wrong"), 200),
+                 "words": word_list(body.get("words"), 5000)}
+        listen = body.get("listen_at")
+        clean["listen_at"] = [
+            float(x) for x in (listen or [])[:200]
+            if isinstance(x, (int, float))
+            and not isinstance(x, bool)] \
+            if isinstance(listen, list) else []
+        for key in ("wrong_ratio", "initial_wrong_ratio"):
+            val = body.get(key)
+            if isinstance(val, (int, float)) \
+                    and not isinstance(val, bool):
+                clean[key] = min(1.0, max(0.0, float(val)))
+        return clean
 
     def _hf_daily_used(user: dict) -> int:
         # Counted off the per-user index facts (kind and
@@ -18897,16 +19073,14 @@ document.getElementById('go').onclick = async () => {{
         return {"ok": True}
 
     @web.get("/api/worker/hf/jobs/next")
-    def hf_next_job(x_api_key: str = Header(default="")):
+    def hf_next_job(x_api_key: str = Header(default=""),
+                    x_claim_bind: str = Header(default="")):
         if not _hf_worker_ok(x_api_key):
             raise HTTPException(status_code=401, detail="bad worker key")
         meta["hf:heartbeat"] = _now()
-        queued = []
-        for key in list(jobs.keys()):
-            other = jobs.get(key)
-            if (other and other.get("kind") == "template"
-                    and other.get("status") == "queued"):
-                queued.append(other)
+        queued = _claim_candidates(
+            "hf", lambda o: o.get("kind") == "template"
+            and o.get("status") == "queued")
         if not queued:
             return {"job": None}
         queued.sort(key=lambda j: j["created_at"])
@@ -18939,6 +19113,7 @@ document.getElementById('go').onclick = async () => {{
         job["status"] = "running"
         job["stage"] = "Rendering now"
         job["claimed_at"] = _now()
+        claim_token = _issue_claim_token(job, x_claim_bind)
         jobs[job["id"]] = job
         payload = {
             "id": job["id"],
@@ -19009,16 +19184,21 @@ document.getElementById('go').onclick = async () => {{
             payload["source_name"] = Path(job["upload_path"]).name
             payload["has_voice"] = True
             jobs[job["id"]] = job
+        if claim_token:
+            payload["claim_token"] = claim_token
         return {"job": payload}
 
     @web.get("/api/worker/hf/jobs/{job_id}/source")
-    def hf_job_source(job_id: str, x_api_key: str = Header(default="")):
+    def hf_job_source(job_id: str, x_api_key: str = Header(default=""),
+                      x_claim_token: str = Header(default="")):
         if not _hf_worker_ok(x_api_key):
             raise HTTPException(status_code=401, detail="bad worker key")
         job = jobs.get(job_id)
         if not job or job.get("kind") != "template" \
                 or not job.get("upload_path"):
             raise HTTPException(status_code=404, detail="unknown job")
+        _require_claim(job, x_claim_token)
+        _refuse_finished_source(job)
         path = Path(job["upload_path"])
         if not path.exists():
             try:
@@ -19031,7 +19211,8 @@ document.getElementById('go').onclick = async () => {{
                             filename=path.name)
 
     @web.get("/api/worker/hf/jobs/{job_id}/voice")
-    def hf_job_voice(job_id: str, x_api_key: str = Header(default="")):
+    def hf_job_voice(job_id: str, x_api_key: str = Header(default=""),
+                     x_claim_token: str = Header(default="")):
         """The presenter job's finished voiceover, for the
         worker to stage as voice.wav and compute the mouth
         curve from. Only a presenter job with a ready wav has
@@ -19043,6 +19224,8 @@ document.getElementById('go').onclick = async () => {{
                 or job.get("template") != "presenter" \
                 or not job.get("voice_child_id"):
             raise HTTPException(status_code=404, detail="unknown job")
+        _require_claim(job, x_claim_token)
+        _refuse_finished_source(job)
         path = _audio_child_path(job["voice_child_id"])
         if not path.exists():
             try:
@@ -19056,14 +19239,17 @@ document.getElementById('go').onclick = async () => {{
 
     @web.post("/api/worker/hf/jobs/{job_id}/file")
     async def hf_job_file(job_id: str, request: Request,
-                          x_api_key: str = Header(default="")):
+                          x_api_key: str = Header(default=""),
+                          x_claim_token: str = Header(default="")):
         if not _hf_worker_ok(x_api_key):
             raise HTTPException(status_code=401, detail="bad worker key")
         job = jobs.get(job_id)
         if not job or job.get("kind") != "template":
             raise HTTPException(status_code=404, detail="unknown job")
+        _require_claim(job, x_claim_token)
         if job["status"] != "running":
             raise HTTPException(status_code=409, detail=f"job status is {job['status']}")
+        _check_declared_size(request, 500 * 1024 * 1024)
         data = await request.body()
         if not data or len(data) > 500 * 1024 * 1024:
             raise HTTPException(status_code=413, detail="bad file size")
@@ -19075,8 +19261,19 @@ document.getElementById('go').onclick = async () => {{
         try:
             info = clipping.probe(out_path)
             job["duration_seconds"] = round(float(info["duration"]), 2)
-        except Exception:
-            pass
+        except Exception as exc:
+            # Verification is not optional (security fix,
+            # 2026-11-27, worker-upload-verification-fail-open):
+            # a render that cannot be probed does not complete
+            # the job, it fails it.
+            job["status"] = "error"
+            job["error"] = "the render failed, nothing was charged"
+            job["internal_error"] = f"upload probe failed: {exc}"[:300]
+            job["stage"] = None
+            jobs[job["id"]] = job
+            raise HTTPException(
+                status_code=422,
+                detail="the uploaded file could not be verified")
         stamp_content_hash(job, out_path)
         classify_job_output(job, out_path)
         job["status"] = "done"
@@ -19087,7 +19284,8 @@ document.getElementById('go').onclick = async () => {{
 
     @web.post("/api/worker/hf/jobs/{job_id}/gif")
     async def hf_job_gif(job_id: str, request: Request,
-                         x_api_key = Header(default="")):
+                         x_api_key = Header(default=""),
+                         x_claim_token: str = Header(default="")):
         """The GIF a template job asked for (2026-11-27): the
         worker converts the render's first stretch after
         rendering and posts it here before the MP4, while the
@@ -19099,8 +19297,10 @@ document.getElementById('go').onclick = async () => {{
         job = jobs.get(job_id)
         if not job or job.get("kind") != "template":
             raise HTTPException(status_code=404, detail="unknown job")
+        _require_claim(job, x_claim_token)
         if job["status"] != "running":
             raise HTTPException(status_code=409, detail=f"job status is {job['status']}")
+        _check_declared_size(request, 64 * 1024 * 1024)
         data = await request.body()
         if not data or len(data) > 64 * 1024 * 1024:
             raise HTTPException(status_code=413, detail="bad file size")
@@ -19117,13 +19317,20 @@ document.getElementById('go').onclick = async () => {{
 
     @web.post("/api/worker/hf/jobs/{job_id}/fail")
     async def hf_job_fail(job_id: str, request: Request,
-                          x_api_key: str = Header(default="")):
+                          x_api_key: str = Header(default=""),
+                          x_claim_token: str = Header(default="")):
         if not _hf_worker_ok(x_api_key):
             raise HTTPException(status_code=401, detail="bad worker key")
         job = jobs.get(job_id)
         if not job or job.get("kind") != "template":
             raise HTTPException(status_code=404, detail="unknown job")
-        if job["status"] not in ("queued", "running"):
+        _require_claim(job, x_claim_token)
+        if job["status"] != "running":
+            # A job that was never claimed cannot be failed
+            # through the worker plane (security fix,
+            # 2026-11-27): failing is the claiming session's
+            # act, and a bare key must not be able to kill a
+            # queued job (or trigger its refunds).
             raise HTTPException(status_code=409, detail=f"job status is {job['status']}")
         body = await request.json()
         job["status"] = "error"
@@ -19145,7 +19352,7 @@ document.getElementById('go').onclick = async () => {{
     # it from the voice_clone folder on the data Volume.
 
     def _voice_worker_ok(x_api_key: str) -> bool:
-        return _hf_worker_ok(x_api_key)
+        return _family_worker_ok("VOICE", x_api_key)
 
     @web.post("/api/worker/voice/heartbeat")
     def voice_heartbeat(x_api_key: str = Header(default="")):
@@ -19155,39 +19362,44 @@ document.getElementById('go').onclick = async () => {{
         return {"ok": True}
 
     @web.get("/api/worker/voice/jobs/next")
-    def voice_next_job(x_api_key: str = Header(default="")):
+    def voice_next_job(x_api_key: str = Header(default=""),
+                       x_claim_bind: str = Header(default="")):
         if not _voice_worker_ok(x_api_key):
             raise HTTPException(status_code=401, detail="bad worker key")
         meta["voice:heartbeat"] = _now()
-        queued = []
-        for key in list(jobs.keys()):
-            other = jobs.get(key)
-            if (other and other.get("kind") == "voice_clone"
-                    and other.get("status") == "queued"):
-                queued.append(other)
+        queued = _claim_candidates(
+            "voice", lambda o: o.get("kind") == "voice_clone"
+            and o.get("status") == "queued")
         if not queued:
             return {"job": None}
         queued.sort(key=lambda j: j["created_at"])
         job = queued[0]
         job["status"] = "running"
         job["claimed_at"] = _now()
+        claim_token = _issue_claim_token(job, x_claim_bind)
         jobs[job["id"]] = job
         parent = jobs.get(job.get("clone_parent") or "") or {}
-        return {"job": {
+        payload = {
             "id": job["id"],
             "text": job.get("clone_text") or "",
             "reference_text": job.get("clone_reference_text") or "",
             "has_reference": bool(parent.get("clone_reference_ext")),
-        }}
+        }
+        if claim_token:
+            payload["claim_token"] = claim_token
+        return {"job": payload}
 
     @web.get("/api/worker/voice/jobs/{job_id}/reference")
     def voice_job_reference(job_id: str,
-                            x_api_key: str = Header(default="")):
+                            x_api_key: str = Header(default=""),
+                            x_claim_token: str = Header(default="")):
         if not _voice_worker_ok(x_api_key):
             raise HTTPException(status_code=401, detail="bad worker key")
         job = jobs.get(job_id)
         if not job or job.get("kind") != "voice_clone":
             raise HTTPException(status_code=404, detail="unknown job")
+        _require_claim(job, x_claim_token)
+        _refuse_finished_source(job)
         parent = jobs.get(job.get("clone_parent") or "") or {}
         ext = parent.get("clone_reference_ext") or ""
         if not ext:
@@ -19206,15 +19418,18 @@ document.getElementById('go').onclick = async () => {{
 
     @web.post("/api/worker/voice/jobs/{job_id}/file")
     async def voice_job_file(job_id: str, request: Request,
-                             x_api_key: str = Header(default="")):
+                             x_api_key: str = Header(default=""),
+                             x_claim_token: str = Header(default="")):
         if not _voice_worker_ok(x_api_key):
             raise HTTPException(status_code=401, detail="bad worker key")
         job = jobs.get(job_id)
         if not job or job.get("kind") != "voice_clone":
             raise HTTPException(status_code=404, detail="unknown job")
+        _require_claim(job, x_claim_token)
         if job["status"] != "running":
             raise HTTPException(
                 status_code=409, detail=f"job status is {job['status']}")
+        _check_declared_size(request, 100 * 1024 * 1024)
         data = await request.body()
         if not data or len(data) > 100 * 1024 * 1024:
             raise HTTPException(status_code=413, detail="bad file size")
@@ -19224,19 +19439,39 @@ document.getElementById('go').onclick = async () => {{
         out_path.write_bytes(data)
         data_volume.commit()
         job["bytes"] = len(data)
+        try:
+            # Verification is not optional (security fix,
+            # 2026-11-27, worker-upload-verification-fail-open):
+            # an upload that cannot be probed fails the job
+            # (and refunds the parent's clone charge through
+            # the same helper the fail endpoint uses) instead
+            # of completing it.
+            clipping.probe(out_path)
+        except Exception as exc:
+            job["status"] = "error"
+            job["error"] = "the cloned voice could not be made"
+            job["internal_error"] = f"upload probe failed: {exc}"[:300]
+            jobs[job["id"]] = job
+            if job.get("clone_parent"):
+                _clone_refund_if_unsuccessful(job["clone_parent"])
+            raise HTTPException(
+                status_code=422,
+                detail="the uploaded file could not be verified")
         job["status"] = "done"
         jobs[job["id"]] = job
         return {"ok": True, "bytes": len(data)}
 
     @web.post("/api/worker/voice/jobs/{job_id}/fail")
     async def voice_job_fail(job_id: str, request: Request,
-                             x_api_key: str = Header(default="")):
+                             x_api_key: str = Header(default=""),
+                             x_claim_token: str = Header(default="")):
         if not _voice_worker_ok(x_api_key):
             raise HTTPException(status_code=401, detail="bad worker key")
         job = jobs.get(job_id)
         if not job or job.get("kind") != "voice_clone":
             raise HTTPException(status_code=404, detail="unknown job")
-        if job["status"] not in ("queued", "running"):
+        _require_claim(job, x_claim_token)
+        if job["status"] != "running":
             raise HTTPException(
                 status_code=409, detail=f"job status is {job['status']}")
         body = await request.json()
@@ -19270,7 +19505,7 @@ document.getElementById('go').onclick = async () => {{
     # through the result endpoint, which marks it done.
 
     def _audio_worker_ok(x_api_key: str = Header(default="")):
-        return _hf_worker_ok(x_api_key)
+        return _family_worker_ok("AUDIO", x_api_key)
 
     @web.post("/api/worker/audio/heartbeat")
     def audio_heartbeat(x_api_key: str = Header(default=""),
@@ -19283,7 +19518,8 @@ document.getElementById('go').onclick = async () => {{
 
     @web.get("/api/worker/audio/jobs/next")
     def audio_next_job(x_api_key: str = Header(default=""),
-                       x_audio_rev: str = Header(default="")):
+                       x_audio_rev: str = Header(default=""),
+                       x_claim_bind: str = Header(default="")):
         if not _audio_worker_ok(x_api_key):
             raise HTTPException(status_code=401, detail="bad worker key")
         meta["audio:heartbeat"] = _now()
@@ -19300,21 +19536,19 @@ document.getElementById('go').onclick = async () => {{
         rev = _audio_kernel_rev()
         if x_audio_rev != rev:
             return {"job": None}
-        queued = []
-        for key in list(jobs.keys()):
-            other = jobs.get(key)
-            if (other and other.get("kind") == "audio_stage"
-                    and other.get("status") == "queued"
-                    and other.get("audio_rev") == rev):
-                queued.append(other)
+        queued = _claim_candidates(
+            "audio", lambda o: o.get("kind") == "audio_stage"
+            and o.get("status") == "queued"
+            and o.get("audio_rev") == rev)
         if not queued:
             return {"job": None}
         queued.sort(key=lambda j: j["created_at"])
         job = queued[0]
         job["status"] = "running"
         job["claimed_at"] = _now()
+        claim_token = _issue_claim_token(job, x_claim_bind)
         jobs[job["id"]] = job
-        return {"job": {
+        payload = {
             "id": job["id"],
             "stage": job.get("audio_stage") or "",
             "caption": job.get("caption") or "",
@@ -19322,19 +19556,25 @@ document.getElementById('go').onclick = async () => {{
             "text": job.get("text") or "",
             "voice": job.get("voice") or "",
             "script": job.get("script") or "",
-        }}
+        }
+        if claim_token:
+            payload["claim_token"] = claim_token
+        return {"job": payload}
 
     @web.post("/api/worker/audio/jobs/{job_id}/file")
     async def audio_job_file(job_id: str, request: Request,
-                             x_api_key: str = Header(default="")):
+                             x_api_key: str = Header(default=""),
+                             x_claim_token: str = Header(default="")):
         if not _audio_worker_ok(x_api_key):
             raise HTTPException(status_code=401, detail="bad worker key")
         job = jobs.get(job_id)
         if not job or job.get("kind") != "audio_stage":
             raise HTTPException(status_code=404, detail="unknown job")
+        _require_claim(job, x_claim_token)
         if job["status"] != "running":
             raise HTTPException(
                 status_code=409, detail=f"job status is {job['status']}")
+        _check_declared_size(request, 100 * 1024 * 1024)
         data = await request.body()
         if not data or len(data) > 100 * 1024 * 1024:
             raise HTTPException(status_code=413, detail="bad file size")
@@ -19344,6 +19584,18 @@ document.getElementById('go').onclick = async () => {{
         out_path.write_bytes(data)
         data_volume.commit()
         job["bytes"] = len(data)
+        try:
+            # Verification is not optional (security fix,
+            # 2026-11-27, worker-upload-verification-fail-open).
+            clipping.probe(out_path)
+        except Exception as exc:
+            job["status"] = "error"
+            job["error"] = "the audio stage could not be made"
+            job["internal_error"] = f"upload probe failed: {exc}"[:300]
+            jobs[job["id"]] = job
+            raise HTTPException(
+                status_code=422,
+                detail="the uploaded file could not be verified")
         if job.get("audio_stage") == "wordcheck":
             # A word check's file is only half its answer:
             # the repaired wav lands here, and the check's
@@ -19359,12 +19611,15 @@ document.getElementById('go').onclick = async () => {{
 
     @web.get("/api/worker/audio/jobs/{job_id}/source")
     def audio_job_source(job_id: str,
-                         x_api_key: str = Header(default="")):
+                         x_api_key: str = Header(default=""),
+                         x_claim_token: str = Header(default="")):
         if not _audio_worker_ok(x_api_key):
             raise HTTPException(status_code=401, detail="bad worker key")
         job = jobs.get(job_id)
         if not job or job.get("kind") != "audio_stage":
             raise HTTPException(status_code=404, detail="unknown job")
+        _require_claim(job, x_claim_token)
+        _refuse_finished_source(job)
         try:
             data_volume.reload()
         except Exception:
@@ -19378,37 +19633,41 @@ document.getElementById('go').onclick = async () => {{
 
     @web.post("/api/worker/audio/jobs/{job_id}/result")
     async def audio_job_result(job_id: str, request: Request,
-                               x_api_key: str = Header(default="")):
+                               x_api_key: str = Header(default=""),
+                               x_claim_token: str = Header(default="")):
         if not _audio_worker_ok(x_api_key):
             raise HTTPException(status_code=401, detail="bad worker key")
         job = jobs.get(job_id)
         if not job or job.get("kind") != "audio_stage":
             raise HTTPException(status_code=404, detail="unknown job")
+        _require_claim(job, x_claim_token)
         if job["status"] != "running":
             raise HTTPException(
                 status_code=409, detail=f"job status is {job['status']}")
         body = await request.json()
-        if not isinstance(body, dict):
-            raise HTTPException(status_code=400, detail="bad result")
         # The word check stages answer in two parts: any
         # repaired wav through the file endpoint, and the
         # outcome itself (status, wrong words, heard words)
-        # here, stored on the child record where the
-        # waiting caller reads it.
-        job["wc_result"] = body
+        # here. The outcome is rebuilt from validated fields
+        # only (security fix, 2026-11-27,
+        # audio-result-arbitrary-json-trusted) and stored on
+        # the child record where the waiting caller reads it.
+        job["wc_result"] = _validate_audio_result(job, body)
         job["status"] = "done"
         jobs[job["id"]] = job
         return {"ok": True}
 
     @web.post("/api/worker/audio/jobs/{job_id}/fail")
     async def audio_job_fail(job_id: str, request: Request,
-                             x_api_key: str = Header(default="")):
+                             x_api_key: str = Header(default=""),
+                             x_claim_token: str = Header(default="")):
         if not _audio_worker_ok(x_api_key):
             raise HTTPException(status_code=401, detail="bad worker key")
         job = jobs.get(job_id)
         if not job or job.get("kind") != "audio_stage":
             raise HTTPException(status_code=404, detail="unknown job")
-        if job["status"] not in ("queued", "running"):
+        _require_claim(job, x_claim_token)
+        if job["status"] != "running":
             raise HTTPException(
                 status_code=409, detail=f"job status is {job['status']}")
         body = await request.json()
@@ -19429,7 +19688,7 @@ document.getElementById('go').onclick = async () => {{
     # template lane: heartbeat, claim, file, fail.
 
     def _comfy_worker_ok(x_api_key: str) -> bool:
-        return _hf_worker_ok(x_api_key)
+        return _family_worker_ok("COMFY", x_api_key)
 
     def _comfy_maybe_trigger() -> None:
         """Wake the ComfyUI kernel when a job waits and no
@@ -19521,7 +19780,18 @@ document.getElementById('go').onclick = async () => {{
             meta["comfy:session_age_s"] = body.get("session_age_s")
         session = (body.get("session") if isinstance(body, dict)
                    else None)
-        if session:
+        # Security fix (2026-11-27, comfy-heartbeat-session-
+        # spoof-requeue): the requeue below used to trust any
+        # session string in a heartbeat body, so any holder
+        # of the shared key could orphan a rival session's
+        # running jobs at will. A session may now orphan only
+        # jobs claimed more than ten minutes ago, and only
+        # when the server has seen that session claim work
+        # itself (sessions are recorded at claim time). The
+        # claim token on file/fail is the hard binding; this
+        # keeps the heartbeat from being a free requeue lever.
+        known_sessions = meta.get("comfy:claim_sessions") or {}
+        if session and session in known_sessions:
             # A job is worked by the session that claimed it,
             # and Kaggle replaces a session wholesale when a
             # new version is pushed: a heartbeat from any
@@ -19534,25 +19804,26 @@ document.getElementById('go').onclick = async () => {{
                 other = jobs.get(key)
                 if other and other.get("provider") == "kaggle-comfy" \
                         and other.get("status") == "running" \
-                        and other.get("worker_session") != session:
+                        and other.get("worker_session") != session \
+                        and float(other.get("claimed_at") or 0) \
+                        < _now() - 600:
                     other["status"] = "queued"
                     other["worker_job_id"] = None
+                    other.pop("claim_token_hash", None)
                     other["requeued_at"] = _now()
                     jobs[other["id"]] = other
         return {"ok": True}
 
     @web.get("/api/worker/comfy/jobs/next")
     def comfy_job_next(x_api_key: str = Header(default=""),
-                       x_comfy_session: str = Header(default="")):
+                       x_comfy_session: str = Header(default=""),
+                       x_claim_bind: str = Header(default="")):
         if not _comfy_worker_ok(x_api_key):
             raise HTTPException(status_code=401, detail="bad worker key")
         meta["comfy:heartbeat"] = _now()
-        queued = []
-        for key in list(jobs.keys()):
-            job = jobs.get(key)
-            if job and job.get("provider") == "kaggle-comfy" \
-                    and job["status"] == "queued":
-                queued.append(job)
+        queued = _claim_candidates(
+            "comfy", lambda j: j.get("provider") == "kaggle-comfy"
+            and j.get("status") == "queued")
         if not queued:
             return {"job": None}
         queued.sort(key=lambda j: float(j.get("created_at") or 0))
@@ -19560,8 +19831,17 @@ document.getElementById('go').onclick = async () => {{
         job["status"] = "running"
         job["worker_job_id"] = job["id"]
         job["worker_session"] = x_comfy_session or None
+        job["claimed_at"] = _now()
+        claim_token = _issue_claim_token(job, x_claim_bind)
         jobs[job["id"]] = job
-        return {"job": {
+        if x_comfy_session:
+            sessions = meta.get("comfy:claim_sessions") or {}
+            sessions[x_comfy_session] = _now()
+            if len(sessions) > 50:
+                sessions = dict(sorted(
+                    sessions.items(), key=lambda kv: kv[1])[-50:])
+            meta["comfy:claim_sessions"] = sessions
+        payload = {
             "id": job["id"],
             "kind": job.get("kind") or "video",
             "lane": job.get("lane"),
@@ -19578,15 +19858,20 @@ document.getElementById('go').onclick = async () => {{
             "has_end_image": bool(job.get("end_image_png_b64")),
             "image_model": job.get("image_model"),
             "image_size": job.get("image_size"),
-        }}
+        }
+        if claim_token:
+            payload["claim_token"] = claim_token
+        return {"job": payload}
 
     def _comfy_job_image(job_id: str, field: str,
-                         x_api_key: str):
+                         x_api_key: str, x_claim_token: str = ""):
         if not _comfy_worker_ok(x_api_key):
             raise HTTPException(status_code=401, detail="bad worker key")
         job = jobs.get(job_id)
         if not job or job.get("provider") != "kaggle-comfy":
             raise HTTPException(status_code=404, detail="unknown job")
+        _require_claim(job, x_claim_token)
+        _refuse_finished_source(job)
         encoded = job.get(field)
         if not encoded:
             raise HTTPException(status_code=404, detail="no such image")
@@ -19595,24 +19880,31 @@ document.getElementById('go').onclick = async () => {{
 
     @web.get("/api/worker/comfy/jobs/{job_id}/start-image")
     def comfy_job_start_image(job_id: str,
-x_api_key: str = Header(default="")):
-        return _comfy_job_image(job_id, "start_image_png_b64", x_api_key)
+                              x_api_key: str = Header(default=""),
+                              x_claim_token: str = Header(default="")):
+        return _comfy_job_image(job_id, "start_image_png_b64",
+                                x_api_key, x_claim_token)
 
     @web.get("/api/worker/comfy/jobs/{job_id}/end-image")
     def comfy_job_end_image(job_id: str,
-x_api_key: str = Header(default="")):
-        return _comfy_job_image(job_id, "end_image_png_b64", x_api_key)
+                            x_api_key: str = Header(default=""),
+                            x_claim_token: str = Header(default="")):
+        return _comfy_job_image(job_id, "end_image_png_b64",
+                                x_api_key, x_claim_token)
 
     @web.post("/api/worker/comfy/jobs/{job_id}/file")
     async def comfy_job_file(job_id: str, request: Request,
-x_api_key: str = Header(default="")):
+                             x_api_key: str = Header(default=""),
+                             x_claim_token: str = Header(default="")):
         if not _comfy_worker_ok(x_api_key):
             raise HTTPException(status_code=401, detail="bad worker key")
         job = jobs.get(job_id)
         if not job or job.get("provider") != "kaggle-comfy":
             raise HTTPException(status_code=404, detail="unknown job")
+        _require_claim(job, x_claim_token)
         if job["status"] != "running":
             raise HTTPException(status_code=409, detail=f"job status is {job['status']}")
+        _check_declared_size(request, 500 * 1024 * 1024)
         data = await request.body()
         if not data or len(data) > 500 * 1024 * 1024:
             raise HTTPException(status_code=413, detail="bad file size")
@@ -19622,6 +19914,19 @@ x_api_key: str = Header(default="")):
             out_path.write_bytes(data)
             data_volume.commit()
             job["bytes"] = len(data)
+            try:
+                # Verification is not optional (security
+                # fix, 2026-11-27,
+                # worker-upload-verification-fail-open).
+                clipping.probe(out_path)
+            except Exception as exc:
+                _fail_comfy_job(
+                    job,
+                    "the first frame could not be made, nothing was charged",
+                    f"upload probe failed: {exc}")
+                raise HTTPException(
+                    status_code=422,
+                    detail="the uploaded file could not be verified")
             exec_seconds = request.headers.get("x-comfy-exec-seconds")
             if exec_seconds is not None:
                 try:
@@ -19686,13 +19991,15 @@ x_api_key: str = Header(default="")):
 
     @web.post("/api/worker/comfy/jobs/{job_id}/fail")
     async def comfy_job_fail(job_id: str, request: Request,
-x_api_key: str = Header(default="")):
+                             x_api_key: str = Header(default=""),
+                             x_claim_token: str = Header(default="")):
         if not _comfy_worker_ok(x_api_key):
             raise HTTPException(status_code=401, detail="bad worker key")
         job = jobs.get(job_id)
         if not job or job.get("provider") != "kaggle-comfy":
             raise HTTPException(status_code=404, detail="unknown job")
-        if job["status"] not in ("queued", "running"):
+        _require_claim(job, x_claim_token)
+        if job["status"] != "running":
             raise HTTPException(status_code=409, detail=f"job status is {job['status']}")
         body = await request.json()
         if job.get("kind") == "image":
