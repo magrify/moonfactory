@@ -583,34 +583,34 @@ def process_clip_job(job_id: str):
 
 
 # ---------------------------------------------------------------------------
-# Edit/Clone (Jack, 2026-11-26): a section inside the Clip surface.
-# A user brings a video in from any public link (TikTok, YouTube,
-# X, Instagram, anywhere yt-dlp reads), an upload, or their own
-# library; keeps only its opening hook as a library clip; makes a
-# character from frames of it (or from their own pictures, through
-# the existing character store); and clones the video with that
-# character swapped in, through the normal /api/jobs creation path
-# on EDITCLONE_CLONE_MODEL below. Ingest, the hook cut and the
-# frame grabs run here, in the clip image (yt-dlp and ffmpeg live
-# there); the clone itself is an ordinary per-second job, so every
-# creation gate, price and settle rule is the platform's own.
+# Clone (Jack, 2026-11-26): a section of its own inside Create,
+# next to the composer (it started life inside the Clip pane and
+# moved out the same day). A user brings a video in from any
+# public link (TikTok, YouTube, X, Instagram, anywhere yt-dlp
+# reads), an upload, or their own library; keeps only its
+# opening hook as a library clip; makes a character from frames
+# of it (or from their own pictures, through the existing
+# character store); and clones the video with that character
+# swapped in, through the normal /api/jobs creation path.
+# Ingest, the hook cut and the frame grabs run here, in the
+# clip image (yt-dlp and ffmpeg live there); the clone itself
+# is an ordinary per-second job, so every creation gate, price
+# and settle rule is the platform's own.
 #
-# The lane: the clone needs a reference video AND a reference
-# image in one job. seedance2_mini is the cheapest lane whose
-# wired route takes both: its Kie reference-to-video submit
-# forwards image_urls and video_urls together, at a $0.019/s
-# provider rate (480p, its only sold tier). Wan 3.0 Prime's
-# sticker is higher and its CometAPI submit forwards one image
-# and no video at all, so it cannot carry Video1; the Veo and
-# Grok 1.5 lanes take no reference video; MAGI-2 takes both but
-# is paused until its key lands and costs $0.08/s besides.
+# The model: the section's picker offers every per-second
+# model the Create picker offers, and the platform adapts what
+# it sends to the picked lane (editclone_clone_adaptation,
+# below): a lane never has to natively take a reference video
+# and a reference image together. EDITCLONE_CLONE_MODEL is
+# only the picker's default, the cheapest sensible option
+# (Seedance 2.0 Mini: its Kie reference-to-video submit
+# forwards image_urls and video_urls together at $0.019/s).
 # ---------------------------------------------------------------------------
 
 EDITCLONE_MAX_SOURCE_SECONDS = 600        # a viral source is short
 EDITCLONE_MAX_UPLOAD_BYTES = 1024 ** 3    # 1 GiB, link or upload
 EDITCLONE_HOOK_SECONDS = 5                # the hook: the first 5s
 EDITCLONE_CLONE_MODEL = "seedance2_mini"
-EDITCLONE_CLONE_RESOLUTION = "480p"
 EDITCLONE_STAGES = ("Getting your video", "Working")
 EDITCLONE_POLL_LIMIT_SECONDS = 3900
 
@@ -738,7 +738,7 @@ def process_editclone_job(job_id: str):
             duration = float(info["duration"])
             if duration > EDITCLONE_MAX_SOURCE_SECONDS:
                 raise RuntimeError(
-                    "this video is longer than the Edit / Clone limit")
+                    "this video is longer than the Clone limit")
             dest = files_dir / f"{job_id}.mp4"
             # Land the source as an mp4 whatever it arrived as:
             # a stream copy when the codecs allow it, a re-encode
@@ -857,7 +857,7 @@ def process_editclone_job(job_id: str):
                 ". ")[0] in str(exc):
             job["error"] = (
                 clipping.LINK_DEAD_MESSAGE + ". Nothing was charged")
-        elif "longer than the Edit / Clone limit" in str(exc) \
+        elif "longer than the Clone limit" in str(exc) \
                 or "maximum of 5 characters" in str(exc):
             job["error"] = str(exc)[:200]
         job["internal_error"] = str(exc)[:300]
@@ -6285,6 +6285,51 @@ IMAGE_REFS_ONLY_MODELS = (
     # (its Kie route took them; the reroute narrows the lane).
     "kling_o1", "minimax_h3_max", "vidu_q4", "seedance2_fast",
 )
+# Clone adaptation (Jack's correction, 2026-11-26): a Clone
+# section clone runs on ANY per-second model the user picks;
+# the platform adapts what it sends, so the picked lane never
+# needs to natively accept a reference video and a reference
+# image together. The branch comes from the lane capability
+# data alone (the reference cap table and the mode sets the
+# job validator itself reads), never a hand-kept lane list,
+# so a future lane slots in on its own caps.
+EDITCLONE_FRAME_FRACTIONS = (0.02, 0.35, 0.65, 0.95)
+
+
+def editclone_clone_adaptation(model: str) -> str:
+    """How a character-swap clone's inputs are adapted to one
+    lane, decided by the capability data above:
+    - "motion": Wan Motion's own shape: the character picture
+      is the subject image and the source is its one driving
+      video.
+    - "start": the lane takes a prompt or a start image only
+      (TEXT_IMAGE_ONLY_MODELS, the start-image-required lanes,
+      and Kling 3.0, whose validator refusal reads the same):
+      the character picture becomes the start image.
+    - "both": the lane takes a reference video and reference
+      images: Video1 and Image1 ride as references together.
+    - "frames": the lane takes reference images but no
+      reference video (IMAGE_REFS_ONLY_MODELS, or a zero video
+      cap): Image1 plus still frames grabbed across the source
+      ride as reference images.
+    - "text": the lane takes no visual input at all (a zero
+      cap entry outside the sets above): the prompt alone
+      carries the clone."""
+    if model == "wan_motion":
+        return "motion"
+    if model in TEXT_IMAGE_ONLY_MODELS or model == "kling3" \
+            or model in START_IMAGE_REQUIRED_MODELS:
+        return "start"
+    if model in IMAGE_REFS_ONLY_MODELS:
+        return "frames"
+    cap_images, cap_videos, _cap_audios = ref_caps_for(model)
+    if cap_videos >= 1 and cap_images >= 1:
+        return "both"
+    if cap_images >= 1:
+        return "frames"
+    return "text"
+
+
 VIDLAB_BASE = "https://vidlab.ai"
 # The VidLab route's per-model submit shape (2026-11-23):
 # the catalog id each platform model posts to, plus which of
@@ -7602,6 +7647,16 @@ def api():
                     ref_caps_for(m["id"]))),
                 "ref_video_seconds_cap": MODEL_REF_VIDEO_SECONDS_CAP.get(
                     m["id"], 15.0),
+                # How a Clone section clone would feed this
+                # lane (editclone_clone_adaptation, the same
+                # decision the clone body builder dispatches
+                # on), so the section's picker and its feed
+                # line read the capability data, not a copy of
+                # it. House lanes are not per-second models
+                # and take no clone: None.
+                "clone_adaptation": (
+                    editclone_clone_adaptation(m["id"])
+                    if m["id"] in PER_SECOND_MODELS else None),
                 # The lengths this model can actually make
                 # (no-trim rule): the picker offers exactly
                 # these, starting at the model's shortest clip.
@@ -7643,6 +7698,7 @@ def api():
             "payments_mode": stripe_mode(),
             "payments_configured": stripe_mode() != "off",
             "default_model": DEFAULT_MODEL,
+            "clone_default_model": EDITCLONE_CLONE_MODEL,
             "house_lanes": {
                 "aspects": list(HOUSE_ASPECTS),
                 "max_segments": MAX_SEGMENTS,
@@ -14996,10 +15052,10 @@ def api():
         if kind in ("edit_source", "hook_clip", "ec_character"):
             # Edit/Clone steps are not generations: there is no
             # creation body to rebuild. The step is simply run
-            # again from the Edit / Clone section.
+            # again from the Clone section.
             raise HTTPException(
                 status_code=422,
-                detail="this cannot be retried from here, run it again from the Edit / Clone section")
+                detail="this cannot be retried from here, run it again from the Clone section")
 
         # Every other error card is a video generation: the
         # existing regenerate path rebuilds it from the same
@@ -16136,14 +16192,15 @@ def api():
         process_clip_job.spawn(job["id"])
         return JSONResponse({**public_job(job), "quote": q}, status_code=202)
 
-    # -- Edit/Clone (2026-11-26) -------------------------------------------
-    # The section inside the Clip surface: ingest a source from
-    # any link, an upload, or the library; cut its hook; build a
+    # -- Clone (2026-11-26) ------------------------------------------------
+    # The Clone section inside Create: ingest a source from any
+    # link, an upload, or the library; cut its hook; build a
     # character from its frames; and clone it through the normal
-    # job creation path on EDITCLONE_CLONE_MODEL. Ingest, hook
-    # and character building are free for paid accounts (the
-    # character store's own precedent: creation is free, only
-    # training charges); the clone is an ordinary paid job.
+    # job creation path on the model the user picks in the
+    # section's own picker. Ingest, hook and character building
+    # are free for paid accounts (the character store's own
+    # precedent: creation is free, only training charges); the
+    # clone is an ordinary paid job.
 
     def _editclone_source_job(user: dict, source_job_id) -> dict:
         """An owned, finished video whose file is in the library:
@@ -16200,7 +16257,7 @@ def api():
         if not user["verified"]:
             raise HTTPException(status_code=403, detail="verify your email before creating")
         if not is_paid(user):
-            raise HTTPException(status_code=403, detail="Edit / Clone is a paid feature")
+            raise HTTPException(status_code=403, detail="Clone is a paid feature")
         if _rate_limited("ecupload", user["id"], 6):
             raise HTTPException(status_code=429, detail="too many uploads, slow down")
         upload_id = pysecrets.token_hex(8)
@@ -16230,7 +16287,7 @@ def api():
             raise HTTPException(status_code=422, detail=str(exc)[:200])
         if float(info["duration"]) > EDITCLONE_MAX_SOURCE_SECONDS:
             dest.unlink(missing_ok=True)
-            raise HTTPException(status_code=422, detail="this video is longer than the Edit / Clone limit of 10 minutes")
+            raise HTTPException(status_code=422, detail="this video is longer than the Clone limit of 10 minutes")
         meta[f"ecupload:{upload_id}"] = {
             "user_id": user["id"], "path": str(dest),
             "duration": float(info["duration"]),
@@ -16253,7 +16310,7 @@ def api():
         if not bot_check_ok(body, client_ip(request), user):
             raise HTTPException(status_code=403, detail="bot check failed")
         if not is_paid(user):
-            raise HTTPException(status_code=403, detail="Edit / Clone is a paid feature")
+            raise HTTPException(status_code=403, detail="Clone is a paid feature")
         upload_path = None
         source_url = None
         source_title = ""
@@ -16280,7 +16337,7 @@ def api():
             duration = float(info.get("duration") or 0)
             source_title = info.get("title") or ""
             if duration > EDITCLONE_MAX_SOURCE_SECONDS:
-                raise HTTPException(status_code=422, detail="this video is longer than the Edit / Clone limit of 10 minutes")
+                raise HTTPException(status_code=422, detail="this video is longer than the Clone limit of 10 minutes")
         else:
             raise HTTPException(status_code=422, detail="paste a link or upload a file")
         # The illegal-content gate reads the source title, the
@@ -16309,7 +16366,7 @@ def api():
         if not user["verified"]:
             raise HTTPException(status_code=403, detail="verify your email before creating")
         if not is_paid(user):
-            raise HTTPException(status_code=403, detail="Edit / Clone is a paid feature")
+            raise HTTPException(status_code=403, detail="Clone is a paid feature")
         body = await request.json()
         src = _editclone_source_job(user, body.get("source_job_id"))
         title = src.get("source_title") or src.get("prompt") or "video"
@@ -16357,21 +16414,121 @@ def api():
         process_editclone_job.spawn(job["id"])
         return JSONResponse(public_job(job), status_code=202)
 
+    def _editclone_hosted_source(src: dict) -> str:
+        """The source video at a public URL: the reference
+        branches send Video1 to the lane, and lanes take URLs,
+        not bytes. The ingest hosts the source as it lands; a
+        source that predates that (or whose hosting failed) is
+        hosted now, at create time, from its library file."""
+        hosted = src.get("hosted_url")
+        if hosted:
+            return hosted
+        hosted = _fal_upload_bytes(
+            (FILES_DIR / f"{src['id']}.mp4").read_bytes(),
+            "video/mp4", f"{src['id']}.mp4")
+        if not hosted:
+            raise HTTPException(
+                status_code=503,
+                detail="that video could not be prepared for cloning, try again")
+        src["hosted_url"] = hosted
+        jobs[src["id"]] = src
+        return hosted
+
+    def _editclone_char_image_url(character: dict):
+        """Image1 at a public URL: the character's first hosted
+        picture, hosted from its stored bytes when the record
+        carries no hosted copy."""
+        images = character.get("images") or []
+        for im in images:
+            if im.get("fal_url"):
+                return im["fal_url"]
+        for im in images:
+            if im.get("b64"):
+                try:
+                    data = base64.b64decode(im["b64"])
+                except Exception:
+                    continue
+                url = _fal_upload_bytes(data, "image/png", "character.png")
+                if url:
+                    return url
+        return None
+
+    def _editclone_source_frame_urls(src: dict, duration: float) -> list:
+        """Still frames from the source at a public URL each:
+        the opening frame plus a spread across the clip, for
+        the lanes that take reference images but no reference
+        video. Grabbed with the same clipping helper the
+        character builder uses, hosted like the source video."""
+        work = Path(tempfile.mkdtemp(prefix="ec-frames-", dir="/data"))
+        try:
+            frames = clipping.grab_frames(
+                FILES_DIR / f"{src['id']}.mp4", work, "frame",
+                duration, fractions=EDITCLONE_FRAME_FRACTIONS)
+            urls = []
+            for fp in frames:
+                url = _fal_upload_bytes(
+                    fp.read_bytes(), "image/jpeg", fp.name)
+                if not url:
+                    raise HTTPException(
+                        status_code=503,
+                        detail="that video could not be prepared for cloning, try again")
+                urls.append(url)
+            return urls
+        except HTTPException:
+            raise
+        except Exception:
+            raise HTTPException(
+                status_code=503,
+                detail="that video could not be prepared for cloning, try again")
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+
+    def _editclone_out_seconds(natives: list, target: float) -> int:
+        """The native length at or below the target seconds
+        (the no-trim rule: a clone never asks a lane for a
+        length the lane does not make)."""
+        chosen = natives[0]
+        for n in natives:
+            if n <= target:
+                chosen = n
+        return chosen
+
     def _editclone_clone_body(user: dict, body: dict) -> dict:
         """The /api/jobs body for a character-swap clone of a
-        library source: Video1 is the source at its hosted URL,
-        Image1 is the character's first saved picture, and the
-        length follows the source up to the lane's reference
-        cap. Building it here, once, means the quote and the
-        create can never disagree about the composition."""
+        library source, on the model the user picked in the
+        section's own picker (any per-second model the Create
+        picker offers). The platform adapts the inputs to the
+        picked lane (editclone_clone_adaptation): Video1 and
+        Image1 ride as references where the lane takes both;
+        a lane that takes reference images only gets Image1
+        plus still frames from the source; a start-image lane
+        gets Image1 as the start image; Wan Motion gets
+        Image1 as its subject and Video1 as its driving
+        video; a lane that takes no visual input gets the
+        prompt alone. Building the body here, once, means
+        the quote and the create can never disagree about
+        the composition."""
+        model = body.get("model") or EDITCLONE_CLONE_MODEL
+        if model not in PER_SECOND_MODELS:
+            raise HTTPException(status_code=422, detail="unknown model")
         src = _editclone_source_job(user, body.get("source_job_id"))
         character = _find_character(user, body.get("character_id") or "")
         if not character:
             raise HTTPException(status_code=404, detail="unknown character")
-        char_images = [
-            im.get("fal_url") for im in character.get("images") or []
-            if im.get("fal_url")]
-        if not char_images:
+        images = character.get("images") or []
+        char_b64 = images[0].get("b64") if images else None
+        if not char_b64 and images and images[0].get("fal_url"):
+            # A record whose first picture is hosted only:
+            # fetch the bytes back so the start-image branches
+            # can carry it.
+            try:
+                resp = requests.get(images[0]["fal_url"], timeout=30)
+                if resp.status_code == 200:
+                    char_b64 = base64.b64encode(resp.content).decode()
+            except Exception:
+                char_b64 = None
+        char_url = _editclone_char_image_url(character) if images else None
+        if not char_b64 and not char_url:
             raise HTTPException(
                 status_code=422,
                 detail="that character has no usable picture yet")
@@ -16387,26 +16544,8 @@ def api():
             raise HTTPException(
                 status_code=422,
                 detail="that video has no readable length")
-        ref_cap = float(MODEL_REF_VIDEO_SECONDS_CAP.get(
-            EDITCLONE_CLONE_MODEL, 15.0))
-        ref_seconds = min(duration, ref_cap)
-        hosted = src.get("hosted_url")
-        if not hosted:
-            # The ingest hosts the source as it lands; a source
-            # that predates that (or whose hosting failed) is
-            # hosted now, at create time, from its library file.
-            hosted = _fal_upload_bytes(
-                (FILES_DIR / f"{src['id']}.mp4").read_bytes(),
-                "video/mp4", f"{src['id']}.mp4")
-            if not hosted:
-                raise HTTPException(
-                    status_code=503,
-                    detail="that video could not be prepared for cloning, try again")
-            src["hosted_url"] = hosted
-            jobs[src["id"]] = src
-        natives = native_lengths(EDITCLONE_CLONE_MODEL)
-        out_seconds = int(round(ref_seconds))
-        out_seconds = max(natives[0], min(out_seconds, natives[-1]))
+        adaptation = editclone_clone_adaptation(model)
+        natives = native_lengths(model)
         width = int(src.get("source_width") or 0)
         height = int(src.get("source_height") or 0)
         if width and height and width > height:
@@ -16416,22 +16555,71 @@ def api():
         else:
             aspect = "9:16"
         prompt = (body.get("prompt") or CLONE_PROMPT_TEMPLATE).strip()
-        return {
-            "model": EDITCLONE_CLONE_MODEL,
+        new_body = {
+            "model": model,
             "prompt": prompt,
-            "duration_seconds": out_seconds,
-            "resolution": EDITCLONE_CLONE_RESOLUTION,
+            "resolution": pricing.MODEL_RESOLUTIONS.get(
+                model, pricing.RESOLUTIONS)[0],
             "aspect_ratio": aspect,
-            "reference_video_urls": [hosted],
-            "reference_video_seconds": round(ref_seconds, 2),
-            "reference_image_urls": [char_images[0]],
         }
+        if adaptation == "both":
+            if not char_url:
+                raise HTTPException(
+                    status_code=422,
+                    detail="that character has no usable picture yet")
+            ref_cap = float(MODEL_REF_VIDEO_SECONDS_CAP.get(
+                model, 15.0))
+            ref_seconds = min(duration, ref_cap)
+            new_body["duration_seconds"] = _editclone_out_seconds(
+                natives, ref_seconds)
+            new_body["reference_video_urls"] = [
+                _editclone_hosted_source(src)]
+            new_body["reference_video_seconds"] = round(ref_seconds, 2)
+            new_body["reference_image_urls"] = [char_url]
+        elif adaptation == "motion":
+            if not char_b64:
+                raise HTTPException(
+                    status_code=422,
+                    detail="that character has no usable picture yet")
+            driving = min(duration, 30.0)
+            if driving < 2:
+                raise HTTPException(
+                    status_code=422,
+                    detail="that video is too short to clone with this model")
+            new_body["duration_seconds"] = int(round(driving))
+            new_body["reference_video_urls"] = [
+                _editclone_hosted_source(src)]
+            new_body["reference_video_seconds"] = round(driving, 2)
+            new_body["start_image_png_b64"] = char_b64
+        elif adaptation == "frames":
+            if not char_url:
+                raise HTTPException(
+                    status_code=422,
+                    detail="that character has no usable picture yet")
+            frame_urls = _editclone_source_frame_urls(src, duration)
+            cap_images = ref_caps_for(model)[0]
+            new_body["duration_seconds"] = _editclone_out_seconds(
+                natives, duration)
+            new_body["reference_image_urls"] = (
+                [char_url] + frame_urls)[:cap_images]
+        elif adaptation == "start":
+            if not char_b64:
+                raise HTTPException(
+                    status_code=422,
+                    detail="that character has no usable picture yet")
+            new_body["duration_seconds"] = _editclone_out_seconds(
+                natives, duration)
+            new_body["start_image_png_b64"] = char_b64
+        else:  # "text": the prompt alone carries the clone.
+            new_body["duration_seconds"] = _editclone_out_seconds(
+                natives, duration)
+        return new_body
 
     @web.post("/api/editclone/clone/quote")
     async def quote_editclone_clone(request: Request, mf_session: str = Cookie(default="")):
         user = require_user(request, mf_session)
         if not is_paid(user):
-            raise HTTPException(status_code=403, detail="Edit / Clone is a paid feature")
+            raise HTTPException(status_code=403, detail="Clone is a paid feature")
         body = await request.json()
         new_body = _editclone_clone_body(user, body)
         request._body = json.dumps(new_body).encode()
@@ -16441,7 +16629,7 @@ def api():
     async def create_editclone_clone(request: Request, mf_session: str = Cookie(default="")):
         user = require_user(request, mf_session)
         if not is_paid(user):
-            raise HTTPException(status_code=403, detail="Edit / Clone is a paid feature")
+            raise HTTPException(status_code=403, detail="Clone is a paid feature")
         body = await request.json()
         new_body = _editclone_clone_body(user, body)
         for key in ("challenge_id", "challenge_nonce", "turnstile_token"):
@@ -22683,6 +22871,48 @@ APP_HTML = (
     <button class="btn gen" id="create">Create video</button>
     <p id="job-msg"></p>
   </div>
+
+  <div class="card" style="max-width:640px;margin:18px auto 0">
+    <div class="create-head">
+      <h2>Clone</h2>
+    </div>
+    <p class="muted">Bring in a video from anywhere, keep just its hook, and clone it with your own AI character standing in for the original.</p>
+    <label>Video link (TikTok, YouTube, X, Instagram, anywhere)</label>
+    <input id="ec-url" type="url" placeholder="Paste a video link">
+    <label>Or upload a video file</label>
+    <input id="ec-file" type="file" accept="video/*">
+    <label>Or pick a video from your library</label>
+    <select id="ec-library"><option value="">Choose a video you already have</option></select>
+    <p><button class="btn secondary" id="ec-add" type="button">Add this video</button></p>
+    <div id="botcheck4"></div>
+    <p id="ec-msg"></p>
+    <div id="ec-source" style="display:none">
+      <p class="group-label">Your source</p>
+      <p class="muted" id="ec-source-line"></p>
+      <p class="group-label">Hook</p>
+      <p class="muted">Keep only the opening hook, the first 5 seconds, as its own clip in your library.</p>
+      <p><button class="btn secondary" id="ec-hook" type="button">Keep only the hook</button></p>
+      <p class="group-label">Character</p>
+      <label>Character name</label>
+      <input id="ec-char-name" type="text" maxlength="60" placeholder="Name this character">
+      <p><button class="btn secondary" id="ec-clone-char" type="button">Clone the character from this video</button></p>
+      <label>Or make a character from your own pictures</label>
+      <input id="ec-char-files" type="file" accept="image/png,image/jpeg" multiple>
+      <p><button class="btn secondary" id="ec-make-char" type="button">Make character from my pictures</button></p>
+      <p class="group-label">Clone the video</p>
+      <label>Model</label>
+      <select id="ec-model"></select>
+      <p class="muted" id="ec-feed"></p>
+      <label>Character to put in (Image1)</label>
+      <select id="ec-character"><option value="">Choose a character</option></select>
+      <label>Clone prompt</label>
+      <textarea id="ec-prompt" rows="5">Recreate Video1, replace only the original character with Image1. Strictly preserve 100% of Image1's face, hair, body, clothing and details. Match Video1's movements, expressions, camera angles, framing, lighting, background, timing and pacing. Seamless, photorealistic character replacement. No other changes.</textarea>
+      <p class="under" id="ec-quote"></p>
+      <button class="btn gen" id="ec-clone" type="button">Clone the video</button>
+      <p id="ec-clone-msg"></p>
+    </div>
+    <p class="muted">Only edit and clone content you own or have permission to use. Clone is a paid feature. Adding a video, cutting its hook and making a character are free. The clone itself is charged at the model's normal price, shown before you create it.</p>
+  </div>
   </div>
 
   <div id="upgrade-pane" style="display:none">
@@ -22763,45 +22993,6 @@ APP_HTML = (
     <p class="muted">Clip only content you own or have permission to use. Clipping is a paid feature. Creator plans use included clipping minutes, or you pay 5 cents per source minute from your balance.</p>
   </div>
 
-  <div class="card" style="max-width:640px;margin:18px auto 0">
-    <div class="create-head">
-      <h2>Edit / Clone</h2>
-    </div>
-    <p class="muted">Bring in a video from anywhere, keep just its hook, and clone it with your own AI character standing in for the original.</p>
-    <label>Video link (TikTok, YouTube, X, Instagram, anywhere)</label>
-    <input id="ec-url" type="url" placeholder="Paste a video link">
-    <label>Or upload a video file</label>
-    <input id="ec-file" type="file" accept="video/*">
-    <label>Or pick a video from your library</label>
-    <select id="ec-library"><option value="">Choose a video you already have</option></select>
-    <p><button class="btn secondary" id="ec-add" type="button">Add this video</button></p>
-    <div id="botcheck4"></div>
-    <p id="ec-msg"></p>
-    <div id="ec-source" style="display:none">
-      <p class="group-label">Your source</p>
-      <p class="muted" id="ec-source-line"></p>
-      <p class="group-label">Hook</p>
-      <p class="muted">Keep only the opening hook, the first 5 seconds, as its own clip in your library.</p>
-      <p><button class="btn secondary" id="ec-hook" type="button">Keep only the hook</button></p>
-      <p class="group-label">Character</p>
-      <label>Character name</label>
-      <input id="ec-char-name" type="text" maxlength="60" placeholder="Name this character">
-      <p><button class="btn secondary" id="ec-clone-char" type="button">Clone the character from this video</button></p>
-      <label>Or make a character from your own pictures</label>
-      <input id="ec-char-files" type="file" accept="image/png,image/jpeg" multiple>
-      <p><button class="btn secondary" id="ec-make-char" type="button">Make character from my pictures</button></p>
-      <p class="group-label">Clone the video</p>
-      <label>Character to put in (Image1)</label>
-      <select id="ec-character"><option value="">Choose a character</option></select>
-      <label>Clone prompt</label>
-      <textarea id="ec-prompt" rows="5">Recreate Video1, replace only the original character with Image1. Strictly preserve 100% of Image1's face, hair, body, clothing and details. Match Video1's movements, expressions, camera angles, framing, lighting, background, timing and pacing. Seamless, photorealistic character replacement. No other changes.</textarea>
-      <p class="muted">Clones are made with Seedance 2.0 Mini at 480p, the cheapest model that takes a reference video and a reference image together. A longer source clones its first 15 seconds.</p>
-      <p class="under" id="ec-quote"></p>
-      <button class="btn gen" id="ec-clone" type="button">Clone the video</button>
-      <p id="ec-clone-msg"></p>
-    </div>
-    <p class="muted">Only edit and clone content you own or have permission to use. Edit / Clone is a paid feature. Adding a video, cutting its hook and making a character are free. The clone itself is charged at the model's normal price, shown before you create it.</p>
-  </div>
   <h2 style="max-width:640px;margin:26px auto 6px">Your clips</h2>
   <div id="clip-results" style="max-width:640px;margin:0 auto"><p class="muted">No clips yet. Paste a link above and your clips will show up here.</p></div>
   </div>
@@ -24420,6 +24611,7 @@ function buildCatalog() {
   if ([...sel.options].some(o => o.value === keep)) sel.value = keep;
   applyModelGates();
   updateModelUI();
+  buildEditCloneModels();
 }
 function applyModelGates() {
   const sel = $('model');
@@ -25461,13 +25653,90 @@ $('make-clips').onclick = async () => {
   finally { btnDone(btn); }
 };
 
-// ---- Edit / Clone ----
-// The section under the Clip card: a source comes in by link
+// ---- Clone ----
+// The Clone section in Create: a source comes in by link
 // (any public video site), by upload, or from the library the
 // user already has. The hook and the character steps are free
 // platform steps; the clone itself is an ordinary job on the
-// clone lane, created server side through /api/editclone/clone
-// so its price and gates are the platform's own.
+// model picked in the section's own picker, created server
+// side through /api/editclone/clone so its price and gates
+// are the platform's own. The picker is built from the same
+// config catalog as the Create picker; each option carries
+// the lane's clone adaptation from the server, and the feed
+// line under the picker says in plain words how the clone
+// will be fed for the picked model.
+const EC_FEED_LINES = {
+  both: 'Sends your video and your character picture to ',
+  frames: 'Sends frames from your video plus your character picture to ',
+  start: 'Starts from your character picture and follows your prompt on ',
+  motion: 'Uses your character picture as the subject and your video as the motion guide on ',
+  text: 'Sends your prompt only to ',
+};
+function ecUpdateFeed() {
+  const sel = $('ec-model');
+  const line = $('ec-feed');
+  if (!sel || !line) return;
+  const o = sel.options[sel.selectedIndex];
+  if (!o || !o.dataset.adaptation) { line.textContent = ''; return; }
+  let text = (EC_FEED_LINES[o.dataset.adaptation] || '')
+    + (o.dataset.label || o.textContent) + '.';
+  if (o.dataset.adaptation === 'start')
+    text += ' Your video itself is not sent.';
+  if (o.dataset.adaptation === 'text')
+    text += ' Neither your video nor your character picture is sent.';
+  line.textContent = text;
+}
+function buildEditCloneModels() {
+  const sel = $('ec-model');
+  if (!sel || !catalogCfg) return;
+  const keep = sel.value;
+  sel.innerHTML = '';
+  const classOf = m => m.picker_class
+    || (m.uncensored ? 'uncensored' : 'paid');
+  const byCost = (a, b) => {
+    const ra = a.rate_cents_per_second, rb = b.rate_cents_per_second;
+    if (ra == null && rb == null)
+      return a.label.localeCompare(b.label) || (a.id < b.id ? -1 : 1);
+    if (ra == null) return 1;
+    if (rb == null) return -1;
+    return (ra - rb) || a.label.localeCompare(b.label)
+      || (a.id < b.id ? -1 : 1);
+  };
+  for (const [cls, name] of [['paid', 'Regular Models'],
+                             ['uncensored', 'Uncensored Models']]) {
+    const members = catalogCfg.models
+      .filter(m => m.clone_adaptation && classOf(m) === cls).sort(byCost);
+    if (!members.length) continue;
+    const group = document.createElement('optgroup');
+    group.label = name;
+    const tiers = [[], [], [], [], []];
+    for (const m of members) tiers[m.price_tier || 0].push(m);
+    const add = m => {
+      const o = document.createElement('option');
+      o.value = m.id;
+      o.textContent = m.label + (m.available ? '' : ' (unavailable)');
+      o.dataset.adaptation = m.clone_adaptation;
+      o.dataset.label = m.label;
+      group.appendChild(o);
+    };
+    for (let t = 1; t <= 4; t++) {
+      if (!tiers[t].length) continue;
+      const sep = document.createElement('option');
+      sep.disabled = true;
+      sep.dataset.tierSep = '1';
+      sep.textContent = '$'.repeat(t);
+      group.appendChild(sep);
+      tiers[t].forEach(add);
+    }
+    tiers[0].forEach(add);
+    sel.appendChild(group);
+  }
+  const dflt = catalogCfg.clone_default_model;
+  if ([...sel.options].some(o => o.value === keep)) sel.value = keep;
+  else if (dflt && [...sel.options].some(o => o.value === dflt))
+    sel.value = dflt;
+  ecUpdateFeed();
+}
 let ecSource = null;
 let ecJobsCache = [];
 function ecSetSource(job) {
@@ -25642,8 +25911,8 @@ async function ecQuoteClone() {
   if (!ecSource || !$('ec-character').value) { line.textContent = ''; return; }
   try {
     const r = await api('/api/editclone/clone/quote', { method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ source_job_id: ecSource.id, character_id: $('ec-character').value }) });
-    if (r.lane_paused) { line.textContent = 'The clone model is paused right now.'; return; }
+      body: JSON.stringify({ source_job_id: ecSource.id, character_id: $('ec-character').value, model: $('ec-model').value }) });
+    if (r.lane_paused) { line.textContent = 'That model is paused right now.'; return; }
     if (r.payment && r.payment.method === 'included') {
       line.textContent = 'This clone uses $' + ((r.payment.included_debit_cents || 0) / 100).toFixed(2) + ' of your included budget.';
     } else {
@@ -25652,6 +25921,7 @@ async function ecQuoteClone() {
   } catch (e) { line.textContent = ''; }
 }
 $('ec-character').addEventListener('change', ecQuoteClone);
+$('ec-model').addEventListener('change', () => { ecUpdateFeed(); ecQuoteClone(); });
 $('ec-clone').onclick = async () => {
   if (!ecSource) { msg('ec-clone-msg', 'Add a source video first.', 'err'); return; }
   const characterId = $('ec-character').value;
@@ -25662,7 +25932,7 @@ $('ec-clone').onclick = async () => {
     msg('ec-clone-msg', 'Working on the bot check...');
     const bot = await botFields('botcheck4');
     await api('/api/editclone/clone', { method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ source_job_id: ecSource.id, character_id: characterId, prompt: $('ec-prompt').value, ...bot }) });
+      body: JSON.stringify({ source_job_id: ecSource.id, character_id: characterId, prompt: $('ec-prompt').value, model: $('ec-model').value, ...bot }) });
     msg('ec-clone-msg', 'Your clone is being made. It shows in Your videos below when it is ready.', 'ok');
     loadJobs();
   } catch (e) { msg('ec-clone-msg', e.message, 'err'); }

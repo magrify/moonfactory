@@ -433,10 +433,10 @@ def download_any_video(url: str, job_dir: Path, max_seconds: float,
         info = probe_media(dest)
         if float(info["duration"]) > max_seconds:
             raise ValueError(
-                "this video is longer than the Edit / Clone limit")
+                "this video is longer than the Clone limit")
         if dest.stat().st_size > max_bytes:
             raise ValueError(
-                "this video file is larger than the Edit / Clone limit")
+                "this video file is larger than the Clone limit")
         return dest
     import yt_dlp
 
