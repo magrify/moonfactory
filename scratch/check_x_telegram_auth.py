@@ -89,10 +89,10 @@ for el in ("auth-x", "auth-telegram"):
 
 # -- the account model carries provider identities ---------------
 save = func_src("save_user")
-check('if user.get("email"):' in save
-      and 'users[f"email:{user[\'email\']}"] = user' in save,
+check('if committed.get("email"):' in save
+      and 'users[f"email:{committed[\'email\']}"] = committed' in save,
       "the email index is written only for accounts with one")
-check('users[f"{provider}:{user[\'provider_id\']}"] = user' in save,
+check('users[f"{provider}:{committed[\'provider_id\']}"] = committed' in save,
       "save_user indexes the account by its provider identity")
 
 resolver = func_src("_provider_account")
@@ -176,11 +176,11 @@ check("https://api.twitter.com/2/users/me" in cb,
       "the identity comes from X's user lookup")
 check('_provider_account("x", x_id, display_name)' in cb,
       "the X identity resolves its provider account")
-check("return _social_signin_redirect(user, record)" in cb,
+check("return _social_signin_redirect(user, record, request)" in cb,
       "the X sign-in lands through the shared redirect tail")
 
 tail = func_src("_social_signin_redirect")
-check('user["pending_create"] = parked["pending_create"]' in tail
+check("_land_parked_create(user, record, request)" in tail
       and '_make_session(user["id"],' in tail
       and "max_age=7 * 24 * 3600, httponly=True, samesite=\"lax\""
       in tail,

@@ -143,6 +143,17 @@ for line in ("Sends your video and your character picture to ",
 
 # -- ingest: any public site, capped, guarded ----------------------------
 
+# The sandbox resolver answers every name with the egress
+# proxy's 198.18/15 addresses, which ipaddress does not
+# count as global; the guard's contract is about what DNS
+# returns for a name, so the check stands in a public
+# answer and tests the guard's logic, not the sandbox's
+# resolver. Production resolvers return the real records.
+import socket as _socket
+clipping.socket.getaddrinfo = lambda host, port, *a, **k: [
+    (_socket.AF_INET, _socket.SOCK_STREAM, 6, "",
+     ("93.184.216.34", 0))]
+
 for good in ("https://www.tiktok.com/@someone/video/7300000000000000000",
              "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
              "https://youtu.be/dQw4w9WgXcQ",

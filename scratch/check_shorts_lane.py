@@ -467,9 +467,14 @@ check('"charged_cents": 0' in lane, "short jobs charge zero")
 check("_place_hold" not in lane, "the shorts lane places no holds")
 check("FREE_CLIPS_TOTAL" in lane,
       "unpaid accounts count against the free lifetime cap")
-check("FREE_PLATFORM_TOTAL_CEILING" in lane,
+check("reserve_free_slot" in lane
+      and "FREE_PLATFORM_TOTAL_CEILING" in SRC.split(
+          "def reserve_free_slot", 1)[1].split(
+          "def release_free_slot", 1)[0],
       "platform free ceiling applies")
-check("freecount:total" in lane,
+check("freecount:total" in SRC.split(
+          "def reserve_free_slot", 1)[1].split(
+          "def release_free_slot", 1)[0],
       "free jobs increment the platform counter")
 check("SHORTS_DAILY_CAP_PAID" in lane, "paid accounts hit the daily cap")
 check("process_short_job.spawn" in lane, "creation spawns the runner")

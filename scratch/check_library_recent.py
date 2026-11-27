@@ -308,7 +308,13 @@ def run_retry(jobs_fixture, dramas_fixture, job_id, lanes=None):
     ns = {
         "jobs": jobs_fixture,
         "dramas": dramas_fixture,
-        "require_user": lambda request, mf_session: {"id": "u1"},
+        "require_user": lambda request, mf_session: {
+            "id": "u1", "verified": True},
+        "_rate_limited": lambda bucket, ident, limit: False,
+        "client_ip": lambda request: "127.0.0.1",
+        "enforce_prompt_gate": lambda user, lane, ip, *texts: None,
+        "bot_check_ok": lambda body, ip, user=None: True,
+        "DRAMA_SHOT_LIFETIME_ATTEMPTS": 6,
         "public_job": lambda j, queue_position=None: dict(j),
         "HTTPException": HTTPExc,
         "Cookie": lambda default="": default,
@@ -323,6 +329,8 @@ def run_retry(jobs_fixture, dramas_fixture, job_id, lanes=None):
         "DEFAULT_SPEECH_VOICE": "default",
         "CLONE_VOICE_ID": "clone",
     }
+    exec(func_src("_drama_resume_checks"), ns)
+    exec(func_src("_drama_requeue_failed_shots"), ns)
     exec(func_src("retry_job"), ns)
     return asyncio.run(ns["retry_job"](job_id, FakeReq(), ""))
 

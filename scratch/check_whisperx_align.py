@@ -52,9 +52,9 @@ assert region.count("_align_words(") == 1, region.count("_align_words(")
 # a failure there never raises.
 setup = KERNEL[KERNEL.index("def setup_whisper():"):]
 setup = setup[:setup.index("def make_wordcheck")]
-assert '"whisperx", "faster-whisper==1.2.1", "av<19"' in setup
+assert '"whisperx==3.8.6", "faster-whisper==1.2.1", "av==18.1.1"' in setup
 assert 'log(f"uv pip install whisperx (best effort) -> rc={r.returncode}")' in setup
-wx_at = setup.index('"whisperx"')
+wx_at = setup.index('"whisperx==')
 raise_at = setup.index("raise RuntimeError")
 assert raise_at < wx_at  # the only raise guards faster-whisper
 

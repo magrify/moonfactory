@@ -359,7 +359,7 @@ check('raise ValueError("word check needs a speech script")'
       in WC_SRC, "the live word check does not refuse an "
       "empty script")
 check("faster-whisper==1.2.1" in KERNEL_SRC
-      and '"av<19"' in KERNEL_SRC,
+      and '"av==18.1.1"' in KERNEL_SRC,
       "the kernel's whisper setup lost its faster-whisper pin")
 check("def make_wordcheck(job: dict):" in KERNEL_SRC
       and 'stage in ("wordcheck", "transcribe")' in KERNEL_SRC,

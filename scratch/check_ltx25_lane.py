@@ -84,7 +84,7 @@ check(neg.startswith("blurry, out of focus, overexposed")
 # --- The worker image and the volume mount ----------------------
 check("https://github.com/ChrisColeTech/ComfyUI-GGUF-Loader.git" in WORKER,
       "worker image no longer installs the author's node pack")
-check("pip install gguf sentencepiece protobuf" in WORKER,
+check("pip install gguf==0.19.0 sentencepiece==0.2.3 protobuf==7.36.2" in WORKER,
       "worker image no longer installs the pack's core requirements")
 check('"latent_upscale_models"' in WORKER,
       "ComfyUI launch no longer links the latent_upscale_models category")

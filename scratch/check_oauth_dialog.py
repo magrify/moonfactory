@@ -205,8 +205,14 @@ check("record_acceptance(user, ACCEPTANCE_SIGNUP_LEGAL,"
 check('user["verified"] = True' in cb,
       "an existing unverified account is verified by the "
       "sign-in")
-check('user["pending_create"] = parked["pending_create"]' in cb,
+check("_land_parked_create(user, record, request)" in cb,
       "the parked creation lands on the account")
+land = func_src("_land_parked_create")
+check('user["pending_create"] = pending' in land
+      and '"needs_confirm"' in land
+      and "mf_park_bind" in land,
+      "the landing is browser-bound and lands flagged "
+      "needs_confirm (security fix, 2026-11-27)")
 check('resp.set_cookie(\n            "mf_session", '
       '_make_session(user["id"],' in cb
       and "max_age=7 * 24 * 3600, httponly=True, samesite=\"lax\""

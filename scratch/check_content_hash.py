@@ -293,6 +293,21 @@ class FakeVolume:
         self.commits += 1
 
 
+
+# The vault export removes plaintext through the shared job
+# file manifest (security fix, 2026-11-27): build the real
+# helpers once, bound to this check's fixture files dir.
+_manifest_ns = {"FILES_DIR": FILES, "Path": Path}
+exec(func_src("_JOB_FILE_SUFFIXES", TREE, SRC)
+     if False else "pass", _manifest_ns)
+import re as _re
+_m = _re.search(r"_JOB_FILE_SUFFIXES = \((.*?)\)", SRC, _re.S)
+_manifest_ns["_JOB_FILE_SUFFIXES"] = tuple(
+    _re.findall(r'"([^"]+)"', _m.group(1)))
+exec(func_src("_job_file_manifest"), _manifest_ns)
+exec(func_src("_unlink_job_files"), _manifest_ns)
+UNLINK = _manifest_ns["_unlink_job_files"]
+
 vault_store = {}
 
 
@@ -308,6 +323,7 @@ export_main = exec_func("_legal_hold_vault_export", {
     "LEGAL_HOLD_VAULT_BUCKET": "moonfactory-legal-holds",
     "LEGAL_HOLD_ENCRYPTION":
         "PyNaCl SealedBox (XSalsa20-Poly1305), per-object ephemeral key",
+    "_unlink_job_files": UNLINK, "jobs": {},
 })
 
 # ------------------------------------------------------------------
@@ -534,6 +550,7 @@ export2 = exec_func("_legal_hold_vault_export", {
     "LEGAL_HOLD_VAULT_BUCKET": "moonfactory-legal-holds",
     "LEGAL_HOLD_ENCRYPTION":
         "PyNaCl SealedBox (XSalsa20-Poly1305), per-object ephemeral key",
+    "_unlink_job_files": UNLINK, "jobs": {},
 })
 jobs2 = {}
 place2 = exec_func("place_legal_hold", {
@@ -599,6 +616,7 @@ export3 = exec_func("_legal_hold_vault_export", {
     "LEGAL_HOLD_VAULT_BUCKET": "moonfactory-legal-holds",
     "LEGAL_HOLD_ENCRYPTION":
         "PyNaCl SealedBox (XSalsa20-Poly1305), per-object ephemeral key",
+    "_unlink_job_files": UNLINK, "jobs": {},
 })
 fail_path = FILES / "job0051.mp4"
 fail_path.write_bytes(ORIGINAL)
@@ -699,7 +717,7 @@ check("_legal_hold_vault_export(" in func_src("place_legal_hold")
       in func_src("place_legal_hold"),
       "placing a hold runs the vault export, plaintext removal "
       "gated on the removal trigger")
-check('"pynacl"' in SRC, "the app image installs pynacl")
+check('"pynacl==1.6.2"' in SRC, "the app image installs pynacl")
 for name in ("public_gallery_item", "gallery_list", "list_jobs",
              "public_job"):
     check("vault" not in func_src(name),

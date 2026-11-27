@@ -59,7 +59,7 @@ need('data-open="' in SRC,
      "image cards open the full picture only on the click")
 need('"-movflags", "+faststart",' in SHORTS,
      "shorts assembly writes faststart from birth")
-need('f"{job_id}.web.mp4"' in SRC,
+need('".web.mp4"' in SRC and "_unlink_job_files" in SRC,
      "delete cleans up the web copy")
 
 if fails:

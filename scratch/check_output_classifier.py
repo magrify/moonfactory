@@ -81,6 +81,9 @@ gns = {"users": USERS, "is_paid": is_paid,
        "job_is_uncensored": app.job_is_uncensored,
        "prompt_is_nsfw": app.prompt_is_nsfw,
        "OUTPUT_CLASSIFIER_SINCE": app.OUTPUT_CLASSIFIER_SINCE}
+_lh_ns = {"legal_holds": {}}
+exec(func_src("legal_hold_active"), _lh_ns)
+gns["legal_hold_active"] = _lh_ns["legal_hold_active"]
 exec(func_src("gallery_visible"), gns)
 gallery_visible = gns["gallery_visible"]
 
@@ -607,8 +610,10 @@ check(_img.index("input_gate_refusal")
                    'int(user.get("balance_cents", 0)) - charge'),
       "the image input refusal lands after the charge")
 _job = func_src("create_job_core")
+_house_refusal = _job.index(
+    "input_gate_refusal", _job.index("b64_images=(start_image"))
 check(_job.index("return create_api_job(")
-      < _job.index("input_gate_refusal")
+      < _house_refusal
       < _job.index("u = usage(user)"),
       "the house input refusal is not between the per-second "
       "dispatch and the charge section")

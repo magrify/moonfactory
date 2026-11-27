@@ -60,6 +60,6 @@ assert "scene_durations = shorts.snap_durations_to_beat(\n" not in proc
 
 # The library rides the image the shorts processor runs on.
 img = APP[APP.index("clip_image = ("):APP.index("clip_image = (") + 1500]
-assert '"librosa"' in img
+assert '"librosa==1.0.1"' in img
 
 print("beat detect pins OK")
