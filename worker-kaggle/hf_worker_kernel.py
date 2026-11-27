@@ -107,6 +107,17 @@ def read_key() -> str:
 KEY = read_key()
 HEADERS = {"X-API-Key": KEY}
 
+def job_headers(claim_token=None):
+    """Headers for one claimed job's calls: the worker key
+    plus the per-job claim token when the claim issued one.
+    A job claimed without a token (platform legacy mode)
+    sends the key alone, exactly as before."""
+    headers = dict(HEADERS)
+    if claim_token:
+        headers["X-Claim-Token"] = claim_token
+    return headers
+
+
 
 def heartbeat():
     try:
@@ -236,7 +247,8 @@ def render_job(job: dict, tools: dict) -> Path:
         log(f"job {job['id']}: downloading source")
         with requests.get(
                 f"{PLATFORM}/api/worker/hf/jobs/{job['id']}/source",
-                headers=HEADERS, timeout=300, stream=True) as resp:
+                headers=job_headers(job.get("claim_token")),
+                timeout=300, stream=True) as resp:
             resp.raise_for_status()
             with open(job_dir / source_name, "wb") as fh:
                 for chunk in resp.iter_content(1024 * 1024):
@@ -289,7 +301,8 @@ def render_job(job: dict, tools: dict) -> Path:
         log(f"job {job['id']}: downloading voiceover")
         with requests.get(
                 f"{PLATFORM}/api/worker/hf/jobs/{job['id']}/voice",
-                headers=HEADERS, timeout=300, stream=True) as resp:
+                headers=job_headers(job.get("claim_token")),
+                timeout=300, stream=True) as resp:
             resp.raise_for_status()
             with open(job_dir / "voice.wav", "wb") as fh:
                 for chunk in resp.iter_content(1024 * 1024):
@@ -319,10 +332,11 @@ def render_job(job: dict, tools: dict) -> Path:
     return out_path
 
 
-def fail_job(job_id: str, message: str):
+def fail_job(job_id: str, message: str, claim_token=None):
     try:
         requests.post(f"{PLATFORM}/api/worker/hf/jobs/{job_id}/fail",
-                      headers=HEADERS, json={"error": message[:280]},
+                      headers=job_headers(claim_token),
+                      json={"error": message[:280]},
                       timeout=30)
     except Exception:
         pass
@@ -340,7 +354,8 @@ def main():
             return
         try:
             resp = requests.get(f"{PLATFORM}/api/worker/hf/jobs/next",
-                                headers=HEADERS, timeout=30)
+                                headers={**HEADERS, "X-Claim-Bind": "1"},
+                                timeout=30)
             resp.raise_for_status()
             job = resp.json().get("job")
         except Exception as exc:
@@ -361,13 +376,14 @@ def main():
             with open(out_path, "rb") as fh:
                 up = requests.post(
                     f"{PLATFORM}/api/worker/hf/jobs/{job['id']}/file",
-                    headers=HEADERS, data=fh, timeout=600)
+                    headers=job_headers(job.get("claim_token")),
+                    data=fh, timeout=600)
             up.raise_for_status()
             log(f"job {job['id']}: done")
         except Exception:
             message = traceback.format_exc()[-280:]
             log(f"job {job['id']}: failed: {message}")
-            fail_job(job["id"], message)
+            fail_job(job["id"], message, job.get("claim_token"))
         heartbeat()
 
 

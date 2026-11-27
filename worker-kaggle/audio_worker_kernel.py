@@ -601,6 +601,17 @@ except Exception:
     REV = "unknown"
 HEADERS = {"X-API-Key": KEY, "X-Audio-Rev": REV}
 
+def job_headers(claim_token=None):
+    """Headers for one claimed job's calls: the worker key
+    plus the per-job claim token when the claim issued one.
+    A job claimed without a token (platform legacy mode)
+    sends the key alone, exactly as before."""
+    headers = dict(HEADERS)
+    if claim_token:
+        headers["X-Claim-Token"] = claim_token
+    return headers
+
+
 
 def heartbeat():
     try:
@@ -1039,7 +1050,7 @@ def make_wordcheck(job: dict):
     src_path = WORKING / f"wc-source-{job_id}.wav"
     resp = requests.get(
         f"{PLATFORM}/api/worker/audio/jobs/{job_id}/source",
-        headers=HEADERS, timeout=600)
+        headers=job_headers(job.get("claim_token")), timeout=600)
     resp.raise_for_status()
     src_path.write_bytes(resp.content)
     Path("/tmp/wc_params.json").write_text(json.dumps({
@@ -1076,20 +1087,23 @@ def make_wordcheck(job: dict):
             up = requests.post(
                 f"{PLATFORM}/api/worker/audio/jobs/"
                 f"{job_id}/file",
-                headers=HEADERS, data=fh, timeout=600)
+                headers=job_headers(job.get("claim_token")),
+                data=fh, timeout=600)
         up.raise_for_status()
     posted = requests.post(
         f"{PLATFORM}/api/worker/audio/jobs/{job_id}/result",
-        headers=HEADERS, json=result, timeout=60)
+        headers=job_headers(job.get("claim_token")),
+        json=result, timeout=60)
     posted.raise_for_status()
     log(f"job {job_id}: word check result posted")
 
 
-def fail_job(job_id: str, message: str):
+def fail_job(job_id: str, message: str, claim_token=None):
     try:
         requests.post(
             f"{PLATFORM}/api/worker/audio/jobs/{job_id}/fail",
-            headers=HEADERS, json={"error": message[:280]},
+            headers=job_headers(claim_token),
+            json={"error": message[:280]},
             timeout=30)
     except Exception:
         pass
@@ -1154,7 +1168,8 @@ def main():
         try:
             resp = requests.get(
                 f"{PLATFORM}/api/worker/audio/jobs/next",
-                headers=HEADERS, timeout=30)
+                headers={**HEADERS, "X-Claim-Bind": "1"},
+                timeout=30)
             resp.raise_for_status()
             job = resp.json().get("job")
         except Exception as exc:
@@ -1189,13 +1204,14 @@ def main():
                     up = requests.post(
                         f"{PLATFORM}/api/worker/audio/jobs/"
                         f"{job['id']}/file",
-                        headers=HEADERS, data=fh, timeout=600)
+                        headers=job_headers(job.get("claim_token")),
+                        data=fh, timeout=600)
                 up.raise_for_status()
             log(f"job {job['id']}: done")
         except Exception:
             message = traceback.format_exc()[-280:]
             log(f"job {job['id']}: failed: {message}")
-            fail_job(job["id"], message)
+            fail_job(job["id"], message, job.get("claim_token"))
         heartbeat()
 
 

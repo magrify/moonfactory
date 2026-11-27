@@ -643,6 +643,17 @@ def read_key() -> str:
 KEY = None
 HEADERS = {}
 
+def job_headers(claim_token=None):
+    """Headers for one claimed job's calls: the worker key
+    plus the per-job claim token when the claim issued one.
+    A job claimed without a token (platform legacy mode)
+    sends the key alone, exactly as before."""
+    headers = dict(HEADERS)
+    if claim_token:
+        headers["X-Claim-Token"] = claim_token
+    return headers
+
+
 
 NOTE = {"text": "starting", "since": time.time()}
 SESSION_ID = None
@@ -1448,10 +1459,10 @@ def run_image_workflow(workflow: dict):
 # completed segments as a partial job, exactly as on Modal.
 # ---------------------------------------------------------------------------
 
-def download_job_image(job_id: str, which: str):
+def download_job_image(job_id: str, which: str, claim_token=None):
     resp = requests.get(
         f"{PLATFORM}/api/worker/comfy/jobs/{job_id}/{which}",
-        headers=HEADERS, timeout=300)
+        headers=job_headers(claim_token), timeout=300)
     resp.raise_for_status()
     return resp.content
 
@@ -1476,9 +1487,11 @@ def run_video_job(job: dict) -> dict:
     start_bytes = None
     end_bytes = None
     if job.get("has_start_image"):
-        start_bytes = download_job_image(job_id, "start-image")
+        start_bytes = download_job_image(
+            job_id, "start-image", job.get("claim_token"))
     if job.get("has_end_image"):
-        end_bytes = download_job_image(job_id, "end-image")
+        end_bytes = download_job_image(
+            job_id, "end-image", job.get("claim_token"))
     if lane == "production" and not start_bytes and not camera_pose:
         raise RuntimeError("the production lane needs a start image")
     if lane == NSFW_LANE and not start_bytes:
@@ -1758,8 +1771,9 @@ def run_image_job(job: dict) -> dict:
 # Platform client and the main loop.
 # ---------------------------------------------------------------------------
 
-def upload_result(job_id: str, result: dict, gpu_name):
-    headers = dict(HEADERS)
+def upload_result(job_id: str, result: dict, gpu_name,
+                  claim_token=None):
+    headers = job_headers(claim_token)
     headers["X-Comfy-Render-Seconds"] = str(result["render_seconds"])
     headers["X-Comfy-Segments-Done"] = str(result["segments_done"])
     headers["X-Comfy-Partial"] = "1" if result["partial"] else "0"
@@ -1776,10 +1790,11 @@ def upload_result(job_id: str, result: dict, gpu_name):
     resp.raise_for_status()
 
 
-def fail_job(job_id: str, message: str):
+def fail_job(job_id: str, message: str, claim_token=None):
     try:
         requests.post(f"{PLATFORM}/api/worker/comfy/jobs/{job_id}/fail",
-                      headers=HEADERS, json={"error": message[:280]},
+                      headers=job_headers(claim_token),
+                      json={"error": message[:280]},
                       timeout=30)
     except Exception:
         pass
@@ -1805,7 +1820,8 @@ def main():
             return
         try:
             resp = requests.get(f"{PLATFORM}/api/worker/comfy/jobs/next",
-                                headers=HEADERS, timeout=30)
+                                headers={**HEADERS, "X-Claim-Bind": "1"},
+                                timeout=30)
             resp.raise_for_status()
             job = resp.json().get("job")
         except Exception as exc:
@@ -1828,13 +1844,14 @@ def main():
                 result = run_video_job(job)
             set_note(f"uploading job {job['id']}")
             log(f"job {job['id']}: uploading result")
-            upload_result(job["id"], result, info.get("gpu"))
+            upload_result(job["id"], result, info.get("gpu"),
+                          job.get("claim_token"))
             log(f"job {job['id']}: done in "
                 f"{result['render_seconds']}s")
         except Exception:
             message = traceback.format_exc()[-280:]
             log(f"job {job['id']}: failed: {message}")
-            fail_job(job["id"], message)
+            fail_job(job["id"], message, job.get("claim_token"))
 
 
 if __name__ == "__main__":
