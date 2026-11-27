@@ -527,8 +527,8 @@ check(ORIGINAL not in sealed and b"original-generation" not in sealed,
 check(unseal(sealed) == ORIGINAL,
       "decryption with the private key round-trips the original bytes")
 check(len(base64.b64decode(
-    "e/4t/ns06gyW6El3HblluZ/0bar82GSSMF2ru6TtYFA=")) == 32
-    and "e/4t/ns06gyW6El3HblluZ/0bar82GSSMF2ru6TtYFA=" in SRC,
+    "gQ2x0wXR+hLiUzU5UBWXAn0rZnF/rKgLbbzm9PwbJxE=")) == 32
+    and "gQ2x0wXR+hLiUzU5UBWXAn0rZnF/rKgLbbzm9PwbJxE=" in SRC,
     "the pinned vault public key in app.py is a real 32-byte key")
 check("LEGAL_HOLD_PRIVATE_KEY" not in SRC,
       "the app never reads the vault private key: it cannot decrypt")

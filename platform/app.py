@@ -2066,10 +2066,15 @@ def place_legal_hold(job: dict, trigger: str, note: str = "") -> None:
 # under the vault public key (PyNaCl SealedBox) and uploaded to
 # the dedicated private Cloudflare R2 bucket below. Ciphertext
 # is the only thing that ever leaves the app. The matching
-# private key sits in the moonfactory-providers Modal secret and
+# private key sits in the dedicated moonfactory-legal-hold
+# Modal secret, which no workload in this app mounts, and it
 # is NEVER read by this app, so even a compromised app cannot
 # decrypt the vault; decryption happens offline, only if law
-# enforcement ever needs the material. Once an upload is
+# enforcement ever needs the material. (Keypair rotated
+# 2026-11-27 under audit run-1 record NV-4: the original key
+# sat in the shared moonfactory-providers bundle; the vault
+# bucket was verified empty before the rotation, so no
+# ciphertext exists under the retired key.) Once an upload is
 # verified by readback, a removal-triggered hold deletes the
 # plaintext from the data volume, so no readable copy stays on
 # Modal. A daily sweep destroys vaulted content once its
@@ -2084,7 +2089,7 @@ def place_legal_hold(job: dict, trigger: str, note: str = "") -> None:
 
 LEGAL_HOLD_VAULT_BUCKET = "moonfactory-legal-holds"
 LEGAL_HOLD_VAULT_PUBLIC_KEY = \
-    "e/4t/ns06gyW6El3HblluZ/0bar82GSSMF2ru6TtYFA="
+    "gQ2x0wXR+hLiUzU5UBWXAn0rZnF/rKgLbbzm9PwbJxE="
 LEGAL_HOLD_ENCRYPTION = (
     "PyNaCl SealedBox (XSalsa20-Poly1305), per-object ephemeral key")
 
