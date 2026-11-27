@@ -7,9 +7,11 @@ What is pinned:
   37.75) because reference jobs share the row and still run
   on Kie; SpicyAPI's cheaper text/image rates (10.08 / 13.44
   / 33.6, live catalog 2026-11-27) are recorded in
-  DISPLACED_RATES as kling3_spicyapi; the kling4 basis stays
-  VidLab (13.5 / 20.0), the cheapest verified text/image
-  route on every catalog re-read.
+  DISPLACED_RATES as kling3_spicyapi; the kling4 basis was
+  VidLab (13.5 / 20.0) at the hunt, and moved to UnificAlly
+  (12.6 / 18.9) later the same day in the catalog audit
+  (the VidLab row stands as the displaced kling4_vidlab
+  record; the lane's shelf and sells did not move).
 - No customer price moves: both lanes keep their at-cost
   residual treatment against Higgsfield's policy figures
   (kling3 720p sells 11.792 against 9.833; kling4 sells
@@ -60,8 +62,10 @@ check(pricing.PROVIDER_RATES_CENTS_PER_SECOND["kling3"] == {
     "720p": 11.35, "1080p": 15.1, "4K": 37.75},
     "kling3 lane basis must stay the Kie with-audio row")
 check(pricing.PROVIDER_RATES_CENTS_PER_SECOND["kling4"] == {
-    "720p": 13.5, "1080p": 20.0},
-    "kling4 lane basis must stay the VidLab row")
+    "720p": 12.6, "1080p": 18.9},
+    "kling4 lane basis must stay the UnificAlly row "
+    "(2026-11-27 catalog audit; the VidLab row is the "
+    "displaced kling4_vidlab record)")
 check(pricing.DISPLACED_RATES_CENTS_PER_SECOND["kling3_spicyapi"] == {
     "720p": 10.08, "1080p": 13.44, "4K": 33.6},
     "SpicyAPI kling3 rates must be recorded as kling3_spicyapi")
@@ -115,7 +119,11 @@ def literal_assign(name):
 
 overrides = literal_assign("MODEL_PROVIDER_MODE_OVERRIDES")
 check(overrides == {"kling3": {"text": "spicyapi",
-                               "image": "spicyapi"}},
+                               "image": "spicyapi"},
+                    "seedance25_flash": {
+                        "text": "unifically",
+                        "reference": "unifically",
+                        "image": "vidlab"}},
       f"mode override table wrong: {overrides}")
 
 model_ids = literal_assign("SPICYAPI_MODEL_IDS")

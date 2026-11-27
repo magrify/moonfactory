@@ -227,7 +227,8 @@ check(job_has_image_input(None) is False,
       "missing job reads as image input")
 for model_id in app.START_IMAGE_REQUIRED_MODELS:
     check(model_id in app.UNCENSORED_VIDEO_MODELS
-          or model_id in ("wan26_flash", "hailuo23_fast"),
+          or model_id in ("wan26_flash", "hailuo23_fast",
+                          "kling21", "seedance10_pro"),
           f"start-image-required model {model_id} is neither an "
           "uncensored model nor a known regular lane")
 

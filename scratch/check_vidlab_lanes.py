@@ -93,8 +93,12 @@ check("VIDLAB_VIDEO_MODELS" in refresh and "/v1/models" in refresh,
 
 vidlab_models = sorted(
     m for m, p in app.MODEL_PROVIDER.items() if p == "vidlab")
-check(len(vidlab_models) == 23,
-      f"expected 23 vidlab video models, found {len(vidlab_models)}")
+# 16 since the 2026-11-27 UnificAlly catalog audit moved
+# seven lanes off VidLab (Kling 4.0, Kling O1, Kling 2.6
+# Standard, Wan 2.7, Hailuo 2.3 Fast, Seedance 1.0 Pro
+# Fast, and Seedance 2.5 Flash's base route).
+check(len(vidlab_models) == 16,
+      f"expected 16 vidlab video models, found {len(vidlab_models)}")
 model_ids = {m["id"] for m in app.MODELS}
 for model in vidlab_models:
     check(model in model_ids, f"{model} missing from MODELS")
@@ -115,18 +119,29 @@ for model in vidlab_models:
     check(model in app.LANE_AUDIO, f"{model} has no LANE_AUDIO entry")
     check(len(app.native_lengths(model)) >= 1,
           f"{model} has no native lengths")
-    check(app.provider_for(model, tiers[0]) == "vidlab",
+    # Split lanes (a per-resolution override) resolve to
+    # VidLab on only some tiers: MiniMax H3 Max's 1080p is
+    # its VidLab tier since the 2026-11-27 split.
+    check(app.provider_for(model, tiers[0]) == "vidlab"
+          or any(app.provider_for(model, t) == "vidlab"
+                 for t in tiers),
           f"{model} does not resolve to vidlab")
 
 # The reroutes and unpauses. (Seedance 2.0 Fast and Vidu Q4
 # left VidLab in the 2026-11-26 route audit, to SpicyAPI and
 # Kie; their new routes are pinned in
-# check_route_audit_framehush_lanes.py.)
-for model in ("kling4", "seedance25_flash", "pixverse_v6"):
+# check_route_audit_framehush_lanes.py. Kling 4.0 and
+# Seedance 2.5 Flash left VidLab in the 2026-11-27
+# UnificAlly catalog audit; their new routes are pinned in
+# check_unifically_catalog.py, and their displaced VidLab
+# rates are recorded in pricing.py's DISPLACED rows
+# kling4_vidlab / seedance25_flash_vidlab.)
+for model in ("pixverse_v6",):
     check(app.MODEL_PROVIDER.get(model) == "vidlab",
           f"{model} was not rerouted to vidlab")
-check(pricing.PROVIDER_RATES_CENTS_PER_SECOND["kling4"]
-      == {"720p": 13.5, "1080p": 20.0}, "kling4 VidLab rates drifted")
+check(pricing.DISPLACED_RATES_CENTS_PER_SECOND.get("kling4_vidlab")
+      == {"720p": 13.5, "1080p": 20.0},
+      "kling4 displaced VidLab rates not recorded")
 check(pricing.DISPLACED_RATES_CENTS_PER_SECOND.get("kling4_kie")
       == {"720p": 14.25, "1080p": 21.25},
       "displaced Kie kling4 rates not recorded")
@@ -148,8 +163,12 @@ check(app.offered_resolutions("kling4", rates) == ["720p", "1080p"],
 vidlab_lanes = sorted(
     lane_id for lane_id, lane in pricing.IMAGE_LANES.items()
     if lane["provider"] == "vidlab")
-check(len(vidlab_lanes) == 28,
-      f"expected 28 vidlab image lanes, found {len(vidlab_lanes)}")
+# 21 since the 2026-11-27 UnificAlly catalog audit moved
+# seven image lanes to UnificAlly (Grok Imagine Image, Grok
+# Imagine Image 2.0 Quality, Qwen Image 2.0 Pro, Seedream
+# 4.0 / 4.5 / 5.0 Flash, Flux 3 Klein).
+check(len(vidlab_lanes) == 21,
+      f"expected 21 vidlab image lanes, found {len(vidlab_lanes)}")
 # Superseded 2026-11-25: was 34 until GPT Image 1 was removed
 # the same day (OpenAI shut the model down 2026-10-23; Jack's
 # order: a dead lane is not left listed). See

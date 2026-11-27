@@ -64,15 +64,18 @@ def func_src(name):
 
 rates = pricing.PROVIDER_RATES_CENTS_PER_SECOND
 
-# -- Veo 3.1 Quality and Fast on Kie -----------------------------------
+# -- Veo 3.1 Fast on Kie; Quality moved to UnificAlly ------------------
+# Veo 3.1 (Quality) left Kie in the 2026-11-27 UnificAlly
+# catalog audit (flat $1.20 / $1.225 / $1.80 under Kie's
+# $1.25 / $1.275 / $1.85; the Kie ceilings are recorded as
+# the displaced veo3_kie row). It is pinned separately
+# below the loop. Veo 3.1 Fast stays on Kie: UnificAlly's
+# Fast prices are identical, so there was nothing to win.
 
 for model, label, flat, ceiling in (
-        ("veo3", "Veo 3.1",
-         {"720p": 125.0, "1080p": 127.5, "4K": 185.0},
-         {"720p": 31.25, "1080p": 31.875, "4K": 46.25}),
         ("veo3_fast", "Veo 3.1 Fast",
          {"720p": 30.0, "1080p": 32.5, "4K": 90.0},
-         {"720p": 7.5, "1080p": 8.125, "4K": 22.5})):
+         {"720p": 7.5, "1080p": 8.125, "4K": 22.5})),:
     entry = next(m for m in app.MODELS if m["id"] == model)
     check(entry.get("label") == label,
           f"{model} label is not its own name {label}")
@@ -100,6 +103,39 @@ for model, label, flat, ceiling in (
           and lane.get("cost_basis") == "flat_per_clip",
           f"{model} frontier picture lost its flat fields")
 
+# -- Veo 3.1 (Quality) on UnificAlly (2026-11-27) --------------
+entry = next(m for m in app.MODELS if m["id"] == "veo3")
+check(entry.get("label") == "Veo 3.1",
+      "veo3 label is not its own name Veo 3.1")
+check(entry.get("paid_only") is True,
+      "veo3 is not paid_only (an API-cost lane is never free)")
+check(app.MODEL_PROVIDER.get("veo3") == "unifically",
+      "veo3 does not route to unifically")
+for res in ("720p", "1080p", "4K"):
+    check(app.provider_for("veo3", res) == "unifically",
+          f"provider_for does not resolve veo3 {res} to unifically")
+check(pricing.FLAT_CLIP_COST_CENTS.get("veo3")
+      == {"720p": 120.0, "1080p": 122.5, "4K": 180.0},
+      "veo3 flat clip costs drifted from UnificAlly's card")
+check(rates.get("veo3")
+      == {"720p": 30.0, "1080p": 30.625, "4K": 45.0},
+      "veo3 rate-table ceiling is not the flat cost at 4 s")
+check(pricing.FLAT_CLIP_STEPS.get("veo3") == (4, 6, 8),
+      "veo3 flat clip steps drifted from (4, 6, 8)")
+check(pricing.flat_clip_segments("veo3", 60) == 8,
+      "veo3 60s does not compose to 8 flat generations")
+lane = pricing.frontier_lane("veo3", "720p", rates)
+check(lane["pricing_basis"] == "standard",
+      "veo3 720p does not resolve on the standard basis")
+check(lane["can_undercut"] is True,
+      "veo3 720p no longer undercuts Higgsfield's figure")
+check(lane.get("flat_clip_cost_cents") == 120.0
+      and lane.get("cost_basis") == "flat_per_clip",
+      "veo3 frontier picture lost its flat fields")
+check(pricing.DISPLACED_RATES_CENTS_PER_SECOND.get("veo3_kie")
+      == {"720p": 31.25, "1080p": 31.875, "4K": 46.25},
+      "displaced Kie ceilings for veo3 are not recorded")
+
 check("veo3" not in app.MODEL_PROVIDER_OVERRIDES,
       "veo3 still carries a per-resolution provider override")
 check(pricing.DISPLACED_RATES_CENTS_PER_SECOND.get("veo3_piapi")
@@ -114,10 +150,10 @@ check(pricing.FALLBACK_PROVIDER_RATES_CENTS_PER_SECOND.get("veo3_fast")
 
 # The quote prices the clip, not the second.
 est = pricing.per_second_estimate("veo3", "720p", 8, 0.0, rates)
-check(est["raw_cost_cents"] == 125.08,
+check(est["raw_cost_cents"] == 120.08,
       "veo3 720p 8s raw is not the flat cost plus cut post")
-check(est["balance_debit_cents"] == 158,
-      "veo3 720p 8s customer debit is not ceil(125.8 x 1.25)")
+check(est["balance_debit_cents"] == 151,
+      "veo3 720p 8s customer debit is not ceil(120.8 x 1.25)")
 est = pricing.per_second_estimate("veo3_fast", "720p", 8, 0.0, rates)
 check(est["raw_cost_cents"] == 30.08,
       "veo3_fast 720p 8s raw is not the flat cost plus cut post")

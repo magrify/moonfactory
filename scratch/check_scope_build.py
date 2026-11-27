@@ -65,8 +65,10 @@ check(app.ref_caps_for("seedance2") == (9, 3, 3), "Seedance 2.0 caps 9/3/3")
 check(app.ref_caps_for("seedance2_fast") == (9, 3, 3), "Seedance 2.0 Fast caps")
 check(app.ref_caps_for("veo3") == (3, 0, 0), "Veo 3.1 caps 3 images only")
 check(app.ref_caps_for("veo3_fast") == (3, 0, 0), "Veo 3.1 Fast caps")
-check(app.ref_caps_for("kling4") == (1, 1, 0),
-      "Kling 4.0 caps 1/1/0 on the VidLab route (2026-11-23 reroute)")
+check(app.ref_caps_for("kling4") == (10, 0, 0),
+      "Kling 4.0 caps 10/0/0 on the UnificAlly route "
+      "(2026-11-27 catalog audit; the VidLab route's 1/1/0 "
+      "surface is displaced)")
 check(app.ref_caps_for("kling3_omni") == (10, 5, 5), "Kling 3.0 Omni caps")
 check(app.ref_caps_for("wan3") == (10, 5, 5), "unverified lanes keep platform cap")
 check(app.MODEL_REF_VIDEO_SECONDS_CAP["seedance"] == 30.0,
@@ -147,13 +149,18 @@ for mid in app.PER_SECOND_MODELS:
         check(res in rates, f"{mid} missing a rate for {res}")
 
 # --- image shelf (item 1) ------------------------------------------
-check(len(pricing.IMAGE_LANES) == 55,
-      "image shelf has 55 lanes (33 VidLab lanes added 2026-11-23, "
+check(len(pricing.IMAGE_LANES) == 64,
+      "image shelf has 64 lanes (33 VidLab lanes added 2026-11-23, "
       "GPT Image 2.6 Sunburst added 2026-11-25, LongCat-Image "
       "added 2026-11-26, MAI Image 2.7 and 2.7 Flash added "
       "2026-11-27, Midjourney V8.2, V8.1, V6.1 and Niji 7 "
       "added 2026-11-27 on CometAPI, Grok Imagine Image "
-      "uncensored added 2026-11-27 on UnificAlly; superseded "
+      "uncensored added 2026-11-27 on UnificAlly, Grok Imagine "
+      "Image 2.0 uncensored and eight more UnificAlly lanes "
+      "added 2026-11-27 in the catalog pass (Flux 3 Klein "
+      "Base, Flux 2 Klein 9B, Kling 3.0 Image, Kling 3.0 "
+      "Omni Image, Kling 4.0 Image, Kling O1 Image, Wan 2.6 "
+      "Image, Z-Image Turbo); superseded "
       "2026-11-25: "
       "was 48 until "
       "GPT Image 1 was removed the same day, its upstream shut "

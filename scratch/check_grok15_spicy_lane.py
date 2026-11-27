@@ -176,7 +176,23 @@ def _boom(job, msg):
     raise RuntimeError(f"unexpected submit failure: {msg}")
 
 
+# The 2026-11-27 catalog pass generalized the submit
+# around a per-model map; the pin extracts it too and the
+# driven Grok payloads below are byte-for-byte the ones
+# this pin has always asserted.
+_UA_MAP = None
+for _node in ast.walk(PTREE):
+    if isinstance(_node, ast.Assign) and any(
+            isinstance(t, ast.Name)
+            and t.id == "UNIFICALLY_VIDEO_MODELS"
+            for t in _node.targets):
+        _UA_MAP = ast.literal_eval(_node.value)
+check("the UnificAlly map carries the grok lane",
+      (_UA_MAP or {}).get("grok15_unc")
+      == ("xai/grok-imagine-1.5-fast-video", "grok"))
+
 submit_ns = {
+    "UNIFICALLY_VIDEO_MODELS": _UA_MAP,
     "UNIFICALLY_BASE": "https://api.unifically.com",
     "jobs": jobs,
     "_submit_post": _fake_submit_post,
@@ -188,7 +204,8 @@ submit_ns = {
 exec(fn_source("submit_unifically_job"), submit_ns)
 submit = submit_ns["submit_unifically_job"]
 
-job = {"id": "pin-job", "user_id": "pin-user", "status": "queued"}
+job = {"id": "pin-job", "model": "grok15_unc",
+       "user_id": "pin-user", "status": "queued"}
 params = {"duration": 10, "resolution": "720p",
           "aspect_ratio": "16:9", "mode": "text",
           "start_image": None, "end_image": None,
@@ -211,7 +228,8 @@ check("text submit carries duration, resolution, aspect",
 check("text submit records the provider task id",
       job["provider_task_id"] == "task-pin-1")
 
-job2 = {"id": "pin-job-2", "user_id": "pin-user", "status": "queued"}
+job2 = {"id": "pin-job-2", "model": "grok15_unc",
+        "user_id": "pin-user", "status": "queued"}
 p2 = dict(params)
 p2["mode"] = "image"
 p2["start_image"] = "data:image/png;base64,AAAA"
@@ -226,7 +244,8 @@ check("image submit rides the start frame as a URL",
 check("image submit sends no aspect ratio",
       "aspect_ratio" not in inp2)
 
-job3 = {"id": "pin-job-3", "user_id": "pin-user", "status": "queued"}
+job3 = {"id": "pin-job-3", "model": "grok15_unc",
+        "user_id": "pin-user", "status": "queued"}
 p3 = dict(params)
 p3["mode"] = "reference"
 p3["reference_image_urls"] = ["data:image/png;base64,BBBB"]
@@ -298,9 +317,12 @@ check("image customer charge is raw x1.25 rounded up (2c)",
 check("image owner charge is the raw cent",
       pricing.image_lane_charge_cents(
           "grok_imagine_unc", "1K", owner=True) == 1)
+# Generalized 2026-11-27: the branch sends enable_nsfw
+# from the lane's uncensored flag (on for this lane); the
+# driven submit below asserts the actual payload.
 check("image submit branch sends enable_nsfw on every job",
       'elif provider == "unifically":' in src
-      and '"enable_nsfw": True,' in src)
+      and '"enable_nsfw"] = bool(' in src)
 check("image mirror branch polls UnificAlly tasks",
       'elif provider == "unifically":\n'
       '                resp = requests.get(' in src)

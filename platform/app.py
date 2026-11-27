@@ -3922,6 +3922,20 @@ MODELS = [
     {"id": "seedance15pro", "label": "Seedance 1.5 Pro", "paid_only": True},
     {"id": "seedance10pro_fast", "label": "Seedance 1.0 Pro Fast", "paid_only": True},
     {"id": "pixverse_v6_max", "label": "PixVerse V6 Max", "paid_only": True},
+    # UnificAlly catalog wiring (2026-11-27): models the
+    # platform did not carry, each under its own name.
+    {"id": "kling21", "label": "Kling 2.1", "paid_only": True},
+    {"id": "kling21_master", "label": "Kling 2.1 Master", "paid_only": True},
+    {"id": "kling25_turbo", "label": "Kling 2.5 Turbo", "paid_only": True},
+    {"id": "kling3_turbo", "label": "Kling 3.0 Turbo", "paid_only": True},
+    {"id": "seedance10", "label": "Seedance 1.0", "paid_only": True},
+    {"id": "seedance10_pro", "label": "Seedance 1.0 Pro", "paid_only": True},
+    {"id": "hailuo20", "label": "Hailuo 2.0", "paid_only": True},
+    {"id": "h3_lite", "label": "MiniMax H3 Lite", "paid_only": True},
+    {"id": "h3_fast", "label": "MiniMax H3 Fast", "paid_only": True},
+    {"id": "h3_max_turbo", "label": "MiniMax H3 Max Turbo", "paid_only": True},
+    {"id": "happyhorse10", "label": "HappyHorse 1.0", "paid_only": True},
+    {"id": "veo3_lite_relaxed", "label": "Veo 3.1 Lite Relaxed", "paid_only": True},
     # MAGI-2 by Sand.ai (2026-11-25): listed individually
     # under its own name, on Higgsfield's own API route.
     {"id": "magi2", "label": "MAGI-2", "paid_only": True},
@@ -3983,6 +3997,10 @@ START_IMAGE_REQUIRED_MODELS = (
     # Hailuo 2.3 Fast publish images as a REQUIRED input on the
     # route, so a job without one cannot be sent.
     "wan26_flash", "hailuo23_fast",
+    # UnificAlly image-only lanes (2026-11-27): Kling 2.1
+    # requires a start frame; Seedance 1.0 Pro requires at
+    # least one of a first / last frame.
+    "kling21", "seedance10_pro",
 )
 # House video models: served by our own worker on the per-job
 # price table rather than the per-second shelf. Each maps to the
@@ -4770,7 +4788,17 @@ PER_SECOND_MODELS = (
     "vidu_q3_turbo", "vidu_q3_mix", "skyreels_v4_fast",
     "skyreels_v4_std", "seedance15pro", "seedance10pro_fast",
     "pixverse_v6_max",
+    # UnificAlly catalog wiring (2026-11-27).
+    "kling21", "kling21_master", "kling25_turbo",
+    "kling3_turbo", "seedance10", "seedance10_pro",
+    "hailuo20", "h3_lite", "h3_fast", "h3_max_turbo",
+    "happyhorse10", "veo3_lite_relaxed",
     # MAGI-2 via FrameHush (wired via Higgsfield 2026-11-25,
+    # UnificAlly catalog wiring (2026-11-27).
+    "kling21", "kling21_master", "kling25_turbo",
+    "kling3_turbo", "seedance10", "seedance10_pro",
+    "hailuo20", "h3_lite", "h3_fast", "h3_max_turbo",
+    "happyhorse10", "veo3_lite_relaxed",
     # rerouted 2026-11-26).
     "magi2",
 )
@@ -4799,19 +4827,19 @@ MODEL_PROVIDER = {
     # Kling 4.0 rerouted to VidLab 2026-11-23: VidLab's
     # $0.135 / $0.20 per second undercuts Kie's $0.1425 /
     # $0.2125. The Kie submit path stays wired as the spare.
-    "kling4": "vidlab",
+    "kling4": "unifically",
     # Kling 4.0 Flash via Kie (2026-11-27, Kling route hunt):
     # Kie's flash endpoints price at a flat $0.085/s at 720p,
     # under Higgsfield's $0.1475/s at the standard markup.
-    "kling4_flash": "kie",
+    "kling4_flash": "unifically",
     "seedance2": "beatapi",
     # Seedance 2.0 Fast rerouted to VidLab 2026-11-23 the
     # same way ($0.05 / $0.11 vs Kie's $0.059 / $0.124); the
     # VidLab route takes no reference video or audio, so the
     # lane is image-references-only (IMAGE_REFS_ONLY_MODELS).
-    "seedance2_fast": "spicyapi",
-    "seedance2_mini": "kie",
-    "omni12": "kie",
+    "seedance2_fast": "unifically",
+    "seedance2_mini": "unifically",
+    "omni12": "unifically",
     "omni11": "beatapi",
     "grok": "kie",
     "grok15": "kie",
@@ -4823,7 +4851,7 @@ MODEL_PROVIDER = {
     # preset on the 1.5 generation (its grok.com build); the
     # preset rides in the submit input on every job.
     "grok15_unc": "unifically",
-    "grok15_lite": "fal",
+    "grok15_lite": "unifically",
     "happyhorse": "openrouter",
     "minimax_h3": "framehush",
     # Veo 3.1 and Veo 3.1 Fast ride Kie since 2026-11-25
@@ -4835,7 +4863,7 @@ MODEL_PROVIDER = {
     # no-expiring-credits rule and the fal route the Fast lane
     # ran on costs four times Kie's 720p figure; both submits
     # stay wired below as spares.
-    "veo3": "kie",
+    "veo3": "unifically",
     "veo3_fast": "kie",
     "kling3_omni": "kie",
     # Veo 3.1 Lite rides Kie since 2026-11-25: Kie bills the
@@ -4856,7 +4884,7 @@ MODEL_PROVIDER = {
     # 2026-11-23, which publishes per-second rates for all
     # three; the WaveSpeed submit paths stay wired as spares.
     "vidu_q4": "kie",
-    "seedance25_flash": "vidlab",
+    "seedance25_flash": "unifically",
     "pixverse_v6": "vidlab",
     "runway_gen45": "runway",
     # VidLab lanes (2026-11-23): every model below is served
@@ -4869,10 +4897,10 @@ MODEL_PROVIDER = {
     "wan25": "vidlab",
     "wan26": "vidlab",
     "wan26_flash": "vidlab",
-    "wan27": "vidlab",
-    "kling26_std": "vidlab",
-    "kling_o1": "vidlab",
-    "hailuo23_fast": "vidlab",
+    "wan27": "unifically",
+    "kling26_std": "unifically",
+    "kling_o1": "unifically",
+    "hailuo23_fast": "unifically",
     "minimax_h3_max": "vidlab",
     "vidu_q3_pro": "vidlab",
     "vidu_q3_turbo": "vidlab",
@@ -4880,8 +4908,22 @@ MODEL_PROVIDER = {
     "skyreels_v4_fast": "vidlab",
     "skyreels_v4_std": "vidlab",
     "seedance15pro": "vidlab",
-    "seedance10pro_fast": "vidlab",
+    "seedance10pro_fast": "unifically",
     "pixverse_v6_max": "vidlab",
+    # UnificAlly catalog wiring (2026-11-27): lanes the
+    # platform did not carry, all on UnificAlly.
+    "kling21": "unifically",
+    "kling21_master": "unifically",
+    "kling25_turbo": "unifically",
+    "kling3_turbo": "unifically",
+    "seedance10": "unifically",
+    "seedance10_pro": "unifically",
+    "hailuo20": "unifically",
+    "h3_lite": "unifically",
+    "h3_fast": "unifically",
+    "h3_max_turbo": "unifically",
+    "happyhorse10": "unifically",
+    "veo3_lite_relaxed": "unifically",
     # Uncensored lanes (2026-11-17): cheapest route per model
     # across the three uncensored suppliers (route rule).
     "wan22_unc": "spicyapi",
@@ -4956,7 +4998,18 @@ PROVIDER_KEY_ENV = {
 # fal override retired on 2026-11-25 when that lane moved to
 # Kie flat per-clip pricing (fal's rates remain its fallback
 # in pricing.py). The mechanism stays for the next split.
-MODEL_PROVIDER_OVERRIDES = {}
+MODEL_PROVIDER_OVERRIDES = {
+    # UnificAlly route audit (2026-11-27): two lanes split
+    # by resolution. Seedance 2.0 (Pro): 480p stays on
+    # BeatAPI (cheaper there); 720p and up run on
+    # UnificAlly plain rates. MiniMax H3 Max: 480p/720p
+    # run on UnificAlly; 1080p stays on VidLab because
+    # UnificAlly's H3 Max caps at 768p (the 720p tier).
+    "seedance2": {"720p": "unifically",
+                  "1080p": "unifically", "4K": "unifically"},
+    "minimax_h3_max": {"480p": "unifically",
+                       "720p": "unifically"},
+}
 
 # Per-mode route overrides: a lane whose cheapest route covers
 # only some of its modes records the split here, so the provider
@@ -4977,6 +5030,19 @@ MODEL_PROVIDER_OVERRIDES = {}
 # pricing.py's DISPLACED_RATES as kling3_spicyapi.
 MODEL_PROVIDER_MODE_OVERRIDES = {
     "kling3": {"text": "spicyapi", "image": "spicyapi"},
+    # Seedance 2.5 Flash (2026-11-27 route check): text
+    # and reference modes run on UnificAlly (cheaper at
+    # both tiers); image mode stays on VidLab because
+    # UnificAlly's Flash frame mode requires BOTH a
+    # first and a last frame, and platform image jobs
+    # may carry a start frame alone. The base provider
+    # above is UnificAlly, so the rate refresh (which
+    # resolves without a mode) never pulls VidLab rates
+    # over the UnificAlly basis; the VidLab submit spec
+    # stays in VIDLAB_VIDEO_MODELS for image jobs.
+    "seedance25_flash": {"text": "unifically",
+                         "reference": "unifically",
+                         "image": "vidlab"},
 }
 
 
@@ -5027,7 +5093,7 @@ LANE_AUDIO = {
     "seedance": {"native_speech": True, "native_audio": True,
                  "note": "Seedance native audio incl. dialogue on the wired FrameHush route (the model's own endpoint; no audio switch exists to send)"},
     "veo3": {"native_speech": True, "native_audio": True,
-             "note": "Veo 3.1 native audio incl. dialogue on the wired Kie route; the displaced PiAPI route was the no-audio tier"},
+             "note": "Veo 3.1 native audio incl. dialogue on the wired UnificAlly route (Kie before it, 2026-11-27); the displaced PiAPI route was the no-audio tier"},
     "veo3_fast": {"native_speech": True, "native_audio": True,
                   "note": "wired route is the with-audio rate; dialogue native"},
     "kling3": {"native_speech": True, "native_audio": True,
@@ -5131,6 +5197,31 @@ LANE_AUDIO = {
     # music (Higgsfield's MAGI-2 page, read 2026-11-25); the
     # submit sends generate_audio=true, its documented
     # default, and the $0.08/s rate already includes it.
+    # UnificAlly catalog wiring (2026-11-27).
+    "kling21": {"native_speech": False, "native_audio": False,
+                "note": "no native audio sent on this route (the sound_effects input is not used)"},
+    "kling21_master": {"native_speech": False, "native_audio": False,
+                       "note": "no native audio on the Master schema"},
+    "kling25_turbo": {"native_speech": False, "native_audio": False,
+                      "note": "no native audio documented for the Turbo lane"},
+    "kling3_turbo": {"native_speech": False, "native_audio": False,
+                     "note": "the Turbo schema publishes no native audio"},
+    "seedance10": {"native_speech": False, "native_audio": False,
+                   "note": "the Seedance 1.0 family publishes no audio"},
+    "seedance10_pro": {"native_speech": False, "native_audio": False,
+                       "note": "the Seedance 1.0 family publishes no audio"},
+    "hailuo20": {"native_speech": False, "native_audio": False,
+                 "note": "Hailuo 2.0 is a silent model"},
+    "h3_lite": {"native_speech": True, "native_audio": True,
+                "note": "MiniMax H3 family native audio incl. dialogue"},
+    "h3_fast": {"native_speech": True, "native_audio": True,
+                "note": "MiniMax H3 family native audio incl. dialogue"},
+    "h3_max_turbo": {"native_speech": True, "native_audio": True,
+                     "note": "MiniMax H3 family native audio incl. dialogue"},
+    "happyhorse10": {"native_speech": False, "native_audio": True,
+                     "note": "joint native audio on the UnificAlly route; speech unconfirmed"},
+    "veo3_lite_relaxed": {"native_speech": True, "native_audio": True,
+                          "note": "Veo 3.1 Lite native audio incl. dialogue, as the standard Lite lane"},
     "magi2": {"native_speech": True, "native_audio": True,
               "note": "MAGI-2 generates lip-synced dialogue, sound effects and music natively; audio included in the rate"},
     "runway_gen45": {"native_speech": False, "native_audio": False,
@@ -7286,10 +7377,26 @@ MODEL_DURATION_BOUNDS = {
     "skyreels_v4_fast": (3, 15),
     "skyreels_v4_std": (3, 15),
     "seedance15pro": (4, 12),
-    "seedance10pro_fast": (2, 12),
+    # Seedance 1.0 Pro Fast on UnificAlly (2026-11-27):
+    # the schema bounds durations at 4 to 12 (the VidLab
+    # route allowed 2).
+    "seedance10pro_fast": (4, 12),
     # MAGI-2 (2026-11-25): Higgsfield's API reference bounds
     # duration at 4 to 30 whole seconds, any value in range.
     "magi2": (4, 30),
+    # UnificAlly catalog wiring (2026-11-27): range-bound
+    # lanes (stepped lanes live in MODEL_DURATION_STEPS).
+    # Kling O1 also lands here: its UnificAlly schema
+    # accepts any whole second from 3 to 10, so it left
+    # the steps table.
+    "kling_o1": (3, 10),
+    "kling3_turbo": (3, 15),
+    "seedance10": (4, 12),
+    "seedance10_pro": (4, 12),
+    "h3_lite": (4, 15),
+    "h3_fast": (4, 15),
+    "h3_max_turbo": (5, 15),
+    "happyhorse10": (3, 15),
     # Uncensored lanes (2026-11-17), from each route's own
     # published schema or model page.
     "wan22_unc": (5, 5),
@@ -7375,8 +7482,15 @@ MODEL_DURATION_STEPS = {
     "wan26": (5, 10, 15),
     "wan26_flash": (5, 10, 15),
     "kling26_std": (5, 10),
-    "kling_o1": (5, 10),
     "hailuo23_fast": (6, 10),
+    # UnificAlly catalog wiring (2026-11-27): the Kling
+    # mode family and Hailuo 2.0 publish fixed steps; the
+    # Veo relaxed lane shares the Veo family's 4/6/8.
+    "kling21": (5, 10),
+    "kling21_master": (5, 10),
+    "kling25_turbo": (5, 10),
+    "hailuo20": (6, 10),
+    "veo3_lite_relaxed": (4, 6, 8),
 }
 # The length rule (Jack, 2026-11-17, refined the same day):
 # the picker lists each model's REAL native lengths, never a
@@ -7446,15 +7560,18 @@ MODEL_REF_CAPS = {
     "seedance2_mini": (9, 3, 3),
     "veo3": (3, 0, 0),
     "veo3_fast": (3, 0, 0),
-    # Kling 4.0's VidLab route publishes 1 image and 1 video
-    # input and no audio inputs (Kling's own higher published
-    # limits governed the Kie route, not this one).
-    "kling4": (1, 1, 0),
-    # Kling 4.0 Flash's Kie route (2026-11-27): the Flash
-    # reference endpoint takes up to 10 reference images and
-    # 5 reference videos and no reference audio (the endpoint
-    # schema carries no voice input).
-    "kling4_flash": (10, 5, 0),
+    # Kling 4.0's UnificAlly route (2026-11-27): reference
+    # mode takes up to 10 images; its video-input modes bill
+    # per source second (a transform product), so no
+    # reference video or audio is sold on this lane. The
+    # VidLab route's 1 image / 1 video surface is displaced.
+    "kling4": (10, 0, 0),
+    # Kling 4.0 Flash's UnificAlly route (2026-11-27):
+    # reference mode takes up to 10 images; like the 4.0
+    # lane, no reference video is sold (its video-input
+    # modes bill per source second). The Kie route's
+    # 10 image / 5 video surface is displaced.
+    "kling4_flash": (10, 0, 0),
     "kling3_omni": (10, 5, 5),
     # VidLab lanes (2026-11-23), from each model's published
     # input caps on the route.
@@ -7473,6 +7590,21 @@ MODEL_REF_CAPS = {
     # TEXT_IMAGE_ONLY_MODELS below refuses them first).
     "grok15": (7, 0, 0),
     "grok15_lite": (0, 0, 0),
+    # UnificAlly catalog wiring (2026-11-27): reference
+    # caps from each model's published schema. The
+    # frame-only and text lanes take no references.
+    "kling21": (0, 0, 0),
+    "kling21_master": (0, 0, 0),
+    "kling25_turbo": (0, 0, 0),
+    "kling3_turbo": (0, 0, 0),
+    "seedance10": (0, 0, 0),
+    "seedance10_pro": (0, 0, 0),
+    "hailuo20": (0, 0, 0),
+    "h3_lite": (5, 1, 0),
+    "h3_fast": (5, 1, 1),
+    "h3_max_turbo": (0, 0, 0),
+    "happyhorse10": (9, 0, 0),
+    "veo3_lite_relaxed": (3, 0, 0),
     # Grok Imagine spicy (2026-11-27): the text-only lane
     # takes no references at all (TEXT_ONLY_MODELS above).
     "grok_unc": (0, 0, 0),
@@ -7705,10 +7837,12 @@ RESOLUTION_ORDER = ("480p", "720p", "1080p", "2K", "4K")
 # size distinction the job never transmits.
 SIZE_PICKER_SINGLE = {
     "kling3": ("4K",),
-    "omni12": ("720p",),
     "happyhorse": ("720p",),
-    "seedance2_mini": ("480p",),
 }
+# Gemini Omni 1.2 and Seedance 2.0 Mini left this table
+# 2026-11-27: their UnificAlly submits send the resolution
+# on every job (the Kie submits that carried none are the
+# spares now), so every priced tier is a real choice.
 # Kling 4.0 and Seedance 2.0 Fast left this table 2026-11-23:
 # their VidLab submit sends the resolution on every job, so
 # every priced tier is a real choice again.
@@ -7799,6 +7933,12 @@ TEXT_IMAGE_ONLY_MODELS = (
     "vidu_q3_pro", "vidu_q3_turbo", "skyreels_v4_fast",
     "skyreels_v4_std", "seedance15pro", "seedance10pro_fast",
     "pixverse_v6_max",
+    # UnificAlly catalog wiring (2026-11-27): lanes whose
+    # schemas publish no reference inputs (a prompt, a
+    # start image, or frames only).
+    "kling21_master", "kling25_turbo", "kling3_turbo",
+    "seedance10", "hailuo20", "h3_max_turbo",
+    "veo3_lite_relaxed",
 )
 # Models that take a prompt and nothing else on their wired
 # route: any image, video or audio input is refused at
@@ -7819,10 +7959,10 @@ IMAGE_REFS_ONLY_MODELS = (
     "grok", "grok15", "grok15_unc", "happyhorse",
     # VidLab lanes (2026-11-23): Kling O1 and MiniMax H3 Max
     # take reference images only; Vidu Q4 takes start images
-    # only; Seedance 2.0 Fast's VidLab route takes start, end
-    # and reference images but no reference video or audio
-    # (its Kie route took them; the reroute narrows the lane).
-    "kling_o1", "minimax_h3_max", "vidu_q4", "seedance2_fast",
+    # only. Seedance 2.0 Fast left this set 2026-11-27: its
+    # UnificAlly route takes the full omni-reference set
+    # (reference videos and audios included).
+    "kling_o1", "minimax_h3_max", "vidu_q4",
 )
 # Clone adaptation (Jack's correction, 2026-11-26): a Clone
 # section clone runs on ANY model the user picks, the house
@@ -11987,11 +12127,13 @@ document.getElementById('go').onclick = async () => {{
         provider = lane["provider"]
         endpoint = lane["endpoint"]
         size = job.get("image_size") or ""
-        if reference_images and provider != "vidlab":
-            # Only the VidLab route sends reference pictures
-            # today; a lane on another route that somehow
-            # carries them fails clean here (the caller refunds)
-            # instead of silently dropping the pictures.
+        if reference_images and provider != "vidlab" and not (
+                provider == "unifically" and lane.get("references")):
+            # Only routes whose branch sends reference pictures
+            # may carry them (VidLab, and UnificAlly lanes that
+            # declare references); a lane on another route that
+            # somehow carries them fails clean here (the caller
+            # refunds) instead of silently dropping the pictures.
             raise RuntimeError(
                 "this image route takes no reference pictures")
         if provider == "fal":
@@ -12166,23 +12308,55 @@ document.getElementById('go').onclick = async () => {{
                 raise RuntimeError("image submit returned no task id")
             job["provider_task_id"] = task_id
         elif provider == "unifically":
-            # UnificAlly image lane (2026-11-27): the unified
-            # tasks API, the same envelope as the Grok 1.5
-            # spicy video lane. This lane is Grok Imagine
-            # Image on the maker's less-restrictive channel:
-            # the supplier's own parameter table for the model
-            # documents enable_nsfw, and the lane sends it on
-            # every job, with the pre-generation nsfw_check
-            # off (its documented default). The size key
-            # carries only the shape: the channel takes no
-            # resolution choice and the price is flat per
-            # image. PAYLOAD-UNVERIFIED like the other shelf
-            # branches until a funded job proves it.
+            # UnificAlly image lanes (2026-11-27, generalized
+            # in the catalog pass the same day): the unified
+            # tasks API, the same envelope as the video lanes.
+            # The lane's ua_style picks the documented input
+            # shape:
+            #   (default) Grok Imagine shape: prompt, aspect,
+            #     enable_nsfw from the lane's uncensored flag
+            #     (on for the spicy lanes, off for the standard
+            #     one), nsfw_check off (its documented
+            #     default); the channel takes no resolution
+            #     choice, so the size key carries only shape.
+            #   grok_quality: the 2.0 standard channel at
+            #     medium quality, resolution from the tier.
+            #   mp:     FLUX megapixel tiers as the resolution,
+            #     image_urls when the lane declares references
+            #     (priced on the with-reference cells).
+            #   kling_image: Kling image tiers as the
+            #     resolution, image_urls on reference lanes,
+            #     the lane's ua_mode where one is wired
+            #     (Kling 4.0 Image standard mode).
+            #   sized:  the tier verbatim as the resolution
+            #     (the Seedream routes' 1K/2K/4K tiers).
+            #   flat:   prompt and aspect only (plus
+            #     image_urls on reference lanes).
+            # PAYLOAD-UNVERIFIED like the other shelf branches
+            # until a funded job proves them.
             _tier, _, aspect = size.partition("-")
+            ua_style = lane.get("ua_style") or "grok"
             image_input = {"prompt": prompt,
-                           "aspect_ratio": aspect or "1:1",
-                           "enable_nsfw": True,
-                           "nsfw_check": False}
+                           "aspect_ratio": aspect or "1:1"}
+            if ua_style == "grok":
+                image_input["enable_nsfw"] = bool(
+                    lane.get("uncensored"))
+                image_input["nsfw_check"] = False
+            elif ua_style == "grok_quality":
+                image_input["quality"] = "medium"
+                image_input["resolution"] = _tier.lower()
+                image_input["enable_nsfw"] = False
+                image_input["nsfw_check"] = False
+            elif ua_style in ("mp", "kling_image"):
+                image_input["resolution"] = _tier.lower()
+                if lane.get("ua_mode"):
+                    image_input["mode"] = lane["ua_mode"]
+            elif ua_style == "sized":
+                image_input["resolution"] = _tier
+            if lane.get("references") and reference_images:
+                image_input["image_urls"] = [
+                    _beatapi_media_url(ref, "edit-source")
+                    for ref in reference_images]
             data = _submit_post(
                 job, f"{UNIFICALLY_BASE}/v1/tasks",
                 _api_headers("unifically"),
@@ -13010,6 +13184,18 @@ document.getElementById('go').onclick = async () => {{
                 status_code=422,
                 detail="this model takes no end frame",
             )
+        if model in ("kling4_flash", "kling21_master",
+                     "kling3_turbo") and end_image:
+            # These UnificAlly frame surfaces take a start
+            # frame only (2026-11-27 catalog wiring: the
+            # Flash frame mode rejects an end frame, the 2.1
+            # Master publishes none, and the 3.0 Turbo takes
+            # a start frame alone); refused rather than
+            # silently dropped, like Lite above.
+            raise HTTPException(
+                status_code=422,
+                detail="this model takes no end frame",
+            )
         if model == "grok15_unc" and end_image:
             # The UnificAlly fast build's schema has no end
             # frame field (end frames exist only on the
@@ -13617,6 +13803,20 @@ document.getElementById('go').onclick = async () => {{
         if provider == "eachlabs":
             return {"X-API-Key": key, "Authorization": f"Bearer {key}",
                     "Content-Type": "application/json"}
+        if provider == "unifically":
+            # UnificAlly sits behind Cloudflare, which
+            # answers the default python-requests user-agent
+            # with a 403 (error 1010, a UA-signature ban;
+            # verified 2026-11-27 while the key was being
+            # stored and read back). Every UnificAlly call,
+            # submits and polls alike, sends a browser
+            # user-agent.
+            return {"Authorization": f"Bearer {key}",
+                    "Content-Type": "application/json",
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; "
+                    "Win64; x64) AppleWebKit/537.36 (KHTML, like "
+                    "Gecko) Chrome/131.0.0.0 Safari/537.36",
+                    "Accept": "application/json"}
         return {"Authorization": f"Bearer {key}",
                 "Content-Type": "application/json"}
 
@@ -14723,49 +14923,278 @@ document.getElementById('go').onclick = async () => {{
 
     # -- UnificAlly ---------------------------------------------------------
 
+    # The UnificAlly route's per-model submit shape
+    # (2026-11-27 catalog pass): the supplier model id each
+    # platform model posts to, plus its input style. Styles
+    # follow the supplier's own published schemas:
+    #   grok:        the Grok 1.5 spicy build (preset on every
+    #                job; see the builder).
+    #   grok_lite:   the Lite build: prompt, duration,
+    #                resolution, one start frame; no preset,
+    #                no reference field.
+    #   seedance:    the Seedance 2.x family: generate_audio,
+    #                first/last frames, omni references.
+    #   seedance1:   the Seedance 1.0 family: frames only, no
+    #                audio switch, no references.
+    #   seedance1_pro: Seedance 1.0 Pro: at least one frame
+    #                required (validator-enforced).
+    #   kling_mode:  the Kling mode family (2.1, 2.1 Master,
+    #                2.5 Turbo, 2.6): mode std/pro from the
+    #                tier, start/end frames.
+    #   kling_turbo: Kling 3.0 Turbo: mode from the tier, a
+    #                start frame only, aspect sent.
+    #   kling_omni:  Kling 4.0 / O1: elements reference mode
+    #                or start_end_frame mode, mode from the
+    #                tier; native_audio on the 4.0 lanes.
+    #   omni:        Gemini Omni Flash: start/end frames and
+    #                reference_image_urls.
+    #   hailuo:      the MiniMax shared shape: 720p tier
+    #                posts as 768p, frames and references.
+    #   hailuo_frames: H3 Max Turbo: frames only.
+    #   wan:         Wan shape: mode t2v/i2v/r2v, ratio,
+    #                resolution 720P/1080P, frames and
+    #                reference arrays (per-model flags).
+    #   veo:         Veo 3.1: frames or reference_image_urls
+    #                (never both; the platform mode keeps
+    #                them exclusive).
+    UNIFICALLY_VIDEO_MODELS = {
+        "grok15_unc": ("xai/grok-imagine-1.5-fast-video", "grok"),
+        "grok15_lite": ("xai/grok-imagine-1.5-lite-video",
+                        "grok_lite"),
+        "seedance25_flash": ("bytedance/seedance-2.5-flash",
+                             "seedance"),
+        "seedance2": ("bytedance/seedance-2.0-pro", "seedance"),
+        "seedance2_fast": ("bytedance/seedance-2.0-fast",
+                           "seedance"),
+        "seedance2_mini": ("bytedance/seedance-2.0-mini",
+                           "seedance"),
+        "seedance10pro_fast": ("bytedance/seedance-1.0-pro-fast",
+                               "seedance1"),
+        "seedance10": ("bytedance/seedance-1.0", "seedance1"),
+        "seedance10_pro": ("bytedance/seedance-1.0-pro",
+                           "seedance1_pro"),
+        "kling21": ("kuaishou/kling-2.1-video", "kling_mode"),
+        "kling21_master": ("kuaishou/kling-2.1-master-video",
+                           "kling_mode"),
+        "kling25_turbo": ("kuaishou/kling-2.5-turbo-video",
+                          "kling_mode"),
+        "kling26_std": ("kuaishou/kling-2.6-video", "kling_mode"),
+        "kling3_turbo": ("kuaishou/kling-3.0-turbo-video",
+                         "kling_turbo"),
+        "kling4": ("kuaishou/kling-4.0-video", "kling_omni"),
+        "kling4_flash": ("kuaishou/kling-4.0-flash-video",
+                         "kling_omni"),
+        "kling_o1": ("kuaishou/kling-o1-video", "kling_omni"),
+        "omni12": ("google/gemini-omni-flash-1.2-video", "omni"),
+        "hailuo23_fast": ("hailuo/minimax-2.3-fast", "hailuo"),
+        "minimax_h3_max": ("hailuo/minimax-h3-max", "hailuo"),
+        "hailuo20": ("hailuo/minimax-2.0", "hailuo"),
+        "h3_lite": ("hailuo/minimax-h3-lite", "hailuo"),
+        "h3_fast": ("hailuo/minimax-h3-fast", "hailuo"),
+        "h3_max_turbo": ("hailuo/minimax-h3-max-turbo",
+                         "hailuo_frames"),
+        "wan27": ("alibaba/wan-2.7-video", "wan"),
+        "happyhorse10": ("alibaba/happyhorse-1.0-video", "wan"),
+        "veo3": ("google/veo-3.1-quality", "veo"),
+        "veo3_lite_relaxed": ("google/veo-3.1-lite-relaxed",
+                              "veo"),
+    }
+
     def submit_unifically_job(job: dict, body: dict, params: dict,
                               prompt: str):
         """UnificAlly unified tasks API: POST /v1/tasks {model,
         input} returns the task id at once; poll
-        GET /v1/tasks/{id}. This lane is Grok Imagine 1.5's
-        spicy preset on UnificAlly's grok.com build
-        (xai/grok-imagine-1.5-fast-video): the preset rides in
-        the input as video_preset="spicy" on every job, text,
-        start-frame and reference alike (the supplier's own
-        API reference documents the preset with no image-input
-        downgrade, and describes spicy as "Extremely
-        spicy/NSFW"). The schema's nsfw_check stays off, its
-        documented default. Payload details PAYLOAD-UNVERIFIED
-        (no funded pass yet)."""
-        inp = {"prompt": prompt,
-               "duration": params["duration"],
-               "resolution": params["resolution"],
-               "video_preset": "spicy",
-               "nsfw_check": False}
-        if params["mode"] == "image":
-            # The start frame governs the shape on this build;
-            # the aspect ratio is a text/reference control, so
-            # it is not sent on a start-frame job.
+        GET /v1/tasks/{id} (mirror_unifically_status is fully
+        generic). One builder per documented input style (the
+        map above). Payload details PAYLOAD-UNVERIFIED (no
+        funded pass yet)."""
+        model = job["model"]
+        slug, style = UNIFICALLY_VIDEO_MODELS[model]
+        mode = params["mode"]
+        resolution = params["resolution"]
+
+        def _m(value, kind):
             try:
-                inp["start_image_url"] = _beatapi_media_url(
-                    params["start_image"], "first-frame")
+                return _beatapi_media_url(value, kind)
             except Exception as exc:
                 _submit_failed(job, f"media upload failed: {exc}")
-        else:
-            inp["aspect_ratio"] = params["aspect_ratio"]
-            if params["mode"] == "reference" and \
+
+        def _frames(names=("start_image_url", "end_image_url")):
+            out = {}
+            if params.get("start_image"):
+                out[names[0]] = _m(params["start_image"],
+                                   "first-frame")
+            if params.get("end_image"):
+                out[names[1]] = _m(params["end_image"],
+                                   "last-frame")
+            return out
+
+        def _refs(key="image_urls"):
+            return [_m(u, "reference-image")
+                    for u in params["reference_image_urls"]]
+
+        kling_mode = {"720p": "std", "1080p": "pro",
+                      "4K": "4k"}[resolution]
+        if style == "grok":
+            # Grok Imagine 1.5's spicy preset on UnificAlly's
+            # grok.com build: the preset rides in the input as
+            # video_preset="spicy" on every job, text,
+            # start-frame and reference alike (the supplier's
+            # own API reference documents the preset with no
+            # image-input downgrade, and describes spicy as
+            # "Extremely spicy/NSFW"). The schema's nsfw_check
+            # stays off, its documented default. This branch
+            # is the original 2026-11-27 wiring, unchanged.
+            inp = {"prompt": prompt,
+                   "duration": params["duration"],
+                   "resolution": resolution,
+                   "video_preset": "spicy",
+                   "nsfw_check": False}
+            if mode == "image":
+                # The start frame governs the shape on this
+                # build; the aspect ratio is a text/reference
+                # control, so it is not sent on a start-frame
+                # job.
+                inp["start_image_url"] = _m(params["start_image"],
+                                            "first-frame")
+            else:
+                inp["aspect_ratio"] = params["aspect_ratio"]
+                if mode == "reference" and \
+                        params["reference_image_urls"]:
+                    inp["image_urls"] = _refs()
+        elif style == "grok_lite":
+            inp = {"prompt": prompt,
+                   "duration": params["duration"],
+                   "resolution": resolution,
+                   "nsfw_check": False}
+            if mode == "image":
+                inp["start_image_url"] = _m(params["start_image"],
+                                            "first-frame")
+            else:
+                inp["aspect_ratio"] = params["aspect_ratio"]
+        elif style in ("seedance", "seedance1", "seedance1_pro"):
+            inp = {"prompt": prompt,
+                   "duration": params["duration"],
+                   "resolution": resolution,
+                   "aspect_ratio": params["aspect_ratio"]}
+            if style == "seedance":
+                inp["generate_audio"] = True
+            if mode == "image":
+                inp.update(_frames(("first_frame_url",
+                                    "last_frame_url")))
+            elif mode == "reference" and style == "seedance":
+                if params["reference_image_urls"]:
+                    inp["image_urls"] = _refs()
+                if params["reference_video_urls"]:
+                    inp["video_urls"] = [
+                        _m(u, "reference-video")
+                        for u in params["reference_video_urls"]]
+                if params["reference_audio_urls"]:
+                    inp["audio_urls"] = [
+                        _m(u, "reference-audio")
+                        for u in params["reference_audio_urls"]]
+        elif style == "kling_mode":
+            inp = {"prompt": prompt,
+                   "duration": params["duration"],
+                   "mode": "pro" if model == "kling21_master"
+                   else kling_mode,
+                   "nsfw_check": False}
+            inp.update(_frames())
+            if model == "kling21_master":
+                inp.pop("end_image_url", None)
+        elif style == "kling_turbo":
+            inp = {"prompt": prompt,
+                   "duration": params["duration"],
+                   "mode": kling_mode,
+                   "aspect_ratio": params["aspect_ratio"],
+                   "nsfw_check": False}
+            if params.get("start_image"):
+                inp["start_image_url"] = _m(params["start_image"],
+                                            "first-frame")
+        elif style == "kling_omni":
+            inp = {"prompt": prompt,
+                   "duration": params["duration"],
+                   "mode": kling_mode,
+                   "aspect_ratio": params["aspect_ratio"],
+                   "nsfw_check": False}
+            if model in ("kling4", "kling4_flash"):
+                inp["native_audio"] = True
+            if mode == "reference" and \
                     params["reference_image_urls"]:
-                try:
-                    inp["image_urls"] = [
-                        _beatapi_media_url(u, "reference-image")
-                        for u in params["reference_image_urls"]]
-                except Exception as exc:
-                    _submit_failed(job, f"media upload failed: {exc}")
+                inp["video_mode"] = "elements"
+                inp["image_urls"] = _refs()
+            elif mode == "image":
+                inp["video_mode"] = "start_end_frame"
+                inp.update(_frames())
+                if model == "kling4_flash":
+                    inp.pop("end_image_url", None)
+                if model == "kling4":
+                    frames = [inp[k] for k in
+                              ("start_image_url", "end_image_url")
+                              if k in inp]
+                    if frames:
+                        inp["keyframe_urls"] = frames
+        elif style == "omni":
+            inp = {"prompt": prompt,
+                   "duration": params["duration"],
+                   "resolution": resolution,
+                   "aspect_ratio": params["aspect_ratio"]}
+            inp.update(_frames())
+            if params["reference_image_urls"]:
+                inp["reference_image_urls"] = _refs()
+        elif style in ("hailuo", "hailuo_frames"):
+            inp = {"prompt": prompt,
+                   "duration": params["duration"],
+                   "resolution": "768p" if resolution == "720p"
+                   else resolution}
+            inp.update(_frames())
+            if style == "hailuo":
+                if params["reference_image_urls"]:
+                    inp["image_urls"] = _refs()
+                if params["reference_video_urls"]:
+                    inp["video_urls"] = [
+                        _m(u, "reference-video")
+                        for u in params["reference_video_urls"]]
+                if params["reference_audio_urls"]:
+                    inp["audio_urls"] = [
+                        _m(u, "reference-audio")
+                        for u in params["reference_audio_urls"]]
+        elif style == "wan":
+            inp = {"prompt": prompt,
+                   "duration": params["duration"],
+                   "mode": {"text": "t2v", "image": "i2v",
+                            "reference": "r2v"}[mode],
+                   "ratio": params["aspect_ratio"],
+                   "resolution": resolution.upper()}
+            if params.get("start_image"):
+                inp["first_frame_url"] = _m(params["start_image"],
+                                             "first-frame")
+            if params.get("end_image") and model == "wan27":
+                inp["last_frame_url"] = _m(params["end_image"],
+                                            "last-frame")
+            if params["reference_image_urls"]:
+                inp["reference_image_urls"] = _refs()
+            if params["reference_video_urls"] and \
+                    model == "wan27":
+                inp["reference_video_urls"] = [
+                    _m(u, "reference-video")
+                    for u in params["reference_video_urls"]]
+        elif style == "veo":
+            inp = {"prompt": prompt,
+                   "duration": params["duration"],
+                   "resolution": resolution,
+                   "aspect_ratio": params["aspect_ratio"],
+                   "nsfw_check": False}
+            inp.update(_frames())
+            if params["reference_image_urls"] and \
+                    not params.get("start_image"):
+                inp["reference_image_urls"] = _refs()
+        else:  # pragma: no cover - the map is closed above
+            _submit_failed(job, f"no UnificAlly style for {model}")
         data = _submit_post(
             job, f"{UNIFICALLY_BASE}/v1/tasks",
             _api_headers("unifically"),
-            {"model": "xai/grok-imagine-1.5-fast-video",
-             "input": inp})
+            {"model": slug, "input": inp})
         task_id = data.get("task_id") or data.get("id") or \
             (data.get("data") or {}).get("task_id") or \
             (data.get("data") or {}).get("id")

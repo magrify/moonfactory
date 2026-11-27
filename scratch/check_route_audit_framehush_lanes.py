@@ -80,13 +80,19 @@ check(shelf["ltx25"] == {"720p": 12.0, "1080p": 17.0, "4K": 34.0},
       "ltx25 shelf frozen on the fal-built rates")
 check('"ltx25": [("lightricks/ltx-2.5/text-to-video"' not in APP,
       "rate refresh no longer reads fal's LTX-2.5 page")
-check('"seedance2_fast": "spicyapi",' in APP,
-      "seedance2_fast routes to spicyapi")
+# Superseded 2026-11-27: Seedance 2.0 Fast moved on to
+# UnificAlly in the catalog audit (plain rates under
+# SpicyAPI's); the SpicyAPI route pinned below stays wired
+# as the spare and its rates are the displaced record.
+check('"seedance2_fast": "unifically",' in APP,
+      "seedance2_fast routes to unifically")
 check('"seedance2_fast": {\n            "text": '
       '"bytedance/seedance-2.0-fast/text-to-video",' in APP,
       "seedance2_fast carries per-mode SpicyAPI endpoints")
-check(rates["seedance2_fast"] == {"480p": 4.5, "720p": 9.68},
-      "seedance2_fast true rates are SpicyAPI's catalog prices")
+check(rates["seedance2_fast"] == {"480p": 4.44, "720p": 9.18},
+      "seedance2_fast true rates are UnificAlly's plain prices")
+check(disp["seedance2_fast_spicyapi"] == {"480p": 4.5, "720p": 9.68},
+      "seedance2_fast SpicyAPI rates recorded displaced")
 check(disp["seedance2_fast_vidlab"] == {"480p": 5.0, "720p": 11.0},
       "seedance2_fast VidLab rates recorded displaced")
 check(shelf["seedance2_fast"] == {"480p": 5.0, "720p": 11.0},

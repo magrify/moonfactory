@@ -318,12 +318,16 @@ check(all(m in app.MODEL_LABELS for m in app.PER_SECOND_MODELS),
       "a per-second model is missing from the picker catalog data")
 
 adapt = app.editclone_clone_adaptation
-for model in ("seedance2_mini", "seedance", "kling4", "magi2",
-              "seedance25_flash", "wan3"):
+# Kling 4.0 left this list 2026-11-27: its UnificAlly
+# route takes no reference video, so it clones from frames.
+# Seedance 2.0 Fast joined it the same day: its UnificAlly
+# route takes the full omni reference set.
+for model in ("seedance2_mini", "seedance", "magi2",
+              "seedance25_flash", "wan3", "seedance2_fast"):
     check(adapt(model) == "both",
           f"{model} should clone with both references, got {adapt(model)}")
 for model in ("veo3", "veo3_fast", "grok", "grok15",
-              "seedance2_fast", "vidu_q4", "kling_o1"):
+              "vidu_q4", "kling_o1", "kling4"):
     check(adapt(model) == "frames",
           f"{model} should clone from frames, got {adapt(model)}")
 for model in ("veo3_lite", "grok15_lite", "kling3", "wan22_unc",
@@ -347,8 +351,10 @@ check(all(adapt(m) in branches for m in app.PER_SECOND_MODELS),
 caps = app.ref_caps_for("seedance2_mini")
 check(caps[0] >= 1 and caps[1] >= 1,
       "the default lane no longer takes a reference image and video")
-check(app.provider_for("seedance2_mini", "480p") == "kie",
-      "seedance2_mini no longer routes to Kie")
+check(app.provider_for("seedance2_mini", "480p") == "unifically",
+      "seedance2_mini no longer routes to UnificAlly "
+      "(it moved off Kie in the 2026-11-27 catalog audit; "
+      "the Kie submit below stays wired as the spare)")
 kie = func_src("submit_kie_job")
 check("video_urls" in kie and "image_urls" in kie,
       "the Kie submit no longer forwards reference videos and images")

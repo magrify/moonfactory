@@ -263,7 +263,11 @@ PROVIDER_RATES_CENTS_PER_SECOND = {
     # submit stays wired as a spare. fal's with-audio route
     # ($0.40/s, $0.60/s at 4K) is the fallback below and now
     # covers every tier alike, 4K included.
-    "veo3": {"720p": 31.25, "1080p": 31.875, "4K": 46.25},
+    # Veo 3.1 (Quality) via UnificAlly (2026-11-27 route
+    # audit): flat per-clip costs in FLAT_CLIP_COST_CENTS
+    # below; this row is the worst-case per-second ceiling
+    # (the flat cost at the 4s shortest step).
+    "veo3": {"720p": 30.0, "1080p": 30.625, "4K": 45.0},
     # Veo 3.1 Fast via Kie (rerouted 2026-11-25, frontier
     # coverage pass): flat per clip with native audio — 60
     # credits ($0.30) per 720p video, 65 credits ($0.325) per
@@ -327,7 +331,11 @@ PROVIDER_RATES_CENTS_PER_SECOND = {
     # / 15.979 in the policy table), so the lane stays an
     # at-cost residual: the no-profit case, reported to the
     # owner 2026-11-27.
-    "kling4": {"720p": 13.5, "1080p": 20.0},
+    # Kling 4.0 via UnificAlly (2026-11-27 route audit):
+    # plain generation rates; the with-source-video
+    # transform rates are a different product and are not
+    # the basis. Displaced VidLab rates in DISPLACED below.
+    "kling4": {"720p": 12.6, "1080p": 18.9},
     # Kling 4.0 Flash via Kie (wired 2026-11-27, Kling route
     # hunt): Kie's catalog prices both Flash endpoints at a
     # flat $0.085/s at 720p, the lane's only tier (Kie's
@@ -341,7 +349,9 @@ PROVIDER_RATES_CENTS_PER_SECOND = {
     # Higgsfield sells Flash at $0.1475/s (the policy figure
     # below), so the lane prices at the standard x1.25
     # minimum and undercuts with the owner's margin intact.
-    "kling4_flash": {"720p": 8.5},
+    # Kling 4.0 Flash via UnificAlly (2026-11-27): plain
+    # 720p rate (the lane's only tier).
+    "kling4_flash": {"720p": 7.56},
     # MAGI-2 by Sand.ai via FrameHush (rerouted 2026-11-26,
     # route rule: the cheapest verified route is primary):
     # FrameHush's catalog carries the model as magi-2-1080P at
@@ -400,8 +410,13 @@ PROVIDER_RATES_CENTS_PER_SECOND = {
     # seedance-2 page prices the 4K tier at $6.4152 per 8-second
     # clip with video input ($5.225889 without), so the
     # with-input basis carries 80.19c/s.
-    "seedance2": {"480p": 7.725, "720p": 15.593, "1080p": 38.842,
-                  "4K": 80.19},
+    # Seedance 2.0 (Pro): 480p stays on BeatAPI; 720p and
+    # up moved to UnificAlly plain rates (2026-11-27 route
+    # audit; the per-resolution split lives in app.py's
+    # MODEL_PROVIDER_OVERRIDES). Displaced BeatAPI tiers
+    # in DISPLACED below.
+    "seedance2": {"480p": 7.725, "720p": 12.9, "1080p": 31.0,
+                  "4K": 74.1},
     # Seedance 2.0 Fast via Kie (follow-up pass, 2026-11-16):
     # from $0.034/s, carried flat (the from-price publishes no
     # resolution split; pending console confirmation). BeatAPI's
@@ -426,7 +441,10 @@ PROVIDER_RATES_CENTS_PER_SECOND = {
     # basis these prices were read on. The customer shelf
     # stays frozen on the VidLab-built rates
     # (SHELF_PROVIDER_RATES below).
-    "seedance2_fast": {"480p": 4.5, "720p": 9.68},
+    # Seedance 2.0 Fast via UnificAlly (2026-11-27 route
+    # audit): plain rates. Displaced SpicyAPI rates in
+    # DISPLACED below.
+    "seedance2_fast": {"480p": 4.44, "720p": 9.18},
     # Seedance 2.0 Mini via Kie (follow-up pass, 2026-11-16):
     # from $0.012/s, carried flat on the same basis. Silent model
     # on every route. BeatAPI's with-input rates are in
@@ -436,7 +454,10 @@ PROVIDER_RATES_CENTS_PER_SECOND = {
     # with-video / $0.019 no-video; 720p $0.025 with-video /
     # $0.041 no-video. Seeded at the no-video rates, same basis
     # and same reference-mode flag as Fast above.
-    "seedance2_mini": {"480p": 1.9, "720p": 4.1},
+    # Seedance 2.0 Mini via UnificAlly (2026-11-27 route
+    # audit): plain rates. Displaced Kie rates in
+    # DISPLACED below.
+    "seedance2_mini": {"480p": 1.8, "720p": 3.8},
     # Veo 3.1 Lite via Kie (rerouted 2026-11-25, Jack's
     # no-expiry wins): Kie bills the model FLAT PER CLIP, not
     # per second — 30 credits ($0.15) per 720p video and 35
@@ -473,7 +494,9 @@ PROVIDER_RATES_CENTS_PER_SECOND = {
     # 1080P is $0.05/s. The lane sells 720p/1080p, so it is
     # seeded at those rates (Kie stays cheapest: BeatAPI's
     # displaced rates are 4.9 / 7.28).
-    "omni12": {"720p": 4.5, "1080p": 5.0},
+    # Gemini Omni 1.2 Flash via UnificAlly (2026-11-27
+    # route audit). Displaced Kie rates in DISPLACED.
+    "omni12": {"720p": 4.28, "1080p": 4.75},
     # Gemini Omni 1.1 Flash via BeatAPI: $0.48 / $0.72 per
     # 8-second clip.
     "omni11": {"720p": 6.0, "1080p": 9.0},
@@ -529,7 +552,11 @@ PROVIDER_RATES_CENTS_PER_SECOND = {
     # Seedance 2.5 Uncensored 4K tier below). Text and image
     # modes only, 1-15 s, native synchronized audio incl.
     # lip-synced dialogue.
-    "grok15_lite": {"480p": 2.0, "720p": 3.0},
+    # Grok Imagine Video 1.5 Lite via UnificAlly
+    # (2026-11-27 route audit): adds the 1080p tier the
+    # fal route never sold. Displaced fal rates in
+    # DISPLACED below.
+    "grok15_lite": {"480p": 1.0, "720p": 1.5, "1080p": 7.0},
     # Luma Ray 3.2 via fal is priced per clip ($0.50 / $1.00 /
     # $2.00 at 5 s, double at 10 s): a flat per-second rate at
     # every duration, carried as published.
@@ -759,7 +786,19 @@ PROVIDER_RATES_CENTS_PER_SECOND = {
     # $0.185/s at 720p. This UNPAUSES the lane: it was wired
     # via WaveSpeed with no published per-second rate (see the
     # closing note this block replaced); VidLab publishes one.
-    "seedance25_flash": {"480p": 8.5, "720p": 18.5},
+    # Seedance 2.5 Flash (UnificAlly, from the 2026-11-27 route
+    # check): UnificAlly's published Flash rates are $0.0416/s
+    # (480p) and $0.0896/s (720p) on its model page, under
+    # VidLab's 8.5/18.5 at both tiers, so the text and reference
+    # modes ride UnificAlly; the image mode stays on VidLab
+    # (MODEL_PROVIDER_MODE_OVERRIDES in app.py), because
+    # UnificAlly's Flash schema requires BOTH a first and a
+    # last frame in frame mode while the lane's image jobs
+    # carry a start frame with an optional end frame. The old
+    # VidLab rates are preserved in SHELF_PROVIDER_RATES and
+    # DISPLACED_RATES under seedance25_flash_vidlab, so customer
+    # sells stay shelf-frozen while the true cost drops.
+    "seedance25_flash": {"480p": 4.16, "720p": 8.96},
     # PixVerse V6 via VidLab, UNPAUSED the same way: carried
     # at the WITH-AUDIO rates ($0.05/s at 720p, $0.10/s at
     # 1080p; the silent rates are $0.04 / $0.08) because the
@@ -789,21 +828,39 @@ PROVIDER_RATES_CENTS_PER_SECOND = {
     # submit sends generate_audio=true.
     "wan26_flash": {"720p": 5.0, "1080p": 7.0},
     # Wan 2.7 via VidLab: $0.09/s at 720p, $0.14/s at 1080p.
-    "wan27": {"720p": 9.0, "1080p": 14.0},
+    # Wan 2.7 via UnificAlly (2026-11-27 route audit):
+    # 720p ties the displaced VidLab rate, 1080p is
+    # cheaper. Displaced rates in DISPLACED below.
+    "wan27": {"720p": 9.0, "1080p": 13.5},
     # Kling 2.6 Standard via VidLab: flat $0.05/s, one size,
     # carried at the 720p tier.
-    "kling26_std": {"720p": 5.0},
+    # Kling 2.6 Standard via UnificAlly (2026-11-27 route
+    # audit): the std (720p) rate; native audio is a
+    # pro-tier feature there, so the lane stays silent
+    # like the VidLab route. Displaced rates below.
+    "kling26_std": {"720p": 3.78},
     # Kling O1 via VidLab: $0.09/s at 720p, $0.12/s at 1080p.
-    "kling_o1": {"720p": 9.0, "1080p": 12.0},
+    # Kling O1 via UnificAlly (2026-11-27 route audit).
+    # Displaced VidLab rates in DISPLACED below.
+    "kling_o1": {"720p": 7.56, "1080p": 10.08},
     # Hailuo 2.3 Fast via VidLab: $0.04/s at its 768p tier
     # (the platform's 720p tier maps to it in the submit),
     # $0.06/s at 1080p.
-    "hailuo23_fast": {"720p": 4.0, "1080p": 6.0},
+    # Hailuo 2.3 Fast via UnificAlly (2026-11-27 route
+    # audit): the dearest published duration variant at
+    # each tier is the basis (768p 10s at 720p tier).
+    # Displaced VidLab rates in DISPLACED below.
+    "hailuo23_fast": {"720p": 2.88, "1080p": 4.95},
     # MiniMax H3 Max via VidLab (the HOSTED API route; the
     # H3 weights license does not govern hosted API terms):
     # $0.05 / $0.08 / $0.16 per second at 480p / its 768p tier
     # (platform 720p) / 1080p.
-    "minimax_h3_max": {"480p": 5.0, "720p": 8.0, "1080p": 16.0},
+    # MiniMax H3 Max: 480p/720p via UnificAlly (2026-11-27
+    # route audit); 1080p stays on VidLab (UnificAlly's
+    # H3 Max caps at 768p, sold as the 720p tier). The
+    # per-resolution split lives in app.py's
+    # MODEL_PROVIDER_OVERRIDES.
+    "minimax_h3_max": {"480p": 4.5, "720p": 7.2, "1080p": 16.0},
     # Vidu Q3 Pro via VidLab: $0.07 / $0.15 / $0.16 per second
     # at its 540p (platform 480p) / 720p / 1080p tiers.
     "vidu_q3_pro": {"480p": 7.0, "720p": 15.0, "1080p": 16.0},
@@ -821,12 +878,33 @@ PROVIDER_RATES_CENTS_PER_SECOND = {
     # $0.14 per second. This route publishes no audio switch,
     # so the lane is silent-with-voiceover here (LANE_AUDIO).
     "seedance15pro": {"480p": 3.0, "720p": 6.0, "1080p": 14.0},
-    # Seedance 1.0 Pro Fast via VidLab: $0.015 / $0.03 /
-    # $0.06 per second.
-    "seedance10pro_fast": {"480p": 1.5, "720p": 3.0, "1080p": 6.0},
+    # Seedance 1.0 Pro Fast via UnificAlly (2026-11-27
+    # route audit): $0.007 / $0.015 / $0.037 per second.
+    # Displaced VidLab rates in DISPLACED below.
+    "seedance10pro_fast": {"480p": 0.7, "720p": 1.5, "1080p": 3.7},
     # Vidu Q2 still deliberately carries NO rate (see its note
     # above the VidLab block): no published per-second price
     # anywhere, VidLab included (it lists no Vidu Q2).
+    # UnificAlly catalog wiring (2026-11-27): lanes the
+    # platform did not carry, each on its cheapest (and
+    # only) route. Kling mode tiers: std bills as 720p,
+    # pro as 1080p.
+    "kling21": {"720p": 5.04, "1080p": 8.82},
+    "kling21_master": {"1080p": 25.2},
+    "kling25_turbo": {"720p": 3.78, "1080p": 6.3},
+    "kling3_turbo": {"720p": 10.08, "1080p": 12.6},
+    "seedance10": {"480p": 1.5, "720p": 3.0},
+    "seedance10_pro": {"480p": 2.2, "720p": 3.7, "1080p": 9.0},
+    "hailuo20": {"720p": 5.04, "1080p": 7.35},
+    "h3_lite": {"480p": 2.25, "720p": 3.6},
+    "h3_fast": {"480p": 4.14, "720p": 7.2},
+    "h3_max_turbo": {"480p": 2.25, "720p": 3.6},
+    "happyhorse10": {"720p": 11.9, "1080p": 20.4},
+    # Veo 3.1 Lite Relaxed via UnificAlly: flat per-clip
+    # costs in FLAT_CLIP_COST_CENTS below; this row is
+    # the worst-case per-second ceiling (flat at 4s).
+    "veo3_lite_relaxed": {"720p": 1.875, "1080p": 2.5,
+                          "4K": 16.875},
 }
 
 # Fallback supplier data, kept for the record and never shown to
@@ -915,6 +993,11 @@ DISPLACED_RATES_CENTS_PER_SECOND = {
     # VidLab rates displaced by the same audit's Kie move for
     # Vidu Q4 Preview.
     "vidu_q4_vidlab": {"480p": 6.0, "720p": 12.0, "1080p": 13.0},
+    # VidLab rates displaced by the 2026-11-27 UnificAlly move
+    # for Seedance 2.5 Flash (text and reference modes; the
+    # image mode still runs on VidLab under the per-mode
+    # split in app.py).
+    "seedance25_flash_vidlab": {"480p": 8.5, "720p": 18.5},
     "seedance2_mini": {"480p": 3.283, "720p": 7.363},
     "omni12": {"720p": 4.9, "1080p": 7.28},
     "grok": {"480p": 2.5, "720p": 5.0, "1080p": 9.0},
@@ -996,6 +1079,26 @@ DISPLACED_RATES_CENTS_PER_SECOND = {
     # HIGGSFIELD_API_KEY ever lands in the secret store and
     # the lane is pointed back.
     "magi2_higgsfield": {"1080p": 8.0},
+    # UnificAlly route audit (2026-11-27): rates displaced
+    # by the swaps to UnificAlly. The displaced submits
+    # stay wired in app.py as spares where the route has
+    # one (VidLab specs, the fal endpoint, the Kie submit).
+    "seedance10pro_fast_vidlab": {"480p": 1.5, "720p": 3.0,
+                                  "1080p": 6.0},
+    "seedance2_beatapi": {"720p": 15.593, "1080p": 38.842,
+                          "4K": 80.19},
+    "seedance2_fast_spicyapi": {"480p": 4.5, "720p": 9.68},
+    "seedance2_mini_kie": {"480p": 1.9, "720p": 4.1},
+    "hailuo23_fast_vidlab": {"720p": 4.0, "1080p": 6.0},
+    "minimax_h3_max_vidlab": {"480p": 5.0, "720p": 8.0},
+    "omni12_kie": {"720p": 4.5, "1080p": 5.0},
+    "grok15_lite_fal": {"480p": 2.0, "720p": 3.0},
+    "veo3_kie": {"720p": 31.25, "1080p": 31.875, "4K": 46.25},
+    "kling4_vidlab": {"720p": 13.5, "1080p": 20.0},
+    "kling4_flash_kie": {"720p": 8.5},
+    "kling_o1_vidlab": {"720p": 9.0, "1080p": 12.0},
+    "kling26_std_vidlab": {"720p": 5.0},
+    "wan27_vidlab": {"720p": 9.0, "1080p": 14.0},
 }
 
 # Resolutions each per-second model can actually be ordered at.
@@ -1023,7 +1126,7 @@ MODEL_RESOLUTIONS = {
     "grok15": ("480p", "720p", "1080p"),
     # Lite sells only its genuine tiers: its 1080p is upscaled
     # from 720p on every route (see the rate entry above).
-    "grok15_lite": ("480p", "720p"),
+    "grok15_lite": ("480p", "720p", "1080p"),
     "vidu_q3": ("480p", "720p"),
     "runway_gen45": ("720p", "1080p"),
     # Grok Imagine spicy sells only the two tiers Kie's
@@ -1079,6 +1182,19 @@ MODEL_RESOLUTIONS = {
     # MAGI-2 (2026-11-25): 1080p is the model's only
     # resolution on Higgsfield's API.
     "magi2": ("1080p",),
+    # UnificAlly catalog wiring (2026-11-27).
+    "kling21": ("720p", "1080p"),
+    "kling21_master": ("1080p",),
+    "kling25_turbo": ("720p", "1080p"),
+    "kling3_turbo": ("720p", "1080p"),
+    "seedance10": ("480p", "720p"),
+    "seedance10_pro": ("480p", "720p", "1080p"),
+    "hailuo20": ("720p", "1080p"),
+    "h3_lite": ("480p", "720p"),
+    "h3_fast": ("480p", "720p"),
+    "h3_max_turbo": ("480p", "720p"),
+    "happyhorse10": ("720p", "1080p"),
+    "veo3_lite_relaxed": ("720p", "1080p", "4K"),
 }
 PROVIDER_RATE_STALE_SECONDS = 24 * 3600
 
@@ -1107,7 +1223,17 @@ FLAT_CLIP_COST_CENTS = {
     # included (Kie's published Veo 3.1 pricing, read
     # 2026-11-25). One price buys one native-length video;
     # chained lengths price per segment, as for the Lite.
-    "veo3": {"720p": 125.0, "1080p": 127.5, "4K": 185.0},
+    # Veo 3.1 (Quality) via UnificAlly (2026-11-27 route
+    # audit): $1.20 / $1.225 / $1.80 per video, native
+    # audio included. Displaced Kie flat costs were
+    # 125.0 / 127.5 / 185.0 (see DISPLACED veo3_kie for
+    # the per-second ceilings).
+    "veo3": {"720p": 120.0, "1080p": 122.5, "4K": 180.0},
+    # Veo 3.1 Lite Relaxed via UnificAlly (2026-11-27):
+    # the relaxed-queue Lite variant at $0.075 / $0.10 /
+    # $0.675 per video, far under the standard Lite lane.
+    "veo3_lite_relaxed": {"720p": 7.5, "1080p": 10.0,
+                          "4K": 67.5},
     # Veo 3.1 Fast via Kie (2026-11-25): 60 credits ($0.30)
     # per 720p video, 65 credits ($0.325) per 1080p video,
     # 180 credits ($0.90) per 4K video, native audio included
@@ -1123,6 +1249,7 @@ FLAT_CLIP_COST_CENTS = {
 FLAT_CLIP_STEPS = {
     "veo3_lite": (4, 6, 8),
     "veo3": (4, 6, 8),
+    "veo3_lite_relaxed": (4, 6, 8),
     "veo3_fast": (4, 6, 8),
 }
 
@@ -1289,6 +1416,30 @@ SHELF_PROVIDER_RATES_CENTS_PER_SECOND = {
     # Vidu Q4 Preview's shelf was built on VidLab's rates;
     # the lane now runs on Kie at the lower true rates.
     "vidu_q4": {"480p": 6.0, "720p": 12.0, "1080p": 13.0},
+    # Seedance 2.5 Flash's shelf was built on VidLab's rates;
+    # the lane's text and reference modes now run on
+    # UnificAlly at the lower true rates (2026-11-27 route
+    # check), so no customer price moves.
+    "seedance25_flash": {"480p": 8.5, "720p": 18.5},
+    # UnificAlly route audit (2026-11-27): shelves built
+    # on the displaced routes' rates, frozen so no
+    # customer price moves on the swaps. Lanes whose swap
+    # changes only some tiers carry the full old row.
+    "seedance10pro_fast": {"480p": 1.5, "720p": 3.0,
+                           "1080p": 6.0},
+    "seedance2": {"480p": 7.725, "720p": 15.593,
+                  "1080p": 38.842, "4K": 80.19},
+    "seedance2_mini": {"480p": 1.9, "720p": 4.1},
+    "hailuo23_fast": {"720p": 4.0, "1080p": 6.0},
+    "minimax_h3_max": {"480p": 5.0, "720p": 8.0,
+                       "1080p": 16.0},
+    "omni12": {"720p": 4.5, "1080p": 5.0},
+    "grok15_lite": {"480p": 2.0, "720p": 3.0},
+    "kling4": {"720p": 13.5, "1080p": 20.0},
+    "kling4_flash": {"720p": 8.5},
+    "kling_o1": {"720p": 9.0, "1080p": 12.0},
+    "kling26_std": {"720p": 5.0},
+    "wan27": {"720p": 9.0, "1080p": 14.0},
 }
 
 # Built-in lip sync (Jack's product rule, 2026-11-17): every video
@@ -2345,19 +2496,35 @@ IMAGE_LANES = {
         "raw_cents": {"4K": 4.0},
     },
     "seedream50_flash": {
-        "label": "Seedream 5.0 Flash · $", "provider": "vidlab",
-        "endpoint": "seedream-5.0-flash",
-        "raw_cents": {"square": 2.0},
+        # Rerouted to UnificAlly (2026-11-27 catalog audit):
+        # flat $0.0162 at every resolution and its docs
+        # state reference images are not charged, against
+        # VidLab's $0.02 square; re-keyed to its 1K/1.5K/2K
+        # tiers.
+        "label": "Seedream 5.0 Flash · $",
+        "provider": "unifically",
+        "endpoint": "bytedance/seedream-5.0-flash",
+        "ua_style": "sized",
+        "raw_cents": {"1K": 1.62, "1.5K": 1.62, "2K": 1.62},
     },
     "seedream45": {
-        "label": "Seedream 4.5 · $$$", "provider": "vidlab",
-        "endpoint": "seedream-4.5",
-        "raw_cents": {"square": 4.0},
+        # Rerouted to UnificAlly (2026-11-27 catalog audit):
+        # one flat $0.036 at its 2K/4K resolutions against
+        # VidLab's $0.04 square; re-keyed to the real tiers.
+        "label": "Seedream 4.5 · $$", "provider": "unifically",
+        "endpoint": "bytedance/seedream-4.5",
+        "ua_style": "sized",
+        "raw_cents": {"2K": 3.6, "4K": 3.6},
     },
     "seedream40": {
-        "label": "Seedream 4.0 · $$", "provider": "vidlab",
-        "endpoint": "seedream-4.0",
-        "raw_cents": {"square": 2.9},
+        # Rerouted to UnificAlly (2026-11-27 catalog audit):
+        # one flat $0.027 at its 1K/2K/4K resolutions against
+        # VidLab's $0.029 square; the tiers are real choices
+        # on this route, so the lane re-keys to them.
+        "label": "Seedream 4.0 · $$", "provider": "unifically",
+        "endpoint": "bytedance/seedream-4.0",
+        "ua_style": "sized",
+        "raw_cents": {"1K": 2.7, "2K": 2.7, "4K": 2.7},
     },
     "gpt_image2": {
         "label": "GPT Image 2 · $$", "provider": "vidlab",
@@ -2422,10 +2589,16 @@ IMAGE_LANES = {
                       "4K": 51.6},
     },
     "flux3_klein": {
-        "label": "Flux 3 Klein · $", "provider": "vidlab",
-        "endpoint": "flux-3-klein",
-        "raw_cents": {"1K": 1.0, "1.5K": 2.0, "2K": 2.0,
-                      "4K": 4.0},
+        # Rerouted to UnificAlly (2026-11-27 catalog audit):
+        # priced on its published WITH-REFERENCE cells (the
+        # dearest sold mode; text-to-image cells are lower),
+        # re-keyed to the route's megapixel tiers.
+        "label": "Flux 3 Klein · $", "provider": "unifically",
+        "endpoint": "black-forest-labs/flux-3-image-klein",
+        "ua_style": "mp",
+        "references": True,
+        "raw_cents": {"0.6MP": 0.8, "1MP": 1.07, "2MP": 1.07,
+                      "4MP": 1.61},
     },
     "flux_kontext_pro": {
         "label": "Flux Kontext Pro · $$$", "provider": "vidlab",
@@ -2515,9 +2688,15 @@ IMAGE_LANES = {
         "raw_cents": {"square": 3.0},
     },
     "qwen_image20_pro": {
-        "label": "Qwen Image 2.0 Pro · $$$", "provider": "vidlab",
-        "endpoint": "qwen-image-2.0-pro",
-        "raw_cents": {"square": 7.0},
+        # Rerouted to UnificAlly (2026-11-27 catalog audit):
+        # its single published flat rate $0.0675 against
+        # VidLab's $0.07 (the 2.0 family's docs carry no
+        # per-input billing note, unlike the 3.0 family's).
+        "label": "Qwen Image 2.0 Pro · $$$",
+        "provider": "unifically",
+        "endpoint": "alibaba/qwen-image-2.0-pro",
+        "ua_style": "flat",
+        "raw_cents": {"square": 6.75},
     },
     "qwen_image30": {
         "label": "Qwen Image 3.0 · $$", "provider": "vidlab",
@@ -2607,9 +2786,15 @@ IMAGE_LANES = {
         "raw_cents": {"1K": 3.0, "2K": 3.0, "4K": 4.0},
     },
     "grok_imagine_image": {
-        "label": "Grok Imagine Image · $", "provider": "vidlab",
-        "endpoint": "grok-imagine-image",
-        "raw_cents": {"1K": 2.0, "2K": 2.0},
+        # Rerouted to UnificAlly (2026-11-27 catalog audit):
+        # flat $0.01 per image against VidLab's $0.02 (the
+        # displaced rates sit in DISPLACED_IMAGE_RATES_CENTS).
+        # The censored lane: the submit sends enable_nsfw
+        # off. The customer price follows the cost down.
+        "label": "Grok Imagine Image · $",
+        "provider": "unifically",
+        "endpoint": "xai/grok-imagine-1.0-image",
+        "raw_cents": {"1K": 1.0, "2K": 1.0},
     },
     "grok_imagine_image20": {
         "label": "Grok Imagine Image 2.0 · $", "provider": "vidlab",
@@ -2617,10 +2802,16 @@ IMAGE_LANES = {
         "raw_cents": {"1K": 2.0, "1.5K": 2.0, "2K": 2.0},
     },
     "grok_imagine_image20_quality": {
-        "label": "Grok Imagine Image 2.0 Quality · $$$",
-        "provider": "vidlab",
-        "endpoint": "grok-imagine-image-2.0-quality",
-        "raw_cents": {"1K": 5.0, "2K": 7.0},
+        # Rerouted to UnificAlly (2026-11-27 catalog audit):
+        # the standard channel's medium-quality cells, 1K
+        # $0.03 / 2K $0.04, against VidLab's $0.05 / $0.07.
+        # The submit sends quality "medium" and the tier as
+        # the resolution (ua_style grok_quality).
+        "label": "Grok Imagine Image 2.0 Quality · $$",
+        "provider": "unifically",
+        "endpoint": "xai/grok-imagine-2.0-image",
+        "ua_style": "grok_quality",
+        "raw_cents": {"1K": 3.0, "2K": 4.0},
     },
     "grok_imagine15_edit": {
         # An EDIT model: one source image plus an instruction,
@@ -2655,6 +2846,109 @@ IMAGE_LANES = {
         "uncensored": True,
         "raw_cents": {"1K": 1.0},
     },
+    "grok_imagine20_unc": {
+        # Grok Imagine Image 2.0, spicy (2026-11-27, Jack's
+        # order): the same UnificAlly route with enable_nsfw on
+        # every job, which switches the request to the model's
+        # grok.com channel: NSFW allowed, rendered at low
+        # quality / 1k in one of eight ratios (1:1, 2:3, 3:2,
+        # 4:3, 9:16, 16:9, 21:9, 5:2). UnificAlly publishes no
+        # per-image price for the NSFW channel itself; its
+        # model page states the NSFW channel renders "at the
+        # low 1k tier", so the provider cost basis is the
+        # cheapest documented 2.0 cell, low x 1k = $0.02 per
+        # image (2.0 raw cents). Owner pays that cost; the
+        # customer price follows the shared x1.25 round-up.
+        # The lane sends no quality or resolution fields (the
+        # channel rejects them with a 422) and no reference
+        # images (text-to-image only, like the 1.0 spicy lane).
+        "label": "Grok Imagine Image 2.0 · $",
+        "provider": "unifically",
+        "endpoint": "xai/grok-imagine-2.0-image",
+        "uncensored": True,
+        "raw_cents": {"1K": 2.0},
+    },
+    # UnificAlly catalog wiring (2026-11-27): image lanes
+    # the platform did not carry, each under its own name.
+    "flux3_klein_base": {
+        # FLUX 3 Klein's full (base) model: priced on its
+        # published with-reference cells, references on.
+        "label": "Flux 3 Klein Base · $$",
+        "provider": "unifically",
+        "endpoint": "black-forest-labs/flux-3-image-klein-base",
+        "ua_style": "mp",
+        "references": True,
+        "raw_cents": {"0.6MP": 2.95, "1MP": 3.75,
+                      "2MP": 5.63, "4MP": 7.78},
+    },
+    "flux2_klein9b": {
+        # FLUX.2 Klein 9B, text-to-image only in this
+        # surface: UnificAlly adds an unquantified
+        # per-reference charge on its FLUX.2 routes, so
+        # reference jobs are not sold on it.
+        "label": "Flux 2 Klein 9B · $", "provider": "unifically",
+        "endpoint": "black-forest-labs/flux.2-klein-9b",
+        "ua_style": "mp",
+        "raw_cents": {"0.6MP": 1.2, "1MP": 1.2, "2MP": 1.36,
+                      "4MP": 1.52},
+    },
+    "kling3_image": {
+        "label": "Kling 3.0 Image · $$",
+        "provider": "unifically",
+        "endpoint": "kuaishou/kling-3.0-image",
+        "ua_style": "kling_image",
+        "references": True,
+        "raw_cents": {"1K": 2.52, "2K": 2.52},
+    },
+    "kling3_omni_image": {
+        "label": "Kling 3.0 Omni Image · $$",
+        "provider": "unifically",
+        "endpoint": "kuaishou/kling-3.0-omni-image",
+        "ua_style": "kling_image",
+        "references": True,
+        "raw_cents": {"1K": 2.52, "2K": 2.52, "4K": 5.04},
+    },
+    "kling4_image": {
+        # Standard mode only (its series / product-page /
+        # web-design long-image modes are not this surface),
+        # text-to-image only: the standard-mode reference
+        # surcharge is a flat per-reference fee the
+        # per-image price cannot express.
+        "label": "Kling 4.0 Image · $$$",
+        "provider": "unifically",
+        "endpoint": "kuaishou/kling-4.0-image",
+        "ua_style": "kling_image",
+        "ua_mode": "standard",
+        "raw_cents": {"2K": 5.04, "4K": 7.56, "8K": 12.6},
+    },
+    "kling_o1_image": {
+        "label": "Kling O1 Image · $$", "provider": "unifically",
+        "endpoint": "kuaishou/kling-o1-image",
+        "ua_style": "kling_image",
+        "references": True,
+        "raw_cents": {"1K": 2.52, "2K": 2.52},
+    },
+    "wan26_image": {
+        # Wan 2.6 Image publishes no resolution choice;
+        # text-to-image plus edit/style jobs ride its
+        # image_urls (1-4).
+        "label": "Wan 2.6 Image · $$", "provider": "unifically",
+        "endpoint": "alibaba/wan-2.6-image",
+        "ua_style": "flat",
+        "references": True,
+        "raw_cents": {"square": 2.7},
+    },
+    "zimage_turbo": {
+        # The standard Z-Image Turbo lane (the SpicyAPI
+        # spicy variants already ride as zimage_unc /
+        # zimage_pro_unc). Text-to-image only: the model
+        # takes no input images, and prompt_extend stays
+        # off (it would double the cost).
+        "label": "Z-Image Turbo · $", "provider": "unifically",
+        "endpoint": "alibaba/z-image-turbo",
+        "ua_style": "flat",
+        "raw_cents": {"square": 1.35},
+    },
 }
 
 
@@ -2677,6 +2971,17 @@ DISPLACED_IMAGE_RATES_CENTS = {
     "mai_image26_flash_vidlab": {"1K": 2.0, "2K": 5.0},
     "flux3_image_vidlab": {"1K": 5.0, "1.5K": 7.0, "2K": 10.0,
                            "4K": 61.0},
+    # VidLab rates displaced by the 2026-11-27 UnificAlly
+    # catalog audit swaps.
+    "grok_imagine_image_vidlab": {"1K": 2.0, "2K": 2.0},
+    "grok_imagine_image20_quality_vidlab": {"1K": 5.0,
+                                            "2K": 7.0},
+    "qwen_image20_pro_vidlab": {"square": 7.0},
+    "seedream40_vidlab": {"square": 2.9},
+    "seedream45_vidlab": {"square": 4.0},
+    "seedream50_flash_vidlab": {"square": 2.0},
+    "flux3_klein_vidlab": {"1K": 1.0, "1.5K": 2.0, "2K": 2.0,
+                           "4K": 4.0},
 }
 
 
@@ -2725,9 +3030,12 @@ IMAGE_SIZE_LABELS = {
     "seedream5pro": {"1K": "1024 x 1024", "1.5K": "1536 x 1536",
                      "2K": "2048 x 2048"},
     "seedream50_lite": {"4K": "4096 x 4096"},
-    "seedream50_flash": {"square": "Square"},
-    "seedream45": {"square": "Square"},
-    "seedream40": {"square": "Square"},
+    "seedream50_flash": {"1K": "1024 x 1024",
+                         "1.5K": "1536 x 1536",
+                         "2K": "2048 x 2048"},
+    "seedream45": {"2K": "2048 x 2048", "4K": "4096 x 4096"},
+    "seedream40": {"1K": "1024 x 1024", "2K": "2048 x 2048",
+                   "4K": "4096 x 4096"},
     "gpt_image2": {"1K": "1024 x 1024", "2K": "2048 x 2048",
                    "4K": "4096 x 4096"},
     "gpt_image25_flare": {"1K": "1024 x 1024", "2K": "2048 x 2048",
@@ -2743,8 +3051,27 @@ IMAGE_SIZE_LABELS = {
                   "3MP": "3 megapixels", "4MP": "4 megapixels"},
     "flux3_image": {"1K": "1024 x 1024", "1.5K": "1536 x 1536",
                     "2K": "2048 x 2048", "4K": "4096 x 4096"},
-    "flux3_klein": {"1K": "1024 x 1024", "1.5K": "1536 x 1536",
-                    "2K": "2048 x 2048", "4K": "4096 x 4096"},
+    "flux3_klein": {"0.6MP": "0.6 megapixels",
+                    "1MP": "1 megapixel", "2MP": "2 megapixels",
+                    "4MP": "4 megapixels"},
+    "flux3_klein_base": {"0.6MP": "0.6 megapixels",
+                         "1MP": "1 megapixel",
+                         "2MP": "2 megapixels",
+                         "4MP": "4 megapixels"},
+    "flux2_klein9b": {"0.6MP": "0.6 megapixels",
+                      "1MP": "1 megapixel",
+                      "2MP": "2 megapixels",
+                      "4MP": "4 megapixels"},
+    "kling3_image": {"1K": "1024 x 1024", "2K": "2048 x 2048"},
+    "kling3_omni_image": {"1K": "1024 x 1024",
+                          "2K": "2048 x 2048",
+                          "4K": "4096 x 4096"},
+    "kling4_image": {"2K": "2048 x 2048", "4K": "4096 x 4096",
+                     "8K": "8192 x 8192"},
+    "kling_o1_image": {"1K": "1024 x 1024",
+                       "2K": "2048 x 2048"},
+    "wan26_image": {"square": "Square"},
+    "zimage_turbo": {"square": "Square"},
     "flux_kontext_pro": {"square": "Square"},
     "midjourney_v7": {"relax": "Relax speed", "fast": "Fast speed",
                       "turbo": "Turbo speed"},
@@ -2832,7 +3159,20 @@ IMAGE_ASPECTS = {
     "flux2_flex": ("16:9", "9:16", "4:3", "3:4", "3:2", "2:3"),
     "flux2_max": ("16:9", "9:16", "4:3", "3:4", "3:2", "2:3"),
     "flux3_image": ("16:9", "9:16", "4:3", "3:4", "3:2", "2:3"),
-    "flux3_klein": ("16:9", "9:16", "4:3", "3:4", "3:2", "2:3"),
+    "flux3_klein": ("21:9", "16:9", "4:3", "1:1", "3:4",
+                    "9:16", "9:21"),
+    "flux3_klein_base": ("21:9", "16:9", "4:3", "1:1", "3:4",
+                         "9:16", "9:21"),
+    "flux2_klein9b": ("21:9", "16:9", "4:3", "1:1", "3:4",
+                      "9:16", "9:21"),
+    "kling3_image": ("16:9", "9:16", "1:1", "4:3", "3:4",
+                     "3:2", "2:3"),
+    "kling3_omni_image": ("16:9", "9:16", "1:1", "4:3", "3:4",
+                          "3:2", "2:3"),
+    "kling4_image": ("16:9", "9:16", "1:1", "4:3", "3:4",
+                     "3:2", "2:3"),
+    "kling_o1_image": ("16:9", "9:16", "1:1", "4:3", "3:4",
+                       "3:2", "2:3"),
     "flux_kontext_pro": ("16:9", "9:16", "4:3", "3:4", "3:2", "2:3"),
     "midjourney_v7": ("16:9", "9:16", "4:3", "3:4", "3:2", "2:3"),
     # CometAPI Midjourney lanes (2026-11-27): Midjourney
@@ -2863,6 +3203,10 @@ IMAGE_ASPECTS = {
     # Grok Imagine Image (its five ratios are 1:1 plus these
     # four; the plain tier is the square).
     "grok_imagine_unc": ("16:9", "9:16", "3:2", "2:3"),
+    # The 2.0 spicy channel's documented eight ratios (the
+    # five classic shapes plus 4:3, 21:9 and 5:2).
+    "grok_imagine20_unc": ("16:9", "9:16", "3:2", "2:3", "4:3",
+                           "1:1", "21:9", "5:2"),
 }
 
 for _lane_id, _aspects in IMAGE_ASPECTS.items():
