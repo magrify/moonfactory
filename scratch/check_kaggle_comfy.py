@@ -92,8 +92,8 @@ for route in ('"/api/worker/comfy/heartbeat"',
               '"/api/worker/comfy/jobs/{job_id}/fail"'):
     check(route in PLATFORM, f"worker endpoint {route} exists")
 check("def _comfy_worker_ok" in PLATFORM
-      and "return _hf_worker_ok(x_api_key)" in PLATFORM,
-      "the comfy endpoints check the shared worker key")
+      and 'return _family_worker_ok("COMFY", x_api_key)' in PLATFORM,
+      "the comfy endpoints check the COMFY family worker key")
 check('f"{job_id}.raw.mp4"' in PLATFORM,
       "video uploads land where the finishing chain looks")
 check('f"{job_id}.png"' in PLATFORM,

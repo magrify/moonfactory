@@ -1133,7 +1133,7 @@ def setup_whisper():
     r = subprocess.run(
         [uv, "pip", "install", "--python",
          str(KOKORO_VENV_PYTHON),
-         "whisperx", "faster-whisper==1.2.1", "av<19"],
+         "whisperx==3.8.6", "faster-whisper==1.2.1", "av==18.1.1"],
         capture_output=True, text=True, timeout=1800)
     log(f"uv pip install whisperx (best effort) -> rc={r.returncode}")
     _WHISPER_READY = True

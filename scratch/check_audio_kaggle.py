@@ -140,8 +140,8 @@ for route in ('"/api/worker/audio/heartbeat"',
               '"/api/worker/audio/jobs/{job_id}/fail"'):
     check(route in PLATFORM, f"the audio worker route {route} is missing")
 check("def _audio_worker_ok" in PLATFORM
-      and "return _hf_worker_ok(x_api_key)" in PLATFORM,
-      "the audio endpoints do not ride the shared worker key")
+      and 'return _family_worker_ok("AUDIO", x_api_key)' in PLATFORM,
+      "the audio endpoints do not ride the AUDIO family worker key")
 
 # --- the seam's behavior, exercised with fakes -----------------------------
 
@@ -194,7 +194,8 @@ def fresh_namespace():
     }
     for name in ("_audio_key", "_audio_child_id", "_audio_child_path",
                  "_audio_kernel_rev", "_queue_audio_child", "_audio_bytes",
-                 "_bed_payload_for_job", "_queue_short_bed_child"):
+                 "_bed_payload_for_job", "_queue_short_bed_child",
+                 "_note_claimable"):
         exec(fn_source(PTREE, name), ns)
     return ns, jobs, clock, wakes
 
@@ -363,7 +364,7 @@ check("moonfactory-hf-key" in KERNEL and "worker_key.txt" in KERNEL,
 check("def _audio_kernel_rev(" in PLATFORM
       and '"audio_rev": _audio_kernel_rev()' in PLATFORM,
       "audio children are not stamped with the kernel revision")
-check('other.get("audio_rev") == rev' in PLATFORM,
+check('o.get("audio_rev") == rev' in PLATFORM,
       "the audio claim route does not filter children by revision")
 check("if x_audio_rev != rev:" in PLATFORM,
       "the audio claim route does not refuse stale-revision sessions")
