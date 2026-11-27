@@ -36,4 +36,7 @@ probe = fn("editclone_probe")
 head = SRC.split("def editclone_probe")[0].rsplit(
     "@app.function(", 1)[1].split(")")[0]
 check("editclone_probe mounts no secrets", "Secret" not in head)
+check("every issued cookie carries the Secure attribute",
+      SRC.count('samesite="lax")') == 0
+      and SRC.count("secure=True") >= 8)
 print("check_secret_hardening: all pins hold")

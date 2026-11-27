@@ -9597,7 +9597,7 @@ def api():
         resp.set_cookie(
             "mf_session", _make_session(user["id"],
                                         user.get("session_epoch", "")),
-            max_age=7 * 24 * 3600, httponly=True, samesite="lax",
+            max_age=7 * 24 * 3600, httponly=True, samesite="lax", secure=True,
         )
         return resp
 
@@ -9655,7 +9655,7 @@ def api():
             "bind_hash": hashlib.sha256(bind.encode()).hexdigest()}
         resp = JSONResponse({"park": park_id})
         resp.set_cookie("mf_park_bind", bind, max_age=30 * 60,
-                        httponly=True, samesite="lax", path="/")
+                        httponly=True, samesite="lax", secure=True, path="/")
         return resp
 
     def _oauth_bind_ok(request: Request, record) -> bool:
@@ -9730,7 +9730,7 @@ def api():
             url=f"https://accounts.google.com/o/oauth2/v2/auth?{query}",
             status_code=303)
         resp.set_cookie("mf_oauth_bind", bind, max_age=10 * 60,
-                        httponly=True, samesite="lax", path="/api/auth")
+                        httponly=True, samesite="lax", secure=True, path="/api/auth")
         return resp
 
     @web.get("/api/auth/google/callback")
@@ -9833,7 +9833,7 @@ def api():
         resp.set_cookie(
             "mf_session", _make_session(user["id"],
                                         user.get("session_epoch", "")),
-            max_age=7 * 24 * 3600, httponly=True, samesite="lax",
+            max_age=7 * 24 * 3600, httponly=True, samesite="lax", secure=True,
         )
         return resp
 
@@ -9943,7 +9943,7 @@ def api():
         resp.set_cookie(
             "mf_session", _make_session(user["id"],
                                         user.get("session_epoch", "")),
-            max_age=7 * 24 * 3600, httponly=True, samesite="lax",
+            max_age=7 * 24 * 3600, httponly=True, samesite="lax", secure=True,
         )
         return resp
 
@@ -9985,7 +9985,7 @@ def api():
             url=f"https://twitter.com/i/oauth2/authorize?{query}",
             status_code=303)
         resp.set_cookie("mf_oauth_bind", bind, max_age=10 * 60,
-                        httponly=True, samesite="lax", path="/api/auth")
+                        httponly=True, samesite="lax", secure=True, path="/api/auth")
         return resp
 
     @web.get("/api/auth/x/callback")
@@ -10092,7 +10092,7 @@ def api():
         resp.set_cookie(
             "mf_session", _make_session(user["id"],
                                         user.get("session_epoch", "")),
-            max_age=7 * 24 * 3600, httponly=True, samesite="lax",
+            max_age=7 * 24 * 3600, httponly=True, samesite="lax", secure=True,
         )
         return resp
 
@@ -10227,7 +10227,7 @@ def api():
         resp.set_cookie(
             "mf_session", _make_session(user["id"],
                                         user.get("session_epoch", "")),
-            max_age=7 * 24 * 3600, httponly=True, samesite="lax")
+            max_age=7 * 24 * 3600, httponly=True, samesite="lax", secure=True)
         return resp
 
     @web.post("/api/auth/password-reset/request")
