@@ -1,12 +1,15 @@
-"""Local checks for the Clone section (Jack, 2026-11-26).
+"""Local checks for the Clone tab (Jack, 2026-11-26; a
+top-level tab since 2026-11-27).
 
-Pins the section's shape so a later edit cannot quietly break it:
+Pins the tab's shape so a later edit cannot quietly break it:
 
-- the section is titled Clone and lives as its own section
-  inside Create, alongside the composer (not inside the Clip
-  pane, and no new tab): the served studio HTML carries the
-  Clone card with its link, upload and library inputs, the
-  hook and character controls, the character picker, the
+- the tab is titled Clone and stands as a top-level tab
+  beside Create and Clip (Jack, 2026-11-27: Create / Clip /
+  Clone): the tab bar carries exactly those three in that
+  order, the Clone card lives in its own clone pane and no
+  longer inside Create, and the served studio HTML carries
+  the Clone card with its link, upload and library inputs,
+  the hook and character controls, the character picker, the
   model picker and the clone button;
 - the clone prompt is prefilled with Jack's template word for
   word: the served textarea, the CLONE_PROMPT_TEMPLATE
@@ -101,22 +104,40 @@ check(TEMPLATE in app.APP_HTML,
 check('id="ec-prompt"' in app.APP_HTML,
       "the clone prompt field is missing from the studio page")
 
-# -- the section: titled Clone, its own section inside Create -------------
+# -- the tab: titled Clone, top-level beside Create and Clip --------------
 
 html = app.APP_HTML
-check('id="create-pane"' in html and 'id="clip-pane"' in html,
+check('id="create-pane"' in html and 'id="clip-pane"' in html
+      and 'id="clone-pane"' in html,
       "a studio pane is missing")
 check("<h2>Clone</h2>" in html,
       "the Clone card does not carry its Clone title")
 check("Edit / Clone" not in html,
-      "the section still shows its old Edit / Clone name")
-check(html.count('id="tab-') == 2,
-      "a new tab appeared: the section must live inside Create")
-check(html.index('id="create-pane"') < html.index("<h2>Clone</h2>")
-      < html.index('id="clip-pane"'),
-      "the Clone card is not a section inside Create")
-check(html.index('id="ec-clone"') < html.index('id="clip-pane"'),
-      "the Clone card still sits inside the Clip pane")
+      "the tab still shows its old Edit / Clone name")
+# The tab bar carries exactly Create, Clip, Clone, in that order.
+check(html.count('id="tab-') == 3,
+      "the tab bar does not carry exactly three tabs")
+check('<button class="btn" id="tab-create">Create</button>' in html
+      and '<button class="btn secondary" id="tab-clip">Clip</button>'
+      in html
+      and '<button class="btn secondary" id="tab-clone">Clone</button>'
+      in html,
+      "the tab bar is not Create, Clip, Clone")
+check(html.index('id="tab-create"') < html.index('id="tab-clip"')
+      < html.index('id="tab-clone"'),
+      "the tab bar order is not Create, Clip, Clone")
+check("$('tab-clone').onclick = () => showTab('clone');" in html,
+      "the Clone tab does not route to the clone pane")
+check("$('clone-pane').style.display" in html,
+      "showTab does not toggle the clone pane")
+create_block = html[html.index('id="create-pane"'):
+                    html.index('id="upgrade-pane"')]
+check("<h2>Clone</h2>" not in create_block
+      and 'id="ec-' not in create_block,
+      "Clone markup still sits inside Create")
+check(html.index('id="clone-pane"') < html.index("<h2>Clone</h2>")
+      and html.index('id="clone-pane"') < html.index('id="ec-clone"'),
+      "the Clone card does not live inside the clone pane")
 for el in ("ec-url", "ec-file", "ec-library", "ec-add", "ec-hook",
            "ec-char-name", "ec-clone-char", "ec-char-files",
            "ec-make-char", "ec-character", "ec-model", "ec-feed",
