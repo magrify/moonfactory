@@ -1471,15 +1471,20 @@ def frontier_lane(model: str, resolution: str, rates=None,
     # 2026-11-26, when it sold at shelf cost exactly), or
     # flagged as a residual exception where even raw cost
     # meets or exceeds Higgsfield's price ("at_cost_residual").
-    # The cap never prices below cost.
+    # A lane forced onto its hard minimum a hair UNDER the
+    # figure takes the same debit-safe rate when the minimum
+    # itself is not a whole cent (see the follow-up branch
+    # below). The cap never prices below cost.
     policy = _higgsfield_policy_cents_per_second(model, resolution)
     effective = higgsfield if higgsfield is not None else policy
+    at_hard_minimum = False
     if higgsfield is not None:
         target = higgsfield * UNDERCUT_FRACTION
         if target >= minimum:
             sell, can_undercut = target, True
         else:
             sell, can_undercut = minimum, False
+            at_hard_minimum = True
     else:
         # No target-table figure: the lane sells at the hard
         # minimum. Where no policy figure exists either, the
@@ -1535,6 +1540,39 @@ def frontier_lane(model: str, resolution: str, rates=None,
             import math
 
             debit_safe_cap = float(math.ceil(effective) - 1)
+            sell = max(shelf_cost, min(minimum, debit_safe_cap))
+            basis = "debit_safe_undercut"
+        can_undercut = sell < effective
+    elif (effective is not None and at_hard_minimum
+          and shelf_cost < effective):
+        # The same debit-safe treatment for a lane the
+        # target table forces onto its hard minimum BELOW
+        # Higgsfield's figure (2026-11-27 follow-up; the
+        # first pass measured this cell out of scope and
+        # recorded the crossing). Wan 3.0 1080p sells at
+        # its minimum, 17.125c/s, because the 0.97x target
+        # (16.692) sits under the minimum; the published
+        # rate reads as an undercut of Higgsfield's
+        # 17.208, but the minimum is not a whole cent, so
+        # whole-cent rounding flips the actual debit over
+        # Higgsfield's total at short billed lengths (2s:
+        # 35c against 34.42c; 3s: 52c against 51.62c; 4s:
+        # 69c against 68.83c; 9s: 155c against 154.87c).
+        # Where the minimum itself exceeds the debit-safe
+        # cap, the lane takes the same rate as the branch
+        # above — the largest whole cent strictly under
+        # Higgsfield's figure, capped by the standard
+        # minimum and floored at shelf cost (17.0c/s here,
+        # about a 75% margin over the lane's true cost) —
+        # so the debit undercuts at every duration. Lanes
+        # selling at the 0.97x target (Wan 3.0 Prime,
+        # Seedance 2.5 480p) never sit on their minimum
+        # and are untouched: their debits already undercut
+        # at every sold duration.
+        import math
+
+        debit_safe_cap = float(math.ceil(effective) - 1)
+        if minimum > debit_safe_cap:
             sell = max(shelf_cost, min(minimum, debit_safe_cap))
             basis = "debit_safe_undercut"
         can_undercut = sell < effective

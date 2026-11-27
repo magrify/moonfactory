@@ -30,10 +30,26 @@ showed two distinct states:
   ceil(rate x d) under Higgsfield's total at EVERY
   duration while lifting the worst-case margin over true
   cost to about 33%.
+- Wan 3.0 1080p, measured out of scope by the first
+  pass and brought onto the same treatment in the
+  follow-up later the same day: the lane sells at its
+  hard minimum, 17.125 cents per second, because the
+  0.97x target sits under the minimum, so the branch
+  above (which keys on a sell at or above Higgsfield's
+  figure) never reached it, even though the minimum is
+  not a whole cent and whole-cent rounding flipped the
+  actual debit over Higgsfield's 17.208 total at sold
+  durations (2s: 35c against 34.42c; 3s: 52c against
+  51.62c; 4s: 69c against 68.83c; 9s: 155c against
+  154.87c). frontier_lane's follow-up branch now gives
+  a hard-minimum lane the same debit-safe rate when its
+  minimum exceeds the debit-safe cap: 17.0 cents per
+  second here, about a 75% margin over true cost, so
+  the debit undercuts at every duration.
 
 What is pinned:
 
-- For each of the four cells (Prime at all three of its
+- For each of the five cells (Prime at all three of its
   tiers), the ACTUAL balance debit from the shared pricing
   path (pricing.per_second_balance_debit_cents, the same
   function quote, create and settle all use) is strictly
@@ -42,13 +58,13 @@ What is pinned:
   the chained 45/60/90/120 second lengths.
 - The same debit keeps at least 25% profit over the
   lane's true cost (pricing.per_second_lane_cost_cents)
-  at every sold duration on all four cells.
-- The two adjusted cells sell at exactly 4.0 / 8.0 cents
-  per second on the debit_safe_undercut basis; the two
-  verified cells keep their existing sell rates on the
-  standard basis; and no other lane in the catalog sits
-  on the debit_safe_undercut basis, so the branch change
-  moved nothing else.
+  at every sold duration on all five cells.
+- The three adjusted cells sell at exactly 4.0 / 8.0 /
+  17.0 cents per second on the debit_safe_undercut
+  basis; the two verified cells keep their existing sell
+  rates on the standard basis; and no other lane in the
+  catalog sits on the debit_safe_undercut basis, so the
+  branch change moved nothing else.
 
 No Modal calls, no network, no generation.
 
@@ -103,6 +119,7 @@ def sold_durations(model):
 CELLS = [
     ("wan3", "480p"),
     ("wan3", "720p"),
+    ("wan3", "1080p"),
     ("wan3_prime", "480p"),
     ("wan3_prime", "720p"),
     ("wan3_prime", "1080p"),
@@ -125,9 +142,10 @@ for model, res in CELLS:
               f"{model} {res} at {d}s: margin over true cost "
               f"{margin * 100:.1f}% under the 25% target")
 
-# The two adjusted cells: exact new rates and basis.
+# The three adjusted cells: exact new rates and basis.
 for model, res, want_sell in (("wan3", "480p", 4.0),
-                              ("wan3", "720p", 8.0)):
+                              ("wan3", "720p", 8.0),
+                              ("wan3", "1080p", 17.0)):
     pic = pricing.frontier_lane(model, res)
     check(pic["pricing_basis"] == "debit_safe_undercut",
           f"{model} {res}: basis {pic['pricing_basis']} is not "
@@ -148,8 +166,8 @@ for model, res, want_sell in (("wan3_prime", "480p", 14.357),
           f"{model} {res}: sell moved to "
           f"{pic['sell_cents_per_second']} from {want_sell}")
 
-# The branch change touched nothing else: exactly two lanes
-# catalog-wide sit on the debit-safe basis.
+# The branch change touched nothing else: exactly three
+# lanes catalog-wide sit on the debit-safe basis.
 on_basis = [
     (m, r)
     for m, tiers in pricing.PROVIDER_RATES_CENTS_PER_SECOND.items()
@@ -157,9 +175,10 @@ on_basis = [
     if pricing.frontier_lane(m, r)["pricing_basis"]
     == "debit_safe_undercut"
 ]
-check(sorted(on_basis) == [("wan3", "480p"), ("wan3", "720p")],
+check(sorted(on_basis) == [("wan3", "1080p"), ("wan3", "480p"),
+                           ("wan3", "720p")],
       f"debit_safe_undercut lanes are {on_basis}, expected only "
-      f"Wan 3.0 480p and 720p")
+      f"Wan 3.0 480p, 720p and 1080p")
 
 # The debit pinned above is the one quote, create and settle
 # share: app.py routes its per-second quotes through
