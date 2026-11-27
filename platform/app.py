@@ -77,6 +77,127 @@ refusals = modal.Dict.from_name("moonfactory-refusals", create_if_missing=True)
 user_jobs = modal.Dict.from_name("moonfactory-user-jobs", create_if_missing=True)
 acceptances = modal.Dict.from_name("moonfactory-acceptances", create_if_missing=True)
 
+# -- user record store: merge-on-save (security fix, 2026-11-27) ---------
+# Audit finding whole-record-money-race-lost-update (HIGH) and its
+# siblings (logout-epoch resurrection, train-character lost update):
+# every user mutation used to be a whole-record read-modify-write, so
+# two overlapping requests on one account silently lost one update --
+# a hold, a settle, a free-counter increment, even a logout's session
+# epoch. The web app runs in a single container (max_containers=1),
+# so a per-account lock plus a three-way merge at the one write choke
+# point makes those updates compose instead of overwriting:
+#   * every record handed out carries a private "_mf_base" snapshot
+#     of what was committed when it was read;
+#   * writing the id: record back merges against the currently
+#     committed record: fields the caller did not change keep the
+#     committed (newer) value, and the money counters below move by
+#     the caller's delta, so two deductions both land.
+# The snapshot key is stripped before anything is stored and never
+# leaves this module.
+import copy as _copy
+
+_USER_DELTA_FIELDS = (
+    "balance_cents", "net_paid_cents", "cost_settled_cents",
+    "free_jobs_total")
+_USER_LOCKS: dict = {}
+_USER_LOCKS_GUARD = threading.Lock()
+
+
+def _user_lock(user_id: str) -> threading.RLock:
+    with _USER_LOCKS_GUARD:
+        lock = _USER_LOCKS.get(user_id)
+        if lock is None:
+            lock = threading.RLock()
+            _USER_LOCKS[user_id] = lock
+        return lock
+
+
+def _user_snapshot(record: dict) -> dict:
+    snap = _copy.deepcopy(record)
+    snap.pop("_mf_base", None)
+    return snap
+
+
+def _merge_user_record(base: dict, stored: dict, new: dict) -> dict:
+    merged = _copy.deepcopy(stored)
+    for key, value in new.items():
+        if key == "_mf_base":
+            continue
+        if key in base and base[key] == value:
+            continue  # the caller never changed it; committed wins
+        if key in _USER_DELTA_FIELDS \
+                and isinstance(value, (int, float)) \
+                and isinstance(base.get(key), (int, float)) \
+                and isinstance(stored.get(key), (int, float)):
+            merged[key] = stored[key] + (value - base[key])
+        elif key == "usage" and isinstance(value, dict) \
+                and isinstance(base.get(key), dict) \
+                and isinstance(stored.get(key), dict):
+            usage = _copy.deepcopy(stored[key])
+            for ukey, uval in value.items():
+                if base[key].get(ukey) == uval:
+                    continue
+                if isinstance(uval, (int, float)) \
+                        and isinstance(base[key].get(ukey), (int, float)) \
+                        and isinstance(stored[key].get(ukey), (int, float)):
+                    usage[ukey] = stored[key][ukey] + (
+                        uval - base[key][ukey])
+                else:
+                    usage[ukey] = _copy.deepcopy(uval)
+            merged[key] = usage
+        else:
+            merged[key] = _copy.deepcopy(value)
+    return merged
+
+
+class _UsersStore:
+    """The moonfactory-users Dict with merge-on-save for id: keys."""
+
+    def __init__(self, raw):
+        self._raw = raw
+
+    def _attach(self, record):
+        if isinstance(record, dict) and record.get("id"):
+            record["_mf_base"] = _user_snapshot(record)
+        return record
+
+    def get(self, key, default=None):
+        record = self._raw.get(key, default)
+        if isinstance(record, dict):
+            return self._attach(record)
+        return record
+
+    def __getitem__(self, key):
+        return self._attach(self._raw[key])
+
+    def __setitem__(self, key, value):
+        if isinstance(value, dict) and "_mf_base" in value:
+            value = dict(value)
+            base = value.pop("_mf_base")
+            if key.startswith("id:") and value.get("id"):
+                with _user_lock(value["id"]):
+                    stored = self._raw.get(key)
+                    if stored is not None and stored != base:
+                        value = _merge_user_record(base, stored, value)
+                    self._raw[key] = value
+                return
+        self._raw[key] = value
+
+    def __contains__(self, key):
+        return key in self._raw
+
+    def __delitem__(self, key):
+        del self._raw[key]
+
+    def keys(self):
+        return self._raw.keys()
+
+    def pop(self, key, default=None):
+        return self._raw.pop(key, default)
+
+
+users = _UsersStore(users)
+
 # -- per-user job index (perf pass 3, Jack 2026-11-24) -------------------
 # Finding one user's jobs used to be a walk over EVERY record
 # in the jobs store: list(jobs.keys()) plus a jobs.get per key,
