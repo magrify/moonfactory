@@ -68,7 +68,7 @@ async def main():
         # the way the worker does.
         page = await browser.new_page(viewport={"width": 540, "height": 960})
         await page.route("**/forge3d-scene.js", lambda r: r.fulfill(
-            path=str(ROOT / "motion" / "build" / "forge3d-scene.js")))
+            path=str(ROOT / "motion" / "scene" / "forge3d-scene.js")))
         await page.route("**/three.min.js", lambda r: r.fulfill(
             path=str(ROOT / "scratch" / "motion-principles-sample" / "three.min.js")))
         await page.route("**/gsap.min.js", lambda r: r.fulfill(path=str(GSAP)))

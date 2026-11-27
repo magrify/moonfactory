@@ -9,7 +9,15 @@ rides the claim path's generic source staging; the draw-in
 is a composition-only entry drawing the Play Hollow mark
 as SVG line art, with no scene bundle and no upload. Both
 are $0 templates in the picker with their own field blocks,
-and the rebuilt scene bundle carries the showcase builder.
+and the scene bundle carries the showcase builder: that is
+pinned where it is determined, in the bundle's source and
+build config, because the bundle itself is a build artifact
+(motion/build.mjs writes motion/scene/, gitignored) that
+ships as a loose file in the Kaggle toolchain dataset and
+is never in the tree. Reading it here made this check fail
+on every fresh checkout for a file nothing in the project
+produces at that path; the sibling check for the same asset
+family (check_forge3d_presenter) pins sources the same way.
 
 Local render proof: scratch/new-templates-proof/.
 
@@ -24,7 +32,7 @@ import app as m  # noqa: E402
 
 APP = (ROOT / "platform" / "app.py").read_text()
 SCENE = (ROOT / "motion" / "src" / "forge3d.ts").read_text()
-BUNDLE = (ROOT / "motion" / "build" / "forge3d-scene.js").read_text()
+BUILD = (ROOT / "motion" / "build.mjs").read_text()
 
 # The catalog entries: names, lengths, fields, $0 like the
 # rest of the wing (template jobs charge nothing, ever).
@@ -69,12 +77,19 @@ assert 'if job["template"] == "showcase3d":' in claim
 assert 'fields["photo"] = Path(job["upload_path"]).name' in claim
 assert 'payload["source_name"] = Path(job["upload_path"]).name' in claim
 
-# The scene: the builder exists in source and in the built
-# bundle, the photo gate is armed only for it, and the
-# parts assemble on the directional easings.
+# The scene: the builder exists in the bundle's source and
+# is registered in its dispatcher, the photo gate is armed
+# only for it, and the parts assemble on the directional
+# easings. The built bundle carries the builder by
+# construction: build.mjs bundles this one entry wholesale
+# (no minify, no subsetting), the dispatcher map that
+# registers buildShowcase runs at module load, and the
+# outfile below is the forge3d-scene.js the worker stages.
 assert "function buildShowcase(" in SCENE
 assert "showcase3d: buildShowcase" in SCENE
-assert "buildShowcase" in BUNDLE
+assert "builders[props.template]" in SCENE
+assert 'entryPoints: ["src/forge3d.ts"]' in BUILD
+assert 'outfile: "scene/forge3d-scene.js"' in BUILD
 assert "photoGateArmed" in SCENE
 
 # The draw-in composition: the mark's two shapes, the brand
