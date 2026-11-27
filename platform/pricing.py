@@ -287,6 +287,14 @@ PROVIDER_RATES_CENTS_PER_SECOND = {
     # prices the model's 4K mode at 75.5 credits ($0.3775/s)
     # with or without audio, 3840x2160; the Kie submit sends
     # mode="4K" for the tier (app.py).
+    # Mode split (Kling route hunt, 2026-11-27): text and
+    # image jobs run on SpicyAPI at 10.08 / 13.44 / 33.6
+    # (recorded in DISPLACED_RATES as kling3_spicyapi), the
+    # cheapest verified route for those modes; this row stays
+    # the Kie basis because reference jobs share it and still
+    # run on Kie (SpicyAPI publishes no Kling 3.0 reference
+    # endpoint), so quotes, holds and the cost ceiling never
+    # understate a reference job's cost.
     "kling3": {"720p": 11.35, "1080p": 15.1, "4K": 37.75},
     # --- Full-shelf wiring, 2026-11-16 (model availability audit).
     # Every rate below is the primary supplier's published rate,
@@ -302,6 +310,18 @@ PROVIDER_RATES_CENTS_PER_SECOND = {
     # reported charge (the generation's price_usd), never this
     # estimate. BeatAPI's with-input rates (18.0 / 28.0) are in
     # DISPLACED_RATES below.
+    # Kling route hunt (2026-11-27): every other supplier's
+    # live catalog was re-read and none beats VidLab for the
+    # text/image basis (Kie keyframe 14.25 / 21.25, BeatAPI
+    # 15.0 / 23.0, fal 15.7 / 23.5, SpicyAPI 18.84 / 28.2;
+    # Eachlabs and CometAPI carry the model but publish no
+    # per-second price). VidLab's own with-video-input rates
+    # (8.0 / 12.0) already apply to reference jobs carrying a
+    # video and settle at the reported charge. Both tiers'
+    # no-input cost still exceeds Higgsfield's retail (11.063
+    # / 15.979 in the policy table), so the lane stays an
+    # at-cost residual: the no-profit case, reported to the
+    # owner 2026-11-27.
     "kling4": {"720p": 13.5, "1080p": 20.0},
     # MAGI-2 by Sand.ai via FrameHush (rerouted 2026-11-26,
     # route rule: the cheapest verified route is primary):
@@ -809,6 +829,17 @@ DISPLACED_RATES_CENTS_PER_SECOND = {
     # BeatAPI rates displaced by Kie / CometAPI / OpenRouter.
     "wan3_prime": {"480p": 6.05, "720p": 10.5, "1080p": 21.0},
     "kling3": {"720p": 11.0, "1080p": 13.0},
+    # SpicyAPI's Kling 3.0 rates (live catalog, Kling route
+    # hunt 2026-11-27): the wired route for the lane's text and
+    # image modes under app.py's per-mode split, recorded here
+    # because the lane's PROVIDER_RATES row stays the Kie basis
+    # (reference mode shares the row and still runs on Kie).
+    # With audio: $0.1008 / $0.1344 per second at 720p / 1080p,
+    # $0.336 at 4K either way. Even this cheapest route's 720p
+    # rate sits above Higgsfield's 720p retail (9.833 in the
+    # policy table below), so the tier stays an at-cost
+    # residual; the split's saving lands as margin.
+    "kling3_spicyapi": {"720p": 10.08, "1080p": 13.44, "4K": 33.6},
     "kling4": {"720p": 18.0, "1080p": 28.0},
     "seedance": {"720p": 19.4},
     "seedance2_fast": {"480p": 6.072, "720p": 12.251},

@@ -1,0 +1,673 @@
+{
+ "beatapi_kling": {
+  "status": 200,
+  "total": 18,
+  "hits": []
+ },
+ "eachlabs_detail_t2v": {
+  "status": 200,
+  "bytes": 8907,
+  "fragments": [
+   "{\"title\":\"Kling Video 4.0 Text-to-Video\",\"slug\":\"kling-video-4-0-text-to-video\",\"version\":\"0.0.1\",\"output_type\":\"video\",\"request_schema\":{\"additionalProperties\":false,\"properties\":{\"aspect_ratio\":{\"default\":\"16:9\",\"description\":\"Output video frame aspect ratio.\",\"enum\":[\"21:9\",\"16:9\",\"9:16\",\"1:1\",\"4:3\",\"3:4\"],\"title\":\"Aspect Ratio\",\"type\":\"string\"},\"duration\":{\"description\":\"Output video duration in seconds.\",\"enum\":[3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30],\"title\":\"Duration\",\"type\":\"integer\"},\"dynamic_range\":{\"default\":\"sdr\",\"description\":\"HDR outputs 10-bit HDR video. Available at 1080p and 4K only.\",\"enum\":[\"sdr\",\"hdr\"],\"title\":\"Dynamic Range\",\"type\":\"string\"},\"",
+   "{\"title\":\"Kling Video 4.0 Text-to-Video\",\"slug\":\"kling-video-4-0-text-to-video\",\"version\":\"0.0.1\",\"output_type\":\"video\",\"request_schema\":{\"additionalProperties\":false,\"properties\":{\"aspect_ratio\":{\"default\":\"16:9\",\"description\":\"Output video frame aspect ratio.\",\"enum\":[\"21:9\",\"16:9\",\"9:16\",\"1:1\",\"4:3\",\"3:4\"],\"title\":\"Aspect Ratio\",\"type\":\"string\"},\"duration\":{\"description\":\"Output video duration in seconds.\",\"enum\":[3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30],\"title\":\"Duration\",\"type\":\"integer\"},\"dynamic_range\":{\"default\":\"sdr\",\"description\":\"HDR outputs 10-bit HDR video. Available at 1080p and 4K only.\",\"enum\":[\"sdr\",\"hdr\"],\"title\":\"Dynamic Range\",\"type\":\"string\"},\"prompt\":{\"description\":\"Describe the vi",
+   "on\":\"Optional validation or request details for client errors.\",\"nullable\":true},\"error\":{\"description\":\"Safe user-facing error message.\",\"type\":\"string\"},\"status\":{\"description\":\"HTTP status code, when returned by the shared error handler.\",\"type\":\"integer\"}},\"required\":[\"error\"],\"type\":\"object\"},\"KlingVideo40TextToVideoInput\":{\"additionalProperties\":false,\"properties\":{\"aspect_ratio\":{\"default\":\"16:9\",\"description\":\"Output video frame aspect ratio.\",\"enum\":[\"21:9\",\"16:9\",\"9:16\",\"1:1\",\"4:3\",\"3:4\"],\"title\":\"Aspect Ratio\",\"type\":\"string\"},\"duration\":{\"description\":\"Output video duration in seconds.\",\"enum\":[3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30],\"title\":\"Duration\",\"type\":\"integer\"},\"dynamic_range\":{\"default\":\"sdr\",\"description\":\"HDR outputs 10-bit HDR video. Available at 1080p and 4K only.\",\"enum\":[\"sdr\",\"hdr\"],\"title\":\"Dynamic Range\",\"type\":\"string\"},\"prompt\":{\"description\":\"Describe the video, including any negative descriptions. English-only: up",
+   "ired\":[\"prompt\"],\"type\":\"object\",\"x-eachlabs-order-properties\":[\"prompt\",\"duration\",\"aspect_ratio\",\"resolution\",\"dynamic_range\"]}},\"securitySchemes\":{\"bearerAuth\":{\"description\":\"API key passed as `Authorization: Bearer \\u003capi_key\\u003e`\",\"scheme\":\"bearer\",\"type\":\"http\"}}},\"info\":{\"description\":\"Kling Video 4.0 Text-to-Video creates 3\u201330 second videos from text in 720p or 1080p. Choose four aspect ratios for social clips, ads and creative projects.\",\"title\":\"Kling Video 4.0 Text-to-Video\",\"version\":\"1.0.0\",\"x-eachlabs-model-slug\":\"kling-video-4-0-text-to-video\",\"x-eachlabs-output-type\":\"video\"},\"openapi\":\"3.0.4\",\"paths\":{\"/v1/prediction\":{\"post\":{\"description\":\"Creates a new prediction for Kling Video 4.0 Text-to-Video.\",\"operationId\":\"createPrediction\",\"requestBody\":{\"content\":{\"application/json\":{\"schema\":{\"properties\":{\"input\":{\"$ref\":\"#/components/schemas/KlingVideo40TextToVideoInput\"},\"model\":{\"description\":\"Model slug or identifier.\",\"enum\":[\"kling-video-4-0-text-to-video\"],\"t",
+   "escription\":\"API key passed as `Authorization: Bearer \\u003capi_key\\u003e`\",\"scheme\":\"bearer\",\"type\":\"http\"}}},\"info\":{\"description\":\"Kling Video 4.0 Text-to-Video creates 3\u201330 second videos from text in 720p or 1080p. Choose four aspect ratios for social clips, ads and creative projects.\",\"title\":\"Kling Video 4.0 Text-to-Video\",\"version\":\"1.0.0\",\"x-eachlabs-model-slug\":\"kling-video-4-0-text-to-video\",\"x-eachlabs-output-type\":\"video\"},\"openapi\":\"3.0.4\",\"paths\":{\"/v1/prediction\":{\"post\":{\"description\":\"Creates a new prediction for Kling Video 4.0 Text-to-Video.\",\"operationId\":\"createPrediction\",\"requestBody\":{\"content\":{\"application/json\":{\"schema\":{\"properties\":{\"input\":{\"$ref\":\"#/components/schemas/KlingVideo40TextToVideoInput\"},\"model\":{\"description\":\"Model slug or identifier.\",\"enum\":[\"kling-video-4-0-text-to-video\"],\"type\":\"string\"},\"webhook_secret\":{\"description\":\"Optional secret used to sign webhook requests.\",\"type\":\"string\"},\"webhook_url\":{\"description\":\"Optional webhook URL to",
+   "\",\"scheme\":\"bearer\",\"type\":\"http\"}}},\"info\":{\"description\":\"Kling Video 4.0 Text-to-Video creates 3\u201330 second videos from text in 720p or 1080p. Choose four aspect ratios for social clips, ads and creative projects.\",\"title\":\"Kling Video 4.0 Text-to-Video\",\"version\":\"1.0.0\",\"x-eachlabs-model-slug\":\"kling-video-4-0-text-to-video\",\"x-eachlabs-output-type\":\"video\"},\"openapi\":\"3.0.4\",\"paths\":{\"/v1/prediction\":{\"post\":{\"description\":\"Creates a new prediction for Kling Video 4.0 Text-to-Video.\",\"operationId\":\"createPrediction\",\"requestBody\":{\"content\":{\"application/json\":{\"schema\":{\"properties\":{\"input\":{\"$ref\":\"#/components/schemas/KlingVideo40TextToVideoInput\"},\"model\":{\"description\":\"Model slug or identifier.\",\"enum\":[\"kling-video-4-0-text-to-video\"],\"type\":\"string\"},\"webhook_secret\":{\"description\":\"Optional secret used to sign webhook requests.\",\"type\":\"string\"},\"webhook_url\":{\"description\":\"Optional webhook URL to receive the prediction result asynchronously.\",\"format\":\"uri\",\"type\":\"str",
+   "t ratios for social clips, ads and creative projects.\",\"title\":\"Kling Video 4.0 Text-to-Video\",\"version\":\"1.0.0\",\"x-eachlabs-model-slug\":\"kling-video-4-0-text-to-video\",\"x-eachlabs-output-type\":\"video\"},\"openapi\":\"3.0.4\",\"paths\":{\"/v1/prediction\":{\"post\":{\"description\":\"Creates a new prediction for Kling Video 4.0 Text-to-Video.\",\"operationId\":\"createPrediction\",\"requestBody\":{\"content\":{\"application/json\":{\"schema\":{\"properties\":{\"input\":{\"$ref\":\"#/components/schemas/KlingVideo40TextToVideoInput\"},\"model\":{\"description\":\"Model slug or identifier.\",\"enum\":[\"kling-video-4-0-text-to-video\"],\"type\":\"string\"},\"webhook_secret\":{\"description\":\"Optional secret used to sign webhook requests.\",\"type\":\"string\"},\"webhook_url\":{\"description\":\"Optional webhook URL to receive the prediction result asynchronously.\",\"format\":\"uri\",\"type\":\"string\"}},\"required\":[\"model\",\"input\"],\"type\":\"object\"}}},\"required\":true},\"responses\":{\"200\":{\"content\":{\"application/json\":{\"schema\":{\"properties\":{\"message\":{\"des",
+   "achlabs-output-type\":\"video\"},\"openapi\":\"3.0.4\",\"paths\":{\"/v1/prediction\":{\"post\":{\"description\":\"Creates a new prediction for Kling Video 4.0 Text-to-Video.\",\"operationId\":\"createPrediction\",\"requestBody\":{\"content\":{\"application/json\":{\"schema\":{\"properties\":{\"input\":{\"$ref\":\"#/components/schemas/KlingVideo40TextToVideoInput\"},\"model\":{\"description\":\"Model slug or identifier.\",\"enum\":[\"kling-video-4-0-text-to-video\"],\"type\":\"string\"},\"webhook_secret\":{\"description\":\"Optional secret used to sign webhook requests.\",\"type\":\"string\"},\"webhook_url\":{\"description\":\"Optional webhook URL to receive the prediction result asynchronously.\",\"format\":\"uri\",\"type\":\"string\"}},\"required\":[\"model\",\"input\"],\"type\":\"object\"}}},\"required\":true},\"responses\":{\"200\":{\"content\":{\"application/json\":{\"schema\":{\"properties\":{\"message\":{\"description\":\"Human-readable message about the prediction creation.\",\"type\":\"string\"},\"predictionID\":{\"description\":\"Unique prediction identifier.\",\"type\":\"string\"},\"status\":{\"",
+   "tion\":\"Creates a new prediction for Kling Video 4.0 Text-to-Video.\",\"operationId\":\"createPrediction\",\"requestBody\":{\"content\":{\"application/json\":{\"schema\":{\"properties\":{\"input\":{\"$ref\":\"#/components/schemas/KlingVideo40TextToVideoInput\"},\"model\":{\"description\":\"Model slug or identifier.\",\"enum\":[\"kling-video-4-0-text-to-video\"],\"type\":\"string\"},\"webhook_secret\":{\"description\":\"Optional secret used to sign webhook requests.\",\"type\":\"string\"},\"webhook_url\":{\"description\":\"Optional webhook URL to receive the prediction result asynchronously.\",\"format\":\"uri\",\"type\":\"string\"}},\"required\":[\"model\",\"input\"],\"type\":\"object\"}}},\"required\":true},\"responses\":{\"200\":{\"content\":{\"application/json\":{\"schema\":{\"properties\":{\"message\":{\"description\":\"Human-readable message about the prediction creation.\",\"type\":\"string\"},\"predictionID\":{\"description\":\"Unique prediction identifier.\",\"type\":\"string\"},\"status\":{\"description\":\"Status of the prediction creation request.\",\"example\":\"success\",\"type\":\"strin",
+   "on\":\"Unique prediction identifier.\",\"type\":\"string\"},\"input\":{\"additionalProperties\":true,\"description\":\"Input parameters used for the prediction.\",\"type\":\"object\"},\"logs\":{\"description\":\"Execution logs from the prediction.\",\"nullable\":true,\"type\":\"string\"},\"metrics\":{\"description\":\"Performance and cost metrics.\",\"properties\":{\"cost\":{\"description\":\"Cost of the prediction in USD.\",\"type\":\"number\"},\"predict_time\":{\"description\":\"Time taken for prediction in seconds.\",\"type\":\"number\"}},\"type\":\"object\"},\"output\":{\"description\":\"Prediction output (output_type: video).\",\"nullable\":true,\"oneOf\":[{\"type\":\"string\"},{\"items\":{},\"type\":\"array\"},{\"type\":\"object\"}]},\"status\":{\"description\":\"Current status of the prediction.\",\"enum\":[\"created\",\"starting\",\"processing\",\"success\",\"error\",\"cancelled\"],\"type\":\"string\"},\"urls\":{\"description\":\"Related API endpoints.\",\"properties\":{\"cancel\":{\"description\":\"URL to cancel the prediction.\",\"format\":\"uri\",\"type\":\"string\"},\"get\":{\"description\":\"URL to get the p",
+   "ier.\",\"type\":\"string\"},\"input\":{\"additionalProperties\":true,\"description\":\"Input parameters used for the prediction.\",\"type\":\"object\"},\"logs\":{\"description\":\"Execution logs from the prediction.\",\"nullable\":true,\"type\":\"string\"},\"metrics\":{\"description\":\"Performance and cost metrics.\",\"properties\":{\"cost\":{\"description\":\"Cost of the prediction in USD.\",\"type\":\"number\"},\"predict_time\":{\"description\":\"Time taken for prediction in seconds.\",\"type\":\"number\"}},\"type\":\"object\"},\"output\":{\"description\":\"Prediction output (output_type: video).\",\"nullable\":true,\"oneOf\":[{\"type\":\"string\"},{\"items\":{},\"type\":\"array\"},{\"type\":\"object\"}]},\"status\":{\"description\":\"Current status of the prediction.\",\"enum\":[\"created\",\"starting\",\"processing\",\"success\",\"error\",\"cancelled\"],\"type\":\"string\"},\"urls\":{\"description\":\"Related API endpoints.\",\"properties\":{\"cancel\":{\"description\":\"URL to cancel the prediction.\",\"format\":\"uri\",\"type\":\"string\"},\"get\":{\"description\":\"URL to get the prediction.\",\"format\":\"uri\",\"ty",
+   ",\"input\":{\"additionalProperties\":true,\"description\":\"Input parameters used for the prediction.\",\"type\":\"object\"},\"logs\":{\"description\":\"Execution logs from the prediction.\",\"nullable\":true,\"type\":\"string\"},\"metrics\":{\"description\":\"Performance and cost metrics.\",\"properties\":{\"cost\":{\"description\":\"Cost of the prediction in USD.\",\"type\":\"number\"},\"predict_time\":{\"description\":\"Time taken for prediction in seconds.\",\"type\":\"number\"}},\"type\":\"object\"},\"output\":{\"description\":\"Prediction output (output_type: video).\",\"nullable\":true,\"oneOf\":[{\"type\":\"string\"},{\"items\":{},\"type\":\"array\"},{\"type\":\"object\"}]},\"status\":{\"description\":\"Current status of the prediction.\",\"enum\":[\"created\",\"starting\",\"processing\",\"success\",\"error\",\"cancelled\"],\"type\":\"string\"},\"urls\":{\"description\":\"Related API endpoints.\",\"properties\":{\"cancel\":{\"description\":\"URL to cancel the prediction.\",\"format\":\"uri\",\"type\":\"string\"},\"get\":{\"description\":\"URL to get the prediction.\",\"format\":\"uri\",\"type\":\"string\"}},\"type\":"
+  ],
+  "json": true,
+  "data": {
+   "title": "Kling Video 4.0 Text-to-Video",
+   "slug": "kling-video-4-0-text-to-video",
+   "version": "0.0.1",
+   "output_type": "video",
+   "request_schema": {
+    "additionalProperties": false,
+    "properties": {
+     "aspect_ratio": {
+      "default": "16:9",
+      "description": "Output video frame aspect ratio.",
+      "enum": [
+       "21:9",
+       "16:9",
+       "9:16",
+       "1:1",
+       "4:3",
+       "3:4"
+      ],
+      "title": "Aspect Ratio",
+      "type": "string"
+     },
+     "duration": {
+      "description": "Output video duration in seconds.",
+      "enum": [
+       3,
+       4,
+       5,
+       6,
+       7,
+       8,
+       9,
+       10,
+       11,
+       12,
+       13,
+       14,
+       15,
+       16,
+       17,
+       18,
+       19,
+       20,
+       21,
+       22,
+       23,
+       24,
+       25,
+       26,
+       27,
+       28,
+       29,
+       30
+      ],
+      "title": "Duration",
+      "type": "integer"
+     },
+     "dynamic_range": {
+      "default": "sdr",
+      "description": "HDR outputs 10-bit HDR video. Available at 1080p and 4K only.",
+      "enum": [
+       "sdr",
+       "hdr"
+      ],
+      "title": "Dynamic Range",
+      "type": "string"
+     },
+     "prompt": {
+      "description": "Describe the video, including any negative descriptions. English-only: up to 26,000 characters; non-English-only: up to 11,000. Mixed input must satisfy E/26000 + N/11000 <= 1; the provider enforces the language-weighted limit.",
+      "maxLength": 26000,
+      "minLength": 1,
+      "title": "Prompt",
+      "type": "string"
+     },
+     "resolution": {
+      "default": "1080p",
+      "description": "Output video resolution.",
+      "enum": [
+       "720p",
+       "1080p",
+       "4k"
+      ],
+      "title": "Resolution",
+      "type": "string"
+     }
+    },
+    "required": [
+     "prompt"
+    ],
+    "type": "object"
+   },
+   "openapi_schema": {
+    "components": {
+     "schemas": {
+      "Error": {
+       "properties": {
+        "details": {
+         "description": "Optional validation or request details for client errors.",
+         "nullable": true
+        },
+        "error": {
+         "description": "Safe user-facing error message.",
+         "type": "string"
+        },
+        "status": {
+         "description": "HTTP status code, when returned by the shared error handler.",
+         "type": "integer"
+        }
+       },
+       "required": [
+        "error"
+       ],
+       "type": "object"
+      },
+      "KlingVideo40TextToVideoInput": {
+       "additionalProperties": false,
+       "properties": {
+        "aspect_ratio": {
+         "default": "16:9",
+         "description": "Output video frame aspect ratio.",
+         "enum": [
+          "21:9",
+          "16:9",
+          "9:16",
+          "1:1",
+          "4:3",
+          "3:4"
+         ],
+         "title": "Aspect Ratio",
+         "type": "string"
+        },
+        "duration": {
+         "description": "Output video duration in seconds.",
+         "enum": [
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30
+         ],
+         "title": "Duration",
+         "type": "integer"
+        },
+        "dynamic_range": {
+         "default": "sdr",
+         "description": "HDR outputs 10-bit HDR video. Available at 1080p and 4K only.",
+         "enum": [
+          "sdr",
+          "hdr"
+         ],
+         "title": "Dynamic Range",
+         "type": "string"
+        },
+        "prompt": {
+         "description": "Describe the video, including any negative descriptions. English-only: up to 26,000 characters; non-English-only: up to 11,000. Mixed input must satisfy E/26000 + N/11000 <= 1; the provider enforces the language-weighted limit.",
+         "maxLength": 26000,
+         "minLength": 1,
+         "title": "Prompt",
+         "type": "string"
+        },
+        "resolution": {
+         "default": "1080p",
+         "description": "Output video resolution.",
+         "enum": [
+          "720p",
+          "1080p",
+          "4k"
+         ],
+         "title": "Resolution",
+         "type": "string"
+        }
+       },
+       "required": [
+        "prompt"
+       ],
+       "type": "object",
+       "x-eachlabs-order-properties": [
+        "prompt",
+        "duration",
+        "aspect_ratio",
+        "resolution",
+        "dynamic_range"
+       ]
+      }
+     },
+     "securitySchemes": {
+      "bearerAuth": {
+       "description": "API key passed as `Authorization: Bearer <api_key>`",
+       "scheme": "bearer",
+       "type": "http"
+      }
+     }
+    },
+    "info": {
+     "description": "Kling Video 4.0 Text-to-Video creates 3\u201330 second videos from text in 720p or 1080p. Choose four aspect ratios for social clips, ads and creative projects.",
+     "title": "Kling Video 4.0 Text-to-Video",
+     "version": "1.0.0",
+     "x-eachlabs-model-slug": "kling-video-4-0-text-to-video",
+     "x-eachlabs-output-type": "video"
+    },
+    "openapi": "3.0.4",
+    "paths": {
+     "/v1/prediction": {
+      "post": {
+       "description": "Creates a new prediction for Kling Video 4.0 Text-to-Video.",
+       "operationId": "createPrediction",
+       "requestBody": {
+        "content": {
+         "application/json": {
+          "schema": {
+           "properties": {
+            "input": {
+             "$ref": "#/components/schemas/KlingVideo40TextToVideoInput"
+            },
+            "model": {
+             "description": "Model slug or identifier.",
+             "enum": [
+              "kling-video-4-0-text-to-video"
+             ],
+             "type": "string"
+            },
+            "webhook_secret": {
+             "description": "Optional secret used to sign webhook requests.",
+             "type": "string"
+            },
+            "webhook_url": {
+             "description": "Optional webhook URL to receive the prediction result asynchronously.",
+             "format": "uri",
+             "type": "string"
+            }
+           },
+           "required": [
+            "model",
+            "input"
+           ],
+           "type": "object"
+          }
+         }
+        },
+        "required": true
+       },
+       "responses": {
+        "200": {
+         "content": {
+          "application/json": {
+           "schema": {
+            "properties": {
+             "message": {
+              "description": "Human-readable message about the prediction creation.",
+              "type": "string"
+             },
+             "predictionID": {
+              "description": "Unique prediction identifier.",
+              "type": "string"
+             },
+             "status": {
+              "description": "Status of the prediction creation request.",
+              "example": "success",
+              "type": "string"
+             }
+            },
+            "type": "object"
+           }
+          }
+         },
+         "description": "Prediction created successfully."
+        },
+        "400": {
+         "content": {
+          "application/json": {
+           "schema": {
+            "$ref": "#/components/schemas/Error"
+           }
+          }
+         },
+         "description": "Invalid request."
+        },
+        "500": {
+         "content": {
+          "application/json": {
+           "schema": {
+            "$ref": "#/components/schemas/Error"
+           }
+          }
+         },
+         "description": "Internal server error."
+        }
+       },
+       "summary": "Create a prediction"
+      }
+     },
+     "/v1/prediction/{id}": {
+      "get": {
+       "description": "Retrieves the status and results of a prediction by its ID.",
+       "operationId": "getPrediction",
+       "parameters": [
+        {
+         "description": "Prediction ID.",
+         "in": "path",
+         "name": "id",
+         "required": true,
+         "schema": {
+          "type": "string"
+         }
+        }
+       ],
+       "responses": {
+        "200": {
+         "content": {
+          "application/json": {
+           "schema": {
+            "properties": {
+             "fallback": {
+              "description": "Present when the request selected a fallback config. Status stays non-terminal until the requested model or a fallback model ends the request.",
+              "properties": {
+               "requested_model": {
+                "description": "Model the request named.",
+                "nullable": true,
+                "type": "string"
+               },
+               "resolved": {
+                "description": "False while a model in the chain is still running.",
+                "type": "boolean"
+               },
+               "selector": {
+                "description": "Fallback config the request selected.",
+                "type": "string"
+               },
+               "served_by": {
+                "description": "Model whose result this prediction returns; null until resolved.",
+                "nullable": true,
+                "type": "string"
+               },
+               "used": {
+                "description": "True once a fallback model ran because the requested model failed.",
+                "type": "boolean"
+               }
+              },
+              "type": "object"
+             },
+             "id": {
+              "description": "Unique prediction identifier.",
+              "type": "string"
+             },
+             "input": {
+              "additionalProperties": true,
+              "description": "Input parameters used for the prediction.",
+              "type": "object"
+             },
+             "logs": {
+              "description": "Execution logs from the prediction.",
+              "nullable": true,
+              "type": "string"
+             },
+             "metrics": {
+              "description": "Performance and cost metrics.",
+              "properties": {
+               "cost": {
+                "description": "Cost of the prediction in USD.",
+                "type": "number"
+               },
+               "predict_time": {
+                "description": "Time taken for prediction in seconds.",
+                "type": "number"
+               }
+              },
+              "type": "object"
+             },
+             "output": {
+              "description": "Prediction output (output_type: video).",
+              "nullable": true,
+              "oneOf": [
+               {
+                "type": "string"
+               },
+               {
+                "items": {},
+                "type": "array"
+               },
+               {
+                "type": "object"
+               }
+              ]
+             },
+             "status": {
+              "description": "Current status of the prediction.",
+              "enum": [
+               "created",
+               "starting",
+               "processing",
+               "success",
+               "error",
+               "cancelled"
+              ],
+              "type": "string"
+             },
+             "urls": {
+              "description": "Related API endpoints.",
+              "properties": {
+               "cancel": {
+                "description": "URL to cancel the prediction.",
+                "format": "uri",
+                "type": "string"
+               },
+               "get": {
+                "description": "URL to get the prediction.",
+                "format": "uri",
+                "type": "string"
+               }
+              },
+              "type": "object"
+             }
+            },
+            "type": "object"
+           }
+          }
+         },
+         "description": "Prediction retrieved successfully."
+        },
+        "404": {
+         "content": {
+          "application/json": {
+           "schema": {
+            "$ref": "#/components/schemas/Error"
+           }
+          }
+         },
+         "description": "Prediction not found."
+        },
+        "500": {
+         "content": {
+          "application/json": {
+           "schema": {
+            "$ref": "#/components/schemas/Error"
+           }
+          }
+         },
+         "description": "Internal server error."
+        }
+       },
+       "summary": "Get a prediction"
+      }
+     },
+     "/v1/prediction/{id}/cancel": {
+      "post": {
+       "description": "Cancels a running prediction by ID. Cancellation is record-only: the execution record is set to cancelled and no upstream cancellation is attempted \u2014 in-flight provider work runs to completion and its result is discarded.",
+       "operationId": "cancelPrediction",
+       "parameters": [
+        {
+         "description": "Prediction ID.",
+         "in": "path",
+         "name": "id",
+         "required": true,
+         "schema": {
+          "type": "string"
+         }
+        }
+       ],
+       "responses": {
+        "200": {
+         "content": {
+          "application/json": {
+           "schema": {
+            "properties": {
+             "message": {
+              "description": "Human-readable cancellation message.",
+              "type": "string"
+             },
+             "predictionID": {
+              "description": "Unique prediction identifier.",
+              "type": "string"
+             },
+             "status": {
+              "description": "Cancellation status returned when the request succeeds.",
+              "enum": [
+               "success"
+              ],
+              "type": "string"
+             }
+            },
+            "type": "object"
+           }
+          }
+         },
+         "description": "Prediction cancelled."
+        },
+        "404": {
+         "content": {
+          "application/json": {
+           "schema": {
+            "$ref": "#/components/schemas/Error"
+           }
+          }
+         },
+         "description": "Prediction not found."
+        },
+        "500": {
+         "content": {
+          "application/json": {
+           "schema": {
+            "$ref": "#/components/schemas/Error"
+           }
+          }
+         },
+         "description": "Internal server error."
+        }
+       },
+       "summary": "Cancel a prediction"
+      }
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "servers": [
+     {
+      "url": "https://api.eachlabs.ai"
+     }
+    ]
+   },
+   "cost": {
+    "currency": "USD",
+    "type": "usage_based",
+    "amount": null,
+    "unit": "second",
+    "estimate": "$0.157\u2013$0.627 per second, depending on resolution and duration and dynamic range",
+    "description": "Pricing is an estimate and may change as rates are updated.",
+    "min": 0.157,
+    "max": 0.627,
+    "depends_on": [
+     "resolution",
+     "duration",
+     "dynamic range"
+    ],
+    "rows": [
+     {
+      "label": "720p",
+      "value": 0.157
+     },
+     {
+      "label": "1080p (default)",
+      "value": 0.235
+     },
+     {
+      "label": "1080p HDR",
+      "value": 0.282
+     },
+     {
+      "label": "4K",
+      "value": 0.549
+     },
+     {
+      "label": "4K HDR",
+      "value": 0.627
+     }
+    ]
+   },
+   "prompt_instructions": null
+  }
+ },
+ "eachlabs_pricing": {
+  "status": 404,
+  "bytes": 35,
+  "fragments": [],
+  "json": true,
+  "data": {
+   "status": 404,
+   "error": "not found"
+  }
+ },
+ "eachlabs_pricing_page": {
+  "status": 200,
+  "bytes": 462484,
+  "fragments": [
+   "abs.ai/#organization\"},\"inLanguage\":\"en\",\"potentialAction\":{\"@type\":\"SearchAction\",\"target\":\"https://www.eachlabs.ai/ai-models?q={search_term}\",\"query-input\":\"required name=search_term\"}},{\"@type\":\"ItemList\",\"name\":\"Top AI Model Providers\",\"itemListElement\":[{\"@type\":\"ListItem\",\"position\":1,\"name\":\"Kling\",\"url\":\"https://www.eachlabs.ai/kling\"},{\"@type\":\"ListItem\",\"position\":2,\"name\":\"Google\",\"url\":\"https://www.eachlabs.ai/google\"},{\"@type\":\"ListItem\",\"position\":3,\"name\":\"Black Forest Labs\",\"url\":\"https://www.eachlabs.ai/black-forest-labs\"},{\"@type\":\"ListItem\",\"position\":4,\"name\":\"Alibaba\",\"url\":\"https://www.eachlabs.ai/alibaba\"},{\"@type\":\"ListItem\",\"position\":5,\"name\":\"ByteDance\",\"url\":\"https://www.eachlabs.ai/bytedance\"},{\"@type\":\"ListItem\",\"position\":6,\"name\":\"OpenAI\",\"url\":\"https://www.eachlabs.ai/openai\"},{\"@type\":\"ListItem\",\"position\":7,\"name\":\"Pixverse\",\"url\":\"https://www.eachlabs.ai/pixverse\"},{\"@type\":\"ListItem\",\"position\":8,\"name\":\"MiniMax\",\"url\":\"https://www.eachlabs.ai/minim",
+   "n\",\"potentialAction\":{\"@type\":\"SearchAction\",\"target\":\"https://www.eachlabs.ai/ai-models?q={search_term}\",\"query-input\":\"required name=search_term\"}},{\"@type\":\"ItemList\",\"name\":\"Top AI Model Providers\",\"itemListElement\":[{\"@type\":\"ListItem\",\"position\":1,\"name\":\"Kling\",\"url\":\"https://www.eachlabs.ai/kling\"},{\"@type\":\"ListItem\",\"position\":2,\"name\":\"Google\",\"url\":\"https://www.eachlabs.ai/google\"},{\"@type\":\"ListItem\",\"position\":3,\"name\":\"Black Forest Labs\",\"url\":\"https://www.eachlabs.ai/black-forest-labs\"},{\"@type\":\"ListItem\",\"position\":4,\"name\":\"Alibaba\",\"url\":\"https://www.eachlabs.ai/alibaba\"},{\"@type\":\"ListItem\",\"position\":5,\"name\":\"ByteDance\",\"url\":\"https://www.eachlabs.ai/bytedance\"},{\"@type\":\"ListItem\",\"position\":6,\"name\":\"OpenAI\",\"url\":\"https://www.eachlabs.ai/openai\"},{\"@type\":\"ListItem\",\"position\":7,\"name\":\"Pixverse\",\"url\":\"https://www.eachlabs.ai/pixverse\"},{\"@type\":\"ListItem\",\"position\":8,\"name\":\"MiniMax\",\"url\":\"https://www.eachlabs.ai/minimax\"},{\"@type\":\"ListItem\",\"position\":9,",
+   "l-button\" href=\"/hubx-koix\">KoiX</a></li><li class=\"flex\"><a class=\"focus-visible:outline-site-border-focus inline-flex items-center gap-1 outline-offset-2 transition-colors duration-160 ease-out focus-visible:outline-1 text-site-text-secondary hover:text-site-text-primary typo-label-button\" href=\"/kling\">Kling</a></li><li class=\"flex\"><a class=\"focus-visible:outline-site-border-focus inline-flex items-center gap-1 outline-offset-2 transition-colors duration-160 ease-out focus-visible:outline-1 text-site-text-secondary hover:text-site-text-primary typo-label-button\" href=\"/google\">Google</a></li><li class=\"flex\"><a class=\"focus-visible:outline-site-border-focus inline-flex items-center gap-1 outline-offset-2 transition-colors duration-160 ease-out focus-visible:outline-1 text-site-text-secondary hover:text-site-text-primary typo-label-button\" href=\"/black-forest-labs\">Black Forest Labs</a></li><li class=\"flex\"><a class=\"focus-visible:outline-site-border-focus inline-flex items-center g",
+   "n\" href=\"/hubx-koix\">KoiX</a></li><li class=\"flex\"><a class=\"focus-visible:outline-site-border-focus inline-flex items-center gap-1 outline-offset-2 transition-colors duration-160 ease-out focus-visible:outline-1 text-site-text-secondary hover:text-site-text-primary typo-label-button\" href=\"/kling\">Kling</a></li><li class=\"flex\"><a class=\"focus-visible:outline-site-border-focus inline-flex items-center gap-1 outline-offset-2 transition-colors duration-160 ease-out focus-visible:outline-1 text-site-text-secondary hover:text-site-text-primary typo-label-button\" href=\"/google\">Google</a></li><li class=\"flex\"><a class=\"focus-visible:outline-site-border-focus inline-flex items-center gap-1 outline-offset-2 transition-colors duration-160 ease-out focus-visible:outline-1 text-site-text-secondary hover:text-site-text-primary typo-label-button\" href=\"/black-forest-labs\">Black Forest Labs</a></li><li class=\"flex\"><a class=\"focus-visible:outline-site-border-focus inline-flex items-center gap-1 ou",
+   ":\\\"en\\\",\\\"potentialAction\\\":{\\\"@type\\\":\\\"SearchAction\\\",\\\"target\\\":\\\"https://www.eachlabs.ai/ai-models?q={search_term}\\\",\\\"query-input\\\":\\\"required name=search_term\\\"}},{\\\"@type\\\":\\\"ItemList\\\",\\\"name\\\":\\\"Top AI Model Providers\\\",\\\"itemListElement\\\":[{\\\"@type\\\":\\\"ListItem\\\",\\\"position\\\":1,\\\"name\\\":\\\"Kling\\\",\\\"url\\\":\\\"https://www.eachlabs.ai/kling\\\"},{\\\"@type\\\":\\\"ListItem\\\",\\\"position\\\":2,\\\"name\\\":\\\"Google\\\",\\\"url\\\":\\\"https://www.eachlabs.ai/google\\\"},{\\\"@type\\\":\\\"ListItem\\\",\\\"position\\\":3,\\\"name\\\":\\\"Black Forest Labs\\\",\\\"url\\\":\\\"https://www.eachlabs.ai/black-forest-labs\\\"},{\\\"@type\\\":\\\"ListItem\\\",\\\"position\\\":4,\\\"name\\\":\\\"Alibaba\\\",\\\"url\\\":\\\"https://www.eachlabs.ai/alibaba\\\"},{\\\"@type\\\":\\\"ListItem\\\",\\\"position\\\":5,\\\"name\\\":\\\"ByteDance\\\",\\\"url\\\":\\\"https://www.eachlabs.ai/bytedance\\\"},{\\\"@type\\\":\\\"ListItem\\\",\\\"position\\\":6,\\\"name\\\":\\\"OpenAI\\\",\\\"url\\\":\\\"https://www.eachlabs.ai/openai\\\"},{\\\"@type\\\":\\\"ListItem\\\",\\\"position\\\":7,\\\"name\\\":\\\"Pixverse\\\",\\\"url\\\":\\\"https://www.eachlabs.ai/pixverse\\",
+   "earchAction\\\",\\\"target\\\":\\\"https://www.eachlabs.ai/ai-models?q={search_term}\\\",\\\"query-input\\\":\\\"required name=search_term\\\"}},{\\\"@type\\\":\\\"ItemList\\\",\\\"name\\\":\\\"Top AI Model Providers\\\",\\\"itemListElement\\\":[{\\\"@type\\\":\\\"ListItem\\\",\\\"position\\\":1,\\\"name\\\":\\\"Kling\\\",\\\"url\\\":\\\"https://www.eachlabs.ai/kling\\\"},{\\\"@type\\\":\\\"ListItem\\\",\\\"position\\\":2,\\\"name\\\":\\\"Google\\\",\\\"url\\\":\\\"https://www.eachlabs.ai/google\\\"},{\\\"@type\\\":\\\"ListItem\\\",\\\"position\\\":3,\\\"name\\\":\\\"Black Forest Labs\\\",\\\"url\\\":\\\"https://www.eachlabs.ai/black-forest-labs\\\"},{\\\"@type\\\":\\\"ListItem\\\",\\\"position\\\":4,\\\"name\\\":\\\"Alibaba\\\",\\\"url\\\":\\\"https://www.eachlabs.ai/alibaba\\\"},{\\\"@type\\\":\\\"ListItem\\\",\\\"position\\\":5,\\\"name\\\":\\\"ByteDance\\\",\\\"url\\\":\\\"https://www.eachlabs.ai/bytedance\\\"},{\\\"@type\\\":\\\"ListItem\\\",\\\"position\\\":6,\\\"name\\\":\\\"OpenAI\\\",\\\"url\\\":\\\"https://www.eachlabs.ai/openai\\\"},{\\\"@type\\\":\\\"ListItem\\\",\\\"position\\\":7,\\\"name\\\":\\\"Pixverse\\\",\\\"url\\\":\\\"https://www.eachlabs.ai/pixverse\\\"},{\\\"@type\\\":\\\"ListItem\\\",\\\"position\\\":8,",
+   "ible:outline-site-border-focus inline-flex items-center gap-1 outline-offset-2 transition-colors duration-160 ease-out focus-visible:outline-1 text-site-text-secondary hover:text-site-text-primary typo-label-button\\\",\\\"children\\\":[\\\"KoiX\\\",\\\"$undefined\\\"],\\\"href\\\":\\\"/hubx-koix\\\"}]}],[\\\"$\\\",\\\"li\\\",\\\"Kling\\\",{\\\"className\\\":\\\"flex\\\",\\\"children\\\":[\\\"$\\\",\\\"$L49\\\",null,{\\\"className\\\":\\\"focus-visible:outline-site-border-focus inline-flex items-center gap-1 outline-offset-2 transition-colors duration-160 ease-out focus-visible:outline-1 text-site-text-secondary hover:text-site-text-primary typo-label-button\\\",\\\"children\\\":[\\\"Kling\\\",\\\"$undefined\\\"],\\\"href\\\":\\\"/kling\\\"}]}],[\\\"$\\\",\\\"li\\\",\\\"Google\\\",{\\\"className\\\":\\\"flex\\\",\\\"children\\\":[\\\"$\\\",\\\"$L49\\\",null,{\\\"className\\\":\\\"focus-visible:outline-site-border-focus inline-flex items-center gap-1 outline-offset-2 transition-colors duration-160 ease-out focus-visible:outline-1 text-site-text-secondary hover:text-site-text-primary typo-label-button\\\",\\",
+   "flex\\\",\\\"children\\\":[\\\"$\\\",\\\"$L49\\\",null,{\\\"className\\\":\\\"focus-visible:outline-site-border-focus inline-flex items-center gap-1 outline-offset-2 transition-colors duration-160 ease-out focus-visible:outline-1 text-site-text-secondary hover:text-site-text-primary typo-label-button\\\",\\\"children\\\":[\\\"Kling\\\",\\\"$undefined\\\"],\\\"href\\\":\\\"/kling\\\"}]}],[\\\"$\\\",\\\"li\\\",\\\"Google\\\",{\\\"className\\\":\\\"flex\\\",\\\"children\\\":[\\\"$\\\",\\\"$L49\\\",null,{\\\"className\\\":\\\"focus-visible:outline-site-border-focus inline-flex items-center gap-1 outline-offset-2 transition-colors duration-160 ease-out focus-visible:outline-1 text-site-text-secondary hover:text-site-text-primary typo-label-button\\\",\\\"children\\\":[\\\"Google\\\",\\\"$undefined\\\"],\\\"href\\\":\\\"/google\\\"}]}],[\\\"$\\\",\\\"li\\\",\\\"Black Forest Labs\\\",{\\\"className\\\":\\\"flex\\\",\\\"children\\\":[\\\"$\\\",\\\"$L49\\\",null,{\\\"className\\\":\\\"focus-visible:outline-site-border-focus inline-flex items-center gap-1 outline-offset-2 transition-colors duration-160 ease-out focus-visible:outline",
+   "null,{\\\"className\\\":\\\"focus-visible:outline-site-border-focus inline-flex items-center gap-1 outline-offset-2 transition-colors duration-160 ease-out focus-visible:outline-1 text-site-text-secondary hover:text-site-text-primary typo-label-button\\\",\\\"children\\\":[\\\"Kling\\\",\\\"$undefined\\\"],\\\"href\\\":\\\"/kling\\\"}]}],[\\\"$\\\",\\\"li\\\",\\\"Google\\\",{\\\"className\\\":\\\"flex\\\",\\\"children\\\":[\\\"$\\\",\\\"$L49\\\",null,{\\\"className\\\":\\\"focus-visible:outline-site-border-focus inline-flex items-center gap-1 outline-offset-2 transition-colors duration-160 ease-out focus-visible:outline-1 text-site-text-secondary hover:text-site-text-primary typo-label-button\\\",\\\"children\\\":[\\\"Google\\\",\\\"$undefined\\\"],\\\"href\\\":\\\"/google\\\"}]}],[\\\"$\\\",\\\"li\\\",\\\"Black Forest Labs\\\",{\\\"className\\\":\\\"flex\\\",\\\"children\\\":[\\\"$\\\",\\\"$L49\\\",null,{\\\"className\\\":\\\"focus-visible:outline-site-border-focus inline-flex items-center gap-1 outline-offset-2 transition-colors duration-160 ease-out focus-visible:outline-1 text-site-text-secondary hover:te",
+   "o-Video, Image-to-Video, and 3D Model Video Generation into your applications with our powerful AI API.\\\"},\\\"legalPage\\\":{\\\"title\\\":\\\"Legal Hub \u00b7 each::labs\\\",\\\"description\\\":\\\"Directory of all Eachlabs legal policies, terms of service, data processing commitments, and subprocessors.\\\"},\\\"seedanceVsKling\\\":{\\\"title\\\":\\\"Seedance 2.0 vs Kling 3.0 | Eachlabs\\\",\\\"description\\\":\\\"Simplified comparison of Seedance 2.0 vs Kling 3.0 across positioning, quality, audio, control, performance, and practical strengths.\\\"},\\\"exploreVideoEditing\\\":{\\\"title\\\":\\\"Video Editing models \u00b7 trim, caption, watermark \u00b7 each::labs\\\",\\\"description\\\":\\\"Programmatic video editing and processing models: trim, crop, reframe, caption, subtitle, watermark, and more, all behind one API.\\\"},\\\"productVisualGenerator\\\":{\\\"title\\\":\\\"AI Product Photo \\u0026 360\u00b0 Video Generator \u2013 EachVisual | Eachlabs\\\",\\\"description\\\":\\\"Create pro product photos, 360\u00b0 videos, background removal \\u0026 AI retouch in seconds with EachVisual.",
+   " Video Generation into your applications with our powerful AI API.\\\"},\\\"legalPage\\\":{\\\"title\\\":\\\"Legal Hub \u00b7 each::labs\\\",\\\"description\\\":\\\"Directory of all Eachlabs legal policies, terms of service, data processing commitments, and subprocessors.\\\"},\\\"seedanceVsKling\\\":{\\\"title\\\":\\\"Seedance 2.0 vs Kling 3.0 | Eachlabs\\\",\\\"description\\\":\\\"Simplified comparison of Seedance 2.0 vs Kling 3.0 across positioning, quality, audio, control, performance, and practical strengths.\\\"},\\\"exploreVideoEditing\\\":{\\\"title\\\":\\\"Video Editing models \u00b7 trim, caption, watermark \u00b7 each::labs\\\",\\\"description\\\":\\\"Programmatic video editing and processing models: trim, crop, reframe, caption, subtitle, watermark, and more, all behind one API.\\\"},\\\"productVisualGenerator\\\":{\\\"title\\\":\\\"AI Product Photo \\u0026 360\u00b0 Video Generator \u2013 EachVisual | Eachlabs\\\",\\\"description\\\":\\\"Create pro product photos, 360\u00b0 videos, background removal \\u0026 AI retouch in seconds with EachVisual. Your all-in-one AI product visual ge",
+   "\":{\\\"title\\\":\\\"Legal Hub \u00b7 each::labs\\\",\\\"description\\\":\\\"Directory of all Eachlabs legal policies, terms of service, data processing commitments, and subprocessors.\\\"},\\\"seedanceVsKling\\\":{\\\"title\\\":\\\"Seedance 2.0 vs Kling 3.0 | Eachlabs\\\",\\\"description\\\":\\\"Simplified comparison of Seedance 2.0 vs Kling 3.0 across positioning, quality, audio, control, performance, and practical strengths.\\\"},\\\"exploreVideoEditing\\\":{\\\"title\\\":\\\"Video Editing models \u00b7 trim, caption, watermark \u00b7 each::labs\\\",\\\"description\\\":\\\"Programmatic video editing and processing models: trim, crop, reframe, caption, subtitle, watermark, and more, all behind one API.\\\"},\\\"productVisualGenerator\\\":{\\\"title\\\":\\\"AI Product Photo \\u0026 360\u00b0 Video Generator \u2013 EachVisual | Eachlabs\\\",\\\"description\\\":\\\"Create pro product photos, 360\u00b0 videos, background removal \\u0026 AI retouch in seconds with EachVisual. Your all-in-one AI product visual generator from Eachlabs.\\\"},\\\"fashionAi\\\":{\\\"title\\\":\\\"AI Fashion Production Studio "
+  ],
+  "json": false
+ },
+ "cometapi_pricing_v1": {
+  "status": 404,
+  "bytes": 105,
+  "fragments": [],
+  "json": true,
+  "data": {
+   "error": {
+    "message": "Invalid URL (GET /v1/pricing)",
+    "type": "invalid_request_error",
+    "param": "",
+    "code": ""
+   }
+  }
+ },
+ "cometapi_kling_page": {
+  "status": 404,
+  "bytes": 481207,
+  "fragments": [
+   "L[\\\"/_next/static/css/4b46733ed0634d2f.css\\\",\\\"style\\\"]\\n:HL[\\\"/_next/static/css/d526c41bb46efe55.css\\\",\\\"style\\\"]\\n:HL[\\\"/_next/static/css/89b9aaf17a5eb418.css\\\",\\\"style\\\"]\\n\"])</script><script>self.__next_f.push([1,\"0:{\\\"P\\\":null,\\\"b\\\":\\\"w2_zrWrxfpk7TSmcEcXwk\\\",\\\"p\\\":\\\"\\\",\\\"c\\\":[\\\"\\\",\\\"models\\\",\\\"kling-video\\\",\\\"\\\"],\\\"i\\\":false,\\\"f\\\":[[[\\\"\\\",{\\\"children\\\":[[\\\"locale\\\",\\\"en\\\",\\\"d\\\"],{\\\"children\\\":[\\\"models\\\",{\\\"children\\\":[[\\\"provider\\\",\\\"kling-video\\\",\\\"d\\\"],{\\\"children\\\":[\\\"__PAGE__\\\",{}]}]}]}]},\\\"$undefined\\\",\\\"$undefined\\\",true],[\\\"\\\",[\\\"$\\\",\\\"$1\\\",\\\"c\\\",{\\\"children\\\":[[[\\\"$\\\",\\\"link\\\",\\\"0\\\",{\\\"rel\\\":\\\"stylesheet\\\",\\\"href\\\":\\\"/_next/static/css/4b46733ed0634d2f.css\\\",\\\"precedence\\\":\\\"next\\\",\\\"crossOrigin\\\":\\\"$undefined\\\",\\\"nonce\\\":\\\"$undefined\\\"}],[\\\"$\\\",\\\"link\\\",\\\"1\\\",{\\\"rel\\\":\\\"stylesheet\\\",\\\"href\\\":\\\"/_next/static/css/d526c41bb46efe55.css\\\",\\\"precedence\\\":\\\"next\\\",\\\"crossOrigin\\\":\\\"$undefined\\\",\\\"nonce\\\":\\\"$undefined\\\"}],[\\\"$\\\",\\\"link\\\",\\\"2\\\",{\\\"rel\\\":\\\"stylesheet\\\",\\\"href\\\":\\\"/",
+   "aaf17a5eb418.css\\\",\\\"style\\\"]\\n\"])</script><script>self.__next_f.push([1,\"0:{\\\"P\\\":null,\\\"b\\\":\\\"w2_zrWrxfpk7TSmcEcXwk\\\",\\\"p\\\":\\\"\\\",\\\"c\\\":[\\\"\\\",\\\"models\\\",\\\"kling-video\\\",\\\"\\\"],\\\"i\\\":false,\\\"f\\\":[[[\\\"\\\",{\\\"children\\\":[[\\\"locale\\\",\\\"en\\\",\\\"d\\\"],{\\\"children\\\":[\\\"models\\\",{\\\"children\\\":[[\\\"provider\\\",\\\"kling-video\\\",\\\"d\\\"],{\\\"children\\\":[\\\"__PAGE__\\\",{}]}]}]}]},\\\"$undefined\\\",\\\"$undefined\\\",true],[\\\"\\\",[\\\"$\\\",\\\"$1\\\",\\\"c\\\",{\\\"children\\\":[[[\\\"$\\\",\\\"link\\\",\\\"0\\\",{\\\"rel\\\":\\\"stylesheet\\\",\\\"href\\\":\\\"/_next/static/css/4b46733ed0634d2f.css\\\",\\\"precedence\\\":\\\"next\\\",\\\"crossOrigin\\\":\\\"$undefined\\\",\\\"nonce\\\":\\\"$undefined\\\"}],[\\\"$\\\",\\\"link\\\",\\\"1\\\",{\\\"rel\\\":\\\"stylesheet\\\",\\\"href\\\":\\\"/_next/static/css/d526c41bb46efe55.css\\\",\\\"precedence\\\":\\\"next\\\",\\\"crossOrigin\\\":\\\"$undefined\\\",\\\"nonce\\\":\\\"$undefined\\\"}],[\\\"$\\\",\\\"link\\\",\\\"2\\\",{\\\"rel\\\":\\\"stylesheet\\\",\\\"href\\\":\\\"/_next/static/css/89b9aaf17a5eb418.css\\\",\\\"precedence\\\":\\\"next\\\",\\\"crossOrigin\\\":\\\"$undefined\\\",\\\"nonce\\\":\\\"$undefined\\\"}]],\\\"$L2\\\"]}],{\\\"childre",
+   "ned\\\",\\\"errorStyles\\\":\\\"$undefined\\\",\\\"errorScripts\\\":\\\"$undefined\\\",\\\"template\\\":[\\\"$\\\",\\\"$L5\\\",null,{}],\\\"templateStyles\\\":\\\"$undefined\\\",\\\"templateScripts\\\":\\\"$undefined\\\",\\\"notFound\\\":\\\"$undefined\\\",\\\"forbidden\\\":\\\"$undefined\\\",\\\"unauthorized\\\":\\\"$undefined\\\"}]]}],{\\\"children\\\":[[\\\"provider\\\",\\\"kling-video\\\",\\\"d\\\"],[\\\"$\\\",\\\"$1\\\",\\\"c\\\",{\\\"children\\\":[null,[\\\"$\\\",\\\"$L4\\\",null,{\\\"parallelRouterKey\\\":\\\"children\\\",\\\"error\\\":\\\"$undefined\\\",\\\"errorStyles\\\":\\\"$undefined\\\",\\\"errorScripts\\\":\\\"$undefined\\\",\\\"template\\\":[\\\"$\\\",\\\"$L5\\\",null,{}],\\\"templateStyles\\\":\\\"$undefined\\\",\\\"templateScripts\\\":\\\"$undefined\\\",\\\"notFound\\\":\\\"$undefined\\\",\\\"forbidden\\\":\\\"$undefined\\\",\\\"unauthorized\\\":\\\"$undefined\\\"}]]}],{\\\"children\\\":[\\\"__PAGE__\\\",[\\\"$\\\",\\\"$1\\\",\\\"c\\\",{\\\"children\\\":[\\\"$L6\\\",null,[\\\"$\\\",\\\"$L7\\\",null,{\\\"children\\\":[\\\"$L8\\\",[\\\"$\\\",\\\"$L9\\\",null,{\\\"promise\\\":\\\"$@a\\\"}]]}]]}],{},null,false]},null,false]},null,false]},null,false]},null,false],[\\\"$\\\",\\\"$1\\\",\\\"h\\\",{\\\"children\\\":[null,[[\\\"$\\\",\\\"$Lb\\\",null",
+   ", and repeatable character design across styles \u2014 from photoreal renders to stylized illustrations. Design and engineering ship polished visuals without rewrites or vendor juggling.\\\"},\\\"video\\\":{\\\"title\\\":\\\"AI Video Generation APIs\\\",\\\"desc\\\":\\\"Offers flexible combinations of Sora 2, Veo 3.1, and Kling 2.5. Sora 2 is suitable for detailed scenes and audio-visual synchronization, Veo 3.1 excels in visual realism and motion continuity, and Kling AI emphasizes a balance between speed and cost\u2014choose the optimal rendering strategy based on project needs.\\\"},\\\"audio\\\":{\\\"title\\\":\\\"AI Music Generation APIs\\\",\\\"desc\\\":\\\"Quickly generate soundtracks, full tracks, and expressive sound effects through our unified music model APIs. Supports multi-segment composition, theme variations, and royalty-free output \u2014 adaptable to games, advertising, and diverse application scenarios. Shorten audition and iteration cycles, and make sound as controllable and reproducible as code.\\\"},\\\"chat\\\":{\\\"title\\\":",
+   "s without rewrites or vendor juggling.\\\"},\\\"video\\\":{\\\"title\\\":\\\"AI Video Generation APIs\\\",\\\"desc\\\":\\\"Offers flexible combinations of Sora 2, Veo 3.1, and Kling 2.5. Sora 2 is suitable for detailed scenes and audio-visual synchronization, Veo 3.1 excels in visual realism and motion continuity, and Kling AI emphasizes a balance between speed and cost\u2014choose the optimal rendering strategy based on project needs.\\\"},\\\"audio\\\":{\\\"title\\\":\\\"AI Music Generation APIs\\\",\\\"desc\\\":\\\"Quickly generate soundtracks, full tracks, and expressive sound effects through our unified music model APIs. Supports multi-segment composition, theme variations, and royalty-free output \u2014 adaptable to games, advertising, and diverse application scenarios. Shorten audition and iteration cycles, and make sound as controllable and reproducible as code.\\\"},\\\"chat\\\":{\\\"title\\\":\\\"LLM \\u0026 AI Chat APIs\\\",\\\"desc\\\":\\\"Fuel search, chat, and reasoning with latest LLM that Claude 4.5, GPT 5.1, and Gemini 3 Pro. Each model b",
+   "rience\\\",\\\"text\\\":\\\"OpenAI SDK compatibility keeps migration light. Teams can switch endpoints with minimal code changes and no deep refactor.\\\"},{\\\"title\\\":\\\"Multimodal support\\\",\\\"text\\\":\\\"One API layer can unify LLMs with image, video, and audio tools including workflows around Midjourney, Flux, Kling, and Veo.\\\"}],\\\"competitorCardsMostCompared\\\":\\\"Most compared\\\",\\\"competitorCardsComingSoon\\\":\\\"Coming soon\\\",\\\"competitorCardsPublished\\\":\\\"Published Guide\\\",\\\"competitorCardsTitle\\\":\\\"Leading Platform Comparisons in 2026\\\",\\\"competitorCardsDescription\\\":\\\"Explore head-to-head guides on multimodal breadth, economics, latency, routing, and operations \u2014 anchored by the platforms buyers compare most against CometAPI.\\\",\\\"matrixPlatformColumn\\\":\\\"Platform\\\",\\\"evalTitle\\\":\\\"Key Evaluation Dimensions in 2026\\\",\\\"evalSubtitle\\\":\\\"Use these criteria when comparing unified AI APIs \u2014 and see how CometAPI lines up against each one.\\\",\\\"alsoEvaluateKicker\\\":\\\"Also evaluate\\\",\\\"alsoEvaluateLead\\\":",
+   "Only base_url + api_key change\\\",\\\"barsLabels\\\":{\\\"direct\\\":\\\"Direct API\\\",\\\"aggregator\\\":\\\"Typical aggregator\\\",\\\"comet\\\":\\\"CometAPI\\\"},\\\"mosaicTiles\\\":[{\\\"label\\\":\\\"Text\\\",\\\"sub\\\":\\\"GPT, Claude, Gemini\\\"},{\\\"label\\\":\\\"Image\\\",\\\"sub\\\":\\\"Midjourney, Flux\\\"},{\\\"label\\\":\\\"Video\\\",\\\"sub\\\":\\\"Sora, Veo, Kling\\\"},{\\\"label\\\":\\\"Audio\\\",\\\"sub\\\":\\\"ElevenLabs, TTS\\\"}],\\\"secondaryFactors\\\":[{\\\"title\\\":\\\"Latency \\u0026 routing\\\",\\\"detail\\\":\\\"Smart routing intelligence and time-to-first-token budgets.\\\"},{\\\"title\\\":\\\"Reliability \\u0026 SLA\\\",\\\"detail\\\":\\\"Uptime guarantees, failover, and incident transparency.\\\"},{\\\"title\\\":\\\"Observability\\\",\\\"detail\\\":\\\"Per-call logs, cost analytics, usage and error dashboards.\\\"},{\\\"title\\\":\\\"Privacy \\u0026 data\\\",\\\"detail\\\":\\\"Prompt handling, retention policies, regional residency.\\\"},{\\\"title\\\":\\\"Enterprise readiness\\\",\\\"detail\\\":\\\"RBAC, audit logs, contract-grade compliance.\\\"},{\\\"title\\\":\\\"Developer experience\\\",\\\"detail\\\":\\\"Docs, SDKs, sandbox keys, free tier,",
+   "\\\":\\\"Multimodal Support\\\",\\\"title\\\":\\\"Text, image, video, audio, music \u2014 one API\\\",\\\"description\\\":\\\"Evaluate native handling of text + image + video + audio + vision without switching platforms. Ship multi-modal features without juggling separate billing, keys, or SDKs.\\\",\\\"bullets\\\":[\\\"Sora, Veo, Kling, Midjourney, Flux, Suno, ElevenLabs in one API\\\",\\\"Unified billing and quotas across every modality\\\"],\\\"ctaLabel\\\":\\\"Explore media models\\\"}],\\\"hubFaqItems\\\":[{\\\"question\\\":\\\"Which AI API aggregator supports the most model types in 2026?\\\",\\\"answer\\\":\\\"CometAPI is often positioned as one of the broadest unified options, with 500+ models spanning text, image, video, audio, and music workflows. OpenRouter, Replicate, Fal.ai, and Together AI are strong in specific areas, but coverage and depth differ by modality. Verify current model catalogs before final selection because inventories change frequently.\\\"},{\\\"question\\\":\\\"Which is the cheapest at scale?\\\",\\\"answer\\\":\\\"It depends on workl",
+   "leSavings\\\":\\\"per-image lower with unified multimodal billing\\\"},{\\\"unit\\\":\\\"relative cost / second\\\",\\\"exampleChips\\\":[{\\\"label\\\":\\\"Doubao Seedance\\\"},{\\\"label\\\":\\\"Sora\\\"}],\\\"exampleSavings\\\":\\\"per-second pricing in one gateway\\\"},{\\\"unit\\\":\\\"relative cost / minute\\\",\\\"exampleChips\\\":[{\\\"label\\\":\\\"Kling\\\"},{\\\"label\\\":\\\"OpenAI Voice\\\"}],\\\"exampleSavings\\\":\\\"per-minute discount across speech providers\\\"}],\\\"chooseComet\\\":[{\\\"title\\\":\\\"Unified Multimodal in One API\\\",\\\"detail\\\":\\\"You need image, video, audio/voice, and text without stitching multiple providers.\\\"},{\\\"title\\\":\\\"Cost Efficiency at Scale\\\",\\\"detail\\\":\\\"Claude, GPT, Gemini, DeepSeek, or Qwen volume is high and predictable savings matter.\\\"},{\\\"title\\\":\\\"Transparent Pricing + Lower Overhead\\\",\\\"detail\\\":\\\"You want unified billing, no added platform percentage on core usage, and smart routing controls.\\\"},{\\\"title\\\":\\\"Production Automation and Agents\\\",\\\"detail\\\":\\\"You run n8n, Make, or agent pipelines where spend control and ",
+   "\\\"Keeps speech and audio routes alongside text and media billing.\\\",\\\"competitor\\\":\\\"Audio/TTS availability is provider-specific and changes by model.\\\",\\\"status\\\":\\\"not-comparable\\\",\\\"note\\\":\\\"Different audio models and units prevent a defensible direct percentage.\\\",\\\"exampleChips\\\":[{\\\"label\\\":\\\"Kling\\\",\\\"provider\\\":\\\"kling\\\"},{\\\"label\\\":\\\"OpenAI Voice\\\",\\\"provider\\\":\\\"openai\\\"}]}]},\\\"replicate\\\":{\\\"cardDiffs\\\":[\\\"Huge community model ecosystem\\\",\\\"CometAPI better unified production posture\\\"],\\\"cardStat\\\":\\\"Replicate breadth vs Comet operational simplicity\\\",\\\"heroSummary\\\":\\\"Replicate is excellent for experimenting with public and community models, especially when GPU time pricing and model variety matter. CometAPI is stronger when a production product needs a predictable gateway across chat, image, video, and audio without managing per-model runtime economics.\\\",\\\"description\\\":\\\"Compare CometAPI and Replicate by community models, GPU-style pricing, API workflow, multimodal acces",
+   "o routes alongside text and media billing.\\\",\\\"competitor\\\":\\\"Audio/TTS availability is provider-specific and changes by model.\\\",\\\"status\\\":\\\"not-comparable\\\",\\\"note\\\":\\\"Different audio models and units prevent a defensible direct percentage.\\\",\\\"exampleChips\\\":[{\\\"label\\\":\\\"Kling\\\",\\\"provider\\\":\\\"kling\\\"},{\\\"label\\\":\\\"OpenAI Voice\\\",\\\"provider\\\":\\\"openai\\\"}]}]},\\\"replicate\\\":{\\\"cardDiffs\\\":[\\\"Huge community model ecosystem\\\",\\\"CometAPI better unified production posture\\\"],\\\"cardStat\\\":\\\"Replicate breadth vs Comet operational simplicity\\\",\\\"heroSummary\\\":\\\"Replicate is excellent for experimenting with public and community models, especially when GPU time pricing and model variety matter. CometAPI is stronger when a production product needs a predictable gateway across chat, image, video, and audio without managing per-model runtime economics.\\\",\\\"description\\\":\\\"Compare CometAPI and Replicate by community models, GPU-style pricing, API workflow, multimodal access, billing, and product",
+   ":\\\"Video routes use model-specific per-clip or per-second units.\\\",\\\"competitor\\\":\\\"Kie video endpoints consume credits per generation by model.\\\",\\\"status\\\":\\\"not-comparable\\\",\\\"note\\\":\\\"Different models, duration settings, and credit units prevent a precise ratio.\\\",\\\"exampleChips\\\":[{\\\"label\\\":\\\"Kling\\\",\\\"provider\\\":\\\"kling\\\"},{\\\"label\\\":\\\"Veo\\\",\\\"provider\\\":\\\"google\\\"}]},{\\\"category\\\":\\\"Audio\\\",\\\"cometapi\\\":\\\"Audio and speech routes sit beside chat and media billing.\\\",\\\"competitor\\\":\\\"Kie music/audio workflows use endpoint-specific credit accounting.\\\",\\\"status\\\":\\\"not-comparable\\\",\\\"note\\\":\\\"Compare exact output length and credit consumption for the target endpoint.\\\",\\\"exampleChips\\\":[{\\\"label\\\":\\\"TTS\\\",\\\"provider\\\":\\\"openai\\\"}]}]},\\\"fal-ai\\\":{\\\"cardDiffs\\\":[\\\"Fast media inference endpoints\\\",\\\"CometAPI broader all-in-one AI gateway\\\"],\\\"cardStat\\\":\\\"Fal media-first vs CometAPI full-stack\\\",\\\"heroSummary\\\":\\\"Fal.ai is one of the strongest specialist platforms for image and video",
+   "next/static/chunks/18-5e30be70463b3ba1.js\" async=\"\"></script><script src=\"/_next/static/chunks/main-app-5121283d51936c72.js\" async=\"\"></script><meta name=\"robots\" content=\"noindex\"/><script src=\"/_next/static/chunks/polyfills-42372ed130431b0a.js\" noModule=\"\"></script></head><body><div hidden=\"\"><!--$?--><template id=\"B:0\"></template><!--/$--></div><script>requestAnimationFrame(function(){$RT=performance.now()});</script><script src=\"/_next/static/chunks/webpack-fe3daf869f268619.js\" id=\"_R_\" async=\"\"></script><title>One API Access 500+ AI Models - CometAPI</title><meta name=\"description\" content=\"Access GPT, Claude, Gemini, Flux, Suno and 500+ AI models with one API key. CometAPI unifies providers, billing and endpoints for faster builds.\"/><link rel=\"manifest\" href=\"/manifest.webmanifest\"/><meta name=\"keywords\" content=\"CometAPI, AI API, OpenAI API, Claude API, Gemini API, AI model aggregation, unified AI API, developer tools\"/><link rel=\"canonical\" href=\"https://www.cometapi.com/\"/><l"
+  ],
+  "json": false
+ }
+}

@@ -4068,9 +4068,37 @@ PROVIDER_KEY_ENV = {
 # in pricing.py). The mechanism stays for the next split.
 MODEL_PROVIDER_OVERRIDES = {}
 
+# Per-mode route overrides: a lane whose cheapest route covers
+# only some of its modes records the split here, so the provider
+# is a function of (model, mode) where a lane splits. Kling 3.0
+# (Kling route hunt, 2026-11-27): SpicyAPI's live catalog prices
+# kling/3.0 text-to-video and image-to-video with audio at
+# $0.1008 / $0.1344 / $0.336 per second (720p / 1080p / 4K),
+# under Kie's with-audio $0.1135 / $0.151 / $0.3775, but it
+# publishes no reference-to-video endpoint for Kling 3.0 (only
+# text, image and motion control), so reference jobs stay on
+# Kie, whose submit takes image, video and audio references.
+# The lane's price basis in pricing.py stays the Kie row: the
+# rate table is per lane, not per mode, and the basis follows
+# the most expensive sold mode (the Seedance 2.0 with-input
+# precedent), so quotes, holds and the cost ceiling stay
+# honest for reference jobs and the saving lands as margin on
+# text and image jobs. SpicyAPI's rates are recorded in
+# pricing.py's DISPLACED_RATES as kling3_spicyapi.
+MODEL_PROVIDER_MODE_OVERRIDES = {
+    "kling3": {"text": "spicyapi", "image": "spicyapi"},
+}
 
-def provider_for(model: str, resolution: str = None) -> str:
-    """The supplier that serves this model at this resolution."""
+
+def provider_for(model: str, resolution: str = None,
+                 mode: str = None) -> str:
+    """The supplier that serves this model at this resolution
+    and mode."""
+    if mode:
+        override = MODEL_PROVIDER_MODE_OVERRIDES.get(
+            model, {}).get(mode)
+        if override:
+            return override
     if resolution:
         override = MODEL_PROVIDER_OVERRIDES.get(model, {}).get(resolution)
         if override:
@@ -11093,7 +11121,8 @@ def api():
         runs. The ceiling is reported too, so a refusal is never a
         surprise at create time."""
         state = api_lane_state(model)
-        prov = provider_for(model, params["resolution"])
+        prov = provider_for(model, params["resolution"],
+                            params.get("mode"))
         if not os.environ.get(PROVIDER_KEY_ENV.get(prov, "FAL_KEY")):
             # The supplier serving this resolution has no key in
             # the secret store: the lane cannot dispatch, so the
@@ -13113,6 +13142,16 @@ def api():
             "image": "bytedance/seedance-2.0-fast/image-to-video",
             "reference":
                 "bytedance/seedance-2.0-fast/reference-to-video"},
+        # Kling 3.0 text and image modes (Kling route hunt,
+        # 2026-11-27): the supplier's per-mode endpoints at its
+        # live catalog prices ($0.1008 / $0.1344 / $0.336 per
+        # second with audio at 720p / 1080p / 4K, recorded in
+        # pricing.py). Reference mode is NOT here: the supplier
+        # publishes no Kling 3.0 reference endpoint, so
+        # MODEL_PROVIDER_MODE_OVERRIDES keeps reference jobs on
+        # Kie and this dict is never asked for that mode.
+        "kling3": {"text": "kling/3.0/text-to-video",
+                   "image": "kling/3.0/image-to-video"},
     }
     # SpicyAPI lanes whose published schema carries a
     # generate_audio field (selected on: the platform ships
@@ -13129,6 +13168,11 @@ def api():
         # 2026-11-26) carries the same field as its spicy
         # sibling; its price does not change with the flag.
         "seedance2_fast",
+        # Kling 3.0 (route hunt, 2026-11-27): the supplier's
+        # Kling 3.0 pricing is keyed by generate_audio (the
+        # with-audio prices are the lane basis) and its family
+        # page documents the field, so it is selected on.
+        "kling3",
     )
     # SpicyAPI lanes whose schema carries aspect_ratio: the
     # two Wan 3.0 builds and the Seedance 2.0/1.5 builds
@@ -13138,6 +13182,10 @@ def api():
         "wan3_unc", "wan3prime_unc", "seedance2_unc",
         "seedance2fast_unc", "seedance2mini_unc", "seedance15pro_unc",
         "seedance2_fast",
+        # Kling 3.0 (route hunt, 2026-11-27): Kling's text
+        # endpoint takes aspect_ratio; image mode inherits the
+        # opening frame's shape, where the field is inert.
+        "kling3",
     )
     # SpicyAPI lanes whose schema carries a closing-frame
     # field (last_image_url). Vidu Q3, Wan 2.6, Wan 2.7 and
@@ -13147,6 +13195,10 @@ def api():
         "wan22_unc", "wan3_unc", "wan3prime_unc", "seedance25_unc",
         "seedance2_unc", "seedance2fast_unc", "seedance2mini_unc",
         "seedance15pro_unc", "seedance2_fast",
+        # Kling 3.0 (route hunt, 2026-11-27): the supplier's
+        # Kling 3.0 family page documents last_image_url as the
+        # closing-frame field on image-to-video.
+        "kling3",
     )
 
     def submit_spicyapi_job(job: dict, body: dict, params: dict,
@@ -13178,16 +13230,24 @@ def api():
                "resolution": params["resolution"]}
         if model == "vidu_q3_unc" and params["resolution"] == "480p":
             inp["resolution"] = "540p"
-        if model == "ltx25" and params["resolution"] == "4K":
-            # The supplier spells the LTX-2.5 top tier 4k.
+        if model in ("ltx25", "kling3") \
+                and params["resolution"] == "4K":
+            # The supplier spells the LTX-2.5 and Kling 3.0
+            # top tier 4k.
             inp["resolution"] = "4k"
         if model in SPICYAPI_AUDIO_MODELS:
             inp["generate_audio"] = True
         if model in SPICYAPI_ASPECT_MODELS:
             inp["aspect_ratio"] = params["aspect_ratio"]
         try:
-            inp["image_url"] = _beatapi_media_url(
-                params["start_image"], "first-frame")
+            # A text-mode job carries no opening frame: the
+            # field is only sent when one exists (before the
+            # Kling 3.0 wiring, 2026-11-27, this line ran for
+            # every mode and a text job's empty start image
+            # failed the submit as a media upload error).
+            if params["start_image"]:
+                inp["image_url"] = _beatapi_media_url(
+                    params["start_image"], "first-frame")
             if params["end_image"] and model in SPICYAPI_END_FRAME_MODELS:
                 inp["last_image_url"] = _beatapi_media_url(
                     params["end_image"], "last-frame")
@@ -13845,7 +13905,8 @@ def api():
         state = api_lane_state(model)
         if state["paused"]:
             raise HTTPException(status_code=503, detail=MODEL_UNAVAILABLE)
-        prov = provider_for(model, params["resolution"])
+        prov = provider_for(model, params["resolution"],
+                            params.get("mode"))
         if not os.environ.get(PROVIDER_KEY_ENV.get(prov, "FAL_KEY")):
             raise HTTPException(status_code=503, detail=MODEL_UNAVAILABLE)
         est = pricing.per_second_estimate(
@@ -13899,7 +13960,8 @@ def api():
             "id": pysecrets.token_hex(8),
             "user_id": user["id"],
             "worker_job_id": None,
-            "provider": provider_for(model, params["resolution"]),
+            "provider": provider_for(model, params["resolution"],
+                                     params.get("mode")),
             "provider_request_id": None,
             "provider_task_id": None,
             "provider_cost_cents": None,

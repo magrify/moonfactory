@@ -1,0 +1,4204 @@
+{
+ "key_kie": true,
+ "key_fal": true,
+ "key_beatapi": true,
+ "key_vidlab": true,
+ "key_cometapi": true,
+ "key_eachlabs": true,
+ "key_spicyapi": true,
+ "key_framehush": true,
+ "key_numes": true,
+ "kie_models": {
+  "status": 200,
+  "bytes": 124783,
+  "json": true,
+  "kling_entries": [
+   {
+    "model": "kling/v2-1-pro",
+    "slug": "kling/v2-1-pro",
+    "title": "Affordable Kling 2.1 Pro API: Professional Image-to-Video Generation",
+    "provider": "Kling",
+    "taskType": [
+     "Image to Video"
+    ],
+    "description": "The Kling 2.1 Pro is the latest model in the Kling AI series, specializing in image-to-video generation. With enhanced motion simulation, high-quality 1080p output, and improved semantic understanding, it is perfect for professional video production.",
+    "pricingDesc": "A 5-second video costs 88 credits ($0.44), and a 10-second video costs 176 credits ($0.88) \u2014 about 10% below Kling's official pricing.\n\nHigh-tier top-ups come with bonus credits that lower the effective price by about 10%."
+   },
+   {
+    "model": "kling/v2-1-standard",
+    "slug": "kling/v2-1-standard",
+    "title": "Kling 2.1 Standard API: Cost-Effective Image to Video Generation",
+    "provider": "Kling",
+    "taskType": [
+     "Image to Video"
+    ],
+    "description": "Kling 2.1 Standard is a high-performance image-to-video model from Kling AI (Kuaishou), offering fast, cinematic AI video generation with 720P quality for creators and developers.",
+    "pricingDesc": "A 5-second video costs 50.5 credits ($0.2525), and a 10-second video costs 101 credits ($0.505) \u2014 about 10% below Kling's official pricing.\n\nHigh-tier top-ups come with bonus credits that lower the effective price by about 10%."
+   },
+   {
+    "model": "kling/v2-5-turbo-image-to-video-pro",
+    "slug": "kling/v2-5-turbo-image-to-video-pro",
+    "title": "Kling V2.5 Turbo Image To Video  Pro",
+    "provider": "Kling",
+    "taskType": [
+     "Image to Video"
+    ],
+    "description": "",
+    "pricingDesc": "63 credits per 5-second video ($0.315) and 126 credits per 10-second video ($0.63) \u2014 about 10% below fal.ai's rate for the same model ($0.35 per 5 seconds).\n\nHigh-tier top-ups come with bonus credits that lower the effective price by about 10%."
+   },
+   {
+    "model": "kling/v2-5-turbo-text-to-video-pro",
+    "slug": "kling/v2-5-turbo-text-to-video-pro",
+    "title": "Kling V2.5 Turbo Text To Video Pro",
+    "provider": "Kling",
+    "taskType": [
+     "Text to Video"
+    ],
+    "description": "",
+    "pricingDesc": "63 credits per 5-second video ($0.315) and 126 credits per 10-second video ($0.63) \u2014 about 10% below fal.ai's rate for the same model ($0.35 per 5 seconds).\n\nHigh-tier top-ups come with bonus credits that lower the effective price by about 10%."
+   },
+   {
+    "model": "kling-2.6/text-to-video",
+    "slug": "kling-2.6/text-to-video",
+    "title": "Kling 2.6 Text To Video",
+    "provider": "Kling",
+    "taskType": [
+     "Text to Video"
+    ],
+    "description": null,
+    "pricingDesc": "5-second video: 63 credits ($0.315) without audio, 126 credits ($0.63) with audio. 10-second video: 126 credits ($0.63) without audio, 252 credits ($1.26) with audio. Flat rate per video, about 10% below Kling's official pricing.\n\nHigh-tier top-ups come with bonus credits that lower the effective price by about 10%."
+   },
+   {
+    "model": "kling-2.6/image-to-video",
+    "slug": "kling-2.6/image-to-video",
+    "title": "Kling 2.6 Image To Video",
+    "provider": "Kling",
+    "taskType": [
+     "Image to Video"
+    ],
+    "description": null,
+    "pricingDesc": "5-second video: 63 credits ($0.315) without audio, 126 credits ($0.63) with audio. 10-second video: 126 credits ($0.63) without audio, 252 credits ($1.26) with audio. Flat rate per video, about 10% below Kling's official pricing.\n\nHigh-tier top-ups come with bonus credits that lower the effective price by about 10%."
+   },
+   {
+    "model": "kling-2.6/motion-control",
+    "slug": "kling-2.6/motion-control",
+    "title": "Kling 2.6 Motion Control",
+    "provider": "Kling",
+    "taskType": [
+     "Video to Video"
+    ],
+    "description": null,
+    "pricingDesc": "12.6 credits/s ($0.063) for 720P, 20.2 credits/s ($0.101) for 1080P \u2014 about 10% below Kling's official pricing.\n\nHigh-tier top-ups come with bonus credits that lower the effective price by about 10%."
+   },
+   {
+    "model": "kling/ai-avatar-standard",
+    "slug": "kling/ai-avatar-standard",
+    "title": "Kling AI Avatar Standard",
+    "provider": "Kling",
+    "taskType": [
+     "Lip Sync"
+    ],
+    "description": null,
+    "pricingDesc": "10.1 credits/s ($0.0505) for 720P (Standard), 20.2 credits/s ($0.101) for 1080P (Pro), up to 300 seconds per generation \u2014 about 10% below Kling's official pricing.\n\nHigh-tier top-ups come with bonus credits that lower the effective price by about 10%."
+   },
+   {
+    "model": "kling/ai-avatar-pro",
+    "slug": "kling/ai-avatar-pro",
+    "title": "Kling AI Avatar Pro",
+    "provider": "Kling",
+    "taskType": [
+     "Lip Sync"
+    ],
+    "description": null,
+    "pricingDesc": "10.1 credits/s ($0.0505) for 720P (Standard), 20.2 credits/s ($0.101) for 1080P (Pro), up to 300 seconds per generation \u2014 about 10% below Kling's official pricing.\n\nHigh-tier top-ups come with bonus credits that lower the effective price by about 10%."
+   },
+   {
+    "model": "kling-3.0/video",
+    "slug": "kling-3.0/video",
+    "title": "Kling 3.0",
+    "provider": "Kling",
+    "taskType": [
+     "Text to Video",
+     "Image to Video"
+    ],
+    "description": null,
+    "pricingDesc": "720P (Standard): 15.1 credits/s ($0.0755) without audio, 22.7 credits/s ($0.1135) with audio.\n1080P (Pro): 20.2 credits/s ($0.101) without audio, 30.2 credits/s ($0.151) with audio.\n4K: 75.5 credits/s ($0.3775) with or without audio.\nAll tiers about 10% below Kling's official pricing.\n\nHigh-tier top-ups come with bonus credits that lower the effective price by about 10%."
+   },
+   {
+    "model": "kling-3.0/motion-control",
+    "slug": "kling-3.0/motion-control",
+    "title": "Kling 3.0 Motion Control",
+    "provider": "Kling",
+    "taskType": [
+     "Video to Video"
+    ],
+    "description": null,
+    "pricingDesc": "22.7 credits/s ($0.1135) for 720P, 30.2 credits/s ($0.151) for 1080P \u2014 about 10% below Kling's official pricing.\n\nHigh-tier top-ups come with bonus credits that lower the effective price by about 10%."
+   },
+   {
+    "model": "kling/v3-turbo-text-to-video",
+    "slug": "kling/v3-turbo-text-to-video",
+    "title": "Kling V3.0 Turbo Text To Video",
+    "provider": "Kling",
+    "taskType": [
+     "Text to Video"
+    ],
+    "description": "",
+    "pricingDesc": "720P: 20.2 credits/s ($0.101), 1080P: 25.2 credits/s ($0.126) \u2014 about 10% below Kling's official pricing.\n\nHigh-tier top-ups come with bonus credits that lower the effective price by about 10%."
+   },
+   {
+    "model": "kling/v3-turbo-image-to-video",
+    "slug": "kling/v3-turbo-image-to-video",
+    "title": "Kling V3.0 Turbo Image To Video",
+    "provider": "Kling",
+    "taskType": [
+     "Image to Video"
+    ],
+    "description": "",
+    "pricingDesc": "720P: 20.2 credits/s ($0.101), 1080P: 25.2 credits/s ($0.126) \u2014 about 10% below Kling's official pricing.\n\nHigh-tier top-ups come with bonus credits that lower the effective price by about 10%."
+   },
+   {
+    "model": "kling-3.0-omni/text-to-video",
+    "slug": "kling-3.0-omni/text-to-video",
+    "title": "Kling 3.0 Omni Text to Video",
+    "provider": "Kling",
+    "taskType": [
+     "Text to Video"
+    ],
+    "description": "",
+    "pricingDesc": "720P: 15.1 credits/s ($0.0755, no native audio) | 20.2 credits/s ($0.101, with native audio)\n1080P: 20.2 credits/s ($0.101, no native audio) | 25.2 credits/s ($0.126, with native audio)\n4K: 75.5 credits/s ($0.3775, with or without native audio)\nAll tiers about 10% below Kling's official pricing.\n\nHigh-tier top-ups come with bonus credits that lower the effective price by about 10%."
+   },
+   {
+    "model": "kling-3.0-omni/image-to-video",
+    "slug": "kling-3.0-omni/image-to-video",
+    "title": "Kling 3.0 Omni Image to Video",
+    "provider": "Kling",
+    "taskType": [
+     "Image to Video"
+    ],
+    "description": "",
+    "pricingDesc": "720P: 15.1 credits/s ($0.0755, no native audio) | 20.2 credits/s ($0.101, with native audio)\n1080P: 20.2 credits/s ($0.101, no native audio) | 25.2 credits/s ($0.126, with native audio)\n4K: 75.5 credits/s ($0.3775, with or without native audio)\nAll tiers about 10% below Kling's official pricing.\n\nHigh-tier top-ups come with bonus credits that lower the effective price by about 10%."
+   },
+   {
+    "model": "kling-3.0-omni/transformation",
+    "slug": "kling-3.0-omni/transformation",
+    "title": "Kling 3.0 Omni Transformation",
+    "provider": "Kling",
+    "taskType": [
+     "Video Editing"
+    ],
+    "description": "",
+    "pricingDesc": "720P: 22.7 credits/s ($0.1135)\n1080P: 30.2 credits/s ($0.151)\n4K: 75.5 credits/s ($0.3775)\nVideo input required. All tiers about 10% below Kling's official pricing.\n\nHigh-tier top-ups come with bonus credits that lower the effective price by about 10%."
+   },
+   {
+    "model": "kling-3.0-omni/reference-to-video",
+    "slug": "kling-3.0-omni/reference-to-video",
+    "title": "Kling 3.0 Omni Reference to Video",
+    "provider": "Kling",
+    "taskType": [
+     "Video Editing"
+    ],
+    "description": "",
+    "pricingDesc": "720P: 15.1 credits/s ($0.0755, no native audio) | 20.2 credits/s ($0.101, with native audio) | 22.7 credits/s ($0.1135, with video input)\n1080P: 20.2 credits/s ($0.101, no native audio) | 25.2 credits/s ($0.126, with native audio) | 30.2 credits/s ($0.151, with video input)\n4K: 75.5 credits/s ($0.3775) for all input types\nAll tiers about 10% below Kling's official pricing.\n\nHigh-tier top-ups come with bonus credits that lower the effective price by about 10%."
+   },
+   {
+    "model": "kling-4.0/keyframe-to-video",
+    "slug": "kling-4.0/keyframe-to-video",
+    "title": "Kling 4.0 Keyframe To Video",
+    "provider": "Kling",
+    "taskType": [
+     "Text to Video",
+     "Image to Video"
+    ],
+    "description": "",
+    "pricingDesc": "720P: 28.5 credits/s ($0.1425), 1080P: 42.5 credits/s ($0.2125), 4K: 99 credits/s ($0.495) \u2014 billed on the output duration (3\u201330 s).\nHDR (1080P / 4K only): +8.5 credits/s ($0.0425) at 1080P, +14 credits/s ($0.07) at 4K.\n\nHigh-tier top-ups include +10% bonus credits. Effective pricing is approximately 10% lower than the above rates."
+   },
+   {
+    "model": "kling-4.0/reference-to-video",
+    "slug": "kling-4.0/reference-to-video",
+    "title": "Kling 4.0 Reference To Video",
+    "provider": "Kling",
+    "taskType": [
+     "Text to Video",
+     "Image to Video"
+    ],
+    "description": "",
+    "pricingDesc": "720P: 17 credits/s ($0.085/s, with video) | 28.5 credits/s ($0.1425/s, no video)\n1080P: 25.5 credits/s ($0.1275/s, with video) | 42.5 credits/s ($0.2125/s, no video)\n4K: 59 credits/s ($0.295/s, with video) | 99 credits/s ($0.495/s, no video)\nHDR (1080P / 4K only): +8.5 credits/s ($0.0425/s) at 1080P | +14 credits/s ($0.07/s) at 4K\n\n\ud83d\udd38Note\ud83d\udd38: Video input has a lower per-second rate because the input duration is billed as well.\n\n- No video input (text, images, image subjects or voices only): rate \u00d7 output duration\n- With video input: rate \u00d7 (output \u00d7 2) when total input duration \u2264 output duration; rate \u00d7 (input + output) when input is longer. Multiple input videos are summed. Example: 10 s output + 5 s input = 20 s; with a 15 s input, 25 s.\n- HDR: the HDR rate \u00d7 output duration is added on top; input duration is not charged for HDR.\n\nHigh-tier top-ups include +10% bonus credits. Effective pricing is approximately 10% lower than the above rates."
+   },
+   {
+    "model": "kling-4.0/flash-reference-to-video",
+    "slug": "kling-4.0/flash-reference-to-video",
+    "title": "Kling 4.0 Flash Reference to Video",
+    "provider": "Kling",
+    "taskType": [
+     "Text to Video",
+     "Image to Video"
+    ],
+    "description": "",
+    "pricingDesc": "720P: 11.3 credits/s ($0.0565/s, with video) | 17 credits/s ($0.085/s, no video)\n\n\ud83d\udd38Note\ud83d\udd38: Video input has a lower per-second rate because the input duration is billed as well.\n\n- No video input (text, images or image elements only): rate \u00d7 output duration\n- With video input (reference videos or video elements): rate \u00d7 (output \u00d7 2) when total input duration \u2264 output duration; rate \u00d7 (input + output) when input is longer. Multiple input videos are summed. Example: 10 s output + 5 s input = 20 s; with a 15 s input, 25 s.\n\nHigh-tier top-ups include +10% bonus credits. Effective pricing is approximately 10% lower than the above rates."
+   },
+   {
+    "model": "kling-4.0/flash-keyframe-to-video",
+    "slug": "kling-4.0/flash-keyframe-to-video",
+    "title": "Kling 4.0 Flash Keyframe To Video",
+    "provider": "Kling",
+    "taskType": [
+     "Text to Video",
+     "Image to Video",
+     "Video to Video"
+    ],
+    "description": "",
+    "pricingDesc": "720P: 17 credits/s ($0.085/s) \u2014 billed on the output duration (3\u201320 s).\n\nHigh-tier top-ups include +10% bonus credits. Effective pricing is approximately 10% lower than the above rates."
+   },
+   {
+    "model": "kling-4-0/long-image",
+    "slug": "kling-4-0/long-image",
+    "title": "Kling 4.0 Long Image",
+    "provider": "Kling",
+    "taskType": [
+     "Text to Image",
+     "Image to Image"
+    ],
+    "description": "",
+    "pricingDesc": "Webpage: 99 credits ($0.495) at 1K, 107.5 credits ($0.5375) at 2K.\nE-commerce detail page (1K / 2K): Short 42.5 / 51 credits ($0.2125 / $0.255), Medium 84.5 / 99 credits ($0.4225 / $0.495), Long 141 / 155 credits ($0.705 / $0.775).\nPriced per long image. Each input image (product, style or subject image) adds 0.5 credits ($0.0025). All tiers about 10% below Kling's official pricing.\n\nHigh-tier top-ups come with bonus credits that lower the effective price by about 10%."
+   },
+   {
+    "model": "kling-4-0/image",
+    "slug": "kling-4-0/image",
+    "title": "Kling 4.0 Image",
+    "provider": "Kling",
+    "taskType": [
+     "Text to Image",
+     "Image to Image"
+    ],
+    "description": "",
+    "pricingDesc": "2K: 11.3 credits ($0.0565), 4K: 17 credits ($0.085), 8K: 28.3 credits ($0.1415) per output image, in default or series mode. Each reference image or element adds 0.5 credits ($0.0025). All tiers about 10% below Kling's official pricing.\n\nHigh-tier top-ups come with bonus credits that lower the effective price by about 10%."
+   }
+  ],
+  "kling_count": 23
+ },
+ "beatapi_models": {
+  "status": 200,
+  "bytes": 2341,
+  "json": true,
+  "kling_entries": [],
+  "kling_count": 0
+ },
+ "vidlab_models": {
+  "status": 200,
+  "bytes": 79053,
+  "json": true,
+  "kling_entries": [
+   {
+    "id": "kling-4.0",
+    "name": "Kling 4.0",
+    "maker": "Kuaishou",
+    "kind": "video",
+    "unit": "per_second",
+    "description": "Generates video from text, an image \u00b7 720p to 1080p \u00b7 3 to 30 s \u00b7 native audio",
+    "prices": {
+     "720p": 0.135,
+     "720p+video_input": 0.08,
+     "1080p": 0.2,
+     "1080p+video_input": 0.12
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "720p",
+       "1080p"
+      ]
+     },
+     "prompt": {
+      "required": true
+     },
+     "images": {
+      "max": 1,
+      "file": {
+       "ratio": {
+        "min": 0.4,
+        "max": 2.5
+       }
+      }
+     },
+     "video": {},
+     "duration": {
+      "min": 3,
+      "max": 30
+     },
+     "aspect_ratio": {
+      "values": [
+       "16:9",
+       "9:16",
+       "1:1"
+      ]
+     }
+    },
+    "media": {
+     "still": "/open/playground/kling-4.webp",
+     "video": "/open/playground/kling-4.mp4"
+    },
+    "reference_billing": {
+     "min_output_ratio": 2
+    },
+    "featured": true,
+    "offer": {
+     "variant": "720p",
+     "price_usd": 0.135,
+     "market_usd": 0.1963,
+     "pct": 31
+    },
+    "video_sets_length": {
+     "extra": "task_type",
+     "is": [
+      "edit"
+     ]
+    },
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "kling-3.0",
+    "name": "Kling 3.0",
+    "maker": "Kuaishou",
+    "kind": "video",
+    "unit": "per_second",
+    "description": "Kuaishou's Kling 3.0: text to video, image to video and first and last frames, up to 4K, with sound.",
+    "prices": {
+     "720p": 0.09,
+     "720p+audio": 0.13,
+     "1080p": 0.12,
+     "1080p+audio": 0.17,
+     "4k": 0.42,
+     "4k+audio": 0.42
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "720p",
+       "1080p",
+       "4k"
+      ]
+     },
+     "prompt": {
+      "required": true,
+      "max": 2500
+     },
+     "images": {
+      "max": 1
+     },
+     "end_image": {},
+     "negative_prompt": {},
+     "generate_audio": {
+      "values": [
+       true,
+       false
+      ]
+     },
+     "duration": {
+      "min": 3,
+      "max": 15
+     },
+     "aspect_ratio": {
+      "values": [
+       "16:9",
+       "9:16",
+       "1:1"
+      ]
+     }
+    },
+    "media": {
+     "still": "/open/playground/kling-4.webp",
+     "video": "/open/playground/kling-4.mp4"
+    },
+    "featured": false,
+    "offer": {
+     "variant": "720p",
+     "price_usd": 0.09,
+     "market_usd": 0.098,
+     "pct": 8
+    },
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "kling-2.6-motion-control",
+    "name": "Kling 2.6 Motion Control",
+    "maker": "Kuaishou",
+    "kind": "video",
+    "unit": "per_second",
+    "description": "Kuaishou's Kling 2.6 Motion Control: video to video, up to 1080p.",
+    "prices": {
+     "720p": 0.07,
+     "1080p": 0.12
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "720p",
+       "1080p"
+      ]
+     },
+     "video": {
+      "required": true
+     },
+     "prompt": {},
+     "images": {
+      "required": true,
+      "max": 1
+     },
+     "duration": {
+      "required": true,
+      "min": 3,
+      "max": 15
+     }
+    },
+    "media": {
+     "still": "/open/playground/vidlab-remix-motion-transfer.webp",
+     "video": "/open/playground/vidlab-remix-motion-transfer.mp4"
+    },
+    "featured": false,
+    "duration_must_cover": [
+     "video"
+    ],
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "kling-2.6-std",
+    "name": "Kling 2.6 Standard",
+    "maker": "Kuaishou",
+    "kind": "video",
+    "unit": "per_second",
+    "description": "Kuaishou's Kling 2.6 Standard: text to video and image to video, up to 720p.",
+    "prices": {
+     "*": 0.05
+    },
+    "params": {
+     "prompt": {
+      "required": true,
+      "max": 2500
+     },
+     "images": {
+      "max": 1
+     },
+     "negative_prompt": {},
+     "duration": {
+      "values": [
+       5,
+       10
+      ]
+     },
+     "aspect_ratio": {
+      "values": [
+       "16:9",
+       "9:16",
+       "1:1"
+      ]
+     }
+    },
+    "media": {
+     "still": "/open/models/kling-4-omni.webp",
+     "video": "/open/models/kling-4-omni.mp4"
+    },
+    "featured": false,
+    "offer": {
+     "variant": "*",
+     "price_usd": 0.05,
+     "market_usd": 0.098,
+     "pct": 48
+    },
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "kling-3.0-motion-control",
+    "name": "Kling 3.0 Motion Control",
+    "maker": "Kuaishou",
+    "kind": "video",
+    "unit": "per_second",
+    "description": "Kuaishou's Kling 3.0 Motion Control: video to video, up to 1080p.",
+    "prices": {
+     "720p": 0.13,
+     "1080p": 0.17
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "720p",
+       "1080p"
+      ]
+     },
+     "video": {
+      "required": true
+     },
+     "prompt": {},
+     "images": {
+      "required": true,
+      "max": 1
+     },
+     "duration": {
+      "required": true,
+      "min": 3,
+      "max": 15
+     }
+    },
+    "media": {
+     "still": "/open/models/sync-lipsync-3.webp",
+     "video": "/open/models/sync-lipsync-3.mp4"
+    },
+    "featured": false,
+    "duration_must_cover": [
+     "video"
+    ],
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "kling-3.0-omni",
+    "name": "Kling 3.0 Omni",
+    "maker": "Kuaishou",
+    "kind": "video",
+    "unit": "per_second",
+    "description": "Kuaishou's Kling 3.0 Omni: text to video, image to video, first and last frames, reference to video and video to video, up to 1080p, with sound.",
+    "prices": {
+     "720p": 0.09,
+     "720p+audio": 0.12,
+     "720p+video_input": 0.13,
+     "1080p": 0.12,
+     "1080p+audio": 0.14,
+     "1080p+video_input": 0.17
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "720p",
+       "1080p"
+      ]
+     },
+     "prompt": {
+      "required": true,
+      "max": 3072
+     },
+     "images": {
+      "max": 4
+     },
+     "end_image": {},
+     "video": {},
+     "negative_prompt": {},
+     "generate_audio": {
+      "values": [
+       true,
+       false
+      ]
+     },
+     "duration": {
+      "min": 3,
+      "max": 15
+     },
+     "aspect_ratio": {
+      "values": [
+       "16:9",
+       "9:16",
+       "1:1"
+      ]
+     }
+    },
+    "media": {
+     "still": "/open/models/kling-4-omni.webp",
+     "video": "/open/models/kling-4-omni.mp4"
+    },
+    "featured": false,
+    "video_sets_length": {
+     "extra": "video_refer_type",
+     "is": [
+      "base"
+     ],
+     "absent": true
+    },
+    "limits": [
+     {
+      "when": {
+       "video": [
+        true
+       ]
+      },
+      "then": {
+       "images": {
+        "min": 1
+       }
+      },
+      "message": "A reference video needs at least one reference image with it: a video alone makes a clip as long as the video, not the duration you ask for."
+     },
+     {
+      "when": {
+       "video": [
+        true
+       ]
+      },
+      "then": {
+       "generate_audio": [
+        false
+       ]
+      },
+      "message": "With a reference video this model makes no sound. Set generate_audio to false."
+     }
+    ],
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "kling-o1",
+    "name": "Kling O1",
+    "maker": "Kuaishou",
+    "kind": "video",
+    "unit": "per_second",
+    "description": "Kuaishou's Kling O1: text to video, image to video and reference to video.",
+    "prices": {
+     "720p": 0.09,
+     "1080p": 0.12
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "720p",
+       "1080p"
+      ]
+     },
+     "prompt": {
+      "required": true,
+      "max": 2500
+     },
+     "images": {
+      "max": 4
+     },
+     "duration": {
+      "values": [
+       5,
+       10
+      ]
+     },
+     "aspect_ratio": {
+      "values": [
+       "16:9",
+       "9:16",
+       "1:1"
+      ]
+     }
+    },
+    "media": {
+     "still": "/open/playground/wan-3.0.webp",
+     "video": "/open/playground/wan-3.0.mp4"
+    },
+    "featured": false,
+    "offer": {
+     "variant": "720p",
+     "price_usd": 0.09,
+     "market_usd": 0.112,
+     "pct": 19
+    },
+    "routes": 1,
+    "status": "operational"
+   }
+  ],
+  "kling_count": 7
+ },
+ "spicyapi_models": {
+  "status": 200,
+  "bytes": 795519,
+  "json": true,
+  "kling_entries": [
+   {
+    "model": "kling/image-4.0/edit",
+    "family": "kling/image-4.0",
+    "familyPageSlug": "kling-image-4-0",
+    "familyDisplayName": "Kling Image 4.0",
+    "displayName": "Kling Image 4.0 \u00b7 Image Editing",
+    "provider": "Kling",
+    "modality": "image",
+    "tasks": [
+     "image-to-image"
+    ],
+    "async": true,
+    "mature": false,
+    "policyTier": "filtered",
+    "taskTimeoutSeconds": 1800,
+    "enabled": true,
+    "available": true,
+    "quantityField": "num_outputs",
+    "pricing": [
+     {
+      "variant": "2k",
+      "unit": "per_image",
+      "price": "0.063",
+      "currency": "USD"
+     },
+     {
+      "variant": "4k",
+      "unit": "per_image",
+      "price": "0.094",
+      "currency": "USD"
+     },
+     {
+      "variant": "8k",
+      "unit": "per_image",
+      "price": "0.157",
+      "currency": "USD"
+     }
+    ],
+    "startingPrice": {
+     "variant": "2k",
+     "unit": "per_image",
+     "price": "0.063",
+     "currency": "USD"
+    },
+    "version": "v1",
+    "availability": "available",
+    "badges": [
+     "high_resolution",
+     "policy_filtered"
+    ],
+    "relatedModels": [
+     "kling/image-4.0-set",
+     "kling/image-4.0-long",
+     "kling/4.0"
+    ],
+    "updatedAt": "2026-11-18T08:22:09.114662Z"
+   },
+   {
+    "model": "kling/image-4.0/text-to-image",
+    "family": "kling/image-4.0",
+    "familyPageSlug": "kling-image-4-0",
+    "familyDisplayName": "Kling Image 4.0",
+    "displayName": "Kling Image 4.0 \u00b7 Text to Image",
+    "provider": "Kling",
+    "modality": "image",
+    "tasks": [
+     "text-to-image"
+    ],
+    "async": true,
+    "mature": false,
+    "policyTier": "filtered",
+    "taskTimeoutSeconds": 1800,
+    "enabled": true,
+    "available": true,
+    "quantityField": "num_outputs",
+    "pricing": [
+     {
+      "variant": "2k",
+      "unit": "per_image",
+      "price": "0.063",
+      "currency": "USD"
+     },
+     {
+      "variant": "4k",
+      "unit": "per_image",
+      "price": "0.094",
+      "currency": "USD"
+     },
+     {
+      "variant": "8k",
+      "unit": "per_image",
+      "price": "0.157",
+      "currency": "USD"
+     }
+    ],
+    "startingPrice": {
+     "variant": "2k",
+     "unit": "per_image",
+     "price": "0.063",
+     "currency": "USD"
+    },
+    "version": "v1",
+    "availability": "available",
+    "badges": [
+     "high_resolution",
+     "policy_filtered"
+    ],
+    "relatedModels": [
+     "kling/image-4.0-set",
+     "kling/image-4.0-long",
+     "kling/4.0"
+    ],
+    "updatedAt": "2026-11-18T08:22:09.114662Z"
+   },
+   {
+    "model": "kling/image-4.0-set/text-to-image",
+    "family": "kling/image-4.0-set",
+    "familyPageSlug": "kling-image-4-0-set",
+    "familyDisplayName": "Kling Image 4.0 Set",
+    "displayName": "Kling Image 4.0 Set \u00b7 Image Set",
+    "provider": "Kling",
+    "modality": "image",
+    "tasks": [
+     "text-to-image"
+    ],
+    "async": true,
+    "mature": false,
+    "policyTier": "filtered",
+    "taskTimeoutSeconds": 1800,
+    "enabled": true,
+    "available": true,
+    "quantityField": "num_outputs",
+    "pricing": [
+     {
+      "variant": "2k",
+      "unit": "per_image",
+      "price": "0.063",
+      "currency": "USD"
+     },
+     {
+      "variant": "4k",
+      "unit": "per_image",
+      "price": "0.094",
+      "currency": "USD"
+     },
+     {
+      "variant": "8k",
+      "unit": "per_image",
+      "price": "0.157",
+      "currency": "USD"
+     }
+    ],
+    "startingPrice": {
+     "variant": "2k",
+     "unit": "per_image",
+     "price": "0.063",
+     "currency": "USD"
+    },
+    "version": "v1",
+    "availability": "available",
+    "badges": [
+     "high_resolution",
+     "reference_input",
+     "policy_filtered"
+    ],
+    "relatedModels": [
+     "kling/image-4.0",
+     "kling/image-4.0-long",
+     "kling/4.0"
+    ],
+    "updatedAt": "2026-11-18T08:22:09.114662Z"
+   },
+   {
+    "model": "kling/image-4.0-long/edit",
+    "family": "kling/image-4.0-long",
+    "familyPageSlug": "kling-image-4-0-long",
+    "familyDisplayName": "Kling Image 4.0 Long",
+    "displayName": "Kling Image 4.0 Long \u00b7 E-commerce Detail Page",
+    "provider": "Kling",
+    "modality": "image",
+    "tasks": [
+     "image-to-image"
+    ],
+    "async": true,
+    "mature": false,
+    "policyTier": "filtered",
+    "taskTimeoutSeconds": 1800,
+    "enabled": true,
+    "available": true,
+    "quantityField": "",
+    "pricing": [
+     {
+      "variant": "page_length=short;resolution=1k",
+      "unit": "per_image",
+      "price": "0.235",
+      "currency": "USD"
+     },
+     {
+      "variant": "page_length=short;resolution=2k",
+      "unit": "per_image",
+      "price": "0.282",
+      "currency": "USD"
+     },
+     {
+      "variant": "page_length=medium;resolution=1k",
+      "unit": "per_image",
+      "price": "0.47",
+      "currency": "USD"
+     },
+     {
+      "variant": "page_length=medium;resolution=2k",
+      "unit": "per_image",
+      "price": "0.549",
+      "currency": "USD"
+     },
+     {
+      "variant": "page_length=long;resolution=1k",
+      "unit": "per_image",
+      "price": "0.784",
+      "currency": "USD"
+     },
+     {
+      "variant": "page_length=long;resolution=2k",
+      "unit": "per_image",
+      "price": "0.862",
+      "currency": "USD"
+     }
+    ],
+    "startingPrice": {
+     "variant": "page_length=short;resolution=1k",
+     "unit": "per_image",
+     "price": "0.235",
+     "currency": "USD"
+    },
+    "version": "v1",
+    "availability": "available",
+    "badges": [
+     "high_resolution",
+     "policy_filtered"
+    ],
+    "relatedModels": [
+     "kling/image-4.0",
+     "kling/image-4.0-set",
+     "kling/4.0"
+    ],
+    "updatedAt": "2026-11-18T08:22:09.114662Z"
+   },
+   {
+    "model": "kling/image-4.0-long/text-to-image",
+    "family": "kling/image-4.0-long",
+    "familyPageSlug": "kling-image-4-0-long",
+    "familyDisplayName": "Kling Image 4.0 Long",
+    "displayName": "Kling Image 4.0 Long \u00b7 Webpage Design",
+    "provider": "Kling",
+    "modality": "image",
+    "tasks": [
+     "text-to-image"
+    ],
+    "async": true,
+    "mature": false,
+    "policyTier": "filtered",
+    "taskTimeoutSeconds": 1800,
+    "enabled": true,
+    "available": true,
+    "quantityField": "",
+    "pricing": [
+     {
+      "variant": "1k",
+      "unit": "per_image",
+      "price": "0.549",
+      "currency": "USD"
+     },
+     {
+      "variant": "2k",
+      "unit": "per_image",
+      "price": "0.596",
+      "currency": "USD"
+     }
+    ],
+    "startingPrice": {
+     "variant": "1k",
+     "unit": "per_image",
+     "price": "0.549",
+     "currency": "USD"
+    },
+    "version": "v1",
+    "availability": "available",
+    "badges": [
+     "high_resolution",
+     "reference_input",
+     "policy_filtered"
+    ],
+    "relatedModels": [
+     "kling/image-4.0",
+     "kling/image-4.0-set",
+     "kling/4.0"
+    ],
+    "updatedAt": "2026-11-18T08:22:09.114662Z"
+   },
+   {
+    "model": "kling/4.0-flash/image-to-video",
+    "family": "kling/4.0-flash",
+    "familyPageSlug": "kling-4-0-flash",
+    "familyDisplayName": "Kling 4.0 Flash",
+    "displayName": "Kling 4.0 Flash \u00b7 Image to Video",
+    "provider": "Kling",
+    "modality": "video",
+    "tasks": [
+     "image-to-video"
+    ],
+    "async": true,
+    "mature": false,
+    "policyTier": "filtered",
+    "taskTimeoutSeconds": 3600,
+    "maxOutputDurationSeconds": 20,
+    "enabled": true,
+    "available": true,
+    "quantityField": "duration_seconds",
+    "pricing": [
+     {
+      "variant": "",
+      "unit": "per_second",
+      "price": "0.1128",
+      "currency": "USD"
+     }
+    ],
+    "startingPrice": {
+     "variant": "",
+     "unit": "per_second",
+     "price": "0.1128",
+     "currency": "USD"
+    },
+    "version": "v1",
+    "availability": "available",
+    "badges": [
+     "audio_output",
+     "policy_filtered"
+    ],
+    "relatedModels": [
+     "kling/4.0",
+     "kling/3.0-turbo",
+     "kling/o3"
+    ],
+    "updatedAt": "2026-11-19T15:43:14.647195Z"
+   },
+   {
+    "model": "kling/4.0-flash/reference-to-video",
+    "family": "kling/4.0-flash",
+    "familyPageSlug": "kling-4-0-flash",
+    "familyDisplayName": "Kling 4.0 Flash",
+    "displayName": "Kling 4.0 Flash \u00b7 Reference to Video",
+    "provider": "Kling",
+    "modality": "video",
+    "tasks": [
+     "reference-to-video"
+    ],
+    "async": true,
+    "mature": false,
+    "policyTier": "filtered",
+    "taskTimeoutSeconds": 3600,
+    "maxOutputDurationSeconds": 20,
+    "enabled": true,
+    "available": true,
+    "quantityField": "duration_seconds",
+    "pricing": [
+     {
+      "variant": "",
+      "unit": "per_second",
+      "price": "0.1128",
+      "currency": "USD"
+     },
+     {
+      "variant": "with_video=true",
+      "unit": "per_second",
+      "price": "0.1512",
+      "currency": "USD"
+     }
+    ],
+    "startingPrice": {
+     "variant": "",
+     "unit": "per_second",
+     "price": "0.1128",
+     "currency": "USD"
+    },
+    "version": "v1",
+    "availability": "available",
+    "badges": [
+     "audio_output",
+     "reference_input",
+     "policy_filtered"
+    ],
+    "relatedModels": [
+     "kling/4.0",
+     "kling/3.0-turbo",
+     "kling/o3"
+    ],
+    "updatedAt": "2026-11-19T15:43:14.647195Z"
+   },
+   {
+    "model": "kling/4.0-flash/text-to-video",
+    "family": "kling/4.0-flash",
+    "familyPageSlug": "kling-4-0-flash",
+    "familyDisplayName": "Kling 4.0 Flash",
+    "displayName": "Kling 4.0 Flash \u00b7 Text to Video",
+    "provider": "Kling",
+    "modality": "video",
+    "tasks": [
+     "text-to-video"
+    ],
+    "async": true,
+    "mature": false,
+    "policyTier": "filtered",
+    "taskTimeoutSeconds": 3600,
+    "maxOutputDurationSeconds": 20,
+    "enabled": true,
+    "available": true,
+    "quantityField": "duration_seconds",
+    "pricing": [
+     {
+      "variant": "",
+      "unit": "per_second",
+      "price": "0.1128",
+      "currency": "USD"
+     }
+    ],
+    "startingPrice": {
+     "variant": "",
+     "unit": "per_second",
+     "price": "0.1128",
+     "currency": "USD"
+    },
+    "version": "v1",
+    "availability": "available",
+    "badges": [
+     "audio_output",
+     "policy_filtered"
+    ],
+    "relatedModels": [
+     "kling/4.0",
+     "kling/3.0-turbo",
+     "kling/o3"
+    ],
+    "updatedAt": "2026-11-19T15:43:14.647195Z"
+   },
+   {
+    "model": "kling/4.0-flash/video-edit",
+    "family": "kling/4.0-flash",
+    "familyPageSlug": "kling-4-0-flash",
+    "familyDisplayName": "Kling 4.0 Flash",
+    "displayName": "Kling 4.0 Flash \u00b7 Video Edit",
+    "provider": "Kling",
+    "modality": "video",
+    "tasks": [
+     "video-edit"
+    ],
+    "async": true,
+    "mature": false,
+    "policyTier": "filtered",
+    "taskTimeoutSeconds": 3600,
+    "enabled": true,
+    "available": true,
+    "quantityField": "",
+    "pricing": [
+     {
+      "variant": "",
+      "unit": "per_second",
+      "price": "0.1512",
+      "currency": "USD"
+     }
+    ],
+    "startingPrice": {
+     "variant": "",
+     "unit": "per_second",
+     "price": "0.1512",
+     "currency": "USD"
+    },
+    "version": "v1",
+    "availability": "available",
+    "badges": [
+     "audio_output",
+     "reference_input",
+     "policy_filtered"
+    ],
+    "relatedModels": [
+     "kling/4.0",
+     "kling/3.0-turbo",
+     "kling/o3"
+    ],
+    "updatedAt": "2026-11-19T15:43:14.647195Z"
+   },
+   {
+    "model": "kling/4.0/image-to-video",
+    "family": "kling/4.0",
+    "familyPageSlug": "kling-4-0",
+    "familyDisplayName": "Kling 4.0",
+    "displayName": "Kling 4.0 \u00b7 Image to Video",
+    "provider": "Kling",
+    "modality": "video",
+    "tasks": [
+     "image-to-video"
+    ],
+    "async": true,
+    "mature": false,
+    "policyTier": "filtered",
+    "taskTimeoutSeconds": 3600,
+    "maxOutputDurationSeconds": 30,
+    "enabled": true,
+    "available": true,
+    "quantityField": "duration_seconds",
+    "pricing": [
+     {
+      "variant": "720p",
+      "unit": "per_second",
+      "price": "0.1884",
+      "currency": "USD"
+     },
+     {
+      "variant": "1080p",
+      "unit": "per_second",
+      "price": "0.282",
+      "currency": "USD"
+     }
+    ],
+    "startingPrice": {
+     "variant": "720p",
+     "unit": "per_second",
+     "price": "0.1884",
+     "currency": "USD"
+    },
+    "version": "v1",
+    "availability": "available",
+    "badges": [
+     "audio_output",
+     "high_resolution",
+     "policy_filtered"
+    ],
+    "relatedModels": [
+     "kling/3.0",
+     "kling/o3",
+     "kling/3.0-turbo"
+    ],
+    "updatedAt": "2026-11-06T12:17:48.823579Z"
+   },
+   {
+    "model": "kling/4.0/reference-to-video",
+    "family": "kling/4.0",
+    "familyPageSlug": "kling-4-0",
+    "familyDisplayName": "Kling 4.0",
+    "displayName": "Kling 4.0 \u00b7 Reference to Video",
+    "provider": "Kling",
+    "modality": "video",
+    "tasks": [
+     "reference-to-video"
+    ],
+    "async": true,
+    "mature": false,
+    "policyTier": "filtered",
+    "taskTimeoutSeconds": 3600,
+    "maxOutputDurationSeconds": 30,
+    "enabled": true,
+    "available": true,
+    "quantityField": "duration_seconds",
+    "pricing": [
+     {
+      "variant": "resolution=720p;with_video=true",
+      "unit": "per_second",
+      "price": "0.1128",
+      "currency": "USD"
+     },
+     {
+      "variant": "resolution=1080p;with_video=true",
+      "unit": "per_second",
+      "price": "0.1692",
+      "currency": "USD"
+     },
+     {
+      "variant": "720p",
+      "unit": "per_second",
+      "price": "0.1884",
+      "currency": "USD"
+     },
+     {
+      "variant": "1080p",
+      "unit": "per_second",
+      "price": "0.282",
+      "currency": "USD"
+     }
+    ],
+    "startingPrice": {
+     "variant": "resolution=720p;with_video=true",
+     "unit": "per_second",
+     "price": "0.1128",
+     "currency": "USD"
+    },
+    "version": "v1",
+    "availability": "available",
+    "badges": [
+     "audio_output",
+     "high_resolution",
+     "reference_input",
+     "policy_filtered"
+    ],
+    "relatedModels": [
+     "kling/3.0",
+     "kling/o3",
+     "kling/3.0-turbo"
+    ],
+    "updatedAt": "2026-11-06T12:17:48.823579Z"
+   },
+   {
+    "model": "kling/4.0/text-to-video",
+    "family": "kling/4.0",
+    "familyPageSlug": "kling-4-0",
+    "familyDisplayName": "Kling 4.0",
+    "displayName": "Kling 4.0 \u00b7 Text to Video",
+    "provider": "Kling",
+    "modality": "video",
+    "tasks": [
+     "text-to-video"
+    ],
+    "async": true,
+    "mature": false,
+    "policyTier": "filtered",
+    "taskTimeoutSeconds": 3600,
+    "maxOutputDurationSeconds": 30,
+    "enabled": true,
+    "available": true,
+    "quantityField": "duration_seconds",
+    "pricing": [
+     {
+      "variant": "720p",
+      "unit": "per_second",
+      "price": "0.1884",
+      "currency": "USD"
+     },
+     {
+      "variant": "1080p",
+      "unit": "per_second",
+      "price": "0.282",
+      "currency": "USD"
+     }
+    ],
+    "startingPrice": {
+     "variant": "720p",
+     "unit": "per_second",
+     "price": "0.1884",
+     "currency": "USD"
+    },
+    "version": "v1",
+    "availability": "available",
+    "badges": [
+     "audio_output",
+     "high_resolution",
+     "policy_filtered"
+    ],
+    "relatedModels": [
+     "kling/3.0",
+     "kling/o3",
+     "kling/3.0-turbo"
+    ],
+    "updatedAt": "2026-11-06T12:17:48.823579Z"
+   },
+   {
+    "model": "kling/4.0/video-edit",
+    "family": "kling/4.0",
+    "familyPageSlug": "kling-4-0",
+    "familyDisplayName": "Kling 4.0",
+    "displayName": "Kling 4.0 \u00b7 Video Edit",
+    "provider": "Kling",
+    "modality": "video",
+    "tasks": [
+     "video-edit"
+    ],
+    "async": true,
+    "mature": false,
+    "policyTier": "filtered",
+    "taskTimeoutSeconds": 3600,
+    "enabled": true,
+    "available": true,
+    "quantityField": "duration_seconds",
+    "pricing": [
+     {
+      "variant": "720p",
+      "unit": "per_second",
+      "price": "0.1128",
+      "currency": "USD"
+     },
+     {
+      "variant": "1080p",
+      "unit": "per_second",
+      "price": "0.1692",
+      "currency": "USD"
+     }
+    ],
+    "startingPrice": {
+     "variant": "720p",
+     "unit": "per_second",
+     "price": "0.1128",
+     "currency": "USD"
+    },
+    "version": "v1",
+    "availability": "available",
+    "badges": [
+     "audio_output",
+     "high_resolution",
+     "reference_input",
+     "policy_filtered"
+    ],
+    "relatedModels": [
+     "kling/3.0",
+     "kling/o3",
+     "kling/3.0-turbo"
+    ],
+    "updatedAt": "2026-11-06T12:17:48.823579Z"
+   },
+   {
+    "model": "kling/4.0/video-extend",
+    "family": "kling/4.0",
+    "familyPageSlug": "kling-4-0",
+    "familyDisplayName": "Kling 4.0",
+    "displayName": "Kling 4.0 \u00b7 Video Extend",
+    "provider": "Kling",
+    "modality": "video",
+    "tasks": [
+     "video-extend"
+    ],
+    "async": true,
+    "mature": false,
+    "policyTier": "filtered",
+    "taskTimeoutSeconds": 3600,
+    "maxOutputDurationSeconds": 30,
+    "enabled": true,
+    "available": true,
+    "quantityField": "duration_seconds",
+    "pricing": [
+     {
+      "variant": "720p",
+      "unit": "per_second",
+      "price": "0.1884",
+      "currency": "USD"
+     },
+     {
+      "variant": "1080p",
+      "unit": "per_second",
+      "price": "0.282",
+      "currency": "USD"
+     }
+    ],
+    "startingPrice": {
+     "variant": "720p",
+     "unit": "per_second",
+     "price": "0.1884",
+     "currency": "USD"
+    },
+    "version": "v1",
+    "availability": "available",
+    "badges": [
+     "audio_output",
+     "high_resolution",
+     "policy_filtered"
+    ],
+    "relatedModels": [
+     "kling/3.0",
+     "kling/o3",
+     "kling/3.0-turbo"
+    ],
+    "updatedAt": "2026-11-06T12:17:48.823579Z"
+   },
+   {
+    "model": "kling/3.0-turbo/image-to-video",
+    "family": "kling/3.0-turbo",
+    "familyPageSlug": "kling-3-0-turbo",
+    "familyDisplayName": "Kling 3.0 Turbo",
+    "displayName": "Kling 3.0 Turbo \u00b7 Image to Video",
+    "provider": "Kling",
+    "modality": "video",
+    "tasks": [
+     "image-to-video"
+    ],
+    "async": true,
+    "mature": false,
+    "policyTier": "filtered",
+    "taskTimeoutSeconds": 3600,
+    "maxOutputDurationSeconds": 15,
+    "enabled": true,
+    "available": true,
+    "quantityField": "duration_seconds",
+    "pricing": [
+     {
+      "variant": "720p",
+      "unit": "per_second",
+      "price": "0.112",
+      "currency": "USD"
+     },
+     {
+      "variant": "1080p",
+      "unit": "per_second",
+      "price": "0.14",
+      "currency": "USD"
+     }
+    ],
+    "startingPrice": {
+     "variant": "720p",
+     "unit": "per_second",
+     "price": "0.112",
+     "currency": "USD"
+    },
+    "version": "v1",
+    "availability": "available",
+    "badges": [
+     "high_resolution",
+     "policy_filtered"
+    ],
+    "relatedModels": [
+     "kling/3.0",
+     "kling/o3",
+     "kling/2.5-turbo"
+    ],
+    "updatedAt": "2026-10-28T14:40:46.506392Z"
+   },
+   {
+    "model": "kling/3.0-turbo/text-to-video",
+    "family": "kling/3.0-turbo",
+    "familyPageSlug": "kling-3-0-turbo",
+    "familyDisplayName": "Kling 3.0 Turbo",
+    "displayName": "Kling 3.0 Turbo \u00b7 Text to Video",
+    "provider": "Kling",
+    "modality": "video",
+    "tasks": [
+     "text-to-video"
+    ],
+    "async": true,
+    "mature": false,
+    "policyTier": "filtered",
+    "taskTimeoutSeconds": 3600,
+    "maxOutputDurationSeconds": 15,
+    "enabled": true,
+    "available": true,
+    "quantityField": "duration_seconds",
+    "pricing": [
+     {
+      "variant": "720p",
+      "unit": "per_second",
+      "price": "0.112",
+      "currency": "USD"
+     },
+     {
+      "variant": "1080p",
+      "unit": "per_second",
+      "price": "0.14",
+      "currency": "USD"
+     }
+    ],
+    "startingPrice": {
+     "variant": "720p",
+     "unit": "per_second",
+     "price": "0.112",
+     "currency": "USD"
+    },
+    "version": "v1",
+    "availability": "available",
+    "badges": [
+     "high_resolution",
+     "policy_filtered"
+    ],
+    "relatedModels": [
+     "kling/3.0",
+     "kling/o3",
+     "kling/2.5-turbo"
+    ],
+    "updatedAt": "2026-10-28T14:40:46.506392Z"
+   },
+   {
+    "model": "kling/o3/image-to-video",
+    "family": "kling/o3",
+    "familyPageSlug": "kling-o3",
+    "familyDisplayName": "Kling O3",
+    "displayName": "Kling O3 \u00b7 Image to Video",
+    "provider": "Kling",
+    "modality": "video",
+    "tasks": [
+     "image-to-video"
+    ],
+    "async": true,
+    "mature": false,
+    "policyTier": "filtered",
+    "taskTimeoutSeconds": 3600,
+    "maxOutputDurationSeconds": 15,
+    "enabled": true,
+    "available": true,
+    "quantityField": "duration_seconds",
+    "pricing": [
+     {
+      "variant": "generate_audio=false;resolution=720p",
+      "unit": "per_second",
+      "price": "0.0672",
+      "currency": "USD"
+     },
+     {
+      "variant": "generate_audio=false;resolution=1080p",
+      "unit": "per_second",
+      "price": "0.0896",
+      "currency": "USD"
+     },
+     {
+      "variant": "generate_audio=true;resolution=720p",
+      "unit": "per_second",
+      "price": "0.0896",
+      "currency": "USD"
+     },
+     {
+      "variant": "generate_audio=true;resolution=1080p",
+      "unit": "per_second",
+      "price": "0.112",
+      "currency": "USD"
+     },
+     {
+      "variant": "generate_audio=false;resolution=4k",
+      "unit": "per_second",
+      "price": "0.336",
+      "currency": "USD"
+     },
+     {
+      "variant": "generate_audio=true;resolution=4k",
+      "unit": "per_second",
+      "price": "0.336",
+      "currency": "USD"
+     }
+    ],
+    "startingPrice": {
+     "variant": "generate_audio=false;resolution=720p",
+     "unit": "per_second",
+     "price": "0.0672",
+     "currency": "USD"
+    },
+    "version": "v1",
+    "availability": "available",
+    "badges": [
+     "audio_output",
+     "high_resolution",
+     "policy_filtered"
+    ],
+    "relatedModels": [
+     "kling/3.0",
+     "kling/3.0-turbo"
+    ],
+    "updatedAt": "2026-11-18T02:30:23.960805Z"
+   },
+   {
+    "model": "kling/o3/reference-to-video",
+    "family": "kling/o3",
+    "familyPageSlug": "kling-o3",
+    "familyDisplayName": "Kling O3",
+    "displayName": "Kling O3 \u00b7 Reference to Video",
+    "provider": "Kling",
+    "modality": "video",
+    "tasks": [
+     "reference-to-video"
+    ],
+    "async": true,
+    "mature": false,
+    "policyTier": "filtered",
+    "taskTimeoutSeconds": 3600,
+    "maxOutputDurationSeconds": 15,
+    "enabled": true,
+    "available": true,
+    "quantityField": "duration_seconds",
+    "pricing": [
+     {
+      "variant": "generate_audio=false;resolution=720p",
+      "unit": "per_second",
+      "price": "0.0672",
+      "currency": "USD"
+     },
+     {
+      "variant": "generate_audio=false;resolution=1080p",
+      "unit": "per_second",
+      "price": "0.0896",
+      "currency": "USD"
+     },
+     {
+      "variant": "generate_audio=true;resolution=720p",
+      "unit": "per_second",
+      "price": "0.0896",
+      "currency": "USD"
+     },
+     {
+      "variant": "generate_audio=false;resolution=720p;with_video=true",
+      "unit": "per_second",
+      "price": "0.1008",
+      "currency": "USD"
+     },
+     {
+      "variant": "generate_audio=true;resolution=1080p",
+      "unit": "per_second",
+      "price": "0.112",
+      "currency": "USD"
+     },
+     {
+      "variant": "generate_audio=false;resolution=1080p;with_video=true",
+      "unit": "per_second",
+      "price": "0.1344",
+      "currency": "USD"
+     },
+     {
+      "variant": "generate_audio=false;resolution=4k",
+      "unit": "per_second",
+      "price": "0.42",
+      "currency": "USD"
+     },
+     {
+      "variant": "generate_audio=true;resolution=4k",
+      "unit": "per_second",
+      "price": "0.42",
+      "currency": "USD"
+     }
+    ],
+    "startingPrice": {
+     "variant": "generate_audio=false;resolution=720p",
+     "unit": "per_second",
+     "price": "0.0672",
+     "currency": "USD"
+    },
+    "version": "v1",
+    "availability": "available",
+    "badges": [
+     "audio_output",
+     "high_resolution",
+     "reference_input",
+     "policy_filtered"
+    ],
+    "relatedModels": [
+     "kling/3.0",
+     "kling/3.0-turbo"
+    ],
+    "updatedAt": "2026-11-18T02:30:23.960805Z"
+   },
+   {
+    "model": "kling/o3/text-to-video",
+    "family": "kling/o3",
+    "familyPageSlug": "kling-o3",
+    "familyDisplayName": "Kling O3",
+    "displayName": "Kling O3 \u00b7 Text to Video",
+    "provider": "Kling",
+    "modality": "video",
+    "tasks": [
+     "text-to-video"
+    ],
+    "async": true,
+    "mature": false,
+    "policyTier": "filtered",
+    "taskTimeoutSeconds": 3600,
+    "maxOutputDurationSeconds": 15,
+    "enabled": true,
+    "available": true,
+    "quantityField": "duration_seconds",
+    "pricing": [
+     {
+      "variant": "generate_audio=false;resolution=720p",
+      "unit": "per_second",
+      "price": "0.0672",
+      "currency": "USD"
+     },
+     {
+      "variant": "generate_audio=false;resolution=1080p",
+      "unit": "per_second",
+      "price": "0.0896",
+      "currency": "USD"
+     },
+     {
+      "variant": "generate_audio=true;resolution=720p",
+      "unit": "per_second",
+      "price": "0.0896",
+      "currency": "USD"
+     },
+     {
+      "variant": "generate_audio=true;resolution=1080p",
+      "unit": "per_second",
+      "price": "0.112",
+      "currency": "USD"
+     },
+     {
+      "variant": "generate_audio=false;resolution=4k",
+      "unit": "per_second",
+      "price": "0.336",
+      "currency": "USD"
+     },
+     {
+      "variant": "generate_audio=true;resolution=4k",
+      "unit": "per_second",
+      "price": "0.336",
+      "currency": "USD"
+     }
+    ],
+    "startingPrice": {
+     "variant": "generate_audio=false;resolution=720p",
+     "unit": "per_second",
+     "price": "0.0672",
+     "currency": "USD"
+    },
+    "version": "v1",
+    "availability": "available",
+    "badges": [
+     "audio_output",
+     "high_resolution",
+     "policy_filtered"
+    ],
+    "relatedModels": [
+     "kling/3.0",
+     "kling/3.0-turbo"
+    ],
+    "updatedAt": "2026-11-18T02:30:23.960805Z"
+   },
+   {
+    "model": "kling/o3/video-edit",
+    "family": "kling/o3",
+    "familyPageSlug": "kling-o3",
+    "familyDisplayName": "Kling O3",
+    "displayName": "Kling O3 \u00b7 Video Edit",
+    "provider": "Kling",
+    "modality": "video",
+    "tasks": [
+     "video-edit"
+    ],
+    "async": true,
+    "mature": false,
+    "policyTier": "filtered",
+    "taskTimeoutSeconds": 3600,
+    "enabled": true,
+    "available": true,
+    "quantityField": "",
+    "pricing": [
+     {
+      "variant": "720p",
+      "unit": "per_second",
+      "price": "0.1252",
+      "currency": "USD"
+     },
+     {
+      "variant": "1080p",
+      "unit": "per_second",
+      "price": "0.168",
+      "currency": "USD"
+     }
+    ],
+    "startingPrice": {
+     "variant": "720p",
+     "unit": "per_second",
+     "price": "0.1252",
+     "currency": "USD"
+    },
+    "version": "v1",
+    "availability": "available",
+    "badges": [
+     "audio_output",
+     "high_resolution",
+     "reference_input",
+     "policy_filtered"
+    ],
+    "relatedModels": [
+     "kling/3.0",
+     "kling/3.0-turbo"
+    ],
+    "updatedAt": "2026-11-18T02:30:23.960805Z"
+   },
+   {
+    "model": "kling/3.0/character-animation",
+    "family": "kling/3.0",
+    "familyPageSlug": "kling-3-0",
+    "familyDisplayName": "Kling 3.0",
+    "displayName": "Kling 3.0 \u00b7 Motion Control",
+    "provider": "Kling",
+    "modality": "video",
+    "tasks": [
+     "character-animation"
+    ],
+    "async": true,
+    "mature": false,
+    "policyTier": "filtered",
+    "taskTimeoutSeconds": 3600,
+    "enabled": true,
+    "available": true,
+    "quantityField": "",
+    "pricing": [
+     {
+      "variant": "720p",
+      "unit": "per_second",
+      "price": "0.1008",
+      "currency": "USD"
+     },
+     {
+      "variant": "1080p",
+      "unit": "per_second",
+      "price": "0.1344",
+      "currency": "USD"
+     }
+    ],
+    "startingPrice": {
+     "variant": "720p",
+     "unit": "per_second",
+     "price": "0.1008",
+     "currency": "USD"
+    },
+    "version": "v1",
+    "availability": "available",
+    "badges": [
+     "audio_output",
+     "high_resolution",
+     "policy_filtered"
+    ],
+    "relatedModels": [
+     "kling/o3",
+     "kling/3.0-turbo",
+     "kling/2.6"
+    ],
+    "updatedAt": "2026-10-28T14:40:46.506392Z"
+   },
+   {
+    "model": "kling/3.0/image-to-video",
+    "family": "kling/3.0",
+    "familyPageSlug": "kling-3-0",
+    "familyDisplayName": "Kling 3.0",
+    "displayName": "Kling 3.0 \u00b7 Image to Video",
+    "provider": "Kling",
+    "modality": "video",
+    "tasks": [
+     "image-to-video"
+    ],
+    "async": true,
+    "mature": false,
+    "policyTier": "filtered",
+    "taskTimeoutSeconds": 3600,
+    "maxOutputDurationSeconds": 15,
+    "enabled": true,
+    "available": true,
+    "quantityField": "duration_seconds",
+    "pricing": [
+     {
+      "variant": "generate_audio=false;resolution=720p",
+      "unit": "per_second",
+      "price": "0.0672",
+      "currency": "USD"
+     },
+     {
+      "variant": "generate_audio=false;resolution=1080p",
+      "unit": "per_second",
+      "price": "0.0896",
+      "currency": "USD"
+     },
+     {
+      "variant": "generate_audio=true;resolution=720p",
+      "unit": "per_second",
+      "price": "0.1008",
+      "currency": "USD"
+     },
+     {
+      "variant": "generate_audio=true;resolution=1080p",
+      "unit": "per_second",
+      "price": "0.1344",
+      "currency": "USD"
+     },
+     {
+      "variant": "generate_audio=false;resolution=4k",
+      "unit": "per_second",
+      "price": "0.336",
+      "currency": "USD"
+     },
+     {
+      "variant": "generate_audio=true;resolution=4k",
+      "unit": "per_second",
+      "price": "0.336",
+      "currency": "USD"
+     }
+    ],
+    "startingPrice": {
+     "variant": "generate_audio=false;resolution=720p",
+     "unit": "per_second",
+     "price": "0.0672",
+     "currency": "USD"
+    },
+    "version": "v1",
+    "availability": "available",
+    "badges": [
+     "audio_output",
+     "high_resolution",
+     "policy_filtered"
+    ],
+    "relatedModels": [
+     "kling/o3",
+     "kling/3.0-turbo",
+     "kling/2.6"
+    ],
+    "updatedAt": "2026-10-28T14:40:46.506392Z"
+   },
+   {
+    "model": "kling/3.0/text-to-video",
+    "family": "kling/3.0",
+    "familyPageSlug": "kling-3-0",
+    "familyDisplayName": "Kling 3.0",
+    "displayName": "Kling 3.0 \u00b7 Text to Video",
+    "provider": "Kling",
+    "modality": "video",
+    "tasks": [
+     "text-to-video"
+    ],
+    "async": true,
+    "mature": false,
+    "policyTier": "filtered",
+    "taskTimeoutSeconds": 3600,
+    "maxOutputDurationSeconds": 15,
+    "enabled": true,
+    "available": true,
+    "quantityField": "duration_seconds",
+    "pricing": [
+     {
+      "variant": "generate_audio=false;resolution=720p",
+      "unit": "per_second",
+      "price": "0.0672",
+      "currency": "USD"
+     },
+     {
+      "variant": "generate_audio=false;resolution=1080p",
+      "unit": "per_second",
+      "price": "0.0896",
+      "currency": "USD"
+     },
+     {
+      "variant": "generate_audio=true;resolution=720p",
+      "unit": "per_second",
+      "price": "0.1008",
+      "currency": "USD"
+     },
+     {
+      "variant": "generate_audio=true;resolution=1080p",
+      "unit": "per_second",
+      "price": "0.1344",
+      "currency": "USD"
+     },
+     {
+      "variant": "generate_audio=false;resolution=4k",
+      "unit": "per_second",
+      "price": "0.336",
+      "currency": "USD"
+     },
+     {
+      "variant": "generate_audio=true;resolution=4k",
+      "unit": "per_second",
+      "price": "0.336",
+      "currency": "USD"
+     }
+    ],
+    "startingPrice": {
+     "variant": "generate_audio=false;resolution=720p",
+     "unit": "per_second",
+     "price": "0.0672",
+     "currency": "USD"
+    },
+    "version": "v1",
+    "availability": "available",
+    "badges": [
+     "audio_output",
+     "high_resolution",
+     "policy_filtered"
+    ],
+    "relatedModels": [
+     "kling/o3",
+     "kling/3.0-turbo",
+     "kling/2.6"
+    ],
+    "updatedAt": "2026-10-28T14:40:46.506392Z"
+   },
+   {
+    "model": "kling/avatar-2.0/talking-avatar",
+    "family": "kling/avatar-2.0",
+    "familyPageSlug": "kling-avatar-2-0",
+    "familyDisplayName": "Kling Avatar 2.0",
+    "displayName": "Kling Avatar 2.0 \u00b7 Talking Avatar",
+    "provider": "Kling",
+    "modality": "video",
+    "tasks": [
+     "talking-avatar"
+    ],
+    "async": true,
+    "mature": false,
+    "policyTier": "filtered",
+    "taskTimeoutSeconds": 3600,
+    "enabled": true,
+    "available": true,
+    "quantityField": "",
+    "pricing": [
+     {
+      "variant": "720p",
+      "unit": "per_second",
+      "price": "0.056",
+      "currency": "USD"
+     },
+     {
+      "variant": "1080p",
+      "unit": "per_second",
+      "price": "0.112",
+      "currency": "USD"
+     }
+    ],
+    "startingPrice": {
+     "variant": "720p",
+     "unit": "per_second",
+     "price": "0.056",
+     "currency": "USD"
+    },
+    "version": "v1",
+    "availability": "available",
+    "badges": [
+     "high_resolution",
+     "policy_filtered"
+    ],
+    "relatedModels": [
+     "kling/2.6",
+     "kling/3.0"
+    ],
+    "updatedAt": "2026-10-28T14:40:46.506392Z"
+   },
+   {
+    "model": "kling/2.6/character-animation",
+    "family": "kling/2.6",
+    "familyPageSlug": "kling-2-6",
+    "familyDisplayName": "Kling 2.6",
+    "displayName": "Kling 2.6 \u00b7 Motion Control",
+    "provider": "Kling",
+    "modality": "video",
+    "tasks": [
+     "character-animation"
+    ],
+    "async": true,
+    "mature": false,
+    "policyTier": "filtered",
+    "taskTimeoutSeconds": 3600,
+    "enabled": true,
+    "available": true,
+    "quantityField": "",
+    "pricing": [
+     {
+      "variant": "720p",
+      "unit": "per_second",
+      "price": "0.069",
+      "currency": "USD"
+     },
+     {
+      "variant": "1080p",
+      "unit": "per_second",
+      "price": "0.112",
+      "currency": "USD"
+     }
+    ],
+    "startingPrice": {
+     "variant": "720p",
+     "unit": "per_second",
+     "price": "0.069",
+     "currency": "USD"
+    },
+    "version": "v1",
+    "availability": "available",
+    "badges": [
+     "audio_output",
+     "high_resolution",
+     "policy_filtered"
+    ],
+    "relatedModels": [
+     "kling/3.0",
+     "kling/2.5-turbo",
+     "kling/avatar-2.0"
+    ],
+    "updatedAt": "2026-11-18T02:30:23.960805Z"
+   },
+   {
+    "model": "kling/2.6/image-to-video",
+    "family": "kling/2.6",
+    "familyPageSlug": "kling-2-6",
+    "familyDisplayName": "Kling 2.6",
+    "displayName": "Kling 2.6 \u00b7 Image to Video",
+    "provider": "Kling",
+    "modality": "video",
+    "tasks": [
+     "image-to-video"
+    ],
+    "async": true,
+    "mature": false,
+    "policyTier": "filtered",
+    "taskTimeoutSeconds": 3600,
+    "enabled": true,
+    "available": true,
+    "quantityField": "duration_seconds",
+    "pricing": [
+     {
+      "variant": "false",
+      "unit": "per_second",
+      "price": "0.069",
+      "currency": "USD"
+     },
+     {
+      "variant": "true",
+      "unit": "per_second",
+      "price": "0.138",
+      "currency": "USD"
+     }
+    ],
+    "startingPrice": {
+     "variant": "false",
+     "unit": "per_second",
+     "price": "0.069",
+     "currency": "USD"
+    },
+    "version": "v1",
+    "availability": "available",
+    "badges": [
+     "audio_output",
+     "high_resolution",
+     "policy_filtered"
+    ],
+    "relatedModels": [
+     "kling/3.0",
+     "kling/2.5-turbo",
+     "kling/avatar-2.0"
+    ],
+    "updatedAt": "2026-11-18T02:30:23.960805Z"
+   },
+   {
+    "model": "kling/2.6/text-to-video",
+    "family": "kling/2.6",
+    "familyPageSlug": "kling-2-6",
+    "familyDisplayName": "Kling 2.6",
+    "displayName": "Kling 2.6 \u00b7 Text to Video",
+    "provider": "Kling",
+    "modality": "video",
+    "tasks": [
+     "text-to-video"
+    ],
+    "async": true,
+    "mature": false,
+    "policyTier": "filtered",
+    "taskTimeoutSeconds": 3600,
+    "enabled": true,
+    "available": true,
+    "quantityField": "duration_seconds",
+    "pricing": [
+     {
+      "variant": "false",
+      "unit": "per_second",
+      "price": "0.069",
+      "currency": "USD"
+     },
+     {
+      "variant": "true",
+      "unit": "per_second",
+      "price": "0.138",
+      "currency": "USD"
+     }
+    ],
+    "startingPrice": {
+     "variant": "false",
+     "unit": "per_second",
+     "price": "0.069",
+     "currency": "USD"
+    },
+    "version": "v1",
+    "availability": "available",
+    "badges": [
+     "audio_output",
+     "high_resolution",
+     "policy_filtered"
+    ],
+    "relatedModels": [
+     "kling/3.0",
+     "kling/2.5-turbo",
+     "kling/avatar-2.0"
+    ],
+    "updatedAt": "2026-11-18T02:30:23.960805Z"
+   },
+   {
+    "model": "kling/2.5-turbo/image-to-video",
+    "family": "kling/2.5-turbo",
+    "familyPageSlug": "kling-2-5-turbo",
+    "familyDisplayName": "Kling 2.5 Turbo",
+    "displayName": "Kling 2.5 Turbo \u00b7 Image to Video",
+    "provider": "Kling",
+    "modality": "video",
+    "tasks": [
+     "image-to-video"
+    ],
+    "async": true,
+    "mature": false,
+    "policyTier": "filtered",
+    "taskTimeoutSeconds": 3600,
+    "enabled": true,
+    "available": true,
+    "quantityField": "duration_seconds",
+    "pricing": [
+     {
+      "variant": "",
+      "unit": "per_second",
+      "price": "0.07",
+      "currency": "USD"
+     }
+    ],
+    "startingPrice": {
+     "variant": "",
+     "unit": "per_second",
+     "price": "0.07",
+     "currency": "USD"
+    },
+    "version": "v1",
+    "availability": "available",
+    "badges": [
+     "policy_filtered"
+    ],
+    "relatedModels": [
+     "kling/3.0-turbo",
+     "kling/2.6",
+     "kling/2.1"
+    ],
+    "updatedAt": "2026-11-13T15:13:13.225329Z"
+   },
+   {
+    "model": "kling/2.5-turbo/text-to-video",
+    "family": "kling/2.5-turbo",
+    "familyPageSlug": "kling-2-5-turbo",
+    "familyDisplayName": "Kling 2.5 Turbo",
+    "displayName": "Kling 2.5 Turbo \u00b7 Text to Video",
+    "provider": "Kling",
+    "modality": "video",
+    "tasks": [
+     "text-to-video"
+    ],
+    "async": true,
+    "mature": false,
+    "policyTier": "filtered",
+    "taskTimeoutSeconds": 3600,
+    "enabled": true,
+    "available": true,
+    "quantityField": "duration_seconds",
+    "pricing": [
+     {
+      "variant": "",
+      "unit": "per_second",
+      "price": "0.07",
+      "currency": "USD"
+     }
+    ],
+    "startingPrice": {
+     "variant": "",
+     "unit": "per_second",
+     "price": "0.07",
+     "currency": "USD"
+    },
+    "version": "v1",
+    "availability": "available",
+    "badges": [
+     "policy_filtered"
+    ],
+    "relatedModels": [
+     "kling/3.0-turbo",
+     "kling/2.6",
+     "kling/2.1"
+    ],
+    "updatedAt": "2026-11-13T15:13:13.225329Z"
+   },
+   {
+    "model": "kling/2.1-master/image-to-video",
+    "family": "kling/2.1-master",
+    "familyPageSlug": "kling-2-1-master",
+    "familyDisplayName": "Kling 2.1 Master",
+    "displayName": "Kling 2.1 Master \u00b7 Image to Video",
+    "provider": "Kling",
+    "modality": "video",
+    "tasks": [
+     "image-to-video"
+    ],
+    "async": true,
+    "mature": false,
+    "policyTier": "filtered",
+    "taskTimeoutSeconds": 3600,
+    "enabled": true,
+    "available": true,
+    "quantityField": "duration_seconds",
+    "pricing": [
+     {
+      "variant": "",
+      "unit": "per_second",
+      "price": "0.28",
+      "currency": "USD"
+     }
+    ],
+    "startingPrice": {
+     "variant": "",
+     "unit": "per_second",
+     "price": "0.28",
+     "currency": "USD"
+    },
+    "version": "v1",
+    "availability": "available",
+    "badges": [
+     "policy_filtered"
+    ],
+    "relatedModels": [
+     "kling/2.1",
+     "kling/2.5-turbo"
+    ],
+    "updatedAt": "2026-10-28T14:40:46.506392Z"
+   },
+   {
+    "model": "kling/2.1-master/text-to-video",
+    "family": "kling/2.1-master",
+    "familyPageSlug": "kling-2-1-master",
+    "familyDisplayName": "Kling 2.1 Master",
+    "displayName": "Kling 2.1 Master \u00b7 Text to Video",
+    "provider": "Kling",
+    "modality": "video",
+    "tasks": [
+     "text-to-video"
+    ],
+    "async": true,
+    "mature": false,
+    "policyTier": "filtered",
+    "taskTimeoutSeconds": 3600,
+    "enabled": true,
+    "available": true,
+    "quantityField": "duration_seconds",
+    "pricing": [
+     {
+      "variant": "",
+      "unit": "per_second",
+      "price": "0.28",
+      "currency": "USD"
+     }
+    ],
+    "startingPrice": {
+     "variant": "",
+     "unit": "per_second",
+     "price": "0.28",
+     "currency": "USD"
+    },
+    "version": "v1",
+    "availability": "available",
+    "badges": [
+     "policy_filtered"
+    ],
+    "relatedModels": [
+     "kling/2.1",
+     "kling/2.5-turbo"
+    ],
+    "updatedAt": "2026-10-28T14:40:46.506392Z"
+   },
+   {
+    "model": "kling/2.1/image-to-video",
+    "family": "kling/2.1",
+    "familyPageSlug": "kling-2-1",
+    "familyDisplayName": "Kling 2.1",
+    "displayName": "Kling 2.1 \u00b7 Image to Video",
+    "provider": "Kling",
+    "modality": "video",
+    "tasks": [
+     "image-to-video"
+    ],
+    "async": true,
+    "mature": false,
+    "policyTier": "filtered",
+    "taskTimeoutSeconds": 3600,
+    "enabled": true,
+    "available": true,
+    "quantityField": "duration_seconds",
+    "pricing": [
+     {
+      "variant": "720p",
+      "unit": "per_second",
+      "price": "0.0562",
+      "currency": "USD"
+     },
+     {
+      "variant": "1080p",
+      "unit": "per_second",
+      "price": "0.0978",
+      "currency": "USD"
+     }
+    ],
+    "startingPrice": {
+     "variant": "720p",
+     "unit": "per_second",
+     "price": "0.0562",
+     "currency": "USD"
+    },
+    "version": "v1",
+    "availability": "available",
+    "badges": [
+     "high_resolution",
+     "policy_filtered"
+    ],
+    "relatedModels": [
+     "kling/2.1-master",
+     "kling/2.5-turbo"
+    ],
+    "updatedAt": "2026-10-28T14:40:46.506392Z"
+   }
+  ],
+  "kling_count": 32
+ },
+ "numes_models": {
+  "status": 200,
+  "bytes": 269257,
+  "json": true,
+  "kling_entries": [
+   {
+    "architecture": {
+     "input_modalities": [
+      "text"
+     ],
+     "modality": "text->text",
+     "output_modalities": [
+      "text"
+     ],
+     "tokenizer": ""
+    },
+    "billing_currency": "USD",
+    "canonical_slug": "thinkingmachines/inkling",
+    "context_length": 1048576,
+    "created": 1794861813,
+    "description": "",
+    "embeddings": false,
+    "id": "thinkingmachines/inkling",
+    "name": "Inkling",
+    "pricing": {
+     "audio": "0",
+     "completion": "0.00000427275",
+     "image": "0",
+     "input_cache_read": "0.00000017935",
+     "input_cache_write": "0.000001055",
+     "prompt": "0.000001055",
+     "request": "0"
+    },
+    "supported_parameters": [
+     "include_reasoning",
+     "max_tokens",
+     "reasoning",
+     "stop",
+     "temperature",
+     "tool_choice",
+     "tools",
+     "top_k",
+     "top_p"
+    ],
+    "top_provider": {
+     "context_length": 1048576,
+     "max_completion_tokens": null
+    },
+    "usage_meter": "provider-native-v1"
+   },
+   {
+    "architecture": {
+     "input_modalities": [
+      "text"
+     ],
+     "modality": "text->text",
+     "output_modalities": [
+      "text"
+     ],
+     "tokenizer": ""
+    },
+    "billing_currency": "USD",
+    "canonical_slug": "thinkingmachines/inkling-2-mini",
+    "context_length": 1048576,
+    "created": 1795514143,
+    "description": "",
+    "embeddings": false,
+    "id": "thinkingmachines/inkling-2-mini",
+    "name": "Inkling 2 Mini",
+    "pricing": {
+     "audio": "0",
+     "completion": "0.0000003165",
+     "image": "0",
+     "input_cache_read": "0.000000015825",
+     "input_cache_write": "0.000000079125",
+     "prompt": "0.000000079125",
+     "request": "0"
+    },
+    "supported_parameters": [
+     "include_reasoning",
+     "max_tokens",
+     "reasoning",
+     "response_format",
+     "seed",
+     "stop",
+     "structured_outputs",
+     "temperature",
+     "tool_choice",
+     "tools",
+     "top_k",
+     "top_p"
+    ],
+    "top_provider": {
+     "context_length": 1048576,
+     "max_completion_tokens": null
+    },
+    "usage_meter": "provider-native-v1"
+   },
+   {
+    "architecture": {
+     "input_modalities": [
+      "text"
+     ],
+     "modality": "text->text",
+     "output_modalities": [
+      "text"
+     ],
+     "tokenizer": ""
+    },
+    "billing_currency": "USD",
+    "canonical_slug": "thinkingmachines/inkling-2-small",
+    "context_length": 1048576,
+    "created": 1794657563,
+    "description": "",
+    "embeddings": false,
+    "id": "thinkingmachines/inkling-2-small",
+    "name": "Inkling 2 Small",
+    "pricing": {
+     "audio": "0",
+     "completion": "0.000001055",
+     "image": "0",
+     "input_cache_read": "0.00000003165",
+     "input_cache_write": "0.0000003165",
+     "prompt": "0.0000003165",
+     "request": "0"
+    },
+    "supported_parameters": [
+     "include_reasoning",
+     "max_tokens",
+     "reasoning",
+     "response_format",
+     "seed",
+     "stop",
+     "structured_outputs",
+     "temperature",
+     "tool_choice",
+     "tools",
+     "top_k",
+     "top_p"
+    ],
+    "top_provider": {
+     "context_length": 1048576,
+     "max_completion_tokens": null
+    },
+    "usage_meter": "provider-native-v1"
+   },
+   {
+    "architecture": {
+     "input_modalities": [
+      "text"
+     ],
+     "modality": "text->text",
+     "output_modalities": [
+      "text"
+     ],
+     "tokenizer": ""
+    },
+    "billing_currency": "USD",
+    "canonical_slug": "thinkingmachines/inkling-small",
+    "context_length": 524288,
+    "created": 1793481648,
+    "description": "",
+    "embeddings": false,
+    "id": "thinkingmachines/inkling-small",
+    "maximum_output_length": 131072,
+    "name": "Inkling Small",
+    "pricing": {
+     "audio": "0",
+     "completion": "0.0000012",
+     "image": "0",
+     "input_cache_read": "0.0000001",
+     "prompt": "0.00000045",
+     "request": "0"
+    },
+    "reasoning": {
+     "supported_efforts": [
+      "low",
+      "medium",
+      "high"
+     ],
+     "supports_max_tokens": false
+    },
+    "supported_parameters": [
+     "max_tokens",
+     "prompt_cache_key",
+     "reasoning",
+     "response_format",
+     "seed",
+     "stop",
+     "structured_outputs",
+     "temperature",
+     "tool_choice",
+     "tools",
+     "top_k",
+     "top_p"
+    ],
+    "top_provider": {
+     "context_length": 524288,
+     "max_completion_tokens": 131072
+    },
+    "usage_meter": "provider-native-v1"
+   }
+  ],
+  "kling_count": 4
+ },
+ "framehush_models": {
+  "status": 200,
+  "bytes": 2108,
+  "json": true,
+  "kling_entries": [],
+  "kling_count": 0
+ },
+ "cometapi_models": {
+  "status": 200,
+  "bytes": 71864,
+  "json": true,
+  "kling_entries": [
+   {
+    "id": "kling_advanced_custom_elements",
+    "object": "model",
+    "created": 1626777600,
+    "owned_by": "custom",
+    "shutdown_date": null,
+    "supported_endpoint_types": [
+     "openai"
+    ]
+   },
+   {
+    "id": "kling_advanced_lip_sync",
+    "object": "model",
+    "created": 1626777600,
+    "owned_by": "custom",
+    "shutdown_date": null,
+    "supported_endpoint_types": [
+     "openai"
+    ]
+   },
+   {
+    "id": "kling_audio_text_to_audio",
+    "object": "model",
+    "created": 1626777600,
+    "owned_by": "custom",
+    "shutdown_date": null,
+    "supported_endpoint_types": [
+     "openai"
+    ]
+   },
+   {
+    "id": "kling_audio_video_to_audio",
+    "object": "model",
+    "created": 1626777600,
+    "owned_by": "custom",
+    "shutdown_date": null,
+    "supported_endpoint_types": [
+     "openai"
+    ]
+   },
+   {
+    "id": "kling_avatar_image2video",
+    "object": "model",
+    "created": 1626777600,
+    "owned_by": "custom",
+    "shutdown_date": null,
+    "supported_endpoint_types": [
+     "openai"
+    ]
+   },
+   {
+    "id": "kling_effects",
+    "object": "model",
+    "created": 1626777600,
+    "owned_by": "custom",
+    "shutdown_date": null,
+    "supported_endpoint_types": [
+     "openai"
+    ]
+   },
+   {
+    "id": "kling_extend",
+    "object": "model",
+    "created": 1626777600,
+    "owned_by": "custom",
+    "shutdown_date": null,
+    "supported_endpoint_types": [
+     "openai"
+    ]
+   },
+   {
+    "id": "kling_general_advanced_custom_elements",
+    "object": "model",
+    "created": 1626777600,
+    "owned_by": "custom",
+    "shutdown_date": null,
+    "supported_endpoint_types": [
+     "openai"
+    ]
+   },
+   {
+    "id": "kling_identify_face",
+    "object": "model",
+    "created": 1626777600,
+    "owned_by": "custom",
+    "shutdown_date": null,
+    "supported_endpoint_types": [
+     "openai"
+    ]
+   },
+   {
+    "id": "kling_image",
+    "object": "model",
+    "created": 1626777600,
+    "owned_by": "custom",
+    "shutdown_date": null,
+    "supported_endpoint_types": [
+     "openai"
+    ]
+   },
+   {
+    "id": "kling_image_expand",
+    "object": "model",
+    "created": 1626777600,
+    "owned_by": "custom",
+    "shutdown_date": null,
+    "supported_endpoint_types": [
+     "openai"
+    ]
+   },
+   {
+    "id": "kling_image_recognize",
+    "object": "model",
+    "created": 1626777600,
+    "owned_by": "custom",
+    "shutdown_date": null,
+    "supported_endpoint_types": [
+     "openai"
+    ]
+   },
+   {
+    "id": "kling_lip_sync",
+    "object": "model",
+    "created": 1626777600,
+    "owned_by": "custom",
+    "shutdown_date": null,
+    "supported_endpoint_types": [
+     "openai"
+    ]
+   },
+   {
+    "id": "kling_multi_elements_add",
+    "object": "model",
+    "created": 1626777600,
+    "owned_by": "custom",
+    "shutdown_date": null,
+    "supported_endpoint_types": [
+     "openai"
+    ]
+   },
+   {
+    "id": "kling_multi_elements_clear",
+    "object": "model",
+    "created": 1626777600,
+    "owned_by": "custom",
+    "shutdown_date": null,
+    "supported_endpoint_types": [
+     "openai"
+    ]
+   },
+   {
+    "id": "kling_multi_elements_delete",
+    "object": "model",
+    "created": 1626777600,
+    "owned_by": "custom",
+    "shutdown_date": null,
+    "supported_endpoint_types": [
+     "openai"
+    ]
+   },
+   {
+    "id": "kling_multi_elements_init",
+    "object": "model",
+    "created": 1626777600,
+    "owned_by": "custom",
+    "shutdown_date": null,
+    "supported_endpoint_types": [
+     "openai"
+    ]
+   },
+   {
+    "id": "kling_multi_elements_preview",
+    "object": "model",
+    "created": 1626777600,
+    "owned_by": "custom",
+    "shutdown_date": null,
+    "supported_endpoint_types": [
+     "openai"
+    ]
+   },
+   {
+    "id": "kling_multi_elements_submit",
+    "object": "model",
+    "created": 1626777600,
+    "owned_by": "custom",
+    "shutdown_date": null,
+    "supported_endpoint_types": [
+     "openai"
+    ]
+   },
+   {
+    "id": "kling_multi_image2image",
+    "object": "model",
+    "created": 1626777600,
+    "owned_by": "custom",
+    "shutdown_date": null,
+    "supported_endpoint_types": [
+     "openai"
+    ]
+   },
+   {
+    "id": "kling_omni_image",
+    "object": "model",
+    "created": 1626777600,
+    "owned_by": "custom",
+    "shutdown_date": null,
+    "supported_endpoint_types": [
+     "openai"
+    ]
+   },
+   {
+    "id": "kling_omni_video",
+    "object": "model",
+    "created": 1626777600,
+    "owned_by": "custom",
+    "shutdown_date": null,
+    "supported_endpoint_types": [
+     "openai"
+    ]
+   },
+   {
+    "id": "kling_tts",
+    "object": "model",
+    "created": 1626777600,
+    "owned_by": "custom",
+    "shutdown_date": null,
+    "supported_endpoint_types": [
+     "openai"
+    ]
+   },
+   {
+    "id": "kling_video",
+    "object": "model",
+    "created": 1626777600,
+    "owned_by": "custom",
+    "shutdown_date": null,
+    "supported_endpoint_types": [
+     "openai"
+    ]
+   },
+   {
+    "id": "kling_video_motion_control",
+    "object": "model",
+    "created": 1626777600,
+    "owned_by": "custom",
+    "shutdown_date": null,
+    "supported_endpoint_types": [
+     "openai"
+    ]
+   }
+  ],
+  "kling_count": 25
+ },
+ "cometapi_pricing_api": {
+  "status": 404,
+  "bytes": 106,
+  "json": true,
+  "kling_entries": [],
+  "kling_count": 0
+ },
+ "cometapi_pricing_page": {
+  "status": 200,
+  "bytes": 948414,
+  "price_fragments": [
+   "page_viewed\",{type:\"contents\"}); </script><script src=\"/_next/static/chunks/polyfills-42372ed130431b0a.js\" noModule=\"\"></script></head><body><div hidden=\"\"><!--$--><!--/$--></div><!--$!--><template data-dgst=\"BAILOUT_TO_CLIENT_SIDE_RENDERING\"></template><!--/$--><!--$!--><template data-dgst=\"BAILOUT_TO_CLIENT_SIDE_RENDERING\"></template><!--/$--><!--$!--><tem",
+   "ed\",{type:\"contents\"}); </script><script src=\"/_next/static/chunks/polyfills-42372ed130431b0a.js\" noModule=\"\"></script></head><body><div hidden=\"\"><!--$--><!--/$--></div><!--$!--><template data-dgst=\"BAILOUT_TO_CLIENT_SIDE_RENDERING\"></template><!--/$--><!--$!--><template data-dgst=\"BAILOUT_TO_CLIENT_SIDE_RENDERING\"></template><!--/$--><!--$!--><template dat",
+   "tents\"}); </script><script src=\"/_next/static/chunks/polyfills-42372ed130431b0a.js\" noModule=\"\"></script></head><body><div hidden=\"\"><!--$--><!--/$--></div><!--$!--><template data-dgst=\"BAILOUT_TO_CLIENT_SIDE_RENDERING\"></template><!--/$--><!--$!--><template data-dgst=\"BAILOUT_TO_CLIENT_SIDE_RENDERING\"></template><!--/$--><!--$!--><template data-dgst=\"BAILOU",
+   "b0a.js\" noModule=\"\"></script></head><body><div hidden=\"\"><!--$--><!--/$--></div><!--$!--><template data-dgst=\"BAILOUT_TO_CLIENT_SIDE_RENDERING\"></template><!--/$--><!--$!--><template data-dgst=\"BAILOUT_TO_CLIENT_SIDE_RENDERING\"></template><!--/$--><!--$!--><template data-dgst=\"BAILOUT_TO_CLIENT_SIDE_RENDERING\"></template><!--/$--><!--$!--><template data-dgst",
+   "noModule=\"\"></script></head><body><div hidden=\"\"><!--$--><!--/$--></div><!--$!--><template data-dgst=\"BAILOUT_TO_CLIENT_SIDE_RENDERING\"></template><!--/$--><!--$!--><template data-dgst=\"BAILOUT_TO_CLIENT_SIDE_RENDERING\"></template><!--/$--><!--$!--><template data-dgst=\"BAILOUT_TO_CLIENT_SIDE_RENDERING\"></template><!--/$--><!--$!--><template data-dgst=\"BAILOU",
+   "$!--><template data-dgst=\"BAILOUT_TO_CLIENT_SIDE_RENDERING\"></template><!--/$--><!--$!--><template data-dgst=\"BAILOUT_TO_CLIENT_SIDE_RENDERING\"></template><!--/$--><!--$!--><template data-dgst=\"BAILOUT_TO_CLIENT_SIDE_RENDERING\"></template><!--/$--><!--$!--><template data-dgst=\"BAILOUT_TO_CLIENT_SIDE_RENDERING\"></template><!--/$--><div class=\"flex min-h-scree",
+   "mplate data-dgst=\"BAILOUT_TO_CLIENT_SIDE_RENDERING\"></template><!--/$--><!--$!--><template data-dgst=\"BAILOUT_TO_CLIENT_SIDE_RENDERING\"></template><!--/$--><!--$!--><template data-dgst=\"BAILOUT_TO_CLIENT_SIDE_RENDERING\"></template><!--/$--><!--$!--><template data-dgst=\"BAILOUT_TO_CLIENT_SIDE_RENDERING\"></template><!--/$--><div class=\"flex min-h-screen flex-c",
+   "$!--><template data-dgst=\"BAILOUT_TO_CLIENT_SIDE_RENDERING\"></template><!--/$--><!--$!--><template data-dgst=\"BAILOUT_TO_CLIENT_SIDE_RENDERING\"></template><!--/$--><!--$!--><template data-dgst=\"BAILOUT_TO_CLIENT_SIDE_RENDERING\"></template><!--/$--><div class=\"flex min-h-screen flex-col\"><div class=\"flex w-full items-center justify-center px-3 py-[10px] md:px",
+   "mplate data-dgst=\"BAILOUT_TO_CLIENT_SIDE_RENDERING\"></template><!--/$--><!--$!--><template data-dgst=\"BAILOUT_TO_CLIENT_SIDE_RENDERING\"></template><!--/$--><!--$!--><template data-dgst=\"BAILOUT_TO_CLIENT_SIDE_RENDERING\"></template><!--/$--><div class=\"flex min-h-screen flex-col\"><div class=\"flex w-full items-center justify-center px-3 py-[10px] md:px-4\" styl",
+   "$!--><template data-dgst=\"BAILOUT_TO_CLIENT_SIDE_RENDERING\"></template><!--/$--><!--$!--><template data-dgst=\"BAILOUT_TO_CLIENT_SIDE_RENDERING\"></template><!--/$--><div class=\"flex min-h-screen flex-col\"><div class=\"flex w-full items-center justify-center px-3 py-[10px] md:px-4\" style=\"background:color-mix(in srgb, var(--semi-color-primary) 12%, var(--semi-c",
+   "LPFnfNBV5zxgcs7VBm05YTHbMRgIkQAIkQAIkQAIkQAIk4I3A/wZQDlI4qQTeoAAAAABJRU5ErkJggg==\"></image></defs></svg></a></div><div class=\"ml-2 hidden min-w-0 lg:block\"><!--$!--><template data-dgst=\"BAILOUT_TO_CLIENT_SIDE_RENDERING\"></template><!--/$--></div></div><div class=\"hidden min-w-0 lg:block\"><div class=\"relative w-full\"><div class=\"pointer-events-none absolute l",
+   "ggg==\"></image></defs></svg></a></div><div class=\"ml-2 hidden min-w-0 lg:block\"><!--$!--><template data-dgst=\"BAILOUT_TO_CLIENT_SIDE_RENDERING\"></template><!--/$--></div></div><div class=\"hidden min-w-0 lg:block\"><div class=\"relative w-full\"><div class=\"pointer-events-none absolute left-0 top-0 flex items-center gap-1 opacity-0\" aria-hidden=\"true\" tabindex=\"",
+   "g:0;margin:-1px;overflow:hidden;clip:rect(0, 0, 0, 0);white-space:nowrap;word-wrap:normal\"></select></div></div><span class=\"mt-1 block text-[10px] opacity-60\">$0.042 / image (official $0.053)<!-- --> \u00b7 <!-- -->Estimated<!-- --> \u00b7 <a class=\"text-semi-color-primary underline\" href=\"/pricing/image-cost/?model=gpt-image-2-6\">Full SKU table \u2192</a></span></div><la",
+   "hidden;clip:rect(0, 0, 0, 0);white-space:nowrap;word-wrap:normal\"></select></div></div><span class=\"mt-1 block text-[10px] opacity-60\">$0.042 / image (official $0.053)<!-- --> \u00b7 <!-- -->Estimated<!-- --> \u00b7 <a class=\"text-semi-color-primary underline\" href=\"/pricing/image-cost/?model=gpt-image-2-6\">Full SKU table \u2192</a></span></div><label class=\"text-xs font-m"
+  ]
+ },
+ "eachlabs_models": {
+  "status": 200,
+  "bytes": 115944,
+  "json": true,
+  "kling_entries": [
+   {
+    "id": "4aa070de-0b67-44fe-afa8-7a74a2e641ec",
+    "slug": "kling-image-4-0-long-image",
+    "branded_slug": "kling/kling-v4/kling-image-4-0-long-image",
+    "name": "kling-image-4-0-long-image",
+    "title": "Kling Image 4.0 Long Image",
+    "description": "Kling Image 4.0 Long Image creates one long image from a prompt for webpage design or product detail page concepts, with optional image references for context.",
+    "thumbnail_url": "https://cdn-us.eachlabs.ai/defaults/c4d471a12cc847008cf788880019fa4c.png",
+    "output_type": "array",
+    "provider_name": "Kling",
+    "version": "",
+    "request_schema": {
+     "additionalProperties": false,
+     "properties": {
+      "images": {
+       "description": "Reference images. ecommerce requires 1-3; other limits are provider-enforced. Elements are not supported.",
+       "items": {
+        "additionalProperties": false,
+        "properties": {
+         "id": {
+          "description": "Optional identifier for @id references in the prompt; unique within the task.",
+          "minLength": 1,
+          "type": "string"
+         },
+         "url": {
+          "description": "Reference image URL or Base64 content. Format, size and dimension limits are provider-enforced.",
+          "format": "uri",
+          "minLength": 1,
+          "type": "string"
+         }
+        },
+        "required": [
+         "url"
+        ],
+        "type": "object"
+       },
+       "maxItems": 10,
+       "minItems": 0,
+       "title": "Reference Images",
+       "type": "array"
+      },
+      "length": {
+       "default": "medium",
+       "description": "ecommerce only: short (~2-5 sections), medium (~6-10), long (~11-18). The result is always one long image. Ignored for webpage.",
+       "enum": [
+        "short",
+        "medium",
+        "long"
+       ],
+       "title": "Length",
+       "type": "string"
+      },
+      "prompt": {
+       "description": "Describe the image. Reference an image or Element in the prompt with @id. Length limits are provider-enforced.",
+       "minLength": 1,
+       "title": "Prompt",
+       "type": "string"
+      },
+      "resolution": {
+       "default": "1k",
+       "description": "Output resolution.",
+       "enum": [
+        "1k",
+        "2k"
+       ],
+       "title": "Resolution",
+       "type": "string"
+      },
+      "skill": {
+       "description": "ecommerce: product detail page (needs 1-3 reference images). webpage: webpage design.",
+       "enum": [
+        "ecommerce",
+        "webpage"
+       ],
+       "title": "Skill",
+       "type": "string"
+      }
+     },
+     "required": [
+      "prompt",
+      "skill"
+     ],
+     "type": "object"
+    },
+    "category": {
+     "Slug": "text-to-image",
+     "Name": "Text to Image",
+     "Description": "",
+     "ThumbnailURL": "",
+     "Order": 5,
+     "ModelCount": 0
+    }
+   },
+   {
+    "id": "2898c3ff-d140-44bb-828b-2b976505f096",
+    "slug": "kling-image-4-0-image-to-image",
+    "branded_slug": "kling/kling-v4/kling-image-4-0-image-to-image",
+    "name": "kling-image-4-0-image-to-image",
+    "title": "Kling Image 4.0 Image to Image",
+    "description": "Kling Image 4.0 Image to Image transforms reference images with text prompts for creative posters, visual concepts and related image series in a chosen style.",
+    "thumbnail_url": "https://cdn-us.eachlabs.ai/defaults/4832b6ea8fd444f992fec7dfd63a00cf.png",
+    "output_type": "array",
+    "provider_name": "Kling",
+    "version": "",
+    "request_schema": {
+     "additionalProperties": false,
+     "properties": {
+      "aspect_ratio": {
+       "default": "auto",
+       "description": "Output aspect ratio (width:height). auto picks one from the input.",
+       "enum": [
+        "auto",
+        "1:1",
+        "16:9",
+        "9:16",
+        "4:3",
+        "3:4",
+        "3:2",
+        "2:3",
+        "21:9"
+       ],
+       "title": "Aspect Ratio",
+       "type": "string"
+      },
+      "elements": {
+       "description": "Existing Kling Element IDs (from Kling Element Create). Images and Elements combined must not exceed 10.",
+       "items": {
+        "additionalProperties": false,
+        "properties": {
+         "element_id": {
+          "description": "Kling Element ID.",
+          "minLength": 1,
+          "type": "string"
+         },
+         "id": {
+          "description": "Optional identifier for @id references in the prompt; unique within the task.",
+          "minLength": 1,
+          "type": "string"
+         }
+        },
+        "required": [
+         "element_id"
+        ],
+        "type": "object"
+       },
+       "maxItems": 10,
+       "minItems": 0,
+       "title": "Reference Elements",
+       "type": "array"
+      },
+      "images": {
+       "description": "Reference images. Images and Elements combined: 1-10. Inputs without an id still act as references.",
+       "items": {
+        "additionalProperties": false,
+        "properties": {
+         "id": {
+          "description": "Optional identifier for @id references in the prompt; unique within the task.",
+          "minLength": 1,
+          "type": "string"
+         },
+         "url": {
+          "description": "Reference image URL or Base64 content. Format, size and dimension limits are provider-enforced.",
+          "format": "uri",
+          "minLength": 1,
+          "type": "string"
+         }
+        },
+        "required": [
+         "url"
+        ],
+        "type": "object"
+       },
+       "maxItems": 10,
+       "minItems": 0,
+       "title": "Reference Images",
+       "type": "array"
+      },
+      "num_images": {
+       "default": 1,
+       "description": "Number of independent images in single mode, 1-9. Ignored in series mode.",
+       "maximum": 9,
+       "minimum": 1,
+       "title": "Number of Images",
+       "type": "integer"
+      },
+      "prompt": {
+       "description": "Describe the image. Reference an image or Element in the prompt with @id. Length limits are provider-enforced.",
+       "minLength": 1,
+       "title": "Prompt",
+       "type": "string"
+      },
+      "resolution": {
+       "default": "2k",
+       "description": "Output resolution.",
+       "enum": [
+        "2k",
+        "4k",
+        "8k"
+       ],
+       "title": "Resolution",
+       "type": "string"
+      },
+      "result_type": {
+       "default": "single",
+       "description": "single: independent images (count set by num_images). series: a set of related images returned in order (count set by series_amount).",
+       "enum": [
+        "single",
+        "series"
+       ],
+       "title": "Result Type",
+       "type": "string"
+      },
+      "series_amount": {
+       "default": "4",
+       "description": "Number of images in series mode, 2-10, or auto to let the model pick 2-10 from the input. Ignored in single mode.",
+       "enum": [
+        "auto",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10"
+       ],
+       "title": "Series Amount",
+       "type": "string"
+      }
+     },
+     "required": [
+      "prompt"
+     ],
+     "type": "object"
+    },
+    "category": {
+     "Slug": "image-to-image",
+     "Name": "Image to Image",
+     "Description": "",
+     "ThumbnailURL": "",
+     "Order": 2,
+     "ModelCount": 0
+    }
+   },
+   {
+    "id": "aee79aec-8de7-475e-94e9-1cd5143db173",
+    "slug": "kling-image-4-0-text-to-image",
+    "branded_slug": "kling/kling-v4/kling-image-4-0-text-to-image",
+    "name": "kling-image-4-0-text-to-image",
+    "title": "Kling Image 4.0 Text to Image",
+    "description": "Kling Image 4.0 Text to Image generates single images or ordered image series from prompts for visual storytelling, creative concepts and design exploration.",
+    "thumbnail_url": "https://cdn-us.eachlabs.ai/defaults/c8f41c6cef264adc994eb359dd07c34d.png",
+    "output_type": "array",
+    "provider_name": "Kling",
+    "version": "",
+    "request_schema": {
+     "additionalProperties": false,
+     "properties": {
+      "aspect_ratio": {
+       "default": "auto",
+       "description": "Output aspect ratio (width:height). auto picks one from the input.",
+       "enum": [
+        "auto",
+        "1:1",
+        "16:9",
+        "9:16",
+        "4:3",
+        "3:4",
+        "3:2",
+        "2:3",
+        "21:9"
+       ],
+       "title": "Aspect Ratio",
+       "type": "string"
+      },
+      "num_images": {
+       "default": 1,
+       "description": "Number of independent images in single mode, 1-9. Ignored in series mode.",
+       "maximum": 9,
+       "minimum": 1,
+       "title": "Number of Images",
+       "type": "integer"
+      },
+      "prompt": {
+       "description": "Describe the image. Reference an image or Element in the prompt with @id. Length limits are provider-enforced.",
+       "minLength": 1,
+       "title": "Prompt",
+       "type": "string"
+      },
+      "resolution": {
+       "default": "2k",
+       "description": "Output resolution.",
+       "enum": [
+        "2k",
+        "4k",
+        "8k"
+       ],
+       "title": "Resolution",
+       "type": "string"
+      },
+      "result_type": {
+       "default": "single",
+       "description": "single: independent images (count set by num_images). series: a set of related images returned in order (count set by series_amount).",
+       "enum": [
+        "single",
+        "series"
+       ],
+       "title": "Result Type",
+       "type": "string"
+      },
+      "series_amount": {
+       "default": "4",
+       "description": "Number of images in series mode, 2-10, or auto to let the model pick 2-10 from the input. Ignored in single mode.",
+       "enum": [
+        "auto",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10"
+       ],
+       "title": "Series Amount",
+       "type": "string"
+      }
+     },
+     "required": [
+      "prompt"
+     ],
+     "type": "object"
+    },
+    "category": {
+     "Slug": "text-to-image",
+     "Name": "Text to Image",
+     "Description": "",
+     "ThumbnailURL": "",
+     "Order": 5,
+     "ModelCount": 0
+    }
+   },
+   {
+    "id": "8bc9c42a-5fe8-4b1b-b045-e2de512ace40",
+    "slug": "kling-video-4-0-flash-video-edit",
+    "branded_slug": "kling/kling-v4/kling-video-4-0-flash-video-edit",
+    "name": "Kling Video 4.0 Flash Video Edit",
+    "title": "Kling Video 4.0 Flash Video Edit",
+    "description": "Kling Video 4.0 Flash Video Edit transforms source footage into 3\u201320 second videos at 720p. Guide creative edits with a prompt and optional visual references.",
+    "thumbnail_url": "https://cdn-us.eachlabs.ai/defaults/ce40a5c8be3d4cd9a3ddcc3ac110609f.png",
+    "output_type": "video",
+    "provider_name": "Kling",
+    "version": "",
+    "request_schema": {
+     "additionalProperties": false,
+     "properties": {
+      "aspect_ratio": {
+       "default": "adaptive",
+       "description": "Output frame aspect ratio.",
+       "enum": [
+        "21:9",
+        "16:9",
+        "9:16",
+        "1:1",
+        "adaptive",
+        "4:3",
+        "3:4"
+       ],
+       "title": "Aspect Ratio",
+       "type": "string"
+      },
+      "audio": {
+       "default": "native",
+       "description": "native generates audio matching the video. original keeps the audio of the base_video, or of the first feature_video when there is no base_video.",
+       "enum": [
+        "native",
+        "original"
+       ],
+       "title": "Audio",
+       "type": "string"
+      },
+      "duration": {
+       "description": "Output video duration in seconds. If omitted, Kling uses a duration stated in the prompt, otherwise the base_video length (rounded), otherwise 10 seconds.",
+       "enum": [
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20
+       ],
+       "title": "Duration",
+       "type": "integer"
+      },
+      "elements": {
+       "description": "Up to 7 Elements, at most 3 Video Character Elements; videos plus Video Character Elements must not exceed 5. Images, videos and Elements combined must not exceed 15. Element type and associated-video duration constraints are provider-enforced.",
+       "items": {
+        "additionalProperties": false,
+        "properties": {
+         "element_id": {
+          "description": "Existing Kling Element ID returned by the Element API; supports Multi-image and Video Character Elements.",
+          "minLength": 1,
+          "type": "string"
+         },
+         "id": {
+          "description": "Reference identifier used in the prompt; unique across this task.",
+          "minLength": 1,
+          "type": "string"
+         }
+        },
+        "required": [
+         "element_id",
+         "id"
+        ],
+        "type": "object"
+       },
+       "maxItems": 7,
+       "minItems": 0,
+       "title": "Reference Elements",
+       "type": "array"
+      },
+      "images": {
+       "description": "Up to 10 JPG/JPEG/PNG images, each at most 30 MB, minimum 300px per dimension, aspect ratio 2:5\u20135:2. Multiple refer_image entries require ids. All supplied reference ids must be unique across images, videos and Elements. Media constraints are provider-enforced.",
+       "items": {
+        "additionalProperties": false,
+        "properties": {
+         "id": {
+          "description": "Optional image identifier for prompt references, unique within this task.",
+          "minLength": 1,
+          "type": "string"
+         },
+         "type": {
+          "description": "Image keyframe role.",
+          "enum": [
+           "first_frame",
+           "refer_image"
+          ],
+          "type": "string"
+         },
+         "url": {
+          "description": "Upload an image file (JPG/JPEG/PNG). Maximum 30 MB, minimum 300 x 300 pixels, aspect ratio 2:5 to 5:2. Media constraints are enforced by Kling.",
+          "format": "uri",
+          "minLength": 1,
+          "type": "string"
+         }
+        },
+        "required": [
+         "type",
+         "url"
+        ],
+        "type": "object"
+       },
+       "maxItems": 10,
+       "minItems": 0,
+       "title": "Reference Images and Keyframes",
+       "type": "array"
+      },
+      "prompt": {
+       "description": "Required video prompt, including any negative descriptions. English-only: 26,000 characters; non-English-only: 11,000. Mixed input: E/26000 + N/11000 <= 1; language-weighted limit is provider-enforced.",
+       "maxLength": 26000,
+       "minLength": 1,
+       "title": "Prompt",
+       "type": "string"
+      },
+      "resolution": {
+       "default": "720p",
+       "description": "Output video resolution.",
+       "enum": [
+        "720p"
+       ],
+       "title": "Resolution",
+       "type": "string"
+      },
+      "videos": {
+       "contains": {
+        "properties": {
+         "type": {
+          "const": "base_video"
+         }
+        },
+        "required": [
+         "type"
+        ],
+        "type": "object"
+       },
+       "description": "Provide exactly one base_video to edit, plus optional feature_video references. Up to 5 videos total; combined video duration including Video Character Elements must be 3\u201320 seconds. Source media limits are enforced by the provider.",
+       "items": {
+        "additionalProperties": false,
+        "properties": {
+         "id": {
+          "description": "Reference identifier used in the prompt; unique across this task.",
+          "minLength": 1,
+          "type": "string"
+         },
+         "type": {
+          "enum": [
+           "feature_video",
+           "base_video"
+          ],
+          "type": "string"
+         },
+         "url": {
+          "description": "MP4/MOV URL; at most 300 MB; 3\u201320s; each dimension 700\u20134553px, at most 8,294,400 pixels, aspect ratio 2:5\u20135:2; 24\u201360fps. Total video duration including Video Character Elements is 3\u201320s. Media constraints are provider-enforced.",
+          "format": "uri",
+          "pattern": "^https?://",
+          "type": "string"
+         }
+        },
+        "required": [
+         "type",
+         "url"
+        ],
+        "type": "object"
+       },
+       "maxItems": 5,
+       "minItems": 1,
+       "title": "Source and Reference Videos",
+       "type": "array"
+      }
+     },
+     "required": [
+      "prompt",
+      "videos"
+     ],
+     "type": "object"
+    },
+    "category": {
+     "Slug": "video-to-video",
+     "Name": "Video to Video",
+     "Description": "",
+     "ThumbnailURL": "",
+     "Order": 9,
+     "ModelCount": 0
+    }
+   },
+   {
+    "id": "f04aad38-ec51-4abb-afd0-b62437fea675",
+    "slug": "kling-video-4-0-flash-reference-to-video",
+    "branded_slug": "kling/kling-v4/kling-video-4-0-flash-reference-to-video",
+    "name": "Kling Video 4.0 Flash Reference-to-Video",
+    "title": "Kling Video 4.0 Flash Reference-to-Video",
+    "description": "Kling Video 4.0 Flash Reference-to-Video creates 3\u201320 second videos at 720p with image, video and Element references for guided visual storytelling.",
+    "thumbnail_url": "https://cdn-us.eachlabs.ai/defaults/65910acbd2274012adef1a5dcf902866.png",
+    "output_type": "video",
+    "provider_name": "Kling",
+    "version": "",
+    "request_schema": {
+     "additionalProperties": false,
+     "properties": {
+      "aspect_ratio": {
+       "default": "adaptive",
+       "description": "Output frame aspect ratio.",
+       "enum": [
+        "21:9",
+        "16:9",
+        "9:16",
+        "1:1",
+        "adaptive",
+        "4:3",
+        "3:4"
+       ],
+       "title": "Aspect Ratio",
+       "type": "string"
+      },
+      "audio": {
+       "default": "native",
+       "description": "native generates audio matching the video. original keeps the audio of the base_video, or of the first feature_video when there is no base_video.",
+       "enum": [
+        "native",
+        "original"
+       ],
+       "title": "Audio",
+       "type": "string"
+      },
+      "duration": {
+       "description": "Output video duration in seconds. If omitted, Kling uses a duration stated in the prompt, otherwise the base_video length (rounded), otherwise 10 seconds.",
+       "enum": [
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20
+       ],
+       "title": "Duration",
+       "type": "integer"
+      },
+      "elements": {
+       "description": "Up to 7 Elements, at most 3 Video Character Elements; videos plus Video Character Elements must not exceed 5. Images, videos and Elements combined must not exceed 15. Element type and associated-video duration constraints are provider-enforced.",
+       "items": {
+        "additionalProperties": false,
+        "properties": {
+         "element_id": {
+          "description": "Existing Kling Element ID returned by the Element API; supports Multi-image and Video Character Elements.",
+          "minLength": 1,
+          "type": "string"
+         },
+         "id": {
+          "description": "Reference identifier used in the prompt; unique across this task.",
+          "minLength": 1,
+          "type": "string"
+         }
+        },
+        "required": [
+         "element_id",
+         "id"
+        ],
+        "type": "object"
+       },
+       "maxItems": 7,
+       "minItems": 0,
+       "title": "Reference Elements",
+       "type": "array"
+      },
+      "images": {
+       "description": "Up to 10 JPG/JPEG/PNG images, each at most 30 MB, minimum 300px per dimension, aspect ratio 2:5\u20135:2. Multiple refer_image entries require ids. All supplied reference ids must be unique across images, videos and Elements. Media constraints are provider-enforced.",
+       "items": {
+        "additionalProperties": false,
+        "properties": {
+         "id": {
+          "description": "Optional image identifier for prompt references, unique within this task.",
+          "minLength": 1,
+          "type": "string"
+         },
+         "type": {
+          "description": "Image keyframe role.",
+          "enum": [
+           "first_frame",
+           "refer_image"
+          ],
+          "type": "string"
+         },
+         "url": {
+          "description": "Image URL or Base64 image content. JPG/JPEG/PNG, at most 30 MB, minimum 300 x 300 pixels, aspect ratio 2:5 to 5:2. Media constraints are enforced by Kling.",
+          "format": "uri",
+          "minLength": 1,
+          "type": "string"
+         }
+        },
+        "required": [
+         "type",
+         "url"
+        ],
+        "type": "object"
+       },
+       "maxItems": 10,
+       "minItems": 0,
+       "title": "Reference Images and Keyframes",
+       "type": "array"
+      },
+      "prompt": {
+       "description": "Required video prompt, including any negative descriptions. English-only: 26,000 characters; non-English-only: 11,000. Mixed input: E/26000 + N/11000 <= 1; language-weighted limit is provider-enforced.",
+       "maxLength": 26000,
+       "minLength": 1,
+       "title": "Prompt",
+       "type": "string"
+      },
+      "resolution": {
+       "default": "720p",
+       "description": "Output video resolution.",
+       "enum": [
+        "720p"
+       ],
+       "title": "Resolution",
+       "type": "string"
+      },
+      "videos": {
+       "description": "Up to 5 reference videos, with at most one base_video. When Video Character Elements are included, videos plus those Elements must not exceed 5. Element-dependent constraints are provider-enforced.",
+       "items": {
+        "additionalProperties": false,
+        "properties": {
+         "id": {
+          "description": "Reference identifier used in the prompt; unique across this task.",
+          "minLength": 1,
+          "type": "string"
+         },
+         "type": {
+          "enum": [
+           "feature_video",
+           "base_video"
+          ],
+          "type": "string"
+         },
+         "url": {
+          "description": "MP4/MOV URL; at most 300 MB; 3\u201320s; each dimension 700\u20134553px, at most 8,294,400 pixels, aspect ratio 2:5\u20135:2; 24\u201360fps. Total video duration including Video Character Elements is 3\u201320s. Media constraints are provider-enforced.",
+          "format": "uri",
+          "pattern": "^https?://",
+          "type": "string"
+         }
+        },
+        "required": [
+         "type",
+         "url"
+        ],
+        "type": "object"
+       },
+       "maxItems": 5,
+       "minItems": 0,
+       "title": "Reference Videos",
+       "type": "array"
+      }
+     },
+     "required": [
+      "prompt"
+     ],
+     "type": "object"
+    },
+    "category": {
+     "Slug": "reference-to-video",
+     "Name": "Reference to Video",
+     "Description": "",
+     "ThumbnailURL": "",
+     "Order": 0,
+     "ModelCount": 0
+    }
+   },
+   {
+    "id": "e060aa3d-eeef-40e5-88fe-c4a90eeefec9",
+    "slug": "kling-video-4-0-flash-image-to-video",
+    "branded_slug": "kling/kling-v4/kling-video-4-0-flash-image-to-video",
+    "name": "Kling Video 4.0 Flash Image-to-Video",
+    "title": "Kling Video 4.0 Flash Image-to-Video",
+    "description": "Kling Video 4.0 Flash Image-to-Video turns one first-frame image into 3\u201320 second videos at 720p. Guide motion with an optional prompt for creative clips.",
+    "thumbnail_url": "https://cdn-us.eachlabs.ai/defaults/5da83170526c4daba2accd31e8c45461.png",
+    "output_type": "video",
+    "provider_name": "Kling",
+    "version": "",
+    "request_schema": {
+     "additionalProperties": false,
+     "properties": {
+      "duration": {
+       "default": 10,
+       "description": "Output video duration in seconds.",
+       "enum": [
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20
+       ],
+       "title": "Duration",
+       "type": "integer"
+      },
+      "image_url": {
+       "description": "First-frame image URL. JPG/JPEG/PNG, at most 30 MB, minimum 300 x 300 pixels, aspect ratio 2:5 to 5:2. Flash supports first-frame-to-video only.",
+       "format": "uri",
+       "minLength": 1,
+       "title": "Image URL",
+       "type": "string"
+      },
+      "prompt": {
+       "description": "Describe the video, including any negative descriptions. English-only: up to 26,000 characters; non-English-only: up to 11,000. Mixed input must satisfy E/26000 + N/11000 <= 1; the provider enforces the language-weighted limit.",
+       "maxLength": 26000,
+       "minLength": 1,
+       "title": "Prompt",
+       "type": "string"
+      },
+      "resolution": {
+       "default": "720p",
+       "description": "Output video resolution.",
+       "enum": [
+        "720p"
+       ],
+       "title": "Resolution",
+       "type": "string"
+      }
+     },
+     "required": [
+      "image_url"
+     ],
+     "type": "object"
+    },
+    "category": {
+     "Slug": "image-to-video",
+     "Name": "Image to Video",
+     "Description": "",
+     "ThumbnailURL": "",
+     "Order": 3,
+     "ModelCount": 0
+    }
+   },
+   {
+    "id": "74c05c73-dbc4-4d8f-a1c3-b3967565e31f",
+    "slug": "kling-video-4-0-flash-text-to-video",
+    "branded_slug": "kling/kling-v4/kling-video-4-0-flash-text-to-video",
+    "name": "Kling Video 4.0 Flash Text-to-Video",
+    "title": "Kling Video 4.0 Flash Text-to-Video",
+    "description": "Kling Video 4.0 Flash Text-to-Video creates 3\u201320 second videos at 720p from text. Choose portrait, landscape or square framing for creative scene concepts.",
+    "thumbnail_url": "https://cdn-us.eachlabs.ai/defaults/0f874ee1cef64a75a57365a708f63361.png",
+    "output_type": "video",
+    "provider_name": "Kling",
+    "version": "",
+    "request_schema": {
+     "additionalProperties": false,
+     "properties": {
+      "aspect_ratio": {
+       "default": "16:9",
+       "description": "Output video frame aspect ratio.",
+       "enum": [
+        "21:9",
+        "16:9",
+        "9:16",
+        "1:1",
+        "4:3",
+        "3:4"
+       ],
+       "title": "Aspect Ratio",
+       "type": "string"
+      },
+      "duration": {
+       "description": "Output video duration in seconds.",
+       "enum": [
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20
+       ],
+       "title": "Duration",
+       "type": "integer"
+      },
+      "prompt": {
+       "description": "Describe the video, including any negative descriptions. English-only: up to 26,000 characters; non-English-only: up to 11,000. Mixed input must satisfy E/26000 + N/11000 <= 1; the provider enforces the language-weighted limit.",
+       "maxLength": 26000,
+       "minLength": 1,
+       "title": "Prompt",
+       "type": "string"
+      },
+      "resolution": {
+       "default": "720p",
+       "description": "Output video resolution.",
+       "enum": [
+        "720p"
+       ],
+       "title": "Resolution",
+       "type": "string"
+      }
+     },
+     "required": [
+      "prompt"
+     ],
+     "type": "object"
+    },
+    "category": {
+     "Slug": "text-to-video",
+     "Name": "Text to Video",
+     "Description": "",
+     "ThumbnailURL": "",
+     "Order": 7,
+     "ModelCount": 0
+    }
+   }
+  ],
+  "kling_count": 7
+ },
+ "eachlabs_page_kling-video-4-0-text-to-video": {
+  "status": 200,
+  "bytes": 212216,
+  "price_fragments": [
+   "5Dtp\" noModule=\"\"></script></head><body class=\"__variable_1a9ab4 __variable_82554d font-inter optimize-rendering tracking-tight antialiased\"><div hidden=\"\"><!--$--><!--/$--></div><!--$--><!--/$--><div class=\"prevent-layout-shift flex min-h-screen flex-col overflow-hidden supports-[overflow:clip]:overflow-clip\"><script>((a,b,c,d,e,f,g,h)=>{let i=document.docu",
+   "odule=\"\"></script></head><body class=\"__variable_1a9ab4 __variable_82554d font-inter optimize-rendering tracking-tight antialiased\"><div hidden=\"\"><!--$--><!--/$--></div><!--$--><!--/$--><div class=\"prevent-layout-shift flex min-h-screen flex-col overflow-hidden supports-[overflow:clip]:overflow-clip\"><script>((a,b,c,d,e,f,g,h)=>{let i=document.documentEleme",
+   "ipt></head><body class=\"__variable_1a9ab4 __variable_82554d font-inter optimize-rendering tracking-tight antialiased\"><div hidden=\"\"><!--$--><!--/$--></div><!--$--><!--/$--><div class=\"prevent-layout-shift flex min-h-screen flex-col overflow-hidden supports-[overflow:clip]:overflow-clip\"><script>((a,b,c,d,e,f,g,h)=>{let i=document.documentElement,j=[\"light\",",
+   "d><body class=\"__variable_1a9ab4 __variable_82554d font-inter optimize-rendering tracking-tight antialiased\"><div hidden=\"\"><!--$--><!--/$--></div><!--$--><!--/$--><div class=\"prevent-layout-shift flex min-h-screen flex-col overflow-hidden supports-[overflow:clip]:overflow-clip\"><script>((a,b,c,d,e,f,g,h)=>{let i=document.documentElement,j=[\"light\",\"dark\"];f",
+   "if(localStorage.getItem('dashboard_sidebar_collapsed')==='true'){document.documentElement.setAttribute('data-sidebar-collapsed','true')}}catch(e){}</script><!--$--><div class=\"bg-background absolute inset-0 flex h-full w-full items-center justify-center\"><svg stroke=\"currentColor\" fill=\"none\" stroke-width=\"0\" viewBox=\"0 0 24 24\" class=\"text-foreground animat",
+   ".47715 22 12 22Z\" fill=\"currentColor\"></path><path d=\"M2 12C2 6.47715 6.47715 2 12 2V5C8.13401 5 5 8.13401 5 12H2Z\" fill=\"currentColor\"></path></svg></div><!--/$--></div><script src=\"/_next/static/chunks/webpack-bf077074359f63c9.js?dpl=dpl_Hc2vXZx3R2w1ryQd5m9SoNCa5Dtp\" id=\"_R_\" async=\"\"></script><script>(self.__next_f=self.__next_f||[]).push([0])</script><sc",
+   "dpl=dpl_Hc2vXZx3R2w1ryQd5m9SoNCa5Dtp\" id=\"_R_\" async=\"\"></script><script>(self.__next_f=self.__next_f||[]).push([0])</script><script>self.__next_f.push([1,\"1:\\\"$Sreact.fragment\\\"\\n4:\\\"ClientSegmentRoot\\\"\\n5:I[78616,[],\\\"$4\\\"]\\n6:\\\"static/chunks/c916193b-71cfb480dd01955f.js?dpl=dpl_Hc2vXZx3R2w1ryQd5m9SoNCa5Dtp\\\"\\n7:\\\"static/chunks/18409-7de864e2b3832970.js?dp",
+   "ript><script>(self.__next_f=self.__next_f||[]).push([0])</script><script>self.__next_f.push([1,\"1:\\\"$Sreact.fragment\\\"\\n4:\\\"ClientSegmentRoot\\\"\\n5:I[78616,[],\\\"$4\\\"]\\n6:\\\"static/chunks/c916193b-71cfb480dd01955f.js?dpl=dpl_Hc2vXZx3R2w1ryQd5m9SoNCa5Dtp\\\"\\n7:\\\"static/chunks/18409-7de864e2b3832970.js?dpl=dpl_Hc2vXZx3R2w1ryQd5m9SoNCa5Dtp\\\"\\n8:\\\"static/chunks/9850",
+   "l_Hc2vXZx3R2w1ryQd5m9SoNCa5Dtp\\\"\\n26:\\\"static/chunks/app/(dashboard)/layout-4445fba9d1e7b26a.js?dpl=dpl_Hc2vXZx3R2w1ryQd5m9SoNCa5Dtp\\\"\\n27:I[15657,[\\\"13603\\\",\\\"$6\\\",\\\"18409\\\",\\\"$7\\\",\\\"98500\\\",\\\"$8\\\",\\\"98143\\\",\\\"$9\\\",\\\"33683\\\",\\\"$a\\\",\\\"5772\\\",\\\"$b\\\",\\\"98290\\\",\\\"$c\\\",\\\"26708\\\",\\\"$d\\\",\\\"37795\\\",\\\"$e\\\",\\\"84429\\\",\\\"$f\\\",\\\"60795\\\",\\\"$10\\\",\\\"18636\\\",\\\"$11\\\",\\\"22032",
+   "d5m9SoNCa5Dtp\\\"\\n26:\\\"static/chunks/app/(dashboard)/layout-4445fba9d1e7b26a.js?dpl=dpl_Hc2vXZx3R2w1ryQd5m9SoNCa5Dtp\\\"\\n27:I[15657,[\\\"13603\\\",\\\"$6\\\",\\\"18409\\\",\\\"$7\\\",\\\"98500\\\",\\\"$8\\\",\\\"98143\\\",\\\"$9\\\",\\\"33683\\\",\\\"$a\\\",\\\"5772\\\",\\\"$b\\\",\\\"98290\\\",\\\"$c\\\",\\\"26708\\\",\\\"$d\\\",\\\"37795\\\",\\\"$e\\\",\\\"84429\\\",\\\"$f\\\",\\\"60795\\\",\\\"$10\\\",\\\"18636\\\",\\\"$11\\\",\\\"22032\\\",\\\"$12\\\",\\\"9985",
+   "26:\\\"static/chunks/app/(dashboard)/layout-4445fba9d1e7b26a.js?dpl=dpl_Hc2vXZx3R2w1ryQd5m9SoNCa5Dtp\\\"\\n27:I[15657,[\\\"13603\\\",\\\"$6\\\",\\\"18409\\\",\\\"$7\\\",\\\"98500\\\",\\\"$8\\\",\\\"98143\\\",\\\"$9\\\",\\\"33683\\\",\\\"$a\\\",\\\"5772\\\",\\\"$b\\\",\\\"98290\\\",\\\"$c\\\",\\\"26708\\\",\\\"$d\\\",\\\"37795\\\",\\\"$e\\\",\\\"84429\\\",\\\"$f\\\",\\\"60795\\\",\\\"$10\\\",\\\"18636\\\",\\\"$11\\\",\\\"22032\\\",\\\"$12\\\",\\\"99854\\\",\\\"$13\\\",\\\"666",
+   "s/app/(dashboard)/layout-4445fba9d1e7b26a.js?dpl=dpl_Hc2vXZx3R2w1ryQd5m9SoNCa5Dtp\\\"\\n27:I[15657,[\\\"13603\\\",\\\"$6\\\",\\\"18409\\\",\\\"$7\\\",\\\"98500\\\",\\\"$8\\\",\\\"98143\\\",\\\"$9\\\",\\\"33683\\\",\\\"$a\\\",\\\"5772\\\",\\\"$b\\\",\\\"98290\\\",\\\"$c\\\",\\\"26708\\\",\\\"$d\\\",\\\"37795\\\",\\\"$e\\\",\\\"84429\\\",\\\"$f\\\",\\\"60795\\\",\\\"$10\\\",\\\"18636\\\",\\\"$11\\\",\\\"22032\\\",\\\"$12\\\",\\\"99854\\\",\\\"$13\\\",\\\"66609\\\",\\\"$14\\\",\\\"56",
+   "/layout-4445fba9d1e7b26a.js?dpl=dpl_Hc2vXZx3R2w1ryQd5m9SoNCa5Dtp\\\"\\n27:I[15657,[\\\"13603\\\",\\\"$6\\\",\\\"18409\\\",\\\"$7\\\",\\\"98500\\\",\\\"$8\\\",\\\"98143\\\",\\\"$9\\\",\\\"33683\\\",\\\"$a\\\",\\\"5772\\\",\\\"$b\\\",\\\"98290\\\",\\\"$c\\\",\\\"26708\\\",\\\"$d\\\",\\\"37795\\\",\\\"$e\\\",\\\"84429\\\",\\\"$f\\\",\\\"60795\\\",\\\"$10\\\",\\\"18636\\\",\\\"$11\\\",\\\"22032\\\",\\\"$12\\\",\\\"99854\\\",\\\"$13\\\",\\\"66609\\\",\\\"$14\\\",\\\"56385\\\",\\\"$15\\\",\\\"4",
+   "d1e7b26a.js?dpl=dpl_Hc2vXZx3R2w1ryQd5m9SoNCa5Dtp\\\"\\n27:I[15657,[\\\"13603\\\",\\\"$6\\\",\\\"18409\\\",\\\"$7\\\",\\\"98500\\\",\\\"$8\\\",\\\"98143\\\",\\\"$9\\\",\\\"33683\\\",\\\"$a\\\",\\\"5772\\\",\\\"$b\\\",\\\"98290\\\",\\\"$c\\\",\\\"26708\\\",\\\"$d\\\",\\\"37795\\\",\\\"$e\\\",\\\"84429\\\",\\\"$f\\\",\\\"60795\\\",\\\"$10\\\",\\\"18636\\\",\\\"$11\\\",\\\"22032\\\",\\\"$12\\\",\\\"99854\\\",\\\"$13\\\",\\\"66609\\\",\\\"$14\\\",\\\"56385\\\",\\\"$15\\\",\\\"486\\\",\\\"$16\\\",\\\"5"
+  ]
+ },
+ "eachlabs_page_kling-video-4-0-image-to-video": {
+  "status": 200,
+  "bytes": 212218,
+  "price_fragments": [
+   "5Dtp\" noModule=\"\"></script></head><body class=\"__variable_1a9ab4 __variable_82554d font-inter optimize-rendering tracking-tight antialiased\"><div hidden=\"\"><!--$--><!--/$--></div><!--$--><!--/$--><div class=\"prevent-layout-shift flex min-h-screen flex-col overflow-hidden supports-[overflow:clip]:overflow-clip\"><script>((a,b,c,d,e,f,g,h)=>{let i=document.docu",
+   "odule=\"\"></script></head><body class=\"__variable_1a9ab4 __variable_82554d font-inter optimize-rendering tracking-tight antialiased\"><div hidden=\"\"><!--$--><!--/$--></div><!--$--><!--/$--><div class=\"prevent-layout-shift flex min-h-screen flex-col overflow-hidden supports-[overflow:clip]:overflow-clip\"><script>((a,b,c,d,e,f,g,h)=>{let i=document.documentEleme",
+   "ipt></head><body class=\"__variable_1a9ab4 __variable_82554d font-inter optimize-rendering tracking-tight antialiased\"><div hidden=\"\"><!--$--><!--/$--></div><!--$--><!--/$--><div class=\"prevent-layout-shift flex min-h-screen flex-col overflow-hidden supports-[overflow:clip]:overflow-clip\"><script>((a,b,c,d,e,f,g,h)=>{let i=document.documentElement,j=[\"light\",",
+   "d><body class=\"__variable_1a9ab4 __variable_82554d font-inter optimize-rendering tracking-tight antialiased\"><div hidden=\"\"><!--$--><!--/$--></div><!--$--><!--/$--><div class=\"prevent-layout-shift flex min-h-screen flex-col overflow-hidden supports-[overflow:clip]:overflow-clip\"><script>((a,b,c,d,e,f,g,h)=>{let i=document.documentElement,j=[\"light\",\"dark\"];f",
+   "if(localStorage.getItem('dashboard_sidebar_collapsed')==='true'){document.documentElement.setAttribute('data-sidebar-collapsed','true')}}catch(e){}</script><!--$--><div class=\"bg-background absolute inset-0 flex h-full w-full items-center justify-center\"><svg stroke=\"currentColor\" fill=\"none\" stroke-width=\"0\" viewBox=\"0 0 24 24\" class=\"text-foreground animat",
+   ".47715 22 12 22Z\" fill=\"currentColor\"></path><path d=\"M2 12C2 6.47715 6.47715 2 12 2V5C8.13401 5 5 8.13401 5 12H2Z\" fill=\"currentColor\"></path></svg></div><!--/$--></div><script src=\"/_next/static/chunks/webpack-bf077074359f63c9.js?dpl=dpl_Hc2vXZx3R2w1ryQd5m9SoNCa5Dtp\" id=\"_R_\" async=\"\"></script><script>(self.__next_f=self.__next_f||[]).push([0])</script><sc",
+   "dpl=dpl_Hc2vXZx3R2w1ryQd5m9SoNCa5Dtp\" id=\"_R_\" async=\"\"></script><script>(self.__next_f=self.__next_f||[]).push([0])</script><script>self.__next_f.push([1,\"1:\\\"$Sreact.fragment\\\"\\n4:\\\"ClientSegmentRoot\\\"\\n5:I[78616,[],\\\"$4\\\"]\\n6:\\\"static/chunks/c916193b-71cfb480dd01955f.js?dpl=dpl_Hc2vXZx3R2w1ryQd5m9SoNCa5Dtp\\\"\\n7:\\\"static/chunks/18409-7de864e2b3832970.js?dp",
+   "ript><script>(self.__next_f=self.__next_f||[]).push([0])</script><script>self.__next_f.push([1,\"1:\\\"$Sreact.fragment\\\"\\n4:\\\"ClientSegmentRoot\\\"\\n5:I[78616,[],\\\"$4\\\"]\\n6:\\\"static/chunks/c916193b-71cfb480dd01955f.js?dpl=dpl_Hc2vXZx3R2w1ryQd5m9SoNCa5Dtp\\\"\\n7:\\\"static/chunks/18409-7de864e2b3832970.js?dpl=dpl_Hc2vXZx3R2w1ryQd5m9SoNCa5Dtp\\\"\\n8:\\\"static/chunks/9850",
+   "l_Hc2vXZx3R2w1ryQd5m9SoNCa5Dtp\\\"\\n26:\\\"static/chunks/app/(dashboard)/layout-4445fba9d1e7b26a.js?dpl=dpl_Hc2vXZx3R2w1ryQd5m9SoNCa5Dtp\\\"\\n27:I[15657,[\\\"13603\\\",\\\"$6\\\",\\\"18409\\\",\\\"$7\\\",\\\"98500\\\",\\\"$8\\\",\\\"98143\\\",\\\"$9\\\",\\\"33683\\\",\\\"$a\\\",\\\"5772\\\",\\\"$b\\\",\\\"98290\\\",\\\"$c\\\",\\\"26708\\\",\\\"$d\\\",\\\"37795\\\",\\\"$e\\\",\\\"84429\\\",\\\"$f\\\",\\\"60795\\\",\\\"$10\\\",\\\"18636\\\",\\\"$11\\\",\\\"22032",
+   "d5m9SoNCa5Dtp\\\"\\n26:\\\"static/chunks/app/(dashboard)/layout-4445fba9d1e7b26a.js?dpl=dpl_Hc2vXZx3R2w1ryQd5m9SoNCa5Dtp\\\"\\n27:I[15657,[\\\"13603\\\",\\\"$6\\\",\\\"18409\\\",\\\"$7\\\",\\\"98500\\\",\\\"$8\\\",\\\"98143\\\",\\\"$9\\\",\\\"33683\\\",\\\"$a\\\",\\\"5772\\\",\\\"$b\\\",\\\"98290\\\",\\\"$c\\\",\\\"26708\\\",\\\"$d\\\",\\\"37795\\\",\\\"$e\\\",\\\"84429\\\",\\\"$f\\\",\\\"60795\\\",\\\"$10\\\",\\\"18636\\\",\\\"$11\\\",\\\"22032\\\",\\\"$12\\\",\\\"9985",
+   "26:\\\"static/chunks/app/(dashboard)/layout-4445fba9d1e7b26a.js?dpl=dpl_Hc2vXZx3R2w1ryQd5m9SoNCa5Dtp\\\"\\n27:I[15657,[\\\"13603\\\",\\\"$6\\\",\\\"18409\\\",\\\"$7\\\",\\\"98500\\\",\\\"$8\\\",\\\"98143\\\",\\\"$9\\\",\\\"33683\\\",\\\"$a\\\",\\\"5772\\\",\\\"$b\\\",\\\"98290\\\",\\\"$c\\\",\\\"26708\\\",\\\"$d\\\",\\\"37795\\\",\\\"$e\\\",\\\"84429\\\",\\\"$f\\\",\\\"60795\\\",\\\"$10\\\",\\\"18636\\\",\\\"$11\\\",\\\"22032\\\",\\\"$12\\\",\\\"99854\\\",\\\"$13\\\",\\\"666",
+   "s/app/(dashboard)/layout-4445fba9d1e7b26a.js?dpl=dpl_Hc2vXZx3R2w1ryQd5m9SoNCa5Dtp\\\"\\n27:I[15657,[\\\"13603\\\",\\\"$6\\\",\\\"18409\\\",\\\"$7\\\",\\\"98500\\\",\\\"$8\\\",\\\"98143\\\",\\\"$9\\\",\\\"33683\\\",\\\"$a\\\",\\\"5772\\\",\\\"$b\\\",\\\"98290\\\",\\\"$c\\\",\\\"26708\\\",\\\"$d\\\",\\\"37795\\\",\\\"$e\\\",\\\"84429\\\",\\\"$f\\\",\\\"60795\\\",\\\"$10\\\",\\\"18636\\\",\\\"$11\\\",\\\"22032\\\",\\\"$12\\\",\\\"99854\\\",\\\"$13\\\",\\\"66609\\\",\\\"$14\\\",\\\"56",
+   "/layout-4445fba9d1e7b26a.js?dpl=dpl_Hc2vXZx3R2w1ryQd5m9SoNCa5Dtp\\\"\\n27:I[15657,[\\\"13603\\\",\\\"$6\\\",\\\"18409\\\",\\\"$7\\\",\\\"98500\\\",\\\"$8\\\",\\\"98143\\\",\\\"$9\\\",\\\"33683\\\",\\\"$a\\\",\\\"5772\\\",\\\"$b\\\",\\\"98290\\\",\\\"$c\\\",\\\"26708\\\",\\\"$d\\\",\\\"37795\\\",\\\"$e\\\",\\\"84429\\\",\\\"$f\\\",\\\"60795\\\",\\\"$10\\\",\\\"18636\\\",\\\"$11\\\",\\\"22032\\\",\\\"$12\\\",\\\"99854\\\",\\\"$13\\\",\\\"66609\\\",\\\"$14\\\",\\\"56385\\\",\\\"$15\\\",\\\"4",
+   "d1e7b26a.js?dpl=dpl_Hc2vXZx3R2w1ryQd5m9SoNCa5Dtp\\\"\\n27:I[15657,[\\\"13603\\\",\\\"$6\\\",\\\"18409\\\",\\\"$7\\\",\\\"98500\\\",\\\"$8\\\",\\\"98143\\\",\\\"$9\\\",\\\"33683\\\",\\\"$a\\\",\\\"5772\\\",\\\"$b\\\",\\\"98290\\\",\\\"$c\\\",\\\"26708\\\",\\\"$d\\\",\\\"37795\\\",\\\"$e\\\",\\\"84429\\\",\\\"$f\\\",\\\"60795\\\",\\\"$10\\\",\\\"18636\\\",\\\"$11\\\",\\\"22032\\\",\\\"$12\\\",\\\"99854\\\",\\\"$13\\\",\\\"66609\\\",\\\"$14\\\",\\\"56385\\\",\\\"$15\\\",\\\"486\\\",\\\"$16\\\",\\\"5"
+  ]
+ },
+ "eachlabs_page_kling-video-4-0-reference-to-video": {
+  "status": 200,
+  "bytes": 212226,
+  "price_fragments": [
+   "5Dtp\" noModule=\"\"></script></head><body class=\"__variable_1a9ab4 __variable_82554d font-inter optimize-rendering tracking-tight antialiased\"><div hidden=\"\"><!--$--><!--/$--></div><!--$--><!--/$--><div class=\"prevent-layout-shift flex min-h-screen flex-col overflow-hidden supports-[overflow:clip]:overflow-clip\"><script>((a,b,c,d,e,f,g,h)=>{let i=document.docu",
+   "odule=\"\"></script></head><body class=\"__variable_1a9ab4 __variable_82554d font-inter optimize-rendering tracking-tight antialiased\"><div hidden=\"\"><!--$--><!--/$--></div><!--$--><!--/$--><div class=\"prevent-layout-shift flex min-h-screen flex-col overflow-hidden supports-[overflow:clip]:overflow-clip\"><script>((a,b,c,d,e,f,g,h)=>{let i=document.documentEleme",
+   "ipt></head><body class=\"__variable_1a9ab4 __variable_82554d font-inter optimize-rendering tracking-tight antialiased\"><div hidden=\"\"><!--$--><!--/$--></div><!--$--><!--/$--><div class=\"prevent-layout-shift flex min-h-screen flex-col overflow-hidden supports-[overflow:clip]:overflow-clip\"><script>((a,b,c,d,e,f,g,h)=>{let i=document.documentElement,j=[\"light\",",
+   "d><body class=\"__variable_1a9ab4 __variable_82554d font-inter optimize-rendering tracking-tight antialiased\"><div hidden=\"\"><!--$--><!--/$--></div><!--$--><!--/$--><div class=\"prevent-layout-shift flex min-h-screen flex-col overflow-hidden supports-[overflow:clip]:overflow-clip\"><script>((a,b,c,d,e,f,g,h)=>{let i=document.documentElement,j=[\"light\",\"dark\"];f",
+   "if(localStorage.getItem('dashboard_sidebar_collapsed')==='true'){document.documentElement.setAttribute('data-sidebar-collapsed','true')}}catch(e){}</script><!--$--><div class=\"bg-background absolute inset-0 flex h-full w-full items-center justify-center\"><svg stroke=\"currentColor\" fill=\"none\" stroke-width=\"0\" viewBox=\"0 0 24 24\" class=\"text-foreground animat",
+   ".47715 22 12 22Z\" fill=\"currentColor\"></path><path d=\"M2 12C2 6.47715 6.47715 2 12 2V5C8.13401 5 5 8.13401 5 12H2Z\" fill=\"currentColor\"></path></svg></div><!--/$--></div><script src=\"/_next/static/chunks/webpack-bf077074359f63c9.js?dpl=dpl_Hc2vXZx3R2w1ryQd5m9SoNCa5Dtp\" id=\"_R_\" async=\"\"></script><script>(self.__next_f=self.__next_f||[]).push([0])</script><sc",
+   "dpl=dpl_Hc2vXZx3R2w1ryQd5m9SoNCa5Dtp\" id=\"_R_\" async=\"\"></script><script>(self.__next_f=self.__next_f||[]).push([0])</script><script>self.__next_f.push([1,\"1:\\\"$Sreact.fragment\\\"\\n4:\\\"ClientSegmentRoot\\\"\\n5:I[78616,[],\\\"$4\\\"]\\n6:\\\"static/chunks/c916193b-71cfb480dd01955f.js?dpl=dpl_Hc2vXZx3R2w1ryQd5m9SoNCa5Dtp\\\"\\n7:\\\"static/chunks/18409-7de864e2b3832970.js?dp",
+   "ript><script>(self.__next_f=self.__next_f||[]).push([0])</script><script>self.__next_f.push([1,\"1:\\\"$Sreact.fragment\\\"\\n4:\\\"ClientSegmentRoot\\\"\\n5:I[78616,[],\\\"$4\\\"]\\n6:\\\"static/chunks/c916193b-71cfb480dd01955f.js?dpl=dpl_Hc2vXZx3R2w1ryQd5m9SoNCa5Dtp\\\"\\n7:\\\"static/chunks/18409-7de864e2b3832970.js?dpl=dpl_Hc2vXZx3R2w1ryQd5m9SoNCa5Dtp\\\"\\n8:\\\"static/chunks/9850",
+   "l_Hc2vXZx3R2w1ryQd5m9SoNCa5Dtp\\\"\\n26:\\\"static/chunks/app/(dashboard)/layout-4445fba9d1e7b26a.js?dpl=dpl_Hc2vXZx3R2w1ryQd5m9SoNCa5Dtp\\\"\\n27:I[15657,[\\\"13603\\\",\\\"$6\\\",\\\"18409\\\",\\\"$7\\\",\\\"98500\\\",\\\"$8\\\",\\\"98143\\\",\\\"$9\\\",\\\"33683\\\",\\\"$a\\\",\\\"5772\\\",\\\"$b\\\",\\\"98290\\\",\\\"$c\\\",\\\"26708\\\",\\\"$d\\\",\\\"37795\\\",\\\"$e\\\",\\\"84429\\\",\\\"$f\\\",\\\"60795\\\",\\\"$10\\\",\\\"18636\\\",\\\"$11\\\",\\\"22032",
+   "d5m9SoNCa5Dtp\\\"\\n26:\\\"static/chunks/app/(dashboard)/layout-4445fba9d1e7b26a.js?dpl=dpl_Hc2vXZx3R2w1ryQd5m9SoNCa5Dtp\\\"\\n27:I[15657,[\\\"13603\\\",\\\"$6\\\",\\\"18409\\\",\\\"$7\\\",\\\"98500\\\",\\\"$8\\\",\\\"98143\\\",\\\"$9\\\",\\\"33683\\\",\\\"$a\\\",\\\"5772\\\",\\\"$b\\\",\\\"98290\\\",\\\"$c\\\",\\\"26708\\\",\\\"$d\\\",\\\"37795\\\",\\\"$e\\\",\\\"84429\\\",\\\"$f\\\",\\\"60795\\\",\\\"$10\\\",\\\"18636\\\",\\\"$11\\\",\\\"22032\\\",\\\"$12\\\",\\\"9985",
+   "26:\\\"static/chunks/app/(dashboard)/layout-4445fba9d1e7b26a.js?dpl=dpl_Hc2vXZx3R2w1ryQd5m9SoNCa5Dtp\\\"\\n27:I[15657,[\\\"13603\\\",\\\"$6\\\",\\\"18409\\\",\\\"$7\\\",\\\"98500\\\",\\\"$8\\\",\\\"98143\\\",\\\"$9\\\",\\\"33683\\\",\\\"$a\\\",\\\"5772\\\",\\\"$b\\\",\\\"98290\\\",\\\"$c\\\",\\\"26708\\\",\\\"$d\\\",\\\"37795\\\",\\\"$e\\\",\\\"84429\\\",\\\"$f\\\",\\\"60795\\\",\\\"$10\\\",\\\"18636\\\",\\\"$11\\\",\\\"22032\\\",\\\"$12\\\",\\\"99854\\\",\\\"$13\\\",\\\"666",
+   "s/app/(dashboard)/layout-4445fba9d1e7b26a.js?dpl=dpl_Hc2vXZx3R2w1ryQd5m9SoNCa5Dtp\\\"\\n27:I[15657,[\\\"13603\\\",\\\"$6\\\",\\\"18409\\\",\\\"$7\\\",\\\"98500\\\",\\\"$8\\\",\\\"98143\\\",\\\"$9\\\",\\\"33683\\\",\\\"$a\\\",\\\"5772\\\",\\\"$b\\\",\\\"98290\\\",\\\"$c\\\",\\\"26708\\\",\\\"$d\\\",\\\"37795\\\",\\\"$e\\\",\\\"84429\\\",\\\"$f\\\",\\\"60795\\\",\\\"$10\\\",\\\"18636\\\",\\\"$11\\\",\\\"22032\\\",\\\"$12\\\",\\\"99854\\\",\\\"$13\\\",\\\"66609\\\",\\\"$14\\\",\\\"56",
+   "/layout-4445fba9d1e7b26a.js?dpl=dpl_Hc2vXZx3R2w1ryQd5m9SoNCa5Dtp\\\"\\n27:I[15657,[\\\"13603\\\",\\\"$6\\\",\\\"18409\\\",\\\"$7\\\",\\\"98500\\\",\\\"$8\\\",\\\"98143\\\",\\\"$9\\\",\\\"33683\\\",\\\"$a\\\",\\\"5772\\\",\\\"$b\\\",\\\"98290\\\",\\\"$c\\\",\\\"26708\\\",\\\"$d\\\",\\\"37795\\\",\\\"$e\\\",\\\"84429\\\",\\\"$f\\\",\\\"60795\\\",\\\"$10\\\",\\\"18636\\\",\\\"$11\\\",\\\"22032\\\",\\\"$12\\\",\\\"99854\\\",\\\"$13\\\",\\\"66609\\\",\\\"$14\\\",\\\"56385\\\",\\\"$15\\\",\\\"4",
+   "d1e7b26a.js?dpl=dpl_Hc2vXZx3R2w1ryQd5m9SoNCa5Dtp\\\"\\n27:I[15657,[\\\"13603\\\",\\\"$6\\\",\\\"18409\\\",\\\"$7\\\",\\\"98500\\\",\\\"$8\\\",\\\"98143\\\",\\\"$9\\\",\\\"33683\\\",\\\"$a\\\",\\\"5772\\\",\\\"$b\\\",\\\"98290\\\",\\\"$c\\\",\\\"26708\\\",\\\"$d\\\",\\\"37795\\\",\\\"$e\\\",\\\"84429\\\",\\\"$f\\\",\\\"60795\\\",\\\"$10\\\",\\\"18636\\\",\\\"$11\\\",\\\"22032\\\",\\\"$12\\\",\\\"99854\\\",\\\"$13\\\",\\\"66609\\\",\\\"$14\\\",\\\"56385\\\",\\\"$15\\\",\\\"486\\\",\\\"$16\\\",\\\"5"
+  ]
+ },
+ "eachlabs_page_kling-video-4-0-flash-text-to-video": {
+  "status": 200,
+  "bytes": 212228,
+  "price_fragments": [
+   "5Dtp\" noModule=\"\"></script></head><body class=\"__variable_1a9ab4 __variable_82554d font-inter optimize-rendering tracking-tight antialiased\"><div hidden=\"\"><!--$--><!--/$--></div><!--$--><!--/$--><div class=\"prevent-layout-shift flex min-h-screen flex-col overflow-hidden supports-[overflow:clip]:overflow-clip\"><script>((a,b,c,d,e,f,g,h)=>{let i=document.docu",
+   "odule=\"\"></script></head><body class=\"__variable_1a9ab4 __variable_82554d font-inter optimize-rendering tracking-tight antialiased\"><div hidden=\"\"><!--$--><!--/$--></div><!--$--><!--/$--><div class=\"prevent-layout-shift flex min-h-screen flex-col overflow-hidden supports-[overflow:clip]:overflow-clip\"><script>((a,b,c,d,e,f,g,h)=>{let i=document.documentEleme",
+   "ipt></head><body class=\"__variable_1a9ab4 __variable_82554d font-inter optimize-rendering tracking-tight antialiased\"><div hidden=\"\"><!--$--><!--/$--></div><!--$--><!--/$--><div class=\"prevent-layout-shift flex min-h-screen flex-col overflow-hidden supports-[overflow:clip]:overflow-clip\"><script>((a,b,c,d,e,f,g,h)=>{let i=document.documentElement,j=[\"light\",",
+   "d><body class=\"__variable_1a9ab4 __variable_82554d font-inter optimize-rendering tracking-tight antialiased\"><div hidden=\"\"><!--$--><!--/$--></div><!--$--><!--/$--><div class=\"prevent-layout-shift flex min-h-screen flex-col overflow-hidden supports-[overflow:clip]:overflow-clip\"><script>((a,b,c,d,e,f,g,h)=>{let i=document.documentElement,j=[\"light\",\"dark\"];f",
+   "if(localStorage.getItem('dashboard_sidebar_collapsed')==='true'){document.documentElement.setAttribute('data-sidebar-collapsed','true')}}catch(e){}</script><!--$--><div class=\"bg-background absolute inset-0 flex h-full w-full items-center justify-center\"><svg stroke=\"currentColor\" fill=\"none\" stroke-width=\"0\" viewBox=\"0 0 24 24\" class=\"text-foreground animat",
+   ".47715 22 12 22Z\" fill=\"currentColor\"></path><path d=\"M2 12C2 6.47715 6.47715 2 12 2V5C8.13401 5 5 8.13401 5 12H2Z\" fill=\"currentColor\"></path></svg></div><!--/$--></div><script src=\"/_next/static/chunks/webpack-bf077074359f63c9.js?dpl=dpl_Hc2vXZx3R2w1ryQd5m9SoNCa5Dtp\" id=\"_R_\" async=\"\"></script><script>(self.__next_f=self.__next_f||[]).push([0])</script><sc",
+   "dpl=dpl_Hc2vXZx3R2w1ryQd5m9SoNCa5Dtp\" id=\"_R_\" async=\"\"></script><script>(self.__next_f=self.__next_f||[]).push([0])</script><script>self.__next_f.push([1,\"1:\\\"$Sreact.fragment\\\"\\n4:\\\"ClientSegmentRoot\\\"\\n5:I[78616,[],\\\"$4\\\"]\\n6:\\\"static/chunks/c916193b-71cfb480dd01955f.js?dpl=dpl_Hc2vXZx3R2w1ryQd5m9SoNCa5Dtp\\\"\\n7:\\\"static/chunks/18409-7de864e2b3832970.js?dp",
+   "ript><script>(self.__next_f=self.__next_f||[]).push([0])</script><script>self.__next_f.push([1,\"1:\\\"$Sreact.fragment\\\"\\n4:\\\"ClientSegmentRoot\\\"\\n5:I[78616,[],\\\"$4\\\"]\\n6:\\\"static/chunks/c916193b-71cfb480dd01955f.js?dpl=dpl_Hc2vXZx3R2w1ryQd5m9SoNCa5Dtp\\\"\\n7:\\\"static/chunks/18409-7de864e2b3832970.js?dpl=dpl_Hc2vXZx3R2w1ryQd5m9SoNCa5Dtp\\\"\\n8:\\\"static/chunks/9850",
+   "l_Hc2vXZx3R2w1ryQd5m9SoNCa5Dtp\\\"\\n26:\\\"static/chunks/app/(dashboard)/layout-4445fba9d1e7b26a.js?dpl=dpl_Hc2vXZx3R2w1ryQd5m9SoNCa5Dtp\\\"\\n27:I[15657,[\\\"13603\\\",\\\"$6\\\",\\\"18409\\\",\\\"$7\\\",\\\"98500\\\",\\\"$8\\\",\\\"98143\\\",\\\"$9\\\",\\\"33683\\\",\\\"$a\\\",\\\"5772\\\",\\\"$b\\\",\\\"98290\\\",\\\"$c\\\",\\\"26708\\\",\\\"$d\\\",\\\"37795\\\",\\\"$e\\\",\\\"84429\\\",\\\"$f\\\",\\\"60795\\\",\\\"$10\\\",\\\"18636\\\",\\\"$11\\\",\\\"22032",
+   "d5m9SoNCa5Dtp\\\"\\n26:\\\"static/chunks/app/(dashboard)/layout-4445fba9d1e7b26a.js?dpl=dpl_Hc2vXZx3R2w1ryQd5m9SoNCa5Dtp\\\"\\n27:I[15657,[\\\"13603\\\",\\\"$6\\\",\\\"18409\\\",\\\"$7\\\",\\\"98500\\\",\\\"$8\\\",\\\"98143\\\",\\\"$9\\\",\\\"33683\\\",\\\"$a\\\",\\\"5772\\\",\\\"$b\\\",\\\"98290\\\",\\\"$c\\\",\\\"26708\\\",\\\"$d\\\",\\\"37795\\\",\\\"$e\\\",\\\"84429\\\",\\\"$f\\\",\\\"60795\\\",\\\"$10\\\",\\\"18636\\\",\\\"$11\\\",\\\"22032\\\",\\\"$12\\\",\\\"9985",
+   "26:\\\"static/chunks/app/(dashboard)/layout-4445fba9d1e7b26a.js?dpl=dpl_Hc2vXZx3R2w1ryQd5m9SoNCa5Dtp\\\"\\n27:I[15657,[\\\"13603\\\",\\\"$6\\\",\\\"18409\\\",\\\"$7\\\",\\\"98500\\\",\\\"$8\\\",\\\"98143\\\",\\\"$9\\\",\\\"33683\\\",\\\"$a\\\",\\\"5772\\\",\\\"$b\\\",\\\"98290\\\",\\\"$c\\\",\\\"26708\\\",\\\"$d\\\",\\\"37795\\\",\\\"$e\\\",\\\"84429\\\",\\\"$f\\\",\\\"60795\\\",\\\"$10\\\",\\\"18636\\\",\\\"$11\\\",\\\"22032\\\",\\\"$12\\\",\\\"99854\\\",\\\"$13\\\",\\\"666",
+   "s/app/(dashboard)/layout-4445fba9d1e7b26a.js?dpl=dpl_Hc2vXZx3R2w1ryQd5m9SoNCa5Dtp\\\"\\n27:I[15657,[\\\"13603\\\",\\\"$6\\\",\\\"18409\\\",\\\"$7\\\",\\\"98500\\\",\\\"$8\\\",\\\"98143\\\",\\\"$9\\\",\\\"33683\\\",\\\"$a\\\",\\\"5772\\\",\\\"$b\\\",\\\"98290\\\",\\\"$c\\\",\\\"26708\\\",\\\"$d\\\",\\\"37795\\\",\\\"$e\\\",\\\"84429\\\",\\\"$f\\\",\\\"60795\\\",\\\"$10\\\",\\\"18636\\\",\\\"$11\\\",\\\"22032\\\",\\\"$12\\\",\\\"99854\\\",\\\"$13\\\",\\\"66609\\\",\\\"$14\\\",\\\"56",
+   "/layout-4445fba9d1e7b26a.js?dpl=dpl_Hc2vXZx3R2w1ryQd5m9SoNCa5Dtp\\\"\\n27:I[15657,[\\\"13603\\\",\\\"$6\\\",\\\"18409\\\",\\\"$7\\\",\\\"98500\\\",\\\"$8\\\",\\\"98143\\\",\\\"$9\\\",\\\"33683\\\",\\\"$a\\\",\\\"5772\\\",\\\"$b\\\",\\\"98290\\\",\\\"$c\\\",\\\"26708\\\",\\\"$d\\\",\\\"37795\\\",\\\"$e\\\",\\\"84429\\\",\\\"$f\\\",\\\"60795\\\",\\\"$10\\\",\\\"18636\\\",\\\"$11\\\",\\\"22032\\\",\\\"$12\\\",\\\"99854\\\",\\\"$13\\\",\\\"66609\\\",\\\"$14\\\",\\\"56385\\\",\\\"$15\\\",\\\"4",
+   "d1e7b26a.js?dpl=dpl_Hc2vXZx3R2w1ryQd5m9SoNCa5Dtp\\\"\\n27:I[15657,[\\\"13603\\\",\\\"$6\\\",\\\"18409\\\",\\\"$7\\\",\\\"98500\\\",\\\"$8\\\",\\\"98143\\\",\\\"$9\\\",\\\"33683\\\",\\\"$a\\\",\\\"5772\\\",\\\"$b\\\",\\\"98290\\\",\\\"$c\\\",\\\"26708\\\",\\\"$d\\\",\\\"37795\\\",\\\"$e\\\",\\\"84429\\\",\\\"$f\\\",\\\"60795\\\",\\\"$10\\\",\\\"18636\\\",\\\"$11\\\",\\\"22032\\\",\\\"$12\\\",\\\"99854\\\",\\\"$13\\\",\\\"66609\\\",\\\"$14\\\",\\\"56385\\\",\\\"$15\\\",\\\"486\\\",\\\"$16\\\",\\\"5"
+  ]
+ },
+ "eachlabs_page_kling-video-4-0-flash-reference-to-video": {
+  "status": 200,
+  "bytes": 212238,
+  "price_fragments": [
+   "5Dtp\" noModule=\"\"></script></head><body class=\"__variable_1a9ab4 __variable_82554d font-inter optimize-rendering tracking-tight antialiased\"><div hidden=\"\"><!--$--><!--/$--></div><!--$--><!--/$--><div class=\"prevent-layout-shift flex min-h-screen flex-col overflow-hidden supports-[overflow:clip]:overflow-clip\"><script>((a,b,c,d,e,f,g,h)=>{let i=document.docu",
+   "odule=\"\"></script></head><body class=\"__variable_1a9ab4 __variable_82554d font-inter optimize-rendering tracking-tight antialiased\"><div hidden=\"\"><!--$--><!--/$--></div><!--$--><!--/$--><div class=\"prevent-layout-shift flex min-h-screen flex-col overflow-hidden supports-[overflow:clip]:overflow-clip\"><script>((a,b,c,d,e,f,g,h)=>{let i=document.documentEleme",
+   "ipt></head><body class=\"__variable_1a9ab4 __variable_82554d font-inter optimize-rendering tracking-tight antialiased\"><div hidden=\"\"><!--$--><!--/$--></div><!--$--><!--/$--><div class=\"prevent-layout-shift flex min-h-screen flex-col overflow-hidden supports-[overflow:clip]:overflow-clip\"><script>((a,b,c,d,e,f,g,h)=>{let i=document.documentElement,j=[\"light\",",
+   "d><body class=\"__variable_1a9ab4 __variable_82554d font-inter optimize-rendering tracking-tight antialiased\"><div hidden=\"\"><!--$--><!--/$--></div><!--$--><!--/$--><div class=\"prevent-layout-shift flex min-h-screen flex-col overflow-hidden supports-[overflow:clip]:overflow-clip\"><script>((a,b,c,d,e,f,g,h)=>{let i=document.documentElement,j=[\"light\",\"dark\"];f",
+   "if(localStorage.getItem('dashboard_sidebar_collapsed')==='true'){document.documentElement.setAttribute('data-sidebar-collapsed','true')}}catch(e){}</script><!--$--><div class=\"bg-background absolute inset-0 flex h-full w-full items-center justify-center\"><svg stroke=\"currentColor\" fill=\"none\" stroke-width=\"0\" viewBox=\"0 0 24 24\" class=\"text-foreground animat",
+   ".47715 22 12 22Z\" fill=\"currentColor\"></path><path d=\"M2 12C2 6.47715 6.47715 2 12 2V5C8.13401 5 5 8.13401 5 12H2Z\" fill=\"currentColor\"></path></svg></div><!--/$--></div><script src=\"/_next/static/chunks/webpack-bf077074359f63c9.js?dpl=dpl_Hc2vXZx3R2w1ryQd5m9SoNCa5Dtp\" id=\"_R_\" async=\"\"></script><script>(self.__next_f=self.__next_f||[]).push([0])</script><sc",
+   "dpl=dpl_Hc2vXZx3R2w1ryQd5m9SoNCa5Dtp\" id=\"_R_\" async=\"\"></script><script>(self.__next_f=self.__next_f||[]).push([0])</script><script>self.__next_f.push([1,\"1:\\\"$Sreact.fragment\\\"\\n4:\\\"ClientSegmentRoot\\\"\\n5:I[78616,[],\\\"$4\\\"]\\n6:\\\"static/chunks/c916193b-71cfb480dd01955f.js?dpl=dpl_Hc2vXZx3R2w1ryQd5m9SoNCa5Dtp\\\"\\n7:\\\"static/chunks/18409-7de864e2b3832970.js?dp",
+   "ript><script>(self.__next_f=self.__next_f||[]).push([0])</script><script>self.__next_f.push([1,\"1:\\\"$Sreact.fragment\\\"\\n4:\\\"ClientSegmentRoot\\\"\\n5:I[78616,[],\\\"$4\\\"]\\n6:\\\"static/chunks/c916193b-71cfb480dd01955f.js?dpl=dpl_Hc2vXZx3R2w1ryQd5m9SoNCa5Dtp\\\"\\n7:\\\"static/chunks/18409-7de864e2b3832970.js?dpl=dpl_Hc2vXZx3R2w1ryQd5m9SoNCa5Dtp\\\"\\n8:\\\"static/chunks/9850",
+   "l_Hc2vXZx3R2w1ryQd5m9SoNCa5Dtp\\\"\\n26:\\\"static/chunks/app/(dashboard)/layout-4445fba9d1e7b26a.js?dpl=dpl_Hc2vXZx3R2w1ryQd5m9SoNCa5Dtp\\\"\\n27:I[15657,[\\\"13603\\\",\\\"$6\\\",\\\"18409\\\",\\\"$7\\\",\\\"98500\\\",\\\"$8\\\",\\\"98143\\\",\\\"$9\\\",\\\"33683\\\",\\\"$a\\\",\\\"5772\\\",\\\"$b\\\",\\\"98290\\\",\\\"$c\\\",\\\"26708\\\",\\\"$d\\\",\\\"37795\\\",\\\"$e\\\",\\\"84429\\\",\\\"$f\\\",\\\"60795\\\",\\\"$10\\\",\\\"18636\\\",\\\"$11\\\",\\\"22032",
+   "d5m9SoNCa5Dtp\\\"\\n26:\\\"static/chunks/app/(dashboard)/layout-4445fba9d1e7b26a.js?dpl=dpl_Hc2vXZx3R2w1ryQd5m9SoNCa5Dtp\\\"\\n27:I[15657,[\\\"13603\\\",\\\"$6\\\",\\\"18409\\\",\\\"$7\\\",\\\"98500\\\",\\\"$8\\\",\\\"98143\\\",\\\"$9\\\",\\\"33683\\\",\\\"$a\\\",\\\"5772\\\",\\\"$b\\\",\\\"98290\\\",\\\"$c\\\",\\\"26708\\\",\\\"$d\\\",\\\"37795\\\",\\\"$e\\\",\\\"84429\\\",\\\"$f\\\",\\\"60795\\\",\\\"$10\\\",\\\"18636\\\",\\\"$11\\\",\\\"22032\\\",\\\"$12\\\",\\\"9985",
+   "26:\\\"static/chunks/app/(dashboard)/layout-4445fba9d1e7b26a.js?dpl=dpl_Hc2vXZx3R2w1ryQd5m9SoNCa5Dtp\\\"\\n27:I[15657,[\\\"13603\\\",\\\"$6\\\",\\\"18409\\\",\\\"$7\\\",\\\"98500\\\",\\\"$8\\\",\\\"98143\\\",\\\"$9\\\",\\\"33683\\\",\\\"$a\\\",\\\"5772\\\",\\\"$b\\\",\\\"98290\\\",\\\"$c\\\",\\\"26708\\\",\\\"$d\\\",\\\"37795\\\",\\\"$e\\\",\\\"84429\\\",\\\"$f\\\",\\\"60795\\\",\\\"$10\\\",\\\"18636\\\",\\\"$11\\\",\\\"22032\\\",\\\"$12\\\",\\\"99854\\\",\\\"$13\\\",\\\"666",
+   "s/app/(dashboard)/layout-4445fba9d1e7b26a.js?dpl=dpl_Hc2vXZx3R2w1ryQd5m9SoNCa5Dtp\\\"\\n27:I[15657,[\\\"13603\\\",\\\"$6\\\",\\\"18409\\\",\\\"$7\\\",\\\"98500\\\",\\\"$8\\\",\\\"98143\\\",\\\"$9\\\",\\\"33683\\\",\\\"$a\\\",\\\"5772\\\",\\\"$b\\\",\\\"98290\\\",\\\"$c\\\",\\\"26708\\\",\\\"$d\\\",\\\"37795\\\",\\\"$e\\\",\\\"84429\\\",\\\"$f\\\",\\\"60795\\\",\\\"$10\\\",\\\"18636\\\",\\\"$11\\\",\\\"22032\\\",\\\"$12\\\",\\\"99854\\\",\\\"$13\\\",\\\"66609\\\",\\\"$14\\\",\\\"56",
+   "/layout-4445fba9d1e7b26a.js?dpl=dpl_Hc2vXZx3R2w1ryQd5m9SoNCa5Dtp\\\"\\n27:I[15657,[\\\"13603\\\",\\\"$6\\\",\\\"18409\\\",\\\"$7\\\",\\\"98500\\\",\\\"$8\\\",\\\"98143\\\",\\\"$9\\\",\\\"33683\\\",\\\"$a\\\",\\\"5772\\\",\\\"$b\\\",\\\"98290\\\",\\\"$c\\\",\\\"26708\\\",\\\"$d\\\",\\\"37795\\\",\\\"$e\\\",\\\"84429\\\",\\\"$f\\\",\\\"60795\\\",\\\"$10\\\",\\\"18636\\\",\\\"$11\\\",\\\"22032\\\",\\\"$12\\\",\\\"99854\\\",\\\"$13\\\",\\\"66609\\\",\\\"$14\\\",\\\"56385\\\",\\\"$15\\\",\\\"4",
+   "d1e7b26a.js?dpl=dpl_Hc2vXZx3R2w1ryQd5m9SoNCa5Dtp\\\"\\n27:I[15657,[\\\"13603\\\",\\\"$6\\\",\\\"18409\\\",\\\"$7\\\",\\\"98500\\\",\\\"$8\\\",\\\"98143\\\",\\\"$9\\\",\\\"33683\\\",\\\"$a\\\",\\\"5772\\\",\\\"$b\\\",\\\"98290\\\",\\\"$c\\\",\\\"26708\\\",\\\"$d\\\",\\\"37795\\\",\\\"$e\\\",\\\"84429\\\",\\\"$f\\\",\\\"60795\\\",\\\"$10\\\",\\\"18636\\\",\\\"$11\\\",\\\"22032\\\",\\\"$12\\\",\\\"99854\\\",\\\"$13\\\",\\\"66609\\\",\\\"$14\\\",\\\"56385\\\",\\\"$15\\\",\\\"486\\\",\\\"$16\\\",\\\"5"
+  ]
+ },
+ "fal_page_v3_std_t2v": {
+  "status": 200,
+  "bytes": 355873,
+  "price_fragments": [
+   "pt src=\"/_next/static/chunks/0cz1d0mv5g_q7.js?dpl=5738318340a420a9cf461-production\" noModule=\"\"></script></head><body class=\"bg-surface-300\"><div hidden=\"\"><!--$?--><template id=\"B:0\"></template><!--/$--></div><a href=\"#main-content\" class=\"focus-ring sr-only rounded-sm bg-surface text-sm font-medium text-content-strong shadow-md focus:not-sr-only focus:fixe",
+   "q7.js?dpl=5738318340a420a9cf461-production\" noModule=\"\"></script></head><body class=\"bg-surface-300\"><div hidden=\"\"><!--$?--><template id=\"B:0\"></template><!--/$--></div><a href=\"#main-content\" class=\"focus-ring sr-only rounded-sm bg-surface text-sm font-medium text-content-strong shadow-md focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-9999 ",
+   "-sm font-medium text-content-strong shadow-md focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-9999 focus:px-4 focus:py-2\">Skip to content</a><!--$--><!--/$--><script>((a,b,c,d,e,f,g,h)=>{let i=document.documentElement,j=[\"light\",\"dark\"];function k(b){var c;(Array.isArray(a)?a:[a]).forEach(a=>{let c=\"class\"===a,d=c&&f?e.map(a=>f[a]||a):e;c?(i.c",
+   "medium text-content-strong shadow-md focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-9999 focus:px-4 focus:py-2\">Skip to content</a><!--$--><!--/$--><script>((a,b,c,d,e,f,g,h)=>{let i=document.documentElement,j=[\"light\",\"dark\"];function k(b){var c;(Array.isArray(a)?a:[a]).forEach(a=>{let c=\"class\"===a,d=c&&f?e.map(a=>f[a]||a):e;c?(i.classList.",
+   "atchMedia(\"(prefers-color-scheme: dark)\").matches?\"dark\":\"light\":a;k(d)}catch(a){}})(\"class\",\"theme\",\"system\",null,[\"light\",\"dark\"],null,true,true)</script><!--$--><!--/$--><div><div data-state=\"open\" data-slot=\"collapsible\"><div data-slot=\"collapsible-content\" data-state=\"open\" id=\"radix-_R_lgql5b_\" style=\"overflow:hidden;opacity:1;height:auto\"><div class=\"",
+   "(\"(prefers-color-scheme: dark)\").matches?\"dark\":\"light\":a;k(d)}catch(a){}})(\"class\",\"theme\",\"system\",null,[\"light\",\"dark\"],null,true,true)</script><!--$--><!--/$--><div><div data-state=\"open\" data-slot=\"collapsible\"><div data-slot=\"collapsible-content\" data-state=\"open\" id=\"radix-_R_lgql5b_\" style=\"overflow:hidden;opacity:1;height:auto\"><div class=\"[--bf-bg:",
+   "tRect().width+68,h++);let j=12+f+12,k=j+12+(g+=6*Math.max(0,h-1))+12,l=k+d.getBoundingClientRect().width,m=a.clientWidth;b.style.setProperty(\"--nav-dock-left\",`${j}px`);let n=l>m;b.toggleAttribute(\"data-nav-crowded\",n),b.toggleAttribute(\"data-nav-mobile\",n&&k+d.getBoundingClientRect().width>m)}, function j(a,b){try{window.History.prototype.replaceState.call(",
+   "=\"flex min-h-[min(80vh,calc(100dvh-var(--nav-reserved-height)-var(--banner-height)))] flex-1 flex-col\"><main id=\"main-content\" class=\"flex flex-1 flex-col\"><!--$?--><template id=\"B:1\"></template><span class=\"sr-only\" role=\"status\">Loading model</span><div class=\"px-0\"><div aria-busy=\"true\"><div class=\"overflow-visible border-b border-stroke-base bg-surface\">",
+   ";&#x27;] after:animate-loading-skeleton motion-reduce:after:animate-none h-5 w-3/4 rounded-xs\"></div></div></div></div></div></div></div></div></div></div><!--/$--><!--$--><!--/$--></main></div><div class=\"footer-container mt-10 lg:mt-20\"><div class=\"wf-html\" lang=\"en\" style=\"height:auto\"><div class=\"wf-body\" style=\"min-height:0;background-color:transparent\"",
+   " after:animate-loading-skeleton motion-reduce:after:animate-none h-5 w-3/4 rounded-xs\"></div></div></div></div></div></div></div></div></div></div><!--/$--><!--$--><!--/$--></main></div><div class=\"footer-container mt-10 lg:mt-20\"><div class=\"wf-html\" lang=\"en\" style=\"height:auto\"><div class=\"wf-body\" style=\"min-height:0;background-color:transparent\"><sectio",
+   "imate-loading-skeleton motion-reduce:after:animate-none h-5 w-3/4 rounded-xs\"></div></div></div></div></div></div></div></div></div></div><!--/$--><!--$--><!--/$--></main></div><div class=\"footer-container mt-10 lg:mt-20\"><div class=\"wf-html\" lang=\"en\" style=\"height:auto\"><div class=\"wf-body\" style=\"min-height:0;background-color:transparent\"><section class=\"",
+   "tifications alt+T\" tabindex=\"-1\" aria-live=\"polite\" aria-relevant=\"additions text\" aria-atomic=\"false\"></section></div><script>requestAnimationFrame(function(){$RT=performance.now()});</script><script id=\"_R_\">(globalThis[\"TURBOPACK\"] || (globalThis[\"TURBOPACK\"] = [])).push({\"otherChunks\":[\"static/chunks/3tmrabaq7dug5.js\",\"static/chunks/0lnd7blho2c7b.js\",\"st",
+   "7dug5.js?dpl=5738318340a420a9cf461-production\" async=\"\"></script><script>(self.__next_f=self.__next_f||[]).push([0])</script><script>self.__next_f.push([1,\"1:\\\"$Sreact.fragment\\\"\\n26:\\\"/_next/static/chunks/3qn_li49n4b7x.js?dpl=5738318340a420a9cf461-production\\\"\\n27:\\\"/_next/static/chunks/0r0qvk697u-rr.js?dpl=5738318340a420a9cf461-production\\\"\\n28:\\\"/_next/st",
+   "unks/1_6g1fe2fgl1r.js?dpl=5738318340a420a9cf461-production\\\"\\n57:\\\"/_next/static/chunks/1hbgiygnhw-_4.js?dpl=5738318340a420a9cf461-production\\\"\\n58:I[931823,[\\\"$26\\\",\\\"$27\\\",\\\"$28\\\",\\\"$29\\\",\\\"$2a\\\",\\\"$2b\\\",\\\"$2c\\\",\\\"$2d\\\",\\\"$2e\\\",\\\"$2f\\\",\\\"$30\\\",\\\"$31\\\",\\\"$32\\\",\\\"$33\\\",\\\"$34\\\",\\\"$35\\\",\\\"$36\\\",\\\"$37\\\",\\\"$38\\\",\\\"$39\\\",\\\"$3a\\\",\\\"$3b\\\",\\\"$3c\\\",\\\"$3d\\\",\\\"$3e\\\",\\\""
+  ]
+ },
+ "fal_page_v3_pro_t2v": {
+  "status": 200,
+  "bytes": 354728,
+  "price_fragments": [
+   "pt src=\"/_next/static/chunks/0cz1d0mv5g_q7.js?dpl=5738318340a420a9cf461-production\" noModule=\"\"></script></head><body class=\"bg-surface-300\"><div hidden=\"\"><!--$?--><template id=\"B:0\"></template><!--/$--></div><a href=\"#main-content\" class=\"focus-ring sr-only rounded-sm bg-surface text-sm font-medium text-content-strong shadow-md focus:not-sr-only focus:fixe",
+   "q7.js?dpl=5738318340a420a9cf461-production\" noModule=\"\"></script></head><body class=\"bg-surface-300\"><div hidden=\"\"><!--$?--><template id=\"B:0\"></template><!--/$--></div><a href=\"#main-content\" class=\"focus-ring sr-only rounded-sm bg-surface text-sm font-medium text-content-strong shadow-md focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-9999 ",
+   "-sm font-medium text-content-strong shadow-md focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-9999 focus:px-4 focus:py-2\">Skip to content</a><!--$--><!--/$--><script>((a,b,c,d,e,f,g,h)=>{let i=document.documentElement,j=[\"light\",\"dark\"];function k(b){var c;(Array.isArray(a)?a:[a]).forEach(a=>{let c=\"class\"===a,d=c&&f?e.map(a=>f[a]||a):e;c?(i.c",
+   "medium text-content-strong shadow-md focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-9999 focus:px-4 focus:py-2\">Skip to content</a><!--$--><!--/$--><script>((a,b,c,d,e,f,g,h)=>{let i=document.documentElement,j=[\"light\",\"dark\"];function k(b){var c;(Array.isArray(a)?a:[a]).forEach(a=>{let c=\"class\"===a,d=c&&f?e.map(a=>f[a]||a):e;c?(i.classList.",
+   "atchMedia(\"(prefers-color-scheme: dark)\").matches?\"dark\":\"light\":a;k(d)}catch(a){}})(\"class\",\"theme\",\"system\",null,[\"light\",\"dark\"],null,true,true)</script><!--$--><!--/$--><div><div data-state=\"open\" data-slot=\"collapsible\"><div data-slot=\"collapsible-content\" data-state=\"open\" id=\"radix-_R_lgql5b_\" style=\"overflow:hidden;opacity:1;height:auto\"><div class=\"",
+   "(\"(prefers-color-scheme: dark)\").matches?\"dark\":\"light\":a;k(d)}catch(a){}})(\"class\",\"theme\",\"system\",null,[\"light\",\"dark\"],null,true,true)</script><!--$--><!--/$--><div><div data-state=\"open\" data-slot=\"collapsible\"><div data-slot=\"collapsible-content\" data-state=\"open\" id=\"radix-_R_lgql5b_\" style=\"overflow:hidden;opacity:1;height:auto\"><div class=\"[--bf-bg:",
+   "tRect().width+68,h++);let j=12+f+12,k=j+12+(g+=6*Math.max(0,h-1))+12,l=k+d.getBoundingClientRect().width,m=a.clientWidth;b.style.setProperty(\"--nav-dock-left\",`${j}px`);let n=l>m;b.toggleAttribute(\"data-nav-crowded\",n),b.toggleAttribute(\"data-nav-mobile\",n&&k+d.getBoundingClientRect().width>m)}, function j(a,b){try{window.History.prototype.replaceState.call(",
+   "=\"flex min-h-[min(80vh,calc(100dvh-var(--nav-reserved-height)-var(--banner-height)))] flex-1 flex-col\"><main id=\"main-content\" class=\"flex flex-1 flex-col\"><!--$?--><template id=\"B:1\"></template><span class=\"sr-only\" role=\"status\">Loading model</span><div class=\"px-0\"><div aria-busy=\"true\"><div class=\"overflow-visible border-b border-stroke-base bg-surface\">",
+   ";&#x27;] after:animate-loading-skeleton motion-reduce:after:animate-none h-5 w-3/4 rounded-xs\"></div></div></div></div></div></div></div></div></div></div><!--/$--><!--$--><!--/$--></main></div><div class=\"footer-container mt-10 lg:mt-20\"><div class=\"wf-html\" lang=\"en\" style=\"height:auto\"><div class=\"wf-body\" style=\"min-height:0;background-color:transparent\"",
+   " after:animate-loading-skeleton motion-reduce:after:animate-none h-5 w-3/4 rounded-xs\"></div></div></div></div></div></div></div></div></div></div><!--/$--><!--$--><!--/$--></main></div><div class=\"footer-container mt-10 lg:mt-20\"><div class=\"wf-html\" lang=\"en\" style=\"height:auto\"><div class=\"wf-body\" style=\"min-height:0;background-color:transparent\"><sectio",
+   "imate-loading-skeleton motion-reduce:after:animate-none h-5 w-3/4 rounded-xs\"></div></div></div></div></div></div></div></div></div></div><!--/$--><!--$--><!--/$--></main></div><div class=\"footer-container mt-10 lg:mt-20\"><div class=\"wf-html\" lang=\"en\" style=\"height:auto\"><div class=\"wf-body\" style=\"min-height:0;background-color:transparent\"><section class=\"",
+   "tifications alt+T\" tabindex=\"-1\" aria-live=\"polite\" aria-relevant=\"additions text\" aria-atomic=\"false\"></section></div><script>requestAnimationFrame(function(){$RT=performance.now()});</script><script id=\"_R_\">(globalThis[\"TURBOPACK\"] || (globalThis[\"TURBOPACK\"] = [])).push({\"otherChunks\":[\"static/chunks/3tmrabaq7dug5.js\",\"static/chunks/0lnd7blho2c7b.js\",\"st",
+   "7dug5.js?dpl=5738318340a420a9cf461-production\" async=\"\"></script><script>(self.__next_f=self.__next_f||[]).push([0])</script><script>self.__next_f.push([1,\"1:\\\"$Sreact.fragment\\\"\\n26:\\\"/_next/static/chunks/3qn_li49n4b7x.js?dpl=5738318340a420a9cf461-production\\\"\\n27:\\\"/_next/static/chunks/0r0qvk697u-rr.js?dpl=5738318340a420a9cf461-production\\\"\\n28:\\\"/_next/st",
+   "unks/1_6g1fe2fgl1r.js?dpl=5738318340a420a9cf461-production\\\"\\n57:\\\"/_next/static/chunks/1hbgiygnhw-_4.js?dpl=5738318340a420a9cf461-production\\\"\\n58:I[931823,[\\\"$26\\\",\\\"$27\\\",\\\"$28\\\",\\\"$29\\\",\\\"$2a\\\",\\\"$2b\\\",\\\"$2c\\\",\\\"$2d\\\",\\\"$2e\\\",\\\"$2f\\\",\\\"$30\\\",\\\"$31\\\",\\\"$32\\\",\\\"$33\\\",\\\"$34\\\",\\\"$35\\\",\\\"$36\\\",\\\"$37\\\",\\\"$38\\\",\\\"$39\\\",\\\"$3a\\\",\\\"$3b\\\",\\\"$3c\\\",\\\"$3d\\\",\\\"$3e\\\",\\\""
+  ]
+ },
+ "fal_page_v3_std_i2v": {
+  "status": 200,
+  "bytes": 426497,
+  "price_fragments": [
+   "pt src=\"/_next/static/chunks/0cz1d0mv5g_q7.js?dpl=5738318340a420a9cf461-production\" noModule=\"\"></script></head><body class=\"bg-surface-300\"><div hidden=\"\"><!--$?--><template id=\"B:0\"></template><!--/$--></div><a href=\"#main-content\" class=\"focus-ring sr-only rounded-sm bg-surface text-sm font-medium text-content-strong shadow-md focus:not-sr-only focus:fixe",
+   "q7.js?dpl=5738318340a420a9cf461-production\" noModule=\"\"></script></head><body class=\"bg-surface-300\"><div hidden=\"\"><!--$?--><template id=\"B:0\"></template><!--/$--></div><a href=\"#main-content\" class=\"focus-ring sr-only rounded-sm bg-surface text-sm font-medium text-content-strong shadow-md focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-9999 ",
+   "-sm font-medium text-content-strong shadow-md focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-9999 focus:px-4 focus:py-2\">Skip to content</a><!--$--><!--/$--><script>((a,b,c,d,e,f,g,h)=>{let i=document.documentElement,j=[\"light\",\"dark\"];function k(b){var c;(Array.isArray(a)?a:[a]).forEach(a=>{let c=\"class\"===a,d=c&&f?e.map(a=>f[a]||a):e;c?(i.c",
+   "medium text-content-strong shadow-md focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-9999 focus:px-4 focus:py-2\">Skip to content</a><!--$--><!--/$--><script>((a,b,c,d,e,f,g,h)=>{let i=document.documentElement,j=[\"light\",\"dark\"];function k(b){var c;(Array.isArray(a)?a:[a]).forEach(a=>{let c=\"class\"===a,d=c&&f?e.map(a=>f[a]||a):e;c?(i.classList.",
+   "atchMedia(\"(prefers-color-scheme: dark)\").matches?\"dark\":\"light\":a;k(d)}catch(a){}})(\"class\",\"theme\",\"system\",null,[\"light\",\"dark\"],null,true,true)</script><!--$--><!--/$--><div><div data-state=\"open\" data-slot=\"collapsible\"><div data-slot=\"collapsible-content\" data-state=\"open\" id=\"radix-_R_lgql5b_\" style=\"overflow:hidden;opacity:1;height:auto\"><div class=\"",
+   "(\"(prefers-color-scheme: dark)\").matches?\"dark\":\"light\":a;k(d)}catch(a){}})(\"class\",\"theme\",\"system\",null,[\"light\",\"dark\"],null,true,true)</script><!--$--><!--/$--><div><div data-state=\"open\" data-slot=\"collapsible\"><div data-slot=\"collapsible-content\" data-state=\"open\" id=\"radix-_R_lgql5b_\" style=\"overflow:hidden;opacity:1;height:auto\"><div class=\"[--bf-bg:",
+   "tRect().width+68,h++);let j=12+f+12,k=j+12+(g+=6*Math.max(0,h-1))+12,l=k+d.getBoundingClientRect().width,m=a.clientWidth;b.style.setProperty(\"--nav-dock-left\",`${j}px`);let n=l>m;b.toggleAttribute(\"data-nav-crowded\",n),b.toggleAttribute(\"data-nav-mobile\",n&&k+d.getBoundingClientRect().width>m)}, function j(a,b){try{window.History.prototype.replaceState.call(",
+   "=\"flex min-h-[min(80vh,calc(100dvh-var(--nav-reserved-height)-var(--banner-height)))] flex-1 flex-col\"><main id=\"main-content\" class=\"flex flex-1 flex-col\"><!--$?--><template id=\"B:1\"></template><span class=\"sr-only\" role=\"status\">Loading model</span><div class=\"px-0\"><div aria-busy=\"true\"><div class=\"overflow-visible border-b border-stroke-base bg-surface\">",
+   ";&#x27;] after:animate-loading-skeleton motion-reduce:after:animate-none h-5 w-3/4 rounded-xs\"></div></div></div></div></div></div></div></div></div></div><!--/$--><!--$--><!--/$--></main></div><div class=\"footer-container mt-10 lg:mt-20\"><div class=\"wf-html\" lang=\"en\" style=\"height:auto\"><div class=\"wf-body\" style=\"min-height:0;background-color:transparent\"",
+   " after:animate-loading-skeleton motion-reduce:after:animate-none h-5 w-3/4 rounded-xs\"></div></div></div></div></div></div></div></div></div></div><!--/$--><!--$--><!--/$--></main></div><div class=\"footer-container mt-10 lg:mt-20\"><div class=\"wf-html\" lang=\"en\" style=\"height:auto\"><div class=\"wf-body\" style=\"min-height:0;background-color:transparent\"><sectio",
+   "imate-loading-skeleton motion-reduce:after:animate-none h-5 w-3/4 rounded-xs\"></div></div></div></div></div></div></div></div></div></div><!--/$--><!--$--><!--/$--></main></div><div class=\"footer-container mt-10 lg:mt-20\"><div class=\"wf-html\" lang=\"en\" style=\"height:auto\"><div class=\"wf-body\" style=\"min-height:0;background-color:transparent\"><section class=\"",
+   "tifications alt+T\" tabindex=\"-1\" aria-live=\"polite\" aria-relevant=\"additions text\" aria-atomic=\"false\"></section></div><script>requestAnimationFrame(function(){$RT=performance.now()});</script><script id=\"_R_\">(globalThis[\"TURBOPACK\"] || (globalThis[\"TURBOPACK\"] = [])).push({\"otherChunks\":[\"static/chunks/3tmrabaq7dug5.js\",\"static/chunks/0lnd7blho2c7b.js\",\"st",
+   "7dug5.js?dpl=5738318340a420a9cf461-production\" async=\"\"></script><script>(self.__next_f=self.__next_f||[]).push([0])</script><script>self.__next_f.push([1,\"1:\\\"$Sreact.fragment\\\"\\n26:\\\"/_next/static/chunks/3qn_li49n4b7x.js?dpl=5738318340a420a9cf461-production\\\"\\n27:\\\"/_next/static/chunks/0r0qvk697u-rr.js?dpl=5738318340a420a9cf461-production\\\"\\n28:\\\"/_next/st",
+   "unks/1_6g1fe2fgl1r.js?dpl=5738318340a420a9cf461-production\\\"\\n57:\\\"/_next/static/chunks/1hbgiygnhw-_4.js?dpl=5738318340a420a9cf461-production\\\"\\n58:I[931823,[\\\"$26\\\",\\\"$27\\\",\\\"$28\\\",\\\"$29\\\",\\\"$2a\\\",\\\"$2b\\\",\\\"$2c\\\",\\\"$2d\\\",\\\"$2e\\\",\\\"$2f\\\",\\\"$30\\\",\\\"$31\\\",\\\"$32\\\",\\\"$33\\\",\\\"$34\\\",\\\"$35\\\",\\\"$36\\\",\\\"$37\\\",\\\"$38\\\",\\\"$39\\\",\\\"$3a\\\",\\\"$3b\\\",\\\"$3c\\\",\\\"$3d\\\",\\\"$3e\\\",\\\""
+  ]
+ },
+ "fal_page_v3_pro_r2v": {
+  "status": 404,
+  "bytes": 95329,
+  "price_fragments": [
+   "mple_rate=0.001\"/><script src=\"/_next/static/chunks/0cz1d0mv5g_q7.js?dpl=5738318340a420a9cf461-production\" noModule=\"\"></script></head><body><div hidden=\"\"><!--$?--><template id=\"B:0\"></template><!--/$--></div><script>requestAnimationFrame(function(){$RT=performance.now()});</script><script id=\"_R_\">(globalThis[\"TURBOPACK\"] || (globalThis[\"TURBOPACK\"] = []))",
+   "atic/chunks/0cz1d0mv5g_q7.js?dpl=5738318340a420a9cf461-production\" noModule=\"\"></script></head><body><div hidden=\"\"><!--$?--><template id=\"B:0\"></template><!--/$--></div><script>requestAnimationFrame(function(){$RT=performance.now()});</script><script id=\"_R_\">(globalThis[\"TURBOPACK\"] || (globalThis[\"TURBOPACK\"] = [])).push({\"otherChunks\":[\"static/chunks/3tm",
+   "461-production\" noModule=\"\"></script></head><body><div hidden=\"\"><!--$?--><template id=\"B:0\"></template><!--/$--></div><script>requestAnimationFrame(function(){$RT=performance.now()});</script><script id=\"_R_\">(globalThis[\"TURBOPACK\"] || (globalThis[\"TURBOPACK\"] = [])).push({\"otherChunks\":[\"static/chunks/3tmrabaq7dug5.js\",\"static/chunks/0lnd7blho2c7b.js\",\"st",
+   "7dug5.js?dpl=5738318340a420a9cf461-production\" async=\"\"></script><script>(self.__next_f=self.__next_f||[]).push([0])</script><script>self.__next_f.push([1,\"1:\\\"$Sreact.fragment\\\"\\n26:\\\"/_next/static/chunks/3qn_li49n4b7x.js?dpl=5738318340a420a9cf461-production\\\"\\n27:\\\"/_next/static/chunks/0r0qvk697u-rr.js?dpl=5738318340a420a9cf461-production\\\"\\n28:\\\"/_next/st",
+   "unks/1_6g1fe2fgl1r.js?dpl=5738318340a420a9cf461-production\\\"\\n57:\\\"/_next/static/chunks/1hbgiygnhw-_4.js?dpl=5738318340a420a9cf461-production\\\"\\n58:I[931823,[\\\"$26\\\",\\\"$27\\\",\\\"$28\\\",\\\"$29\\\",\\\"$2a\\\",\\\"$2b\\\",\\\"$2c\\\",\\\"$2d\\\",\\\"$2e\\\",\\\"$2f\\\",\\\"$30\\\",\\\"$31\\\",\\\"$32\\\",\\\"$33\\\",\\\"$34\\\",\\\"$35\\\",\\\"$36\\\",\\\"$37\\\",\\\"$38\\\",\\\"$39\\\",\\\"$3a\\\",\\\"$3b\\\",\\\"$3c\\\",\\\"$3d\\\",\\\"$3e\\\",\\\"",
+   "g1fe2fgl1r.js?dpl=5738318340a420a9cf461-production\\\"\\n57:\\\"/_next/static/chunks/1hbgiygnhw-_4.js?dpl=5738318340a420a9cf461-production\\\"\\n58:I[931823,[\\\"$26\\\",\\\"$27\\\",\\\"$28\\\",\\\"$29\\\",\\\"$2a\\\",\\\"$2b\\\",\\\"$2c\\\",\\\"$2d\\\",\\\"$2e\\\",\\\"$2f\\\",\\\"$30\\\",\\\"$31\\\",\\\"$32\\\",\\\"$33\\\",\\\"$34\\\",\\\"$35\\\",\\\"$36\\\",\\\"$37\\\",\\\"$38\\\",\\\"$39\\\",\\\"$3a\\\",\\\"$3b\\\",\\\"$3c\\\",\\\"$3d\\\",\\\"$3e\\\",\\\"$3f\\\",\\\"",
+   "1r.js?dpl=5738318340a420a9cf461-production\\\"\\n57:\\\"/_next/static/chunks/1hbgiygnhw-_4.js?dpl=5738318340a420a9cf461-production\\\"\\n58:I[931823,[\\\"$26\\\",\\\"$27\\\",\\\"$28\\\",\\\"$29\\\",\\\"$2a\\\",\\\"$2b\\\",\\\"$2c\\\",\\\"$2d\\\",\\\"$2e\\\",\\\"$2f\\\",\\\"$30\\\",\\\"$31\\\",\\\"$32\\\",\\\"$33\\\",\\\"$34\\\",\\\"$35\\\",\\\"$36\\\",\\\"$37\\\",\\\"$38\\\",\\\"$39\\\",\\\"$3a\\\",\\\"$3b\\\",\\\"$3c\\\",\\\"$3d\\\",\\\"$3e\\\",\\\"$3f\\\",\\\"$40\\\",\\\"",
+   "l=5738318340a420a9cf461-production\\\"\\n57:\\\"/_next/static/chunks/1hbgiygnhw-_4.js?dpl=5738318340a420a9cf461-production\\\"\\n58:I[931823,[\\\"$26\\\",\\\"$27\\\",\\\"$28\\\",\\\"$29\\\",\\\"$2a\\\",\\\"$2b\\\",\\\"$2c\\\",\\\"$2d\\\",\\\"$2e\\\",\\\"$2f\\\",\\\"$30\\\",\\\"$31\\\",\\\"$32\\\",\\\"$33\\\",\\\"$34\\\",\\\"$35\\\",\\\"$36\\\",\\\"$37\\\",\\\"$38\\\",\\\"$39\\\",\\\"$3a\\\",\\\"$3b\\\",\\\"$3c\\\",\\\"$3d\\\",\\\"$3e\\\",\\\"$3f\\\",\\\"$40\\\",\\\"$41\\\",\\\"",
+   "8340a420a9cf461-production\\\"\\n57:\\\"/_next/static/chunks/1hbgiygnhw-_4.js?dpl=5738318340a420a9cf461-production\\\"\\n58:I[931823,[\\\"$26\\\",\\\"$27\\\",\\\"$28\\\",\\\"$29\\\",\\\"$2a\\\",\\\"$2b\\\",\\\"$2c\\\",\\\"$2d\\\",\\\"$2e\\\",\\\"$2f\\\",\\\"$30\\\",\\\"$31\\\",\\\"$32\\\",\\\"$33\\\",\\\"$34\\\",\\\"$35\\\",\\\"$36\\\",\\\"$37\\\",\\\"$38\\\",\\\"$39\\\",\\\"$3a\\\",\\\"$3b\\\",\\\"$3c\\\",\\\"$3d\\\",\\\"$3e\\\",\\\"$3f\\\",\\\"$40\\\",\\\"$41\\\",\\\"$42\\\",\\\"",
+   "a9cf461-production\\\"\\n57:\\\"/_next/static/chunks/1hbgiygnhw-_4.js?dpl=5738318340a420a9cf461-production\\\"\\n58:I[931823,[\\\"$26\\\",\\\"$27\\\",\\\"$28\\\",\\\"$29\\\",\\\"$2a\\\",\\\"$2b\\\",\\\"$2c\\\",\\\"$2d\\\",\\\"$2e\\\",\\\"$2f\\\",\\\"$30\\\",\\\"$31\\\",\\\"$32\\\",\\\"$33\\\",\\\"$34\\\",\\\"$35\\\",\\\"$36\\\",\\\"$37\\\",\\\"$38\\\",\\\"$39\\\",\\\"$3a\\\",\\\"$3b\\\",\\\"$3c\\\",\\\"$3d\\\",\\\"$3e\\\",\\\"$3f\\\",\\\"$40\\\",\\\"$41\\\",\\\"$42\\\",\\\"$43\\\",\\\"",
+   "production\\\"\\n57:\\\"/_next/static/chunks/1hbgiygnhw-_4.js?dpl=5738318340a420a9cf461-production\\\"\\n58:I[931823,[\\\"$26\\\",\\\"$27\\\",\\\"$28\\\",\\\"$29\\\",\\\"$2a\\\",\\\"$2b\\\",\\\"$2c\\\",\\\"$2d\\\",\\\"$2e\\\",\\\"$2f\\\",\\\"$30\\\",\\\"$31\\\",\\\"$32\\\",\\\"$33\\\",\\\"$34\\\",\\\"$35\\\",\\\"$36\\\",\\\"$37\\\",\\\"$38\\\",\\\"$39\\\",\\\"$3a\\\",\\\"$3b\\\",\\\"$3c\\\",\\\"$3d\\\",\\\"$3e\\\",\\\"$3f\\\",\\\"$40\\\",\\\"$41\\\",\\\"$42\\\",\\\"$43\\\",\\\"$44\\\",\\\"",
+   "on\\\"\\n57:\\\"/_next/static/chunks/1hbgiygnhw-_4.js?dpl=5738318340a420a9cf461-production\\\"\\n58:I[931823,[\\\"$26\\\",\\\"$27\\\",\\\"$28\\\",\\\"$29\\\",\\\"$2a\\\",\\\"$2b\\\",\\\"$2c\\\",\\\"$2d\\\",\\\"$2e\\\",\\\"$2f\\\",\\\"$30\\\",\\\"$31\\\",\\\"$32\\\",\\\"$33\\\",\\\"$34\\\",\\\"$35\\\",\\\"$36\\\",\\\"$37\\\",\\\"$38\\\",\\\"$39\\\",\\\"$3a\\\",\\\"$3b\\\",\\\"$3c\\\",\\\"$3d\\\",\\\"$3e\\\",\\\"$3f\\\",\\\"$40\\\",\\\"$41\\\",\\\"$42\\\",\\\"$43\\\",\\\"$44\\\",\\\"$45\\\",\\\"",
+   ":\\\"/_next/static/chunks/1hbgiygnhw-_4.js?dpl=5738318340a420a9cf461-production\\\"\\n58:I[931823,[\\\"$26\\\",\\\"$27\\\",\\\"$28\\\",\\\"$29\\\",\\\"$2a\\\",\\\"$2b\\\",\\\"$2c\\\",\\\"$2d\\\",\\\"$2e\\\",\\\"$2f\\\",\\\"$30\\\",\\\"$31\\\",\\\"$32\\\",\\\"$33\\\",\\\"$34\\\",\\\"$35\\\",\\\"$36\\\",\\\"$37\\\",\\\"$38\\\",\\\"$39\\\",\\\"$3a\\\",\\\"$3b\\\",\\\"$3c\\\",\\\"$3d\\\",\\\"$3e\\\",\\\"$3f\\\",\\\"$40\\\",\\\"$41\\\",\\\"$42\\\",\\\"$43\\\",\\\"$44\\\",\\\"$45\\\",\\\"$46\\\",\\\"",
+   "t/static/chunks/1hbgiygnhw-_4.js?dpl=5738318340a420a9cf461-production\\\"\\n58:I[931823,[\\\"$26\\\",\\\"$27\\\",\\\"$28\\\",\\\"$29\\\",\\\"$2a\\\",\\\"$2b\\\",\\\"$2c\\\",\\\"$2d\\\",\\\"$2e\\\",\\\"$2f\\\",\\\"$30\\\",\\\"$31\\\",\\\"$32\\\",\\\"$33\\\",\\\"$34\\\",\\\"$35\\\",\\\"$36\\\",\\\"$37\\\",\\\"$38\\\",\\\"$39\\\",\\\"$3a\\\",\\\"$3b\\\",\\\"$3c\\\",\\\"$3d\\\",\\\"$3e\\\",\\\"$3f\\\",\\\"$40\\\",\\\"$41\\\",\\\"$42\\\",\\\"$43\\\",\\\"$44\\\",\\\"$45\\\",\\\"$46\\\",\\\"$47\\\",\\\""
+  ]
+ },
+ "fal_page_v4_t2v": {
+  "status": 200,
+  "bytes": 351107,
+  "price_fragments": [
+   "pt src=\"/_next/static/chunks/0cz1d0mv5g_q7.js?dpl=5738318340a420a9cf461-production\" noModule=\"\"></script></head><body class=\"bg-surface-300\"><div hidden=\"\"><!--$?--><template id=\"B:0\"></template><!--/$--></div><a href=\"#main-content\" class=\"focus-ring sr-only rounded-sm bg-surface text-sm font-medium text-content-strong shadow-md focus:not-sr-only focus:fixe",
+   "q7.js?dpl=5738318340a420a9cf461-production\" noModule=\"\"></script></head><body class=\"bg-surface-300\"><div hidden=\"\"><!--$?--><template id=\"B:0\"></template><!--/$--></div><a href=\"#main-content\" class=\"focus-ring sr-only rounded-sm bg-surface text-sm font-medium text-content-strong shadow-md focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-9999 ",
+   "-sm font-medium text-content-strong shadow-md focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-9999 focus:px-4 focus:py-2\">Skip to content</a><!--$--><!--/$--><script>((a,b,c,d,e,f,g,h)=>{let i=document.documentElement,j=[\"light\",\"dark\"];function k(b){var c;(Array.isArray(a)?a:[a]).forEach(a=>{let c=\"class\"===a,d=c&&f?e.map(a=>f[a]||a):e;c?(i.c",
+   "medium text-content-strong shadow-md focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-9999 focus:px-4 focus:py-2\">Skip to content</a><!--$--><!--/$--><script>((a,b,c,d,e,f,g,h)=>{let i=document.documentElement,j=[\"light\",\"dark\"];function k(b){var c;(Array.isArray(a)?a:[a]).forEach(a=>{let c=\"class\"===a,d=c&&f?e.map(a=>f[a]||a):e;c?(i.classList.",
+   "atchMedia(\"(prefers-color-scheme: dark)\").matches?\"dark\":\"light\":a;k(d)}catch(a){}})(\"class\",\"theme\",\"system\",null,[\"light\",\"dark\"],null,true,true)</script><!--$--><!--/$--><div><div data-state=\"open\" data-slot=\"collapsible\"><div data-slot=\"collapsible-content\" data-state=\"open\" id=\"radix-_R_lgql5b_\" style=\"overflow:hidden;opacity:1;height:auto\"><div class=\"",
+   "(\"(prefers-color-scheme: dark)\").matches?\"dark\":\"light\":a;k(d)}catch(a){}})(\"class\",\"theme\",\"system\",null,[\"light\",\"dark\"],null,true,true)</script><!--$--><!--/$--><div><div data-state=\"open\" data-slot=\"collapsible\"><div data-slot=\"collapsible-content\" data-state=\"open\" id=\"radix-_R_lgql5b_\" style=\"overflow:hidden;opacity:1;height:auto\"><div class=\"[--bf-bg:",
+   "tRect().width+68,h++);let j=12+f+12,k=j+12+(g+=6*Math.max(0,h-1))+12,l=k+d.getBoundingClientRect().width,m=a.clientWidth;b.style.setProperty(\"--nav-dock-left\",`${j}px`);let n=l>m;b.toggleAttribute(\"data-nav-crowded\",n),b.toggleAttribute(\"data-nav-mobile\",n&&k+d.getBoundingClientRect().width>m)}, function j(a,b){try{window.History.prototype.replaceState.call(",
+   "=\"flex min-h-[min(80vh,calc(100dvh-var(--nav-reserved-height)-var(--banner-height)))] flex-1 flex-col\"><main id=\"main-content\" class=\"flex flex-1 flex-col\"><!--$?--><template id=\"B:1\"></template><span class=\"sr-only\" role=\"status\">Loading model</span><div class=\"px-0\"><div aria-busy=\"true\"><div class=\"overflow-visible border-b border-stroke-base bg-surface\">",
+   ";&#x27;] after:animate-loading-skeleton motion-reduce:after:animate-none h-5 w-3/4 rounded-xs\"></div></div></div></div></div></div></div></div></div></div><!--/$--><!--$--><!--/$--></main></div><div class=\"footer-container mt-10 lg:mt-20\"><div class=\"wf-html\" lang=\"en\" style=\"height:auto\"><div class=\"wf-body\" style=\"min-height:0;background-color:transparent\"",
+   " after:animate-loading-skeleton motion-reduce:after:animate-none h-5 w-3/4 rounded-xs\"></div></div></div></div></div></div></div></div></div></div><!--/$--><!--$--><!--/$--></main></div><div class=\"footer-container mt-10 lg:mt-20\"><div class=\"wf-html\" lang=\"en\" style=\"height:auto\"><div class=\"wf-body\" style=\"min-height:0;background-color:transparent\"><sectio",
+   "imate-loading-skeleton motion-reduce:after:animate-none h-5 w-3/4 rounded-xs\"></div></div></div></div></div></div></div></div></div></div><!--/$--><!--$--><!--/$--></main></div><div class=\"footer-container mt-10 lg:mt-20\"><div class=\"wf-html\" lang=\"en\" style=\"height:auto\"><div class=\"wf-body\" style=\"min-height:0;background-color:transparent\"><section class=\"",
+   "tifications alt+T\" tabindex=\"-1\" aria-live=\"polite\" aria-relevant=\"additions text\" aria-atomic=\"false\"></section></div><script>requestAnimationFrame(function(){$RT=performance.now()});</script><script id=\"_R_\">(globalThis[\"TURBOPACK\"] || (globalThis[\"TURBOPACK\"] = [])).push({\"otherChunks\":[\"static/chunks/3tmrabaq7dug5.js\",\"static/chunks/0lnd7blho2c7b.js\",\"st",
+   "7dug5.js?dpl=5738318340a420a9cf461-production\" async=\"\"></script><script>(self.__next_f=self.__next_f||[]).push([0])</script><script>self.__next_f.push([1,\"1:\\\"$Sreact.fragment\\\"\\n26:\\\"/_next/static/chunks/3qn_li49n4b7x.js?dpl=5738318340a420a9cf461-production\\\"\\n27:\\\"/_next/static/chunks/0r0qvk697u-rr.js?dpl=5738318340a420a9cf461-production\\\"\\n28:\\\"/_next/st",
+   "unks/1_6g1fe2fgl1r.js?dpl=5738318340a420a9cf461-production\\\"\\n57:\\\"/_next/static/chunks/1hbgiygnhw-_4.js?dpl=5738318340a420a9cf461-production\\\"\\n58:I[931823,[\\\"$26\\\",\\\"$27\\\",\\\"$28\\\",\\\"$29\\\",\\\"$2a\\\",\\\"$2b\\\",\\\"$2c\\\",\\\"$2d\\\",\\\"$2e\\\",\\\"$2f\\\",\\\"$30\\\",\\\"$31\\\",\\\"$32\\\",\\\"$33\\\",\\\"$34\\\",\\\"$35\\\",\\\"$36\\\",\\\"$37\\\",\\\"$38\\\",\\\"$39\\\",\\\"$3a\\\",\\\"$3b\\\",\\\"$3c\\\",\\\"$3d\\\",\\\"$3e\\\",\\\""
+  ]
+ },
+ "fal_page_v4_i2v": {
+  "status": 200,
+  "bytes": 376889,
+  "price_fragments": [
+   "pt src=\"/_next/static/chunks/0cz1d0mv5g_q7.js?dpl=5738318340a420a9cf461-production\" noModule=\"\"></script></head><body class=\"bg-surface-300\"><div hidden=\"\"><!--$?--><template id=\"B:0\"></template><!--/$--></div><a href=\"#main-content\" class=\"focus-ring sr-only rounded-sm bg-surface text-sm font-medium text-content-strong shadow-md focus:not-sr-only focus:fixe",
+   "q7.js?dpl=5738318340a420a9cf461-production\" noModule=\"\"></script></head><body class=\"bg-surface-300\"><div hidden=\"\"><!--$?--><template id=\"B:0\"></template><!--/$--></div><a href=\"#main-content\" class=\"focus-ring sr-only rounded-sm bg-surface text-sm font-medium text-content-strong shadow-md focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-9999 ",
+   "-sm font-medium text-content-strong shadow-md focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-9999 focus:px-4 focus:py-2\">Skip to content</a><!--$--><!--/$--><script>((a,b,c,d,e,f,g,h)=>{let i=document.documentElement,j=[\"light\",\"dark\"];function k(b){var c;(Array.isArray(a)?a:[a]).forEach(a=>{let c=\"class\"===a,d=c&&f?e.map(a=>f[a]||a):e;c?(i.c",
+   "medium text-content-strong shadow-md focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-9999 focus:px-4 focus:py-2\">Skip to content</a><!--$--><!--/$--><script>((a,b,c,d,e,f,g,h)=>{let i=document.documentElement,j=[\"light\",\"dark\"];function k(b){var c;(Array.isArray(a)?a:[a]).forEach(a=>{let c=\"class\"===a,d=c&&f?e.map(a=>f[a]||a):e;c?(i.classList.",
+   "atchMedia(\"(prefers-color-scheme: dark)\").matches?\"dark\":\"light\":a;k(d)}catch(a){}})(\"class\",\"theme\",\"system\",null,[\"light\",\"dark\"],null,true,true)</script><!--$--><!--/$--><div><div data-state=\"open\" data-slot=\"collapsible\"><div data-slot=\"collapsible-content\" data-state=\"open\" id=\"radix-_R_lgql5b_\" style=\"overflow:hidden;opacity:1;height:auto\"><div class=\"",
+   "(\"(prefers-color-scheme: dark)\").matches?\"dark\":\"light\":a;k(d)}catch(a){}})(\"class\",\"theme\",\"system\",null,[\"light\",\"dark\"],null,true,true)</script><!--$--><!--/$--><div><div data-state=\"open\" data-slot=\"collapsible\"><div data-slot=\"collapsible-content\" data-state=\"open\" id=\"radix-_R_lgql5b_\" style=\"overflow:hidden;opacity:1;height:auto\"><div class=\"[--bf-bg:",
+   "tRect().width+68,h++);let j=12+f+12,k=j+12+(g+=6*Math.max(0,h-1))+12,l=k+d.getBoundingClientRect().width,m=a.clientWidth;b.style.setProperty(\"--nav-dock-left\",`${j}px`);let n=l>m;b.toggleAttribute(\"data-nav-crowded\",n),b.toggleAttribute(\"data-nav-mobile\",n&&k+d.getBoundingClientRect().width>m)}, function j(a,b){try{window.History.prototype.replaceState.call(",
+   "=\"flex min-h-[min(80vh,calc(100dvh-var(--nav-reserved-height)-var(--banner-height)))] flex-1 flex-col\"><main id=\"main-content\" class=\"flex flex-1 flex-col\"><!--$?--><template id=\"B:1\"></template><span class=\"sr-only\" role=\"status\">Loading model</span><div class=\"px-0\"><div aria-busy=\"true\"><div class=\"overflow-visible border-b border-stroke-base bg-surface\">",
+   ";&#x27;] after:animate-loading-skeleton motion-reduce:after:animate-none h-5 w-3/4 rounded-xs\"></div></div></div></div></div></div></div></div></div></div><!--/$--><!--$--><!--/$--></main></div><div class=\"footer-container mt-10 lg:mt-20\"><div class=\"wf-html\" lang=\"en\" style=\"height:auto\"><div class=\"wf-body\" style=\"min-height:0;background-color:transparent\"",
+   " after:animate-loading-skeleton motion-reduce:after:animate-none h-5 w-3/4 rounded-xs\"></div></div></div></div></div></div></div></div></div></div><!--/$--><!--$--><!--/$--></main></div><div class=\"footer-container mt-10 lg:mt-20\"><div class=\"wf-html\" lang=\"en\" style=\"height:auto\"><div class=\"wf-body\" style=\"min-height:0;background-color:transparent\"><sectio",
+   "imate-loading-skeleton motion-reduce:after:animate-none h-5 w-3/4 rounded-xs\"></div></div></div></div></div></div></div></div></div></div><!--/$--><!--$--><!--/$--></main></div><div class=\"footer-container mt-10 lg:mt-20\"><div class=\"wf-html\" lang=\"en\" style=\"height:auto\"><div class=\"wf-body\" style=\"min-height:0;background-color:transparent\"><section class=\"",
+   "tifications alt+T\" tabindex=\"-1\" aria-live=\"polite\" aria-relevant=\"additions text\" aria-atomic=\"false\"></section></div><script>requestAnimationFrame(function(){$RT=performance.now()});</script><script id=\"_R_\">(globalThis[\"TURBOPACK\"] || (globalThis[\"TURBOPACK\"] = [])).push({\"otherChunks\":[\"static/chunks/3tmrabaq7dug5.js\",\"static/chunks/0lnd7blho2c7b.js\",\"st",
+   "7dug5.js?dpl=5738318340a420a9cf461-production\" async=\"\"></script><script>(self.__next_f=self.__next_f||[]).push([0])</script><script>self.__next_f.push([1,\"1:\\\"$Sreact.fragment\\\"\\n26:\\\"/_next/static/chunks/3qn_li49n4b7x.js?dpl=5738318340a420a9cf461-production\\\"\\n27:\\\"/_next/static/chunks/0r0qvk697u-rr.js?dpl=5738318340a420a9cf461-production\\\"\\n28:\\\"/_next/st",
+   "unks/1_6g1fe2fgl1r.js?dpl=5738318340a420a9cf461-production\\\"\\n57:\\\"/_next/static/chunks/1hbgiygnhw-_4.js?dpl=5738318340a420a9cf461-production\\\"\\n58:I[931823,[\\\"$26\\\",\\\"$27\\\",\\\"$28\\\",\\\"$29\\\",\\\"$2a\\\",\\\"$2b\\\",\\\"$2c\\\",\\\"$2d\\\",\\\"$2e\\\",\\\"$2f\\\",\\\"$30\\\",\\\"$31\\\",\\\"$32\\\",\\\"$33\\\",\\\"$34\\\",\\\"$35\\\",\\\"$36\\\",\\\"$37\\\",\\\"$38\\\",\\\"$39\\\",\\\"$3a\\\",\\\"$3b\\\",\\\"$3c\\\",\\\"$3d\\\",\\\"$3e\\\",\\\""
+  ]
+ },
+ "fal_page_v4_r2v": {
+  "status": 200,
+  "bytes": 408425,
+  "price_fragments": [
+   "pt src=\"/_next/static/chunks/0cz1d0mv5g_q7.js?dpl=5738318340a420a9cf461-production\" noModule=\"\"></script></head><body class=\"bg-surface-300\"><div hidden=\"\"><!--$?--><template id=\"B:0\"></template><!--/$--></div><a href=\"#main-content\" class=\"focus-ring sr-only rounded-sm bg-surface text-sm font-medium text-content-strong shadow-md focus:not-sr-only focus:fixe",
+   "q7.js?dpl=5738318340a420a9cf461-production\" noModule=\"\"></script></head><body class=\"bg-surface-300\"><div hidden=\"\"><!--$?--><template id=\"B:0\"></template><!--/$--></div><a href=\"#main-content\" class=\"focus-ring sr-only rounded-sm bg-surface text-sm font-medium text-content-strong shadow-md focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-9999 ",
+   "-sm font-medium text-content-strong shadow-md focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-9999 focus:px-4 focus:py-2\">Skip to content</a><!--$--><!--/$--><script>((a,b,c,d,e,f,g,h)=>{let i=document.documentElement,j=[\"light\",\"dark\"];function k(b){var c;(Array.isArray(a)?a:[a]).forEach(a=>{let c=\"class\"===a,d=c&&f?e.map(a=>f[a]||a):e;c?(i.c",
+   "medium text-content-strong shadow-md focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-9999 focus:px-4 focus:py-2\">Skip to content</a><!--$--><!--/$--><script>((a,b,c,d,e,f,g,h)=>{let i=document.documentElement,j=[\"light\",\"dark\"];function k(b){var c;(Array.isArray(a)?a:[a]).forEach(a=>{let c=\"class\"===a,d=c&&f?e.map(a=>f[a]||a):e;c?(i.classList.",
+   "atchMedia(\"(prefers-color-scheme: dark)\").matches?\"dark\":\"light\":a;k(d)}catch(a){}})(\"class\",\"theme\",\"system\",null,[\"light\",\"dark\"],null,true,true)</script><!--$--><!--/$--><div><div data-state=\"open\" data-slot=\"collapsible\"><div data-slot=\"collapsible-content\" data-state=\"open\" id=\"radix-_R_lgql5b_\" style=\"overflow:hidden;opacity:1;height:auto\"><div class=\"",
+   "(\"(prefers-color-scheme: dark)\").matches?\"dark\":\"light\":a;k(d)}catch(a){}})(\"class\",\"theme\",\"system\",null,[\"light\",\"dark\"],null,true,true)</script><!--$--><!--/$--><div><div data-state=\"open\" data-slot=\"collapsible\"><div data-slot=\"collapsible-content\" data-state=\"open\" id=\"radix-_R_lgql5b_\" style=\"overflow:hidden;opacity:1;height:auto\"><div class=\"[--bf-bg:",
+   "tRect().width+68,h++);let j=12+f+12,k=j+12+(g+=6*Math.max(0,h-1))+12,l=k+d.getBoundingClientRect().width,m=a.clientWidth;b.style.setProperty(\"--nav-dock-left\",`${j}px`);let n=l>m;b.toggleAttribute(\"data-nav-crowded\",n),b.toggleAttribute(\"data-nav-mobile\",n&&k+d.getBoundingClientRect().width>m)}, function j(a,b){try{window.History.prototype.replaceState.call(",
+   "=\"flex min-h-[min(80vh,calc(100dvh-var(--nav-reserved-height)-var(--banner-height)))] flex-1 flex-col\"><main id=\"main-content\" class=\"flex flex-1 flex-col\"><!--$?--><template id=\"B:1\"></template><span class=\"sr-only\" role=\"status\">Loading model</span><div class=\"px-0\"><div aria-busy=\"true\"><div class=\"overflow-visible border-b border-stroke-base bg-surface\">",
+   ";&#x27;] after:animate-loading-skeleton motion-reduce:after:animate-none h-5 w-3/4 rounded-xs\"></div></div></div></div></div></div></div></div></div></div><!--/$--><!--$--><!--/$--></main></div><div class=\"footer-container mt-10 lg:mt-20\"><div class=\"wf-html\" lang=\"en\" style=\"height:auto\"><div class=\"wf-body\" style=\"min-height:0;background-color:transparent\"",
+   " after:animate-loading-skeleton motion-reduce:after:animate-none h-5 w-3/4 rounded-xs\"></div></div></div></div></div></div></div></div></div></div><!--/$--><!--$--><!--/$--></main></div><div class=\"footer-container mt-10 lg:mt-20\"><div class=\"wf-html\" lang=\"en\" style=\"height:auto\"><div class=\"wf-body\" style=\"min-height:0;background-color:transparent\"><sectio",
+   "imate-loading-skeleton motion-reduce:after:animate-none h-5 w-3/4 rounded-xs\"></div></div></div></div></div></div></div></div></div></div><!--/$--><!--$--><!--/$--></main></div><div class=\"footer-container mt-10 lg:mt-20\"><div class=\"wf-html\" lang=\"en\" style=\"height:auto\"><div class=\"wf-body\" style=\"min-height:0;background-color:transparent\"><section class=\"",
+   "tifications alt+T\" tabindex=\"-1\" aria-live=\"polite\" aria-relevant=\"additions text\" aria-atomic=\"false\"></section></div><script>requestAnimationFrame(function(){$RT=performance.now()});</script><script id=\"_R_\">(globalThis[\"TURBOPACK\"] || (globalThis[\"TURBOPACK\"] = [])).push({\"otherChunks\":[\"static/chunks/3tmrabaq7dug5.js\",\"static/chunks/0lnd7blho2c7b.js\",\"st",
+   "7dug5.js?dpl=5738318340a420a9cf461-production\" async=\"\"></script><script>(self.__next_f=self.__next_f||[]).push([0])</script><script>self.__next_f.push([1,\"1:\\\"$Sreact.fragment\\\"\\n26:\\\"/_next/static/chunks/3qn_li49n4b7x.js?dpl=5738318340a420a9cf461-production\\\"\\n27:\\\"/_next/static/chunks/0r0qvk697u-rr.js?dpl=5738318340a420a9cf461-production\\\"\\n28:\\\"/_next/st",
+   "unks/1_6g1fe2fgl1r.js?dpl=5738318340a420a9cf461-production\\\"\\n57:\\\"/_next/static/chunks/1hbgiygnhw-_4.js?dpl=5738318340a420a9cf461-production\\\"\\n58:I[931823,[\\\"$26\\\",\\\"$27\\\",\\\"$28\\\",\\\"$29\\\",\\\"$2a\\\",\\\"$2b\\\",\\\"$2c\\\",\\\"$2d\\\",\\\"$2e\\\",\\\"$2f\\\",\\\"$30\\\",\\\"$31\\\",\\\"$32\\\",\\\"$33\\\",\\\"$34\\\",\\\"$35\\\",\\\"$36\\\",\\\"$37\\\",\\\"$38\\\",\\\"$39\\\",\\\"$3a\\\",\\\"$3b\\\",\\\"$3c\\\",\\\"$3d\\\",\\\"$3e\\\",\\\""
+  ]
+ },
+ "fal_page_v4_flash_t2v": {
+  "status": 200,
+  "bytes": 371202,
+  "price_fragments": [
+   "pt src=\"/_next/static/chunks/0cz1d0mv5g_q7.js?dpl=5738318340a420a9cf461-production\" noModule=\"\"></script></head><body class=\"bg-surface-300\"><div hidden=\"\"><!--$?--><template id=\"B:0\"></template><!--/$--></div><a href=\"#main-content\" class=\"focus-ring sr-only rounded-sm bg-surface text-sm font-medium text-content-strong shadow-md focus:not-sr-only focus:fixe",
+   "q7.js?dpl=5738318340a420a9cf461-production\" noModule=\"\"></script></head><body class=\"bg-surface-300\"><div hidden=\"\"><!--$?--><template id=\"B:0\"></template><!--/$--></div><a href=\"#main-content\" class=\"focus-ring sr-only rounded-sm bg-surface text-sm font-medium text-content-strong shadow-md focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-9999 ",
+   "-sm font-medium text-content-strong shadow-md focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-9999 focus:px-4 focus:py-2\">Skip to content</a><!--$--><!--/$--><script>((a,b,c,d,e,f,g,h)=>{let i=document.documentElement,j=[\"light\",\"dark\"];function k(b){var c;(Array.isArray(a)?a:[a]).forEach(a=>{let c=\"class\"===a,d=c&&f?e.map(a=>f[a]||a):e;c?(i.c",
+   "medium text-content-strong shadow-md focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-9999 focus:px-4 focus:py-2\">Skip to content</a><!--$--><!--/$--><script>((a,b,c,d,e,f,g,h)=>{let i=document.documentElement,j=[\"light\",\"dark\"];function k(b){var c;(Array.isArray(a)?a:[a]).forEach(a=>{let c=\"class\"===a,d=c&&f?e.map(a=>f[a]||a):e;c?(i.classList.",
+   "atchMedia(\"(prefers-color-scheme: dark)\").matches?\"dark\":\"light\":a;k(d)}catch(a){}})(\"class\",\"theme\",\"system\",null,[\"light\",\"dark\"],null,true,true)</script><!--$--><!--/$--><div><div data-state=\"open\" data-slot=\"collapsible\"><div data-slot=\"collapsible-content\" data-state=\"open\" id=\"radix-_R_lgql5b_\" style=\"overflow:hidden;opacity:1;height:auto\"><div class=\"",
+   "(\"(prefers-color-scheme: dark)\").matches?\"dark\":\"light\":a;k(d)}catch(a){}})(\"class\",\"theme\",\"system\",null,[\"light\",\"dark\"],null,true,true)</script><!--$--><!--/$--><div><div data-state=\"open\" data-slot=\"collapsible\"><div data-slot=\"collapsible-content\" data-state=\"open\" id=\"radix-_R_lgql5b_\" style=\"overflow:hidden;opacity:1;height:auto\"><div class=\"[--bf-bg:",
+   "tRect().width+68,h++);let j=12+f+12,k=j+12+(g+=6*Math.max(0,h-1))+12,l=k+d.getBoundingClientRect().width,m=a.clientWidth;b.style.setProperty(\"--nav-dock-left\",`${j}px`);let n=l>m;b.toggleAttribute(\"data-nav-crowded\",n),b.toggleAttribute(\"data-nav-mobile\",n&&k+d.getBoundingClientRect().width>m)}, function j(a,b){try{window.History.prototype.replaceState.call(",
+   "=\"flex min-h-[min(80vh,calc(100dvh-var(--nav-reserved-height)-var(--banner-height)))] flex-1 flex-col\"><main id=\"main-content\" class=\"flex flex-1 flex-col\"><!--$?--><template id=\"B:1\"></template><span class=\"sr-only\" role=\"status\">Loading model</span><div class=\"px-0\"><div aria-busy=\"true\"><div class=\"overflow-visible border-b border-stroke-base bg-surface\">",
+   ";&#x27;] after:animate-loading-skeleton motion-reduce:after:animate-none h-5 w-3/4 rounded-xs\"></div></div></div></div></div></div></div></div></div></div><!--/$--><!--$--><!--/$--></main></div><div class=\"footer-container mt-10 lg:mt-20\"><div class=\"wf-html\" lang=\"en\" style=\"height:auto\"><div class=\"wf-body\" style=\"min-height:0;background-color:transparent\"",
+   " after:animate-loading-skeleton motion-reduce:after:animate-none h-5 w-3/4 rounded-xs\"></div></div></div></div></div></div></div></div></div></div><!--/$--><!--$--><!--/$--></main></div><div class=\"footer-container mt-10 lg:mt-20\"><div class=\"wf-html\" lang=\"en\" style=\"height:auto\"><div class=\"wf-body\" style=\"min-height:0;background-color:transparent\"><sectio",
+   "imate-loading-skeleton motion-reduce:after:animate-none h-5 w-3/4 rounded-xs\"></div></div></div></div></div></div></div></div></div></div><!--/$--><!--$--><!--/$--></main></div><div class=\"footer-container mt-10 lg:mt-20\"><div class=\"wf-html\" lang=\"en\" style=\"height:auto\"><div class=\"wf-body\" style=\"min-height:0;background-color:transparent\"><section class=\"",
+   "tifications alt+T\" tabindex=\"-1\" aria-live=\"polite\" aria-relevant=\"additions text\" aria-atomic=\"false\"></section></div><script>requestAnimationFrame(function(){$RT=performance.now()});</script><script id=\"_R_\">(globalThis[\"TURBOPACK\"] || (globalThis[\"TURBOPACK\"] = [])).push({\"otherChunks\":[\"static/chunks/3tmrabaq7dug5.js\",\"static/chunks/0lnd7blho2c7b.js\",\"st",
+   "7dug5.js?dpl=5738318340a420a9cf461-production\" async=\"\"></script><script>(self.__next_f=self.__next_f||[]).push([0])</script><script>self.__next_f.push([1,\"1:\\\"$Sreact.fragment\\\"\\n26:\\\"/_next/static/chunks/3qn_li49n4b7x.js?dpl=5738318340a420a9cf461-production\\\"\\n27:\\\"/_next/static/chunks/0r0qvk697u-rr.js?dpl=5738318340a420a9cf461-production\\\"\\n28:\\\"/_next/st",
+   "unks/1_6g1fe2fgl1r.js?dpl=5738318340a420a9cf461-production\\\"\\n57:\\\"/_next/static/chunks/1hbgiygnhw-_4.js?dpl=5738318340a420a9cf461-production\\\"\\n58:I[931823,[\\\"$26\\\",\\\"$27\\\",\\\"$28\\\",\\\"$29\\\",\\\"$2a\\\",\\\"$2b\\\",\\\"$2c\\\",\\\"$2d\\\",\\\"$2e\\\",\\\"$2f\\\",\\\"$30\\\",\\\"$31\\\",\\\"$32\\\",\\\"$33\\\",\\\"$34\\\",\\\"$35\\\",\\\"$36\\\",\\\"$37\\\",\\\"$38\\\",\\\"$39\\\",\\\"$3a\\\",\\\"$3b\\\",\\\"$3c\\\",\\\"$3d\\\",\\\"$3e\\\",\\\""
+  ]
+ },
+ "fal_page_v4_flash_r2v": {
+  "status": 200,
+  "bytes": 412151,
+  "price_fragments": [
+   "pt src=\"/_next/static/chunks/0cz1d0mv5g_q7.js?dpl=5738318340a420a9cf461-production\" noModule=\"\"></script></head><body class=\"bg-surface-300\"><div hidden=\"\"><!--$?--><template id=\"B:0\"></template><!--/$--></div><a href=\"#main-content\" class=\"focus-ring sr-only rounded-sm bg-surface text-sm font-medium text-content-strong shadow-md focus:not-sr-only focus:fixe",
+   "q7.js?dpl=5738318340a420a9cf461-production\" noModule=\"\"></script></head><body class=\"bg-surface-300\"><div hidden=\"\"><!--$?--><template id=\"B:0\"></template><!--/$--></div><a href=\"#main-content\" class=\"focus-ring sr-only rounded-sm bg-surface text-sm font-medium text-content-strong shadow-md focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-9999 ",
+   "-sm font-medium text-content-strong shadow-md focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-9999 focus:px-4 focus:py-2\">Skip to content</a><!--$--><!--/$--><script>((a,b,c,d,e,f,g,h)=>{let i=document.documentElement,j=[\"light\",\"dark\"];function k(b){var c;(Array.isArray(a)?a:[a]).forEach(a=>{let c=\"class\"===a,d=c&&f?e.map(a=>f[a]||a):e;c?(i.c",
+   "medium text-content-strong shadow-md focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-9999 focus:px-4 focus:py-2\">Skip to content</a><!--$--><!--/$--><script>((a,b,c,d,e,f,g,h)=>{let i=document.documentElement,j=[\"light\",\"dark\"];function k(b){var c;(Array.isArray(a)?a:[a]).forEach(a=>{let c=\"class\"===a,d=c&&f?e.map(a=>f[a]||a):e;c?(i.classList.",
+   "atchMedia(\"(prefers-color-scheme: dark)\").matches?\"dark\":\"light\":a;k(d)}catch(a){}})(\"class\",\"theme\",\"system\",null,[\"light\",\"dark\"],null,true,true)</script><!--$--><!--/$--><div><div data-state=\"open\" data-slot=\"collapsible\"><div data-slot=\"collapsible-content\" data-state=\"open\" id=\"radix-_R_lgql5b_\" style=\"overflow:hidden;opacity:1;height:auto\"><div class=\"",
+   "(\"(prefers-color-scheme: dark)\").matches?\"dark\":\"light\":a;k(d)}catch(a){}})(\"class\",\"theme\",\"system\",null,[\"light\",\"dark\"],null,true,true)</script><!--$--><!--/$--><div><div data-state=\"open\" data-slot=\"collapsible\"><div data-slot=\"collapsible-content\" data-state=\"open\" id=\"radix-_R_lgql5b_\" style=\"overflow:hidden;opacity:1;height:auto\"><div class=\"[--bf-bg:",
+   "tRect().width+68,h++);let j=12+f+12,k=j+12+(g+=6*Math.max(0,h-1))+12,l=k+d.getBoundingClientRect().width,m=a.clientWidth;b.style.setProperty(\"--nav-dock-left\",`${j}px`);let n=l>m;b.toggleAttribute(\"data-nav-crowded\",n),b.toggleAttribute(\"data-nav-mobile\",n&&k+d.getBoundingClientRect().width>m)}, function j(a,b){try{window.History.prototype.replaceState.call(",
+   "=\"flex min-h-[min(80vh,calc(100dvh-var(--nav-reserved-height)-var(--banner-height)))] flex-1 flex-col\"><main id=\"main-content\" class=\"flex flex-1 flex-col\"><!--$?--><template id=\"B:1\"></template><span class=\"sr-only\" role=\"status\">Loading model</span><div class=\"px-0\"><div aria-busy=\"true\"><div class=\"overflow-visible border-b border-stroke-base bg-surface\">",
+   ";&#x27;] after:animate-loading-skeleton motion-reduce:after:animate-none h-5 w-3/4 rounded-xs\"></div></div></div></div></div></div></div></div></div></div><!--/$--><!--$--><!--/$--></main></div><div class=\"footer-container mt-10 lg:mt-20\"><div class=\"wf-html\" lang=\"en\" style=\"height:auto\"><div class=\"wf-body\" style=\"min-height:0;background-color:transparent\"",
+   " after:animate-loading-skeleton motion-reduce:after:animate-none h-5 w-3/4 rounded-xs\"></div></div></div></div></div></div></div></div></div></div><!--/$--><!--$--><!--/$--></main></div><div class=\"footer-container mt-10 lg:mt-20\"><div class=\"wf-html\" lang=\"en\" style=\"height:auto\"><div class=\"wf-body\" style=\"min-height:0;background-color:transparent\"><sectio",
+   "imate-loading-skeleton motion-reduce:after:animate-none h-5 w-3/4 rounded-xs\"></div></div></div></div></div></div></div></div></div></div><!--/$--><!--$--><!--/$--></main></div><div class=\"footer-container mt-10 lg:mt-20\"><div class=\"wf-html\" lang=\"en\" style=\"height:auto\"><div class=\"wf-body\" style=\"min-height:0;background-color:transparent\"><section class=\"",
+   "tifications alt+T\" tabindex=\"-1\" aria-live=\"polite\" aria-relevant=\"additions text\" aria-atomic=\"false\"></section></div><script>requestAnimationFrame(function(){$RT=performance.now()});</script><script id=\"_R_\">(globalThis[\"TURBOPACK\"] || (globalThis[\"TURBOPACK\"] = [])).push({\"otherChunks\":[\"static/chunks/3tmrabaq7dug5.js\",\"static/chunks/0lnd7blho2c7b.js\",\"st",
+   "7dug5.js?dpl=5738318340a420a9cf461-production\" async=\"\"></script><script>(self.__next_f=self.__next_f||[]).push([0])</script><script>self.__next_f.push([1,\"1:\\\"$Sreact.fragment\\\"\\n26:\\\"/_next/static/chunks/3qn_li49n4b7x.js?dpl=5738318340a420a9cf461-production\\\"\\n27:\\\"/_next/static/chunks/0r0qvk697u-rr.js?dpl=5738318340a420a9cf461-production\\\"\\n28:\\\"/_next/st",
+   "unks/1_6g1fe2fgl1r.js?dpl=5738318340a420a9cf461-production\\\"\\n57:\\\"/_next/static/chunks/1hbgiygnhw-_4.js?dpl=5738318340a420a9cf461-production\\\"\\n58:I[931823,[\\\"$26\\\",\\\"$27\\\",\\\"$28\\\",\\\"$29\\\",\\\"$2a\\\",\\\"$2b\\\",\\\"$2c\\\",\\\"$2d\\\",\\\"$2e\\\",\\\"$2f\\\",\\\"$30\\\",\\\"$31\\\",\\\"$32\\\",\\\"$33\\\",\\\"$34\\\",\\\"$35\\\",\\\"$36\\\",\\\"$37\\\",\\\"$38\\\",\\\"$39\\\",\\\"$3a\\\",\\\"$3b\\\",\\\"$3c\\\",\\\"$3d\\\",\\\"$3e\\\",\\\""
+  ]
+ }
+}
