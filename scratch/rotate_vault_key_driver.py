@@ -197,7 +197,7 @@ def phase_proof() -> None:
         os.path.dirname(os.path.abspath(__file__)), os.pardir,
         "platform", "app.py")).read()
     pin = re.search(
-        r'LEGAL_HOLD_VAULT_PUBLIC_KEY\s*=\\\s*"([^"]+)"',
+        r'LEGAL_HOLD_VAULT_PUBLIC_KEY\s*=\s*\\\s*"([^"]+)"',
         src).group(1)
     payload = os.urandom(4096)
     want = hashlib.sha256(payload).hexdigest()
