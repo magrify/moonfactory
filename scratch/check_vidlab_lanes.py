@@ -148,12 +148,17 @@ check(app.offered_resolutions("kling4", rates) == ["720p", "1080p"],
 vidlab_lanes = sorted(
     lane_id for lane_id, lane in pricing.IMAGE_LANES.items()
     if lane["provider"] == "vidlab")
-check(len(vidlab_lanes) == 33,
-      f"expected 33 vidlab image lanes, found {len(vidlab_lanes)}")
+check(len(vidlab_lanes) == 28,
+      f"expected 28 vidlab image lanes, found {len(vidlab_lanes)}")
 # Superseded 2026-11-25: was 34 until GPT Image 1 was removed
 # the same day (OpenAI shut the model down 2026-10-23; Jack's
 # order: a dead lane is not left listed). See
 # check_gpt_image1_retired.py.
+# Superseded 2026-11-27: was 33 until the route audit
+# follow-up moved five image lanes off VidLab (nano_banana
+# and seedream55 to BeatAPI; mai_image26, mai_image26_flash
+# and flux3_image to SpicyAPI). Their new routes are pinned
+# in check_route_audit_image_lanes.py.
 for lane_id in vidlab_lanes:
     lane = pricing.IMAGE_LANES[lane_id]
     check(bool(lane.get("endpoint")), f"{lane_id} has no endpoint")

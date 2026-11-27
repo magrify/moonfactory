@@ -10135,10 +10135,19 @@ def api():
             # sends no ratio and takes the provider's square
             # default, as before.
             tier, _, aspect = size.partition("-")
-            beat_body = {"model": endpoint, "prompt": prompt,
-                         "resolution": tier}
-            if aspect:
-                beat_body["aspect_ratio"] = aspect
+            beat_body = {"model": endpoint, "prompt": prompt}
+            if tier == "square":
+                # A flat lane's "square" base (the original
+                # Nano Banana, rerouted to BeatAPI 2026-11-27)
+                # has no resolution tiers on BeatAPI either:
+                # its price is flat per image, so only the
+                # ratio goes out, mirroring the VidLab branch's
+                # square handling below.
+                beat_body["aspect_ratio"] = aspect or "1:1"
+            else:
+                beat_body["resolution"] = tier
+                if aspect:
+                    beat_body["aspect_ratio"] = aspect
             resp = requests.post(
                 f"{BEATAPI_BASE}/v1/images/tasks",
                 headers=headers,

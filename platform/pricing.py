@@ -2112,11 +2112,17 @@ IMAGE_LANES = {
         "raw_cents": {"square": 9.0},
     },
     "nano_banana": {
-        "label": "Nano Banana · $$", "provider": "vidlab",
-        "endpoint": "nano-banana",
-        # $0.03 flat per image (the original Nano Banana; the
-        # Pro and 2.x lanes are separate entries).
-        "raw_cents": {"square": 3.0},
+        "label": "Nano Banana · $", "provider": "beatapi",
+        "endpoint": "google/nano-banana",
+        # Rerouted to BeatAPI (route audit follow-up,
+        # 2026-11-27): BeatAPI's offers price the original
+        # Nano Banana at $0.015 flat per image, half VidLab's
+        # $0.03 (recorded in DISPLACED_IMAGE_RATES_CENTS below
+        # as nano_banana_vidlab; the VidLab submit branch
+        # stays wired as the flip back). The customer price
+        # follows the cost down (the owner's ruling,
+        # 2026-11-27: image prices follow cost).
+        "raw_cents": {"square": 1.5},
     },
     "nano_banana2_lite": {
         "label": "Nano Banana 2 Lite · $", "provider": "vidlab",
@@ -2125,12 +2131,19 @@ IMAGE_LANES = {
     },
     "seedream55": {
         # The moderated Seedream 5.5 (the uncensored build
-        # above stays on Wiro): $0.016 at 1k and 1.5k, $0.028
-        # at 2k on VidLab, under Wiro's $0.028 / $0.028 /
-        # $0.043 for the same tiers.
-        "label": "Seedream 5.5 · $", "provider": "vidlab",
-        "endpoint": "seedream-5.5",
-        "raw_cents": {"1K": 1.6, "1.5K": 1.6, "2K": 2.8},
+        # above stays on Wiro), rerouted to BeatAPI (route
+        # audit follow-up, 2026-11-27): BeatAPI's offers
+        # price it at $0.014 at 1k and 1.5k and $0.024 at 2k,
+        # under VidLab's $0.016 / $0.016 / $0.028 (recorded
+        # in DISPLACED_IMAGE_RATES_CENTS below as
+        # seedream55_vidlab; the VidLab submit branch stays
+        # wired as the flip back) and Wiro's $0.028 / $0.028
+        # / $0.043 for the same tiers. The customer price
+        # follows the cost down (the owner's ruling,
+        # 2026-11-27: image prices follow cost).
+        "label": "Seedream 5.5 · $", "provider": "beatapi",
+        "endpoint": "bytedance/seedream-5.5",
+        "raw_cents": {"1K": 1.4, "1.5K": 1.4, "2K": 2.4},
     },
     "seedream5pro": {
         # The moderated Seedream 5.0 Pro (uncensored build
@@ -2207,13 +2220,21 @@ IMAGE_LANES = {
                       "4MP": 16.0},
     },
     "flux3_image": {
-        "label": "Flux 3 · $$$", "provider": "vidlab",
-        "endpoint": "flux-3",
-        # $0.05 at 1k, $0.07 at 1.5k, $0.10 at 2k, $0.61 at
-        # 4k. The 768-square tier duplicates the 1k price and
-        # is not sold.
-        "raw_cents": {"1K": 5.0, "1.5K": 7.0, "2K": 10.0,
-                      "4K": 61.0},
+        "label": "Flux 3 · $$$", "provider": "spicyapi",
+        "endpoint": "black-forest-labs/flux-3-image/text-to-image",
+        # Rerouted to SpicyAPI (route audit follow-up,
+        # 2026-11-27): its catalog prices the text-to-image
+        # build per pixel variant, $0.0408 at 1024, $0.0595
+        # at 1536, $0.085 at 2048 and $0.51595 at 4096,
+        # under VidLab's $0.05 / $0.07 / $0.10 / $0.61
+        # (recorded in DISPLACED_IMAGE_RATES_CENTS below as
+        # flux3_image_vidlab; the VidLab submit branch stays
+        # wired as the flip back). The 768-square variant
+        # ($0.03485) is not sold, as before. The customer
+        # price follows the cost down (the owner's ruling,
+        # 2026-11-27: image prices follow cost).
+        "raw_cents": {"1K": 4.08, "1.5K": 5.95, "2K": 8.5,
+                      "4K": 51.6},
     },
     "flux3_klein": {
         "label": "Flux 3 Klein · $", "provider": "vidlab",
@@ -2265,14 +2286,33 @@ IMAGE_LANES = {
         "raw_cents": {"square": 7.0},
     },
     "mai_image26": {
-        "label": "MAI Image 2.6 · $$$", "provider": "vidlab",
-        "endpoint": "mai-image-2.6",
-        "raw_cents": {"1K": 4.0, "2K": 9.0},
+        # Rerouted to SpicyAPI (route audit follow-up,
+        # 2026-11-27): its catalog prices the text-to-image
+        # build flat at $0.0335 per image at any size, under
+        # VidLab's $0.04 at 1k and $0.09 at 2k (recorded in
+        # DISPLACED_IMAGE_RATES_CENTS below as
+        # mai_image26_vidlab; the VidLab submit branch stays
+        # wired as the flip back). The customer price
+        # follows the cost down (the owner's ruling,
+        # 2026-11-27: image prices follow cost).
+        "label": "MAI Image 2.6 · $$", "provider": "spicyapi",
+        "endpoint": "microsoft/mai-image-2.6/text-to-image",
+        "raw_cents": {"1K": 3.35, "2K": 3.35},
     },
     "mai_image26_flash": {
-        "label": "MAI Image 2.6 Flash · $", "provider": "vidlab",
-        "endpoint": "mai-image-2.6-flash",
-        "raw_cents": {"1K": 2.0, "2K": 5.0},
+        # Rerouted to SpicyAPI (route audit follow-up,
+        # 2026-11-27): its catalog prices the text-to-image
+        # build flat at $0.0165 per image at any size, under
+        # VidLab's $0.02 at 1k and $0.05 at 2k (recorded in
+        # DISPLACED_IMAGE_RATES_CENTS below as
+        # mai_image26_flash_vidlab; the VidLab submit branch
+        # stays wired as the flip back). The customer price
+        # follows the cost down (the owner's ruling,
+        # 2026-11-27: image prices follow cost).
+        "label": "MAI Image 2.6 Flash · $",
+        "provider": "spicyapi",
+        "endpoint": "microsoft/mai-image-2.6-flash/text-to-image",
+        "raw_cents": {"1K": 1.65, "2K": 1.65},
     },
     "hunyuan_image35": {
         "label": "Hunyuan Image 3.5 Preview · $$",
@@ -2305,6 +2345,28 @@ IMAGE_LANES = {
         "edit": True,
         "raw_cents": {"match": 2.0},
     },
+}
+
+
+# Displaced image rates (cents per image): the raw costs a
+# lane carried on the route a reroute moved it off, recorded
+# the way DISPLACED_RATES_CENTS_PER_SECOND records the video
+# lanes' old routes. The old provider's submit branch stays
+# wired in app.py, so a flip back is restoring the lane's
+# provider / endpoint / raw_cents from the row here. Image
+# customer prices are NOT shelf frozen (the owner's ruling,
+# 2026-11-27: image prices follow cost down), so no shelf
+# table accompanies this one.
+DISPLACED_IMAGE_RATES_CENTS = {
+    # VidLab rates displaced by the 2026-11-27 route audit
+    # follow-up (BeatAPI for the first two, SpicyAPI for the
+    # rest).
+    "nano_banana_vidlab": {"square": 3.0},
+    "seedream55_vidlab": {"1K": 1.6, "1.5K": 1.6, "2K": 2.8},
+    "mai_image26_vidlab": {"1K": 4.0, "2K": 9.0},
+    "mai_image26_flash_vidlab": {"1K": 2.0, "2K": 5.0},
+    "flux3_image_vidlab": {"1K": 5.0, "1.5K": 7.0, "2K": 10.0,
+                           "4K": 61.0},
 }
 
 
