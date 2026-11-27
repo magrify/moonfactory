@@ -336,7 +336,7 @@ for token in ("duration=10", "inference_steps=8", "bpm=92",
               '"[Instrumental]"', "instrumental=True"):
     check(token in KERNEL, f"the kernel bed recipe lost {token}")
 check("from kokoro import KPipeline" in KERNEL
-      and "kokoro>=0.9.2" in KERNEL and "24000" in KERNEL,
+      and "kokoro==0.9.4" in KERNEL and "24000" in KERNEL,
       "the kernel does not carry the genuine Kokoro voiceover recipe")
 check('"--python", "3.12"' in KERNEL
       and "download.pytorch.org/whl/cpu" in KERNEL

@@ -160,9 +160,13 @@ def read_key() -> str:
     try:
         from kaggle_secrets import UserSecretsClient
 
-        value = UserSecretsClient().get_secret("MOONFACTORY_TEMPLATE_KEY")
-        if value:
-            return value.strip()
+        # Per-family key first (MOONFACTORY_COMFY_KEY), then
+        # the shared legacy name, then the dataset key file.
+        for secret_name in ("MOONFACTORY_COMFY_KEY",
+                            "MOONFACTORY_TEMPLATE_KEY"):
+            value = UserSecretsClient().get_secret(secret_name)
+            if value:
+                return value.strip()
     except Exception:
         pass
     key_file = find_dataset_file("moonfactory-hf-key", "worker_key.txt")
@@ -171,6 +175,17 @@ def read_key() -> str:
 
 KEY = None
 HEADERS = {}
+
+def job_headers(claim_token=None):
+    """Headers for one claimed job's calls: the worker key
+    plus the per-job claim token when the claim issued one.
+    A job claimed without a token (platform legacy mode)
+    sends the key alone, exactly as before."""
+    headers = dict(HEADERS)
+    if claim_token:
+        headers["X-Claim-Token"] = claim_token
+    return headers
+
 
 
 NOTE = {"text": "starting", "since": time.time()}
@@ -719,9 +734,14 @@ def setup_comfy() -> dict:
     if not (COMFY_DIR / "main.py").exists():
         log("cloning ComfyUI")
         subprocess.run(
-            ["git", "clone", "--depth", "1",
+            ["git", "clone",
              "https://github.com/comfyanonymous/ComfyUI.git",
              str(COMFY_DIR)], check=True, timeout=900)
+        # Pin the clone to a commit: a floating HEAD clone
+        # would run whatever upstream serves on session day.
+        subprocess.run(
+            ["git", "-C", str(COMFY_DIR), "checkout", "-q",
+             "7c78b5641ab2d6cb7f7766a183a8a43a59de0a8b"], check=True, timeout=300)
     # The clone persists in the working volume between
     # sessions but pip installs land in the session's own
     # environment, which does not: the requirements install
@@ -752,6 +772,10 @@ def setup_comfy() -> dict:
     except ImportError:
         log("no torch in the session image, installing from "
             "ComfyUI's requirements")
+    # Both requirements installs (ComfyUI's own and the
+    # VideoHelperSuite's) read files inside clones pinned to
+    # commits above, so their contents are transitively
+    # pinned by those checkouts.
     req_path = WORKING / "comfy-requirements.txt"
     req_path.write_text("\n".join(req))
     subprocess.run(
@@ -760,9 +784,12 @@ def setup_comfy() -> dict:
     vhs = COMFY_DIR / "custom_nodes" / "ComfyUI-VideoHelperSuite"
     if not vhs.exists():
         subprocess.run(
-            ["git", "clone", "--depth", "1",
+            ["git", "clone",
              "https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git",
              str(vhs)], check=True, timeout=600)
+        subprocess.run(
+            ["git", "-C", str(vhs), "checkout", "-q",
+             "775ae691ecbab6a6d09a2c186f95d130cf8a10d3"], check=True, timeout=300)
     vhs_req = vhs / "requirements.txt"
     if vhs_req.exists():
         subprocess.run(
@@ -776,7 +803,7 @@ def setup_comfy() -> dict:
         log("no ffmpeg on PATH, installing imageio-ffmpeg")
         subprocess.run(
             [sys.executable, "-m", "pip", "install", "-q",
-             "imageio-ffmpeg"], check=True, timeout=600)
+             "imageio-ffmpeg==0.8.1"], check=True, timeout=600)
         import imageio_ffmpeg
 
         bin_dir = WORKING / "bin"
@@ -977,10 +1004,10 @@ def run_image_workflow(workflow: dict):
 # completed segments as a partial job, exactly as on Modal.
 # ---------------------------------------------------------------------------
 
-def download_job_image(job_id: str, which: str):
+def download_job_image(job_id: str, which: str, claim_token=None):
     resp = requests.get(
         f"{PLATFORM}/api/worker/comfy/jobs/{job_id}/{which}",
-        headers=HEADERS, timeout=300)
+        headers=job_headers(claim_token), timeout=300)
     resp.raise_for_status()
     return resp.content
 
@@ -1005,9 +1032,11 @@ def run_video_job(job: dict) -> dict:
     start_bytes = None
     end_bytes = None
     if job.get("has_start_image"):
-        start_bytes = download_job_image(job_id, "start-image")
+        start_bytes = download_job_image(
+            job_id, "start-image", job.get("claim_token"))
     if job.get("has_end_image"):
-        end_bytes = download_job_image(job_id, "end-image")
+        end_bytes = download_job_image(
+            job_id, "end-image", job.get("claim_token"))
     if lane == "production" and not start_bytes and not camera_pose:
         raise RuntimeError("the production lane needs a start image")
     if lane == NSFW_LANE and not start_bytes:
@@ -1287,8 +1316,9 @@ def run_image_job(job: dict) -> dict:
 # Platform client and the main loop.
 # ---------------------------------------------------------------------------
 
-def upload_result(job_id: str, result: dict, gpu_name):
-    headers = dict(HEADERS)
+def upload_result(job_id: str, result: dict, gpu_name,
+                  claim_token=None):
+    headers = job_headers(claim_token)
     headers["X-Comfy-Render-Seconds"] = str(result["render_seconds"])
     headers["X-Comfy-Segments-Done"] = str(result["segments_done"])
     headers["X-Comfy-Partial"] = "1" if result["partial"] else "0"
@@ -1305,10 +1335,11 @@ def upload_result(job_id: str, result: dict, gpu_name):
     resp.raise_for_status()
 
 
-def fail_job(job_id: str, message: str):
+def fail_job(job_id: str, message: str, claim_token=None):
     try:
         requests.post(f"{PLATFORM}/api/worker/comfy/jobs/{job_id}/fail",
-                      headers=HEADERS, json={"error": message[:280]},
+                      headers=job_headers(claim_token),
+                      json={"error": message[:280]},
                       timeout=30)
     except Exception:
         pass
@@ -1334,7 +1365,8 @@ def main():
             return
         try:
             resp = requests.get(f"{PLATFORM}/api/worker/comfy/jobs/next",
-                                headers=HEADERS, timeout=30)
+                                headers={**HEADERS, "X-Claim-Bind": "1"},
+                                timeout=30)
             resp.raise_for_status()
             job = resp.json().get("job")
         except Exception as exc:
@@ -1357,13 +1389,14 @@ def main():
                 result = run_video_job(job)
             set_note(f"uploading job {job['id']}")
             log(f"job {job['id']}: uploading result")
-            upload_result(job["id"], result, info.get("gpu"))
+            upload_result(job["id"], result, info.get("gpu"),
+                          job.get("claim_token"))
             log(f"job {job['id']}: done in "
                 f"{result['render_seconds']}s")
         except Exception:
             message = traceback.format_exc()[-280:]
             log(f"job {job['id']}: failed: {message}")
-            fail_job(job["id"], message)
+            fail_job(job["id"], message, job.get("claim_token"))
 
 
 if __name__ == "__main__":

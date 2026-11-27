@@ -647,9 +647,13 @@ def read_key() -> str:
     try:
         from kaggle_secrets import UserSecretsClient
 
-        value = UserSecretsClient().get_secret("MOONFACTORY_TEMPLATE_KEY")
-        if value:
-            return value.strip()
+        # Per-family key first (MOONFACTORY_AUDIO_KEY), then
+        # the shared legacy name, then the dataset key file.
+        for secret_name in ("MOONFACTORY_AUDIO_KEY",
+                            "MOONFACTORY_TEMPLATE_KEY"):
+            value = UserSecretsClient().get_secret(secret_name)
+            if value:
+                return value.strip()
     except Exception:
         pass
     return KEY_FILE.read_text().strip()
@@ -674,6 +678,17 @@ try:
 except Exception:
     REV = "unknown"
 HEADERS = {"X-API-Key": KEY, "X-Audio-Rev": REV}
+
+def job_headers(claim_token=None):
+    """Headers for one claimed job's calls: the worker key
+    plus the per-job claim token when the claim issued one.
+    A job claimed without a token (platform legacy mode)
+    sends the key alone, exactly as before."""
+    headers = dict(HEADERS)
+    if claim_token:
+        headers["X-Claim-Token"] = claim_token
+    return headers
+
 
 
 def heartbeat():
@@ -756,13 +771,18 @@ def uv_path() -> str:
         if found is None and candidate.exists():
             found = str(candidate)
         if found is None:
+            # uv itself is pinned: a bare curl|sh installer
+            # would run whatever the site serves today.
             r = subprocess.run(
-                "curl -LsSf https://astral.sh/uv/install.sh | sh",
-                shell=True, capture_output=True, text=True)
-            if r.returncode != 0 or not candidate.exists():
+                [sys.executable, "-m", "pip", "install", "-q",
+                 "uv==0.13.10"],
+                capture_output=True, text=True)
+            found = shutil.which("uv")
+            if found is None and candidate.exists():
+                found = str(candidate)
+            if r.returncode != 0 or found is None:
                 raise RuntimeError(
                     f"uv install failed: {(r.stderr or '')[-300:]}")
-            found = str(candidate)
         _UV_PATH = found
         return found
 
@@ -776,9 +796,14 @@ def setup_ace():
         return
     if not ACE_ROOT.exists():
         r = subprocess.run(
-            ["git", "clone", "--depth", "1",
+            ["git", "clone",
              "https://github.com/ace-step/ACE-Step-1.5.git",
              str(ACE_ROOT)], capture_output=True, text=True)
+        if r.returncode == 0:
+            r = subprocess.run(
+                ["git", "-C", str(ACE_ROOT), "checkout", "-q",
+                 "ca1e85fe9430179831e6bc6be790c332190a3866"],
+                capture_output=True, text=True)
         if r.returncode != 0:
             raise RuntimeError(
                 f"ACE-Step clone failed: {(r.stderr or '')[-300:]}")
@@ -834,8 +859,8 @@ def setup_kokoro():
 
 def setup_kokoro_pytorch():
     """Install the genuine PyTorch kokoro package, the
-    Modal image's own pins (kokoro>=0.9.2, soundfile,
-    numpy), into a Python 3.12 uv venv: the package
+    Modal image's own pins (kokoro==0.9.4, soundfile==0.14.0,
+    numpy==2.5.5), into a Python 3.12 uv venv: the package
     cannot install on this kernel's Python 3.13 at all
     (its releases declare Requires-Python <3.13, and the
     older tree pins numpy==1.26.4, which has no 3.13
@@ -877,10 +902,10 @@ def setup_kokoro_pytorch():
                 f"uv pip install {pkgs} failed: "
                 f"{(r.stdout + r.stderr)[-280:]}")
 
-    uv_pip(["torch"],
+    uv_pip(["torch==2.15.0"],
            index_url="https://download.pytorch.org/whl/cpu")
     heartbeat()
-    uv_pip(["kokoro>=0.9.2", "soundfile", "numpy"])
+    uv_pip(["kokoro==0.9.4", "soundfile==0.14.0", "numpy==2.5.5"])
     heartbeat()
     uv_pip([f"en-core-web-sm @ {SPACY_MODEL_WHEEL}"])
     made = run_voiceover_script("Hello.", "af_heart")
@@ -923,7 +948,8 @@ def setup_kokoro_onnx():
     runtime that installs on this kernel's Python 3.13.
     Reached only when the genuine engine's setup failed;
     the session log names it as the fallback."""
-    pip_install_checked(["kokoro-onnx", "soundfile", "numpy"])
+    pip_install_checked(["kokoro-onnx==0.6.1", "soundfile==0.14.0",
+                         "numpy==2.5.5"])
     _download(KOKORO_MODEL_URL, KOKORO_MODEL_PATH)
     heartbeat()
     _download(KOKORO_VOICES_URL, KOKORO_VOICES_PATH)
@@ -1062,7 +1088,7 @@ _WHISPER_READY = False
 def setup_whisper():
     """Install faster-whisper into the Python 3.12 venv
     the speech stage already uses (the Modal word check's
-    own pins: faster-whisper 1.2.1, av<19), so the word
+    own pins: faster-whisper==1.2.1, av==18.1.1), so the word
     check and transcribe stages can run here. The venv
     usually exists already (the Kokoro setup made it);
     its setup thread is joined first, without inheriting
@@ -1088,7 +1114,8 @@ def setup_whisper():
     r = subprocess.run(
         [uv, "pip", "install", "--python",
          str(KOKORO_VENV_PYTHON),
-         "faster-whisper==1.2.1", "av<19", "soundfile", "numpy"],
+         "faster-whisper==1.2.1", "av==18.1.1",
+         "soundfile==0.14.0", "numpy==2.5.5"],
         capture_output=True, text=True, timeout=1800)
     log(f"uv pip install faster-whisper -> rc={r.returncode}")
     if r.returncode != 0:
@@ -1127,7 +1154,7 @@ def make_wordcheck(job: dict):
     src_path = WORKING / f"wc-source-{job_id}.wav"
     resp = requests.get(
         f"{PLATFORM}/api/worker/audio/jobs/{job_id}/source",
-        headers=HEADERS, timeout=600)
+        headers=job_headers(job.get("claim_token")), timeout=600)
     resp.raise_for_status()
     src_path.write_bytes(resp.content)
     Path("/tmp/wc_params.json").write_text(json.dumps({
@@ -1164,20 +1191,23 @@ def make_wordcheck(job: dict):
             up = requests.post(
                 f"{PLATFORM}/api/worker/audio/jobs/"
                 f"{job_id}/file",
-                headers=HEADERS, data=fh, timeout=600)
+                headers=job_headers(job.get("claim_token")),
+                data=fh, timeout=600)
         up.raise_for_status()
     posted = requests.post(
         f"{PLATFORM}/api/worker/audio/jobs/{job_id}/result",
-        headers=HEADERS, json=result, timeout=60)
+        headers=job_headers(job.get("claim_token")),
+        json=result, timeout=60)
     posted.raise_for_status()
     log(f"job {job_id}: word check result posted")
 
 
-def fail_job(job_id: str, message: str):
+def fail_job(job_id: str, message: str, claim_token=None):
     try:
         requests.post(
             f"{PLATFORM}/api/worker/audio/jobs/{job_id}/fail",
-            headers=HEADERS, json={"error": message[:280]},
+            headers=job_headers(claim_token),
+            json={"error": message[:280]},
             timeout=30)
     except Exception:
         pass
@@ -1242,7 +1272,8 @@ def main():
         try:
             resp = requests.get(
                 f"{PLATFORM}/api/worker/audio/jobs/next",
-                headers=HEADERS, timeout=30)
+                headers={**HEADERS, "X-Claim-Bind": "1"},
+                timeout=30)
             resp.raise_for_status()
             job = resp.json().get("job")
         except Exception as exc:
@@ -1277,13 +1308,14 @@ def main():
                     up = requests.post(
                         f"{PLATFORM}/api/worker/audio/jobs/"
                         f"{job['id']}/file",
-                        headers=HEADERS, data=fh, timeout=600)
+                        headers=job_headers(job.get("claim_token")),
+                        data=fh, timeout=600)
                 up.raise_for_status()
             log(f"job {job['id']}: done")
         except Exception:
             message = traceback.format_exc()[-280:]
             log(f"job {job['id']}: failed: {message}")
-            fail_job(job["id"], message)
+            fail_job(job["id"], message, job.get("claim_token"))
         heartbeat()
 
 

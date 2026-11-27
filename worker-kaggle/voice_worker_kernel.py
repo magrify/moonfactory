@@ -81,9 +81,13 @@ def read_key() -> str:
     try:
         from kaggle_secrets import UserSecretsClient
 
-        value = UserSecretsClient().get_secret("MOONFACTORY_TEMPLATE_KEY")
-        if value:
-            return value.strip()
+        # Per-family key first (MOONFACTORY_VOICE_KEY), then
+        # the shared legacy name, then the dataset key file.
+        for secret_name in ("MOONFACTORY_VOICE_KEY",
+                            "MOONFACTORY_TEMPLATE_KEY"):
+            value = UserSecretsClient().get_secret(secret_name)
+            if value:
+                return value.strip()
     except Exception:
         pass
     return KEY_FILE.read_text().strip()
@@ -91,6 +95,17 @@ def read_key() -> str:
 
 KEY = read_key()
 HEADERS = {"X-API-Key": KEY}
+
+def job_headers(claim_token=None):
+    """Headers for one claimed job's calls: the worker key
+    plus the per-job claim token when the claim issued one.
+    A job claimed without a token (platform legacy mode)
+    sends the key alone, exactly as before."""
+    headers = dict(HEADERS)
+    if claim_token:
+        headers["X-Claim-Token"] = claim_token
+    return headers
+
 
 
 def heartbeat():
@@ -121,6 +136,10 @@ def pip_install(pkgs, only_binary=False):
 _MODEL = None
 _WHISPER = None
 
+# Pinned specs for the load self-healing loop in setup_engine,
+# keyed by importable module name.
+LOAD_MISS_PINS = {"x_transformers": "x-transformers==2.32.4"}
+
 
 def setup_engine():
     """Install deps, fetch the CosyVoice code and weights,
@@ -132,15 +151,18 @@ def setup_engine():
     # installed and measured in the 2026-11-22 test (Kaggle's
     # torch stays: it ships no older wheel for its Python).
     for pkg in (["conformer==0.3.2"], ["diffusers==0.29.0"],
-                ["transformers==4.51.3"], ["modelscope"],
+                ["transformers==4.51.3"], ["modelscope==1.40.3"],
                 ["wetext==0.0.4"], ["pyworld==0.3.4"],
                 ["pyarrow==18.1.0"], ["librosa==0.10.2"],
-                ["lightning==2.2.4"], ["hyperpyyaml"],
-                ["omegaconf"], ["hydra-core"], ["inflect"],
-                ["onnxruntime"], ["gdown"], ["soundfile"],
-                ["faster-whisper"], ["matplotlib"],
-                ["networkx==3.1"], ["rich"], ["wget"],
-                ["protobuf"], ["tensorboard"], ["onnx"]):
+                ["lightning==2.2.4"], ["hyperpyyaml==1.2.3"],
+                ["omegaconf==2.4.0"], ["hydra-core==1.3.8"],
+                ["inflect==7.6.0"],
+                ["onnxruntime==1.32.0"], ["gdown==6.5.2"],
+                ["soundfile==0.14.0"],
+                ["faster-whisper==1.2.1"], ["matplotlib==3.11.2"],
+                ["networkx==3.1"], ["rich==15.0.0"], ["wget==3.2"],
+                ["protobuf==7.36.2"], ["tensorboard==2.21.0"],
+                ["onnx==1.23.2"]):
         pip_install(pkg)
     heartbeat()
     # The pinned frontend normalizes text with the wetext
@@ -198,9 +220,14 @@ def setup_engine():
         if matcha.exists():
             shutil.rmtree(matcha)
         r = subprocess.run(
-            ["git", "clone", "--depth", "1",
+            ["git", "clone",
              "https://github.com/shivammehta25/Matcha-TTS.git",
              str(matcha)], capture_output=True, text=True)
+        if r.returncode == 0:
+            r = subprocess.run(
+                ["git", "-C", str(matcha), "checkout", "-q",
+                 "bd4d90d93214b37f7a159cf205ae85762c2c10aa"],
+                capture_output=True, text=True)
         if r.returncode != 0 or not (matcha / "matcha").exists():
             raise RuntimeError(
                 f"Matcha-TTS clone failed: {(r.stderr or '')[-300:]}")
@@ -241,10 +268,16 @@ def setup_engine():
             if not m:
                 raise
             name = m.group(1).split(".")[0]
-            pkg = {"x_transformers": "x-transformers"}.get(name, name)
-            log(f"load miss: installing {pkg} (module {name}), "
+            # Self-healing installs resolve through a pinned
+            # allowlist only: an unlisted missing module
+            # re-raises instead of installing whatever PyPI
+            # serves today under a bare name.
+            spec = LOAD_MISS_PINS.get(name)
+            if spec is None:
+                raise
+            log(f"load miss: installing {spec} (module {name}), "
                 f"attempt {attempt + 1}")
-            pip_install([pkg])
+            pip_install([spec])
             heartbeat()
     if _MODEL is None:
         raise RuntimeError("CosyVoice load kept failing on "
@@ -291,7 +324,8 @@ def synth_job(job: dict) -> Path:
     raw_ref = job_dir / "reference_in"
     with requests.get(
             f"{PLATFORM}/api/worker/voice/jobs/{job_id}/reference",
-            headers=HEADERS, timeout=300, stream=True) as resp:
+            headers=job_headers(job.get("claim_token")),
+            timeout=300, stream=True) as resp:
         resp.raise_for_status()
         with open(raw_ref, "wb") as fh:
             for chunk in resp.iter_content(1024 * 1024):
@@ -335,11 +369,12 @@ def synth_job(job: dict) -> Path:
     return out_path
 
 
-def fail_job(job_id: str, message: str):
+def fail_job(job_id: str, message: str, claim_token=None):
     try:
         requests.post(
             f"{PLATFORM}/api/worker/voice/jobs/{job_id}/fail",
-            headers=HEADERS, json={"error": message[:280]},
+            headers=job_headers(claim_token),
+            json={"error": message[:280]},
             timeout=30)
     except Exception:
         pass
@@ -392,7 +427,8 @@ def main():
         try:
             resp = requests.get(
                 f"{PLATFORM}/api/worker/voice/jobs/next",
-                headers=HEADERS, timeout=30)
+                headers={**HEADERS, "X-Claim-Bind": "1"},
+                timeout=30)
             resp.raise_for_status()
             job = resp.json().get("job")
         except Exception as exc:
@@ -414,13 +450,14 @@ def main():
                 up = requests.post(
                     f"{PLATFORM}/api/worker/voice/jobs/"
                     f"{job['id']}/file",
-                    headers=HEADERS, data=fh, timeout=600)
+                    headers=job_headers(job.get("claim_token")),
+                    data=fh, timeout=600)
             up.raise_for_status()
             log(f"job {job['id']}: done")
         except Exception:
             message = traceback.format_exc()[-280:]
             log(f"job {job['id']}: failed: {message}")
-            fail_job(job["id"], message)
+            fail_job(job["id"], message, job.get("claim_token"))
         heartbeat()
 
 

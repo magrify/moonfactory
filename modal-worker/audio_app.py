@@ -47,8 +47,9 @@ ace_image = (
     modal.Image.debian_slim(python_version="3.12")
     .apt_install("git", "ffmpeg", "curl")
     .run_commands(
-        "curl -LsSf https://astral.sh/uv/install.sh | sh",
-        "git clone --depth 1 https://github.com/ace-step/ACE-Step-1.5.git " + ACE_ROOT,
+        "curl -LsSf https://astral.sh/uv/0.13.10/install.sh | sh",
+        "git clone https://github.com/ace-step/ACE-Step-1.5.git " + ACE_ROOT,
+        "git -C " + ACE_ROOT + " checkout ca1e85fe9430179831e6bc6be790c332190a3866",
         "cd " + ACE_ROOT + " && $HOME/.local/bin/uv sync",
     )
 )
@@ -165,7 +166,7 @@ def generate_bed(caption: str = HOUSE_CAPTION, seed: int = HOUSE_SEED) -> bytes:
 # ---------------------------------------------------------------------------
 
 tts_image = ace_image.apt_install("espeak-ng").pip_install(
-    "kokoro>=0.9.2", "soundfile", "numpy",
+    "kokoro==0.9.4", "soundfile==0.14.0", "numpy==2.5.5",
 )
 
 VOICEOVER_SCRIPT = r'''
@@ -570,7 +571,7 @@ def run_word_fix(samples, rate, script, wrong, speak_sentence,
 
 
 wordcheck_image = tts_image.pip_install(
-    "faster-whisper==1.2.1", "av<19",
+    "faster-whisper==1.2.1", "av==18.1.1",
 )
 
 WHISPER_CACHE = "/sinclip-models/hf-cache"
