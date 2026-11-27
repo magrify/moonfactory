@@ -982,7 +982,6 @@ def _save_user_record(user: dict) -> None:
 
 @app.function(
     image=clip_image,
-    secrets=[modal.Secret.from_name("moonfactory-providers")],
     volumes={"/data": data_volume, "/worker-models": worker_models},
     cpu=4.0,
     memory=8192,
@@ -8146,7 +8145,14 @@ def _check_password(password: str, stored: str) -> bool:
 
 
 def _session_secret() -> str:
-    return os.environ.get("SESSION_SECRET", "")
+    secret = os.environ.get("SESSION_SECRET", "")
+    if not secret:
+        # Fail closed (security fix, 2026-11-27,
+        # empty-session-secret-fail-open): with no secret,
+        # the session HMAC is publicly computable, so
+        # signing and verification refuse instead.
+        raise RuntimeError("SESSION_SECRET is not configured")
+    return secret
 
 
 def _make_session(user_id: str, epoch: str = "") -> str:
@@ -23326,7 +23332,12 @@ document.getElementById('go').onclick = async () => {{
     # -- operator -----------------------------------------------------------
 
     def require_admin(x_admin_key: str):
-        if not hmac.compare_digest(x_admin_key, os.environ.get("ADMIN_KEY", "\0")):
+        # Fail closed (security fix, 2026-11-27,
+        # admin-key-nul-byte-default): an unconfigured admin
+        # key admits nobody, never a sentinel value.
+        expected = os.environ.get("ADMIN_KEY") or ""
+        if not expected \
+                or not hmac.compare_digest(x_admin_key, expected):
             raise HTTPException(status_code=401, detail="bad admin key")
 
     @web.get("/api/admin/outbox")
