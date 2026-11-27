@@ -17563,8 +17563,23 @@ document.getElementById('go').onclick = async () => {{
             "turnstile_token": body.get("turnstile_token"),
         }
         # A worker-side error earns free retries (Rule 8), capped.
-        request._body = json.dumps(new_body).encode()
-        result = await create_job(request, mf_session)
+        # The composed body goes to create_job_core directly
+        # (2026-11-27 fix): a request._body substitution never
+        # reaches the core, because the parse above already
+        # cached this request's json and create_job's own
+        # request.json() answers from that cache. create_job's
+        # wrapper checks run here against the composed body
+        # instead, the same checks in the same order.
+        if _rate_limited("jobcreate", user["id"], 10):
+            raise HTTPException(status_code=429, detail="too many jobs, slow down")
+        if not user["verified"]:
+            raise HTTPException(status_code=403, detail="verify your email before creating")
+        if user.get("past_due"):
+            raise HTTPException(status_code=403, detail="your subscription payment is past due")
+        if not bot_check_ok(new_body, client_ip(request), user):
+            raise HTTPException(status_code=403, detail="bot check failed")
+        result = create_job_core(
+            user, new_body, base_url(request), client_ip(request))
         created = json.loads(result.body)
         if parent["status"] == "error" and free_retries < MAX_FREE_RETRIES:
             child = jobs.get(created["id"])
@@ -17689,8 +17704,23 @@ document.getElementById('go').onclick = async () => {{
                     base64.b64encode(ref.read_bytes()).decode()
                 new_body["clone_reference_text"] = \
                     parent.get("clone_reference_text") or ""
-            request._body = json.dumps(new_body).encode()
-            result = await create_short(request, mf_session)
+            # The composed body goes to the creation core
+            # directly (2026-11-27 fix): a request._body
+            # substitution never reaches a wrapper's cached
+            # request.json(). The wrapper's checks run here
+            # against the composed body instead, so every
+            # creation gate applies again, as this endpoint's
+            # own docstring promises.
+            if _rate_limited("shortcreate", user["id"], 10):
+                raise HTTPException(status_code=429, detail="too many jobs, slow down")
+            if not user["verified"]:
+                raise HTTPException(status_code=403, detail="verify your email before creating")
+            if user.get("past_due"):
+                raise HTTPException(status_code=403, detail="your subscription payment is past due")
+            if not bot_check_ok(new_body, client_ip(request), user):
+                raise HTTPException(status_code=403, detail="bot check failed")
+            result = create_short_core(
+                user, new_body, client_ip(request))
             created = json.loads(result.body)
             link_retry(created.get("id"))
             return created
@@ -17726,8 +17756,20 @@ document.getElementById('go').onclick = async () => {{
                     or "9:16",
                     **bot,
                 }
-                request._body = json.dumps(new_body).encode()
-                result = await create_image(request, mf_session)
+                # The composed body goes to the creation core
+                # directly, with the wrapper's checks run here
+                # against it (2026-11-27 fix; see the short
+                # branch above for why).
+                if _rate_limited("imagecreate", user["id"], 10):
+                    raise HTTPException(status_code=429, detail="too many jobs, slow down")
+                if not user["verified"]:
+                    raise HTTPException(status_code=403, detail="verify your email before creating")
+                if user.get("past_due"):
+                    raise HTTPException(status_code=403, detail="your subscription payment is past due")
+                if not bot_check_ok(new_body, client_ip(request), user):
+                    raise HTTPException(status_code=403, detail="bot check failed")
+                result = create_image_core(
+                    user, new_body, client_ip(request))
                 if isinstance(result, JSONResponse):
                     created = json.loads(result.body)
                 else:
@@ -17742,8 +17784,20 @@ document.getElementById('go').onclick = async () => {{
                 "retry_of": root_id,
                 **bot,
             }
-            request._body = json.dumps(new_body).encode()
-            result = await create_image(request, mf_session)
+            # The composed body goes to the creation core
+            # directly, with the wrapper's checks run here
+            # against it (2026-11-27 fix; see the short branch
+            # above for why).
+            if _rate_limited("imagecreate", user["id"], 10):
+                raise HTTPException(status_code=429, detail="too many jobs, slow down")
+            if not user["verified"]:
+                raise HTTPException(status_code=403, detail="verify your email before creating")
+            if user.get("past_due"):
+                raise HTTPException(status_code=403, detail="your subscription payment is past due")
+            if not bot_check_ok(new_body, client_ip(request), user):
+                raise HTTPException(status_code=403, detail="bot check failed")
+            result = create_image_core(
+                user, new_body, client_ip(request))
             return json.loads(result.body)
 
         if kind == "clip_output":
@@ -17788,8 +17842,20 @@ document.getElementById('go').onclick = async () => {{
                 raise HTTPException(
                     status_code=422,
                     detail="the video this clipping came from was not kept, so it cannot be retried")
-            request._body = json.dumps(new_body).encode()
-            result = await create_clip(request, mf_session)
+            # The composed body goes to the creation core
+            # directly, with the wrapper's checks run here
+            # against it (2026-11-27 fix; see the short branch
+            # above for why).
+            if _rate_limited("clipcreate", user["id"], 6):
+                raise HTTPException(status_code=429, detail="too many jobs, slow down")
+            if not user["verified"]:
+                raise HTTPException(status_code=403, detail="verify your email before creating")
+            if user.get("past_due"):
+                raise HTTPException(status_code=403, detail="your subscription payment is past due")
+            if not bot_check_ok(new_body, client_ip(request), user):
+                raise HTTPException(status_code=403, detail="bot check failed")
+            result = create_clip_core(
+                user, new_body, client_ip(request))
             created = json.loads(result.body)
             link_retry(created.get("id"))
             return created
@@ -17813,8 +17879,20 @@ document.getElementById('go').onclick = async () => {{
                         parent.get("source_duration") or 0),
                 }
                 new_body["upload_id"] = uid
-            request._body = json.dumps(new_body).encode()
-            result = await create_template(request, mf_session)
+            # The composed body goes to the creation core
+            # directly, with the wrapper's checks run here
+            # against it (2026-11-27 fix; see the short branch
+            # above for why).
+            if _rate_limited("templatecreate", user["id"], 10):
+                raise HTTPException(status_code=429, detail="too many jobs, slow down")
+            if not user["verified"]:
+                raise HTTPException(status_code=403, detail="verify your email before creating")
+            if user.get("past_due"):
+                raise HTTPException(status_code=403, detail="your subscription payment is past due")
+            if not bot_check_ok(new_body, client_ip(request), user):
+                raise HTTPException(status_code=403, detail="bot check failed")
+            result = create_template_core(
+                user, new_body, client_ip(request))
             created = json.loads(result.body)
             link_retry(created.get("id"))
             return created
@@ -17845,8 +17923,11 @@ document.getElementById('go').onclick = async () => {{
 
         # Every other error card is a video generation: the
         # existing regenerate path rebuilds it from the same
-        # stored inputs.
-        request._body = json.dumps(body).encode()
+        # stored inputs. regenerate re-reads this request's
+        # body itself, and the parse above already cached that
+        # body on the request, so it sees the same dict; the
+        # old request._body re-encode of the same body changed
+        # nothing and is gone (2026-11-27).
         return await regenerate(job_id, request, mf_session)
 
     def _fal_upload_bytes(data: bytes, content_type: str, file_name: str):
@@ -18932,6 +19013,16 @@ document.getElementById('go').onclick = async () => {{
         body = await request.json()
         if not bot_check_ok(body, client_ip(request), user):
             raise HTTPException(status_code=403, detail="bot check failed")
+        return create_clip_core(user, body, client_ip(request))
+
+    def create_clip_core(user: dict, body: dict, ip: str):
+        """The one clipping creation path behind both create
+        surfaces (the website's /api/clips and the job retry
+        path, which rebuilds the body from the stored record
+        and calls this core directly with it): every gate
+        below the website wrapper runs here. The website
+        wrapper adds only its session auth, its pace limit,
+        and the browser bot check."""
         if not is_paid(user):
             raise HTTPException(status_code=403, detail="clipping is a paid feature")
         # "auto" is a real clip count (2026-11-27, Jack's
@@ -19005,7 +19096,7 @@ document.getElementById('go').onclick = async () => {{
         # title, the only words the job carries, and the call
         # is also what bars a suspended account from the lane.
         enforce_prompt_gate(
-            user, "clip", client_ip(request), source_title)
+            user, "clip", ip, source_title)
         if duration > pricing.CLIP_MAX_SOURCE_SECONDS:
             raise HTTPException(status_code=422, detail="this video is longer than the 3 hour clipping limit")
         q = pricing.clip_quote(duration, owner=is_owner(user))
@@ -19063,7 +19154,7 @@ document.getElementById('go').onclick = async () => {{
             "stage": CLIP_STAGES[0],
             "error": None,
             "created_at": _now(),
-            "created_ip": client_ip(request),
+            "created_ip": ip,
             "charged_cents": 0,
             "source_url": source_url,
             "upload_path": upload_path,
@@ -19095,6 +19186,7 @@ document.getElementById('go').onclick = async () => {{
     # are free for paid accounts (the character store's own
     # precedent: creation is free, only training charges); the
     # clone is an ordinary paid job.
+
 
     def _editclone_source_job(user: dict, source_job_id) -> dict:
         """An owned, finished video whose file is in the library:
@@ -19634,8 +19726,12 @@ document.getElementById('go').onclick = async () => {{
             answer["balance_debit_cents"] = pricing.job_price_cents(
                 lane, owner=is_owner(user)) * segments
             return answer
-        request._body = json.dumps(new_body).encode()
-        return await quote_job(request, mf_session)
+        # The composed body goes to quote_job_core directly
+        # (2026-11-27 fix): a request._body substitution never
+        # reaches quote_job's cached request.json(), so a
+        # per-second clone quoted the raw request body instead
+        # of the composition the builder made.
+        return quote_job_core(user, new_body)
 
     @web.post("/api/editclone/clone")
     async def create_editclone_clone(request: Request, mf_session: str = Cookie(default="")):
@@ -19647,8 +19743,27 @@ document.getElementById('go').onclick = async () => {{
         for key in ("challenge_id", "challenge_nonce", "turnstile_token"):
             if body.get(key):
                 new_body[key] = body[key]
-        request._body = json.dumps(new_body).encode()
-        result = await create_job(request, mf_session)
+        # The composed body goes to create_job_core directly
+        # (2026-11-27 fix): a request._body substitution never
+        # reaches the core, because the parse above already
+        # cached this request's json and create_job's own
+        # request.json() answers from that cache, so the core
+        # read the raw request and every composed field (the
+        # template prompt, the character picture as the start
+        # image, the segments, the production lane, the aspect)
+        # was dropped. create_job's wrapper checks run here
+        # against the composed body instead, the same checks in
+        # the same order.
+        if _rate_limited("jobcreate", user["id"], 10):
+            raise HTTPException(status_code=429, detail="too many jobs, slow down")
+        if not user["verified"]:
+            raise HTTPException(status_code=403, detail="verify your email before creating")
+        if user.get("past_due"):
+            raise HTTPException(status_code=403, detail="your subscription payment is past due")
+        if not bot_check_ok(new_body, client_ip(request), user):
+            raise HTTPException(status_code=403, detail="bot check failed")
+        result = create_job_core(
+            user, new_body, base_url(request), client_ip(request))
         try:
             created = json.loads(result.body)
             created_id = created.get("id")
@@ -19955,6 +20070,16 @@ document.getElementById('go').onclick = async () => {{
         body = await request.json()
         if not bot_check_ok(body, client_ip(request), user):
             raise HTTPException(status_code=403, detail="bot check failed")
+        return create_template_core(user, body, client_ip(request))
+
+    def create_template_core(user: dict, body: dict, ip: str):
+        """The one template creation path behind both create
+        surfaces (the website's /api/templates and the job
+        retry path, which rebuilds the body from the stored
+        record and calls this core directly with it): every
+        gate below the website wrapper runs here. The website
+        wrapper adds only its session auth, its pace limit,
+        and the browser bot check."""
         template_id = str(body.get("template") or "")
         try:
             fields = hf_clean_fields(template_id, body)
@@ -19964,7 +20089,7 @@ document.getElementById('go').onclick = async () => {{
         # word a template renders is user text, checked
         # before any free count or dispatch below.
         enforce_prompt_gate(
-            user, "template", client_ip(request),
+            user, "template", ip,
             *[v for v in fields.values() if isinstance(v, str)])
         upload_path = None
         source_duration = 0.0
@@ -20086,7 +20211,7 @@ document.getElementById('go').onclick = async () => {{
             "stage": "Waiting for the free renderer",
             "error": None,
             "created_at": _now(),
-            "created_ip": client_ip(request),
+            "created_ip": ip,
             "charged_cents": 0,
             "upload_path": upload_path,
             "source_duration": source_duration,
@@ -20132,6 +20257,7 @@ document.getElementById('go').onclick = async () => {{
             save_user(user)
         _hf_maybe_trigger()
         return JSONResponse(public_job(job), status_code=202)
+
 
     @web.post("/api/worker/hf/heartbeat")
     def hf_heartbeat(x_api_key: str = Header(default="")):
@@ -21380,6 +21506,16 @@ document.getElementById('go').onclick = async () => {{
         body = await request.json()
         if not bot_check_ok(body, client_ip(request), user):
             raise HTTPException(status_code=403, detail="bot check failed")
+        return create_short_core(user, body, client_ip(request))
+
+    def create_short_core(user: dict, body: dict, ip: str):
+        """The one short creation path behind both create
+        surfaces (the website's /api/shorts and the job retry
+        path, which rebuilds the body from the stored record
+        and calls this core directly with it): every gate
+        below the website wrapper runs here. The website
+        wrapper adds only its session auth, its pace limit,
+        and the browser bot check."""
         topic = (body.get("topic") or "").strip()
         if len(topic) > 200:
             raise HTTPException(
@@ -21388,7 +21524,7 @@ document.getElementById('go').onclick = async () => {{
         # The illegal-content gate (Jack, 2026-11-24): the
         # topic is user text, checked before the writing
         # route turns it into a script.
-        enforce_prompt_gate(user, "short", client_ip(request), topic)
+        enforce_prompt_gate(user, "short", ip, topic)
         # The draft model pick (2026-11-20): it drives the
         # topic writing call server side, with the house chain
         # as the fallback when the picked route is unavailable.
@@ -21542,7 +21678,7 @@ document.getElementById('go').onclick = async () => {{
         # the clone reference line, and the music words, all
         # before any free count or charge below.
         enforce_prompt_gate(
-            user, "short", client_ip(request), script_text,
+            user, "short", ip, script_text,
             clone_reference_text, music_prompt)
         is_free_job = False
         free_reserved = False
@@ -21608,7 +21744,7 @@ document.getElementById('go').onclick = async () => {{
             "stage": SHORTS_STAGES[0],
             "error": None,
             "created_at": _now(),
-            "created_ip": client_ip(request),
+            "created_ip": ip,
             "charged_cents": clone_add,
             "short_topic": topic or None,
             "short_draft_model": draft_model,
@@ -21676,6 +21812,7 @@ document.getElementById('go').onclick = async () => {{
     # settle_fal_job), and it settles once when the episode
     # lands. Drama is paid only and never touches the free
     # lifetime clips.
+
 
     def _drama_estimate(user: dict, seconds: float) -> dict:
         return pricing.per_second_estimate(

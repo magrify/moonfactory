@@ -224,8 +224,8 @@ check(not entry.get("last_used_at"),
       "a revoked key is not stamped")
 
 # --- source pins: every create core claims its free slot atomically -------
-for flow in ("create_job_core", "create_image_core", "create_template",
-             "create_short"):
+for flow in ("create_job_core", "create_image_core",
+             "create_template_core", "create_short_core"):
     check("reserve_free_slot(user)" in func_src(flow),
           f"{flow} claims its free slot atomically")
 

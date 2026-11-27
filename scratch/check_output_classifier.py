@@ -573,7 +573,7 @@ check(app.input_gate_refusal(REG, FLAGV)
 # it classifies, applies its own refusal, and still stamps
 # the verdict on the job; the illegal-content gate runs on
 # the template's words before any of it.
-_tpl = func_src("create_template")
+_tpl = func_src("create_template_core")
 check("presenter_input_refusal(presenter_verdict)" in _tpl
       and "stamp_input_verdict(job, presenter_verdict)" in _tpl,
       "the presenter branch lost its own gate or its stamp")
@@ -582,7 +582,8 @@ check(_tpl.index("enforce_prompt_gate")
       "the illegal gate no longer runs before the presenter "
       "photo gate")
 for fn in ("create_api_job", "create_job_core", "create_image_core",
-           "create_drama", "create_short", "create_clip"):
+           "create_drama", "create_short", "create_clip",
+           "create_short_core", "create_clip_core"):
     check("presenter_input_refusal" not in func_src(fn),
           f"{fn} picked up the presenter carve-out")
 

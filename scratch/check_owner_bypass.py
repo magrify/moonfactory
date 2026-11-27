@@ -155,7 +155,7 @@ check("or is_owner(user)" in body, "_image_payment has no owner rail")
 
 # Clips: owner hold branch before the auto reload branch, and the
 # quote names the balance rail for the owner.
-body = func_src("create_clip")
+body = func_src("create_clip_core")
 check("elif is_owner(user):" in body, "clip create has no owner branch")
 check(body.index("elif is_owner(user):")
       < body.index("elif attempt_auto_reload"),

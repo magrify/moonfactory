@@ -488,16 +488,19 @@ check("x-forwarded-for" in client_ip_src,
 check('"created_ip": created_ip or None' in func_src("create_api_job")
       and "created_ip: str" in func_src("create_api_job"),
       "create_api_job records created_ip from its parameter")
-for name in ("create_clip",
-             "create_template", "create_short", "create_drama"):
+for name in ("create_drama",):
     check('"created_ip": client_ip(request)' in func_src(name),
           f"{name} stamps created_ip from the creating request")
 # The video and image creates were split into shared cores
-# (2026-11-27, the customer API): the cores stamp the ip they
-# are handed, and both wrappers (website and API) hand them
+# (2026-11-27, the customer API), and the clip, template and
+# short creates followed the same split the same day (the
+# composed-body fix): the cores stamp the ip they are handed,
+# and both wrappers (website and API) hand them
 # client_ip(request), so the stamp is still the creating
 # request's IP on every surface.
-for name in ("create_job_core", "create_image_core"):
+for name in ("create_job_core", "create_image_core",
+             "create_clip_core", "create_template_core",
+             "create_short_core"):
     check('"created_ip": ip' in func_src(name),
           f"{name} stamps created_ip from the creating request")
 check('"created_ip": parent.get("created_ip")'

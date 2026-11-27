@@ -299,9 +299,9 @@ for fname, label in (
     ("create_api_job", "API video jobs (and drama retakes)"),
     ("create_job_core", "house video jobs"),
     ("create_image_core", "image jobs"),
-    ("create_clip", "clips"),
-    ("create_template", "templates"),
-    ("create_short", "faceless shorts"),
+    ("create_clip_core", "clips"),
+    ("create_template_core", "templates"),
+    ("create_short_core", "faceless shorts"),
     ("create_drama_draft", "drama draft (idea and script)"),
     ("create_drama", "drama creation"),
 ):
@@ -320,7 +320,7 @@ check(img_src.index("enforce_prompt_gate")
       "create_image gates after the job is stored")
 # In create_short the topic is gated before the writing
 # route, and the script before the free count.
-short_src = func_src("create_short")
+short_src = func_src("create_short_core")
 check(short_src.index("enforce_prompt_gate")
       < short_src.index("script_from_topic"),
       "create_short gates the topic after the writing route")

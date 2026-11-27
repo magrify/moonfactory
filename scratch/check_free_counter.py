@@ -140,13 +140,13 @@ check(image.count("count_generation(user)") == 1
       "shelf call passes its served_free flag, so a free lane "
       "serving a free account also moves the platform ceiling")
 
-short = func_src("create_short")
+short = func_src("create_short_core")
 check("reserve_free_slot(user)" in short,
       "shorts create enforces the counter before dispatch")
 check("count_generation(user)" in short,
       "paid shorts count toward the 5")
 
-template = func_src("create_template")
+template = func_src("create_template_core")
 check("reserve_free_slot(user)" in template,
       "titles create enforces the counter before dispatch")
 check("count_generation(user)" in template,
@@ -168,7 +168,7 @@ for node in ast.walk(TREE):
 check("count_generation" not in retake,
       "a shot retake never counts the same episode again")
 
-clip = func_src("create_clip")
+clip = func_src("create_clip_core")
 check("count_generation" not in clip,
       "clipping stays uncounted (paid transform, not a "
       "generation type the rule names)")
