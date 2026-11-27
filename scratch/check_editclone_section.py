@@ -32,6 +32,16 @@ Pins the section's shape so a later edit cannot quietly break it:
   the start image on start-image lanes, subject plus
   driving video on Wan Motion, the prompt alone where a
   lane takes no visual input;
+- the four house lanes (Wan 2.2, Wan 2.2 Uncut, LTX-2.5
+  Uncensored, HunyuanVideo 1.5) are in the picker too: the
+  config serves their clone adaptation (start image), the
+  clone body rides the house job path (character picture
+  as the start image, the source's length in house
+  segments, Production named for Wan 2.2, one segment for
+  LTX-2.5 Uncensored), and the quote reads the lane's own
+  segment accounting (job price times segments, or the
+  included rail at the house unit), never the per-second
+  machinery;
 - the worker finishes its files the platform way (content
   hash, output classification, gallery kept private), the
   mirror fails a stuck Clone job clean, the file route
@@ -284,6 +294,69 @@ check("grab_frames" in frames_fn and "EDITCLONE_FRAME_FRACTIONS" in frames_fn,
       "the frames branch does not grab the source frames it sends")
 check("_fal_upload_bytes" in frames_fn,
       "the frames branch does not host the frames it sends")
+
+# -- the house lanes clone too ---------------------------------------------
+
+HOUSE_CLONE_LANES = {
+    "wan2.2": "production",
+    "wan22_uncut": "nsfw",
+    "ltx25_unc": "ltx_unc",
+    "hunyuan15": "hunyuan15",
+}
+for model, lane in HOUSE_CLONE_LANES.items():
+    check(app.HOUSE_MODEL_PRICING_LANE.get(model) == lane,
+          f"{model} no longer settles on its house lane {lane}")
+    check(model in app.MODEL_LABELS,
+          f"{model} is missing from the picker catalog data")
+    check(adapt(model) == "start",
+          f"{model} should clone from a start image, got {adapt(model)}")
+check(all(m["id"] in app.PER_SECOND_MODELS
+          or m["id"] in app.HOUSE_MODEL_PRICING_LANE
+          for m in app.MODELS),
+      "a catalog model takes no clone: the picker must cover every model")
+check("HOUSE_MODEL_PRICING_LANE" in func_src("entry_for"),
+      "the config does not serve a clone adaptation for the house lanes")
+check("HOUSE_MODEL_PRICING_LANE" in body_fn,
+      "the clone body does not route house picks to the house path")
+check('"start_image_png_b64": char_b64' in body_fn,
+      "the house clone does not carry Image1 as its start image")
+check('"segments": segments' in body_fn
+      and "SEGMENT_SECONDS" in body_fn
+      and "math.ceil" in body_fn,
+      "the house clone does not take its length in house segments")
+check('house_body["lane"] = "production"' in body_fn,
+      "the Wan 2.2 clone does not name its Production lane")
+check('"ltx25_unc"' in body_fn and "segments = 1" in body_fn,
+      "the LTX-2.5 Uncensored clone is not held to one segment")
+# The length math the house branch runs, on the constants it
+# reads: a 12 second source is 3 house segments, a short one
+# is 1, a long one caps at MAX_SEGMENTS.
+import math as _math
+for seconds, want in ((5.0, 1), (12.0, 3), (200.0, app.MAX_SEGMENTS)):
+    got = min(app.MAX_SEGMENTS,
+              max(1, _math.ceil(seconds / app.SEGMENT_SECONDS)))
+    check(got == want,
+          f"a {seconds}s source should clone in {want} segments, got {got}")
+quote_fn = func_src("quote_editclone_clone")
+check("HOUSE_MODEL_PRICING_LANE" in quote_fn
+      and "job_price_cents" in quote_fn,
+      "the house clone quote does not read the lane's own job price")
+check("included_budget_remaining" in quote_fn
+      and 'MEASURED_COST_CENTS["production"]' in quote_fn,
+      "the house clone quote does not mirror the included rail")
+check("lane_paused" in quote_fn,
+      "the house clone quote does not report a paused lane")
+# The pricing relationship the quote and the create share:
+# a house clone of N segments costs a normal house job of
+# N segments on the same lane, owner at raw cost.
+import pricing as _pricing
+for lane in HOUSE_CLONE_LANES.values():
+    for segments in (1, 3):
+        check(_pricing.job_price_cents(lane, owner=False) * segments > 0,
+              f"house lane {lane} has no job price to quote a clone from")
+check(_pricing.job_price_cents("production", owner=True)
+      == _pricing.MEASURED_COST_CENTS["production"],
+      "the owner's Wan 2.2 clone price is not the lane's raw cost")
 
 # -- platform fit: mirror bound, file route, retry -------------------------
 

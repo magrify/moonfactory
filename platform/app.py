@@ -594,11 +594,12 @@ def process_clip_job(job_id: str):
 # swapped in, through the normal /api/jobs creation path.
 # Ingest, the hook cut and the frame grabs run here, in the
 # clip image (yt-dlp and ffmpeg live there); the clone itself
-# is an ordinary per-second job, so every creation gate, price
-# and settle rule is the platform's own.
+# is an ordinary job through create_job (a per-second job, or
+# a house job on the house lanes), so every creation gate,
+# price and settle rule is the platform's own.
 #
-# The model: the section's picker offers every per-second
-# model the Create picker offers, and the platform adapts what
+# The model: the section's picker offers every video model
+# the Create picker offers, and the platform adapts what
 # it sends to the picked lane (editclone_clone_adaptation,
 # below): a lane never has to natively take a reference video
 # and a reference image together. EDITCLONE_CLONE_MODEL is
@@ -6286,13 +6287,15 @@ IMAGE_REFS_ONLY_MODELS = (
     "kling_o1", "minimax_h3_max", "vidu_q4", "seedance2_fast",
 )
 # Clone adaptation (Jack's correction, 2026-11-26): a Clone
-# section clone runs on ANY per-second model the user picks;
-# the platform adapts what it sends, so the picked lane never
-# needs to natively accept a reference video and a reference
-# image together. The branch comes from the lane capability
-# data alone (the reference cap table and the mode sets the
-# job validator itself reads), never a hand-kept lane list,
-# so a future lane slots in on its own caps.
+# section clone runs on ANY model the user picks, the house
+# lanes included; the platform adapts what it sends, so the
+# picked lane never needs to natively accept a reference
+# video and a reference image together. The branch comes
+# from the lane capability data alone (the reference cap
+# table and the mode sets the job validator itself reads,
+# and the house pricing-lane table for the house lanes),
+# never a hand-kept lane list, so a future lane slots in on
+# its own caps.
 EDITCLONE_FRAME_FRACTIONS = (0.02, 0.35, 0.65, 0.95)
 
 
@@ -6305,7 +6308,12 @@ def editclone_clone_adaptation(model: str) -> str:
     - "start": the lane takes a prompt or a start image only
       (TEXT_IMAGE_ONLY_MODELS, the start-image-required lanes,
       and Kling 3.0, whose validator refusal reads the same):
-      the character picture becomes the start image.
+      the character picture becomes the start image. The
+      house lanes land here too: our own worker's dispatch
+      is an image-to-video shape (a start image and a
+      prompt, no reference channel), so the character
+      picture is the start image and no frame of the source
+      is ever sent.
     - "both": the lane takes a reference video and reference
       images: Video1 and Image1 ride as references together.
     - "frames": the lane takes reference images but no
@@ -6315,6 +6323,8 @@ def editclone_clone_adaptation(model: str) -> str:
     - "text": the lane takes no visual input at all (a zero
       cap entry outside the sets above): the prompt alone
       carries the clone."""
+    if model in HOUSE_MODEL_PRICING_LANE:
+        return "start"
     if model == "wan_motion":
         return "motion"
     if model in TEXT_IMAGE_ONLY_MODELS or model == "kling3" \
@@ -7652,11 +7662,15 @@ def api():
                 # decision the clone body builder dispatches
                 # on), so the section's picker and its feed
                 # line read the capability data, not a copy of
-                # it. House lanes are not per-second models
-                # and take no clone: None.
+                # it. The house lanes clone on their own job
+                # path, from a start image: they serve their
+                # branch like every other model. A model in
+                # neither world takes no clone: None.
                 "clone_adaptation": (
                     editclone_clone_adaptation(m["id"])
-                    if m["id"] in PER_SECOND_MODELS else None),
+                    if m["id"] in PER_SECOND_MODELS
+                    or m["id"] in HOUSE_MODEL_PRICING_LANE
+                    else None),
                 # The lengths this model can actually make
                 # (no-trim rule): the picker offers exactly
                 # these, starting at the model's shortest clip.
@@ -16496,7 +16510,7 @@ def api():
     def _editclone_clone_body(user: dict, body: dict) -> dict:
         """The /api/jobs body for a character-swap clone of a
         library source, on the model the user picked in the
-        section's own picker (any per-second model the Create
+        section's own picker (any video model the Create
         picker offers). The platform adapts the inputs to the
         picked lane (editclone_clone_adaptation): Video1 and
         Image1 ride as references where the lane takes both;
@@ -16505,11 +16519,16 @@ def api():
         gets Image1 as the start image; Wan Motion gets
         Image1 as its subject and Video1 as its driving
         video; a lane that takes no visual input gets the
-        prompt alone. Building the body here, once, means
-        the quote and the create can never disagree about
-        the composition."""
+        prompt alone. A house lane rides the house job path
+        instead: Image1 as the start image on the lane's own
+        image-to-video shape, the source's length in house
+        segments, and the lane's own segment pricing, never
+        the per-second machinery. Building the body here,
+        once, means the quote and the create can never
+        disagree about the composition."""
         model = body.get("model") or EDITCLONE_CLONE_MODEL
-        if model not in PER_SECOND_MODELS:
+        if model not in PER_SECOND_MODELS \
+                and model not in HOUSE_MODEL_PRICING_LANE:
             raise HTTPException(status_code=422, detail="unknown model")
         src = _editclone_source_job(user, body.get("source_job_id"))
         character = _find_character(user, body.get("character_id") or "")
@@ -16544,8 +16563,6 @@ def api():
             raise HTTPException(
                 status_code=422,
                 detail="that video has no readable length")
-        adaptation = editclone_clone_adaptation(model)
-        natives = native_lengths(model)
         width = int(src.get("source_width") or 0)
         height = int(src.get("source_height") or 0)
         if width and height and width > height:
@@ -16555,6 +16572,49 @@ def api():
         else:
             aspect = "9:16"
         prompt = (body.get("prompt") or CLONE_PROMPT_TEMPLATE).strip()
+        if model in HOUSE_MODEL_PRICING_LANE:
+            # The house lanes: the clone is a house job, built
+            # in the house body's own shape. The character
+            # picture is the start image (every house lane
+            # runs image-to-video; HunyuanVideo 1.5's
+            # step-distilled I2V included, and the Uncut lane
+            # requires one), the length is the source's
+            # length in house segments (LTX-2.5 Uncensored
+            # renders one clip per job, so its clone is one
+            # segment however long the source runs), and
+            # create_job prices and settles it on the lane's
+            # own segment accounting exactly like a normal
+            # house generation. The house dispatch carries
+            # no reference channel, so no frame of the source
+            # is sent: the prompt template carries the clone,
+            # and the picker's feed line says so plainly.
+            if not char_b64:
+                raise HTTPException(
+                    status_code=422,
+                    detail="that character has no usable picture yet")
+            if model == "ltx25_unc":
+                segments = 1
+            else:
+                segments = min(
+                    MAX_SEGMENTS,
+                    max(1, math.ceil(duration / SEGMENT_SECONDS)))
+            house_body = {
+                "model": model,
+                "prompt": prompt,
+                "aspect_ratio": aspect,
+                "start_image_png_b64": char_b64,
+                "segments": segments,
+            }
+            if model == "wan2.2":
+                # Wan 2.2's image-to-video lane is Production
+                # (Draft is its text lane, and a clone always
+                # carries the start image); the other three
+                # house models select their lane by the model
+                # alone, so no lane field rides along.
+                house_body["lane"] = "production"
+            return house_body
+        adaptation = editclone_clone_adaptation(model)
+        natives = native_lengths(model)
         new_body = {
             "model": model,
             "prompt": prompt,
@@ -16622,6 +16682,45 @@ def api():
             raise HTTPException(status_code=403, detail="Clone is a paid feature")
         body = await request.json()
         new_body = _editclone_clone_body(user, body)
+        if new_body["model"] in HOUSE_MODEL_PRICING_LANE:
+            # A house clone quotes on the lane's own segment
+            # accounting (quote_job's house answer is the
+            # whole price table, not this job's price), in
+            # the same answer shape the section renders for
+            # a per-second quote: the included rail when the
+            # subscription budget covers the segments at
+            # create_job's house unit, else the lane's job
+            # price times the segments from the balance. The
+            # create below charges exactly this, because it
+            # is create_job's own house accounting read early.
+            lane = HOUSE_MODEL_PRICING_LANE[new_body["model"]]
+            segments = int(new_body["segments"])
+            answer = {
+                "model": new_body["model"],
+                "model_label": MODEL_LABELS[new_body["model"]],
+                "segments": segments,
+                "balance_debit_cents": 0,
+                "payment": {"method": "balance"},
+            }
+            if pricing.lane_paused(lane):
+                answer["lane_paused"] = True
+                answer["payment"] = {"method": "unavailable"}
+                return answer
+            included_unit = pricing.MEASURED_COST_CENTS["production"]
+            remaining = included_budget_remaining(user)
+            if user["plan"] == "creator" \
+                    and remaining >= included_unit * segments:
+                answer["payment"] = {
+                    "method": "included",
+                    "included_debit_cents": round(
+                        included_unit * segments, 2),
+                    "included_budget_remaining_cents": round(
+                        remaining, 2),
+                }
+                return answer
+            answer["balance_debit_cents"] = pricing.job_price_cents(
+                lane, owner=is_owner(user)) * segments
+            return answer
         request._body = json.dumps(new_body).encode()
         return await quote_job(request, mf_session)
 
