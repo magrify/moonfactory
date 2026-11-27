@@ -25552,12 +25552,12 @@ free clips work the same way on both surfaces. Nothing about API
 use changes what a job costs.</p>
 
 <h2>Getting a key</h2>
-<p>Sign in and open Account, then find the API keys section. Give
+<p>Sign in, open your account menu, and choose API. Give
 your key a name and create it. The full key shows one time only,
 on that one screen, so copy it somewhere safe right away. A key
 acts with the full power of your account, so keep it like a
 password and never share it. You can hold up to 20 live keys at
-once. Revoke a key in the same section whenever you want, and a
+once. Revoke a key in the same place whenever you want, and a
 revoked key stops working at once.</p>
 
 <h2>Sending your key</h2>
@@ -25673,7 +25673,7 @@ APP_HTML = (
 </head><body><main>
 <header>
   <a class="logo" href="/"><svg width="27" height="27" viewBox="0 0 48 48" aria-hidden="true"><path fill="#818cf8" d="M23.3 8A16 16 0 1 0 32.6 37.5A16.5 16.5 0 0 1 23.3 8Z"/><path fill="#f5d67a" stroke="#f5d67a" stroke-width="1.6" stroke-linejoin="round" d="M24 18.5L24 27.5L31.5 23Z"/></svg><span>Moon<em>factory</em></span></a>
-  <nav><a href="/gallery">Gallery</a><a href="#" id="nav-signin">Sign in</a><span class="profile" id="profile" style="display:none"><button class="avatar" id="avatar" type="button" aria-haspopup="true" aria-expanded="false" aria-label="Account menu"></button><span class="menu" id="profile-menu" style="display:none"><span class="menu-email" id="menu-email"></span><a href="#" id="menu-account">Account</a><a href="#" id="menu-billing">Billing</a><a href="/help">Help</a><button type="button" id="menu-logout">Log out</button></span></span></nav>
+  <nav><a href="/gallery">Gallery</a><a href="#" id="nav-signin">Sign in</a><span class="profile" id="profile" style="display:none"><button class="avatar" id="avatar" type="button" aria-haspopup="true" aria-expanded="false" aria-label="Account menu"></button><span class="menu" id="profile-menu" style="display:none"><span class="menu-email" id="menu-email"></span><a href="#" id="menu-account">Account</a><a href="#" id="menu-billing">Billing</a><a href="#" id="menu-api">API</a><a href="/help">Help</a><button type="button" id="menu-logout">Log out</button></span></span></nav>
 </header>
 
 <div id="live-status" class="sr-only" role="status" aria-live="polite"></div>
@@ -26842,15 +26842,6 @@ APP_HTML = (
         </div>
         <label class="switch"><input type="checkbox" id="gallery-optout"><span class="track"></span></label>
       </div>
-      <p class="group-label">API keys</p>
-      <p class="muted" style="margin:0 0 6px">Keys let your own software create jobs on this account, charged to the same balance as the website. A key shows in full one time only, at the moment you create it. <a href="/api-docs">Read the API docs</a></p>
-      <div id="api-keys-list"></div>
-      <div class="handle-row">
-        <input id="api-key-name" maxlength="60" placeholder="Key name">
-        <button class="btn secondary" id="api-key-create" type="button">Create key</button>
-      </div>
-      <p id="api-key-new" style="display:none;word-break:break-all"></p>
-      <p id="api-key-msg"></p>
       <p id="profile-msg"></p>
     </div>
   </div>
@@ -26898,6 +26889,25 @@ APP_HTML = (
       </div>
       <p id="pay-msg"></p>
       <p class="muted">Any payment unlocks every model, custom music, and hiding your clips from the gallery.</p>
+    </div>
+  </div>
+
+  <div class="overlay" id="panel-api" style="display:none">
+    <div class="panel" role="dialog" aria-label="API">
+      <div class="panel-head"><h2>API</h2><button type="button" class="panel-close" data-close-panel aria-label="Close">×</button></div>
+      <p class="muted">The Moonfactory API lets your own software create video and image jobs on this account, charged to the same balance as the website. There is no separate API wallet and no separate top up.</p>
+      <p class="group-label">Base address</p>
+      <p style="word-break:break-all;margin:0 0 6px">https://magrify--moonfactory-api.us-east.modal.run</p>
+      <p class="muted" style="margin:0 0 6px">Every call starts from that address, with the endpoints under /api/v1. <a href="/api-docs">Read the API docs</a></p>
+      <p class="group-label">API keys</p>
+      <p class="muted" style="margin:0 0 6px">Keys let your own software create jobs on this account, charged to the same balance as the website. A key shows in full one time only, at the moment you create it.</p>
+      <div id="api-keys-list"></div>
+      <div class="handle-row">
+        <input id="api-key-name" maxlength="60" placeholder="Key name">
+        <button class="btn secondary" id="api-key-create" type="button">Create key</button>
+      </div>
+      <p id="api-key-new" style="display:none;word-break:break-all"></p>
+      <p id="api-key-msg"></p>
     </div>
   </div>
 
@@ -27991,19 +28001,23 @@ function openPanel(id) {
 function closePanels() {
   $('panel-account').style.display = 'none';
   $('panel-billing').style.display = 'none';
+  $('panel-api').style.display = 'none';
   $('panel-ec-library').style.display = 'none';
 }
 $('menu-account').onclick = e => {
   e.preventDefault(); closeProfileMenu(); openPanel('panel-account');
-  loadApiKeys();
 };
 $('menu-billing').onclick = e => {
   e.preventDefault(); closeProfileMenu(); openPanel('panel-billing');
 };
+$('menu-api').onclick = e => {
+  e.preventDefault(); closeProfileMenu(); openPanel('panel-api');
+  loadApiKeys();
+};
 document.querySelectorAll('[data-close-panel]').forEach(b => {
   b.onclick = () => closePanels();
 });
-for (const pid of ['panel-account', 'panel-billing', 'panel-ec-library']) {
+for (const pid of ['panel-account', 'panel-billing', 'panel-api', 'panel-ec-library']) {
   $(pid).addEventListener('click', e => { if (e.target === $(pid)) closePanels(); });
 }
 $('menu-logout').onclick = async () => { try { await api('/api/logout', { method: 'POST' }); } catch (e) {} location.reload(); };

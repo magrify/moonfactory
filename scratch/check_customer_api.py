@@ -258,9 +258,46 @@ check('{"detail": "a valid API key is required"}' in app.API_DOCS_HTML,
 check('href="/api-docs"' in SRC,
       "nothing in the app links to the docs page")
 check('id="api-keys-list"' in SRC and 'id="api-key-create"' in SRC,
-      "the account area lost its API keys section")
+      "the API surface lost its API keys section")
 check("loadApiKeys" in SRC,
-      "the account area does not load the key list")
+      "the API surface does not load the key list")
+
+# -- placement: API is its own menu entry and panel (Jack, 2026-11-27) --
+# The API keys management moved OUT of the Account panel into its
+# own panel, reached from its own "API" entry in the profile menu,
+# a sibling of Account and Billing. It is NOT a studio tab: the
+# tab bar keeps exactly Create / Clip / Clone.
+
+check('<a href="#" id="menu-api">API</a>' in SRC,
+      "the profile menu has no API entry of its own")
+check("$('menu-api').onclick" in SRC
+      and "openPanel('panel-api')" in SRC,
+      "the API menu entry does not open the API panel")
+check("$('menu-api').onclick" in SRC
+      and "loadApiKeys();" in SRC.split("$('menu-api').onclick")[1][:200],
+      "opening the API panel does not load the key list")
+acct = SRC[SRC.index('id="panel-account"'):SRC.index('id="panel-billing"')]
+check('id="api-keys-list"' not in acct
+      and 'id="api-key-create"' not in acct
+      and "API keys" not in acct,
+      "the Account panel still carries the API keys section")
+api_panel = SRC[SRC.index('id="panel-api"'):SRC.index('id="panel-ec-library"')]
+for needle, what in (
+        ('id="api-keys-list"', "the key list"),
+        ('id="api-key-name"', "the key name input"),
+        ('id="api-key-create"', "the create key button"),
+        ('id="api-key-new"', "the one time key display"),
+        ('id="api-key-msg"', "the key message line"),
+        ("https://magrify--moonfactory-api.us-east.modal.run",
+         "the base address"),
+        ('href="/api-docs"', "the link to the API docs")):
+    check(needle in api_panel, f"the API panel is missing {what}")
+check("open Account, then find the API keys section"
+      not in app.API_DOCS_HTML,
+      "the docs still send readers to the Account panel for keys")
+check(SRC.count('id="tab-') == 3
+      and 'id="tab-api"' not in SRC,
+      "the studio tab bar is not exactly Create / Clip / Clone")
 
 if failures:
     print(f"FAIL ({len(failures)})")
