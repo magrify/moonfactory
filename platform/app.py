@@ -17993,6 +17993,16 @@ document.getElementById('go').onclick = async () => {{
                 if job.get("provider") in URL_RESULT_PROVIDERS:
                     if not job.get("result_url"):
                         raise HTTPException(status_code=502, detail="finished file is not available yet")
+                    # Scheme control (security fix, 2026-11-27,
+                    # provider-result-download-uncontrolled-url):
+                    # a provider result is fetched only over
+                    # https, the same control the chain path
+                    # already applied; the user-influence leg
+                    # of that record stays unsettled (it needs
+                    # a recorded live payload), but no result
+                    # URL can steer this fetch off-scheme.
+                    if not str(job["result_url"]).startswith("https://"):
+                        raise HTTPException(status_code=502, detail="finished file is not available yet")
                     resp = requests.get(job["result_url"], timeout=300)
                     if resp.status_code != 200:
                         raise HTTPException(status_code=502, detail="finished file is not available yet")
@@ -23090,6 +23100,22 @@ document.getElementById('go').onclick = async () => {{
                     # too; counting it here as well would double it.
                 elif obj.get("mode") == "payment":
                     credit = int((obj.get("metadata") or {}).get("credit_cents") or 0)
+                    # Reconcile the two amount sources
+                    # (security fix, 2026-11-27,
+                    # checkout-topup-metadata-credit): the
+                    # credit a top-up grants never exceeds
+                    # what the session actually charged, so a
+                    # configured price that diverges from its
+                    # pack can never mint unbacked balance.
+                    # (Settled against the live account: every
+                    # configured pack price equals its credit;
+                    # this makes the invariant hold in code.)
+                    if obj.get("amount_total") \
+                            and credit > int(obj["amount_total"]):
+                        print(f"topup credit {credit} exceeds "
+                              f"charged {obj['amount_total']}; "
+                              f"clamped")
+                        credit = int(obj["amount_total"])
                     if obj.get("payment_status") == "unpaid":
                         # A delayed payment method (security
                         # fix, 2026-11-27): the session

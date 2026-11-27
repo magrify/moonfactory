@@ -1577,7 +1577,12 @@ def api():
     web = FastAPI(title="Sinclip generation API")
 
     def _auth(x_api_key: str):
-        if x_api_key != os.environ.get("SINCLIP_API_KEY", ""):
+        # Fail closed (security fix, 2026-11-27,
+        # modal-worker-auth-empty-key-acceptance): an
+        # unconfigured key admits nobody, never an empty
+        # header.
+        expected = os.environ.get("SINCLIP_API_KEY", "")
+        if not expected or x_api_key != expected:
             raise HTTPException(status_code=401, detail="bad or missing API key")
 
     @web.post("/jobs")

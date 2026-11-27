@@ -98,6 +98,14 @@ def _text(v, limit):
     """Text the model wrote, cleaned before it is shown or stored."""
     s = _CTRL.sub(" ", str(v or "")).strip()
     s = _LINKS.sub("", s).strip()
+    # Angle brackets never survive (security fix, 2026-11-27,
+    # client-jobcard-innerhtml-llm-hook): model text derived
+    # from a third-party video's title or transcript is
+    # rendered into the studio's cards, and a hook has no
+    # legitimate use for a bracket, so it takes the same
+    # replacement _safe applies to source text. The sink is
+    # closed at the source whatever the model emits.
+    s = s.replace("<", "\u2039").replace(">", "\u203a")
     return s[:limit]
 
 
