@@ -696,6 +696,95 @@ def trim_opening(src, out_path, seconds: float) -> dict:
     return {"file": out_path, "poster": poster}
 
 
+def assembly_target_size(probes) -> tuple:
+    """The one raster a movie assembly renders to, read from
+    its first clip: portrait clips join at 720x1280, landscape
+    clips at 1280x720, square clips at 960x960. Every clip in
+    the movie is then fitted whole inside that raster, never
+    cropped and never stretched, the Clip tab's geometry rule
+    carried into assembly (Jack, 2026-11-27)."""
+    first = probes[0]
+    w, h = int(first["width"]), int(first["height"])
+    if w > h:
+        return (1280, 720)
+    if h > w:
+        return (720, 1280)
+    return (960, 960)
+
+
+ASSEMBLY_FPS = 30
+
+
+def _has_audio_stream(path) -> bool:
+    out = _run([
+        "ffprobe", "-v", "error", "-print_format", "json",
+        "-show_streams", "-select_streams", "a", str(path),
+    ])
+    return bool(json.loads(out).get("streams"))
+
+
+def render_assembly(source_paths, dest, work_dir) -> dict:
+    """Put finished clips together into one movie (the guided
+    flow's last step, Jack, 2026-11-27): each clip is first
+    normalized onto the movie's one raster at one frame rate
+    with its whole frame fitted inside (the drama episode
+    concat's normalization, widened to whatever shape the
+    first clip carries), silent clips gain a silent track so
+    every part carries the same two streams, and the parts
+    then join in the order given through the concat demuxer
+    with the chain concat's re-encode. Returns the finished
+    file's path, raster and measured duration."""
+    sources = [Path(p) for p in source_paths]
+    if len(sources) < 2:
+        raise ValueError("a movie needs at least two clips")
+    work_dir = Path(work_dir)
+    work_dir.mkdir(parents=True, exist_ok=True)
+    dest = Path(dest)
+    probes = [probe_media(p) for p in sources]
+    width, height = assembly_target_size(probes)
+    vf = (f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
+          f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,"
+          f"setsar=1,fps={ASSEMBLY_FPS}")
+    parts = []
+    for i, src in enumerate(sources):
+        part = work_dir / f"part-{i:02d}.mp4"
+        seconds = float(probes[i]["duration"])
+        cmd = ["ffmpeg", "-y", "-v", "error", "-i", str(src)]
+        if _has_audio_stream(src):
+            cmd += [
+                "-filter_complex",
+                f"[0:v]{vf}[v];"
+                f"[0:a]aresample=48000,"
+                f"aformat=channel_layouts=stereo,apad,"
+                f"atrim=0:{seconds:.3f}[a]",
+                "-map", "[v]", "-map", "[a]"]
+        else:
+            cmd += [
+                "-f", "lavfi", "-t", f"{seconds:.3f}",
+                "-i", "anullsrc=r=48000:cl=stereo",
+                "-filter_complex", f"[0:v]{vf}[v]",
+                "-map", "[v]", "-map", "1:a"]
+        cmd += ["-c:v", "libx264", "-preset", "veryfast",
+                "-crf", "20", "-pix_fmt", "yuv420p",
+                "-c:a", "aac", "-b:a", "160k", "-ar", "48000",
+                str(part)]
+        _run(cmd, timeout=1800)
+        parts.append(part)
+    list_file = work_dir / "assembly-concat.txt"
+    list_file.write_text(
+        "".join(f"file '{part}'\n" for part in parts))
+    _run([
+        "ffmpeg", "-y", "-v", "error", "-f", "concat",
+        "-safe", "0", "-i", str(list_file),
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+        "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "160k",
+        "-movflags", "+faststart", str(dest),
+    ], timeout=1800)
+    info = probe_media(dest)
+    return {"file": dest, "width": width, "height": height,
+            "duration": info["duration"]}
+
+
 def grab_frames(src, out_dir: Path, stem: str, duration: float,
                 fractions=(0.15, 0.45, 0.75)) -> list:
     """Representative frames for a character sheet: stills spread

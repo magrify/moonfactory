@@ -404,7 +404,9 @@ check("START_IMAGE_REQUIRED_MODELS" in func_src("_api_job_params"),
 check('"has_start_image": bool(params.get("start_image"))'
       in func_src("create_api_job"),
       "create_api_job does not store has_start_image on the record")
-check('"has_source_image": bool(source_image)'
+check('"has_source_image": bool('
+      in func_src("create_image_core")
+      and "source_image or reference_images"
       in func_src("create_image_core"),
       "create_image does not store has_source_image on the record")
 krea_src = func_src("_queue_krea2_on_kaggle")

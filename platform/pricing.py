@@ -1977,6 +1977,16 @@ IMAGE_LANES = {
     "nano_banana_pro": {
         "label": "Nano Banana Pro · $$$", "provider": "vidlab",
         "endpoint": "nano-banana-pro",
+        # Reference images (2026-11-27): the lane takes
+        # pictures alongside the prompt (the model's images
+        # input on VidLab, the same shape its edit lanes
+        # send), which is what the guided movie flow's start
+        # frame step rides: the picked character's pictures
+        # plus a product photo go in, the frame with the
+        # product in hand comes out. The pictures are judged
+        # by the input classifier at creation like any edit
+        # lane's source, and the price stays per image.
+        "references": True,
         # Rerouted to VidLab 2026-11-23 (cheapest route):
         # VidLab's catalog prices it at $0.04 per image at 1K
         # and 2K and $0.08 at 4K, under BeatAPI's $0.05 / $0.05

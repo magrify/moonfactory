@@ -67,8 +67,9 @@ def js_block(start_marker, end_marker):
 render_src = js_block("function renderBotChecks()",
                       "function dropBotChecks()")
 check("['botcheck2', 'botcheck3', 'botcheck4', 'botcheck5', "
-      "'botcheck6']" in render_src,
-      "page load renders exactly the five creation widgets")
+      "'botcheck6', 'botcheck-mf1', 'botcheck-mf2']" in render_src,
+      "page load renders exactly the seven creation widgets "
+      "(the five originals plus the movie flow's two)")
 check("'botcheck'," not in render_src
       and "['botcheck']" not in render_src,
       "page load no longer renders the dialog's botcheck widget")

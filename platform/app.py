@@ -937,6 +937,52 @@ EDITCLONE_CLONE_MODEL = "seedance2_mini"
 EDITCLONE_STAGES = ("Getting your video", "Working")
 EDITCLONE_POLL_LIMIT_SECONDS = 3900
 
+# Movie assembly (Jack, 2026-11-27): the guided flow's last
+# step in Create and Clone, "Put them together". The user
+# picks two or more of their own finished video jobs, in
+# their order, and they join into one movie that lands in
+# the library as a normal job. Assembly is a finishing step
+# on clips already paid for, so it carries no charge, the
+# same treatment chained generations and drama episodes get
+# for their own assembly. One clip alone is refused plainly:
+# a movie is more than one clip.
+ASSEMBLY_MIN_CLIPS = 2
+ASSEMBLY_MAX_CLIPS = 12
+ASSEMBLY_POLL_LIMIT_SECONDS = 3900
+# Kinds that never join a movie: stills, the clip job parent
+# (its outputs are the joinable clips), source material the
+# Clone steps keep in the library, character records and
+# voice recordings.
+ASSEMBLY_EXCLUDED_KINDS = (
+    "image", "clip_job", "edit_source", "ec_character",
+    "voice_clone")
+
+
+def assembly_pick_refusal(picks, user_id):
+    """The assembly pick rules in one place: picks is the
+    user's ordered list of job records (None where an id
+    resolved to nothing). A movie takes two to twelve picks,
+    and every pick must be the user's own finished video job.
+    Returns the (status, detail) refusal for the first broken
+    rule, or None when the picks can join."""
+    if len(picks) < ASSEMBLY_MIN_CLIPS:
+        return (422, "Pick at least two finished clips to put "
+                     "together. One clip on its own is already "
+                     "a finished video.")
+    if len(picks) > ASSEMBLY_MAX_CLIPS:
+        return (422, f"a movie takes up to {ASSEMBLY_MAX_CLIPS} "
+                     "clips at a time")
+    for src in picks:
+        if src is None or src.get("user_id") != user_id:
+            return (404, "unknown job")
+        if src.get("status") != "done":
+            return (422, "one of the picked clips is not "
+                         "finished yet")
+        if (src.get("kind") or "generation") in ASSEMBLY_EXCLUDED_KINDS:
+            return (422, "one of the picked items is not "
+                         "a video clip")
+    return None
+
 # The clone prompt, prefilled word for word (Jack, 2026-11-26).
 # The user can edit it before creating; this is the default the
 # form opens with and the text the clone endpoint falls back to.
@@ -1198,6 +1244,89 @@ def process_editclone_job(job_id: str):
         job["internal_error"] = str(exc)[:300]
         jobs[job_id] = job
         data_volume.commit()
+    finally:
+        _shutil.rmtree(work, ignore_errors=True)
+
+
+@app.function(
+    image=clip_image,
+    volumes={"/data": data_volume, "/worker-models": worker_models},
+    cpu=4.0,
+    memory=8192,
+    timeout=3600,
+    scaledown_window=60,
+)
+def process_assembly_job(job_id: str):
+    """Put one movie together (Jack, 2026-11-27): join the
+    finished clips on the job's assembly_sources list, in the
+    order the user set, into one movie at /data/files under
+    the assembly's own job id. The render is clipping's
+    assembly render (every clip normalized onto one raster
+    at one frame rate, whole frame fitted inside, never
+    cropped or stretched), and the finish is the platform's
+    own: poster, measured duration, content hash and output
+    classification stamped the way every finished file is,
+    so the library, file, poster and gallery routes serve
+    the movie unchanged. No charge rides this job: the clips
+    were paid for when they were made."""
+    import shutil as _shutil
+
+    job = jobs.get(job_id)
+    if not job:
+        return
+    try:
+        data_volume.reload()
+    except Exception:
+        pass
+    files_dir = Path("/data/files")
+    files_dir.mkdir(parents=True, exist_ok=True)
+    work = Path("/data/assembly-work") / job_id
+    work.mkdir(parents=True, exist_ok=True)
+
+    def set_stage(stage, status="running"):
+        job["stage"] = stage
+        job["status"] = status
+        jobs[job_id] = job
+
+    try:
+        set_stage("Putting your clips together")
+        sources = []
+        for src_id in job.get("assembly_sources") or []:
+            src = files_dir / f"{src_id}.mp4"
+            if not src.exists():
+                raise RuntimeError(
+                    "one of the clips is missing its finished file")
+            sources.append(src)
+        if len(sources) < ASSEMBLY_MIN_CLIPS:
+            raise RuntimeError("a movie needs at least two clips")
+        dest = files_dir / f"{job_id}.mp4"
+        result = clipping.render_assembly(sources, dest, work)
+        duration = float(result["duration"])
+        clipping.make_poster(
+            dest, files_dir / f"{job_id}.jpg",
+            at_seconds=min(1.0, duration / 2))
+        job["duration_seconds"] = round(duration, 2)
+        job["resolution"] = (
+            f"{int(result['width'])}x{int(result['height'])}")
+        job["bytes"] = dest.stat().st_size
+        job["has_thumb"] = True
+        jobs[job_id] = job
+        stamp_content_hash(job, dest)
+        classify_job_output(job, dest)
+        job["stage"] = "Done"
+        job["status"] = "done"
+        jobs[job_id] = job
+        data_volume.commit()
+    except Exception as exc:  # noqa: BLE001
+        job["status"] = "error"
+        job["stage"] = None
+        job["error"] = "the movie could not be put together, nothing was charged"
+        job["internal_error"] = str(exc)[:300]
+        jobs[job_id] = job
+        try:
+            data_volume.commit()
+        except Exception:
+            pass
     finally:
         _shutil.rmtree(work, ignore_errors=True)
 
@@ -9232,6 +9361,7 @@ def api():
                  "free": bool(lane.get("free")),
                  "picker_order": lane.get("picker_order"),
                  "edit": bool(lane.get("edit")),
+                 "references": bool(lane.get("references")),
                  "picker_class": image_picker_class(mid),
                  "price_cents": image_picker_price_cents(mid),
                  "uncensored": bool(lane.get("uncensored"))}
@@ -11607,7 +11737,8 @@ document.getElementById('go').onclick = async () => {{
         _gallery_feed_finished(job)
 
     def _submit_provider_image(job: dict, prompt: str,
-                               source_image: str = None):
+                               source_image: str = None,
+                               reference_images=None):
         """Submit one shelf image job to its provider, using the
         same transports as the video lanes. Payload shapes are
         the providers' minimal documented forms and are
@@ -11615,11 +11746,20 @@ document.getElementById('go').onclick = async () => {{
         unfunded provider a submit can only fail clean, which
         releases the hold in the caller. Edit lanes pass their
         source image in at submit time only; it is never stored
-        on the job."""
+        on the job. Reference pictures (a lane that declares
+        them, Nano Banana Pro) ride the same way: the model's
+        images input at submit time only, never stored."""
         lane = pricing.IMAGE_LANES[job["image_model"]]
         provider = lane["provider"]
         endpoint = lane["endpoint"]
         size = job.get("image_size") or ""
+        if reference_images and provider != "vidlab":
+            # Only the VidLab route sends reference pictures
+            # today; a lane on another route that somehow
+            # carries them fails clean here (the caller refunds)
+            # instead of silently dropping the pictures.
+            raise RuntimeError(
+                "this image route takes no reference pictures")
         if provider == "fal":
             payload = {"prompt": prompt, "num_images": 1}
             # Pixel-keyed sizes (GPT Image) go out as the explicit
@@ -11760,6 +11900,19 @@ document.getElementById('go').onclick = async () => {{
             if lane.get("edit"):
                 image_input["images"] = [_beatapi_media_url(
                     source_image, "edit-source")]
+            elif lane.get("references") and reference_images:
+                # Reference pictures (2026-11-27): the model's
+                # images input carries every reference, the
+                # character's pictures first and the user's
+                # added pictures after, hosted through the
+                # same media helper the edit source rides.
+                image_input["images"] = [
+                    _beatapi_media_url(ref, "edit-source")
+                    for ref in reference_images]
+                if tier != "square":
+                    image_input["resolution"] = tier.lower()
+                if aspect:
+                    image_input["aspect_ratio"] = aspect
             elif job["image_model"] in ("midjourney_v7",):
                 image_input["quality"] = tier
                 if aspect:
@@ -12225,6 +12378,22 @@ document.getElementById('go').onclick = async () => {{
                 job["stage"] = None
                 jobs[job["id"]] = job
             return job
+        if job.get("provider") == "assembly":
+            # Assembly jobs run inside process_assembly_job,
+            # whose runner carries the same 3600 second
+            # function timeout. One still marked live past the
+            # bound is dead: fail it clean. Assembly is free,
+            # so there is no hold to release.
+            if job["status"] in ("queued", "running") and \
+                    _now() - float(job.get("created_at") or _now()) \
+                    > ASSEMBLY_POLL_LIMIT_SECONDS:
+                job["status"] = "error"
+                job["error"] = "putting the movie together took too long, nothing was charged"
+                job["internal_error"] = (
+                    "assembly job passed its runner time limit")
+                job["stage"] = None
+                jobs[job["id"]] = job
+            return job
         if job.get("provider") == "drama":
             # Drama parents are driven here, one shot at a time:
             # the driver mirrors the current shot job, starts the
@@ -12391,6 +12560,7 @@ document.getElementById('go').onclick = async () => {{
                 if job.get("kind") == "template"
                 else "Faceless short" if job.get("kind") == "short"
                 else "Short drama" if job.get("kind") == "drama"
+                else "Movie" if job.get("kind") == "assembly"
                 else "Source video" if job.get("kind") == "edit_source"
                 else "Hook" if job.get("kind") == "hook_clip"
                 else "Character" if job.get("kind") == "ec_character"
@@ -12438,6 +12608,7 @@ document.getElementById('go').onclick = async () => {{
             "score": job.get("score"),
             "source_minutes": job.get("source_minutes"),
             "clip_ids": job.get("clip_ids") or [],
+            "assembly_sources": job.get("assembly_sources") or [],
             "has_thumb": bool(job.get("has_thumb")),
             "pick_mode": job.get("pick_mode"),
             "aspect_ratio": job.get("aspect_ratio") or "9:16",
@@ -17019,6 +17190,59 @@ document.getElementById('go').onclick = async () => {{
                 # fails clean at its submit instead of silently
                 # dropping the source image.
                 klein_on_kaggle = False
+            reference_images = []
+            reference_b64 = []
+            extra_refs = []
+            if body.get("character_id") or body.get("reference_images"):
+                # Reference pictures (2026-11-27): a lane that
+                # declares them (Nano Banana Pro) takes pictures
+                # alongside the prompt: the picked character's
+                # stored pictures, resolved here from the
+                # character store, plus any pictures the user
+                # adds as data URLs (an uploaded product photo,
+                # or a library image the page sends the same
+                # way). The guided movie flow's start frame
+                # rides this path; every picture is judged
+                # below with the edit source, by the same
+                # classifier and the same gate, and the price
+                # stays the lane's per image price.
+                if not lane.get("references"):
+                    raise HTTPException(
+                        status_code=400,
+                        detail="this image model does not take reference pictures")
+                if body.get("character_id"):
+                    character = _find_character(
+                        user, str(body["character_id"]))
+                    if not character:
+                        raise HTTPException(
+                            status_code=404, detail="unknown character")
+                    for im in character.get("images") or []:
+                        if im.get("b64"):
+                            reference_b64.append(im["b64"])
+                raw_refs = body.get("reference_images") or []
+                if not isinstance(raw_refs, list):
+                    raise HTTPException(
+                        status_code=400,
+                        detail="reference pictures must be a list")
+                for ref in raw_refs:
+                    ref = str(ref or "")
+                    if not ref.startswith("data:image/") \
+                            or len(ref) > 14_000_000:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="a reference picture must be an uploaded image")
+                    extra_refs.append(ref)
+                if len(reference_b64) + len(extra_refs) > 4:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="up to 4 reference pictures at a time")
+                for raw in reference_b64:
+                    data = base64.b64decode(raw)
+                    mime = "image/png" if data.startswith(
+                        b"\x89PNG") else "image/jpeg"
+                    reference_images.append(
+                        f"data:{mime};base64,{raw}")
+                reference_images.extend(extra_refs)
             # The input classifier (Jack, 2026-11-24): an edit
             # lane's source picture is judged at creation when
             # the platform holds its bytes (an uploaded data
@@ -17029,7 +17253,10 @@ document.getElementById('go').onclick = async () => {{
             # the price and the charge below; on an uncensored
             # edit lane the verdict only stamps.
             input_verdict = classify_input_images(
-                data_urls=(source_image,))
+                b64_images=reference_b64,
+                data_urls=tuple(
+                    [source_image] if source_image else [])
+                + tuple(extra_refs))
             refusal = input_gate_refusal(
                 {"image_model": lane_id, "lane": "image",
                  "model": lane_id}, input_verdict)
@@ -17077,7 +17304,8 @@ document.getElementById('go').onclick = async () => {{
                 # edit lane works from (the image itself is not
                 # kept on the record): the gallery's image-input
                 # bar reads this (job_has_image_input).
-                "has_source_image": bool(source_image),
+                "has_source_image": bool(
+                    source_image or reference_images),
             }
             stamp_input_verdict(job, input_verdict)
             user["balance_cents"] = int(user.get("balance_cents", 0)) - charge
@@ -17119,8 +17347,9 @@ document.getElementById('go').onclick = async () => {{
                     # Krea conversion's shape on a clean lane.
                     _queue_longcat_on_kaggle(job)
                 else:
-                    _submit_provider_image(job, prompt,
-                                           source_image=source_image)
+                    _submit_provider_image(
+                        job, prompt, source_image=source_image,
+                        reference_images=reference_images or None)
             except Exception as exc:
                 if lane_id == "flux2_klein4b" \
                         and not source_image \
@@ -17479,6 +17708,16 @@ document.getElementById('go').onclick = async () => {{
                     raise HTTPException(
                         status_code=422,
                         detail="the picture this edit started from was not kept, so it cannot be retried. Make it again with the picture")
+                if lane.get("references") \
+                        and parent.get("has_source_image"):
+                    # Reference pictures are not kept on the
+                    # record either (see create_image_core), so
+                    # a frame made from a character and a
+                    # product photo cannot be rebuilt without
+                    # them; it refuses plainly like an edit.
+                    raise HTTPException(
+                        status_code=422,
+                        detail="the pictures this one was made from were not kept, so it cannot be retried. Make it again with the pictures")
                 new_body = {
                     "prompt": parent.get("prompt"),
                     "image_model": parent["image_model"],
@@ -17579,6 +17818,22 @@ document.getElementById('go').onclick = async () => {{
             created = json.loads(result.body)
             link_retry(created.get("id"))
             return created
+
+        if kind == "assembly":
+            # A failed movie rebuilds from the picks kept on
+            # its record, through the same creation core, so
+            # every assembly rule applies again (the picks are
+            # revalidated against the live records) and the
+            # retry still carries no charge.
+            if not bot_check_ok(bot, client_ip(request), user):
+                raise HTTPException(
+                    status_code=403, detail="bot check failed")
+            created = create_assembly_core(
+                user,
+                {"job_ids": parent.get("assembly_sources") or []},
+                client_ip(request))
+            link_retry(created["id"])
+            return public_job(created)
 
         if kind in ("edit_source", "hook_clip", "ec_character"):
             # Edit/Clone steps are not generations: there is no
@@ -18090,6 +18345,19 @@ document.getElementById('go').onclick = async () => {{
             # Edit/Clone sources and hooks land finished from
             # their worker, exactly as they should play back:
             # no finishing chain ever touches them.
+            if not out_path.exists():
+                try:
+                    data_volume.reload()
+                except Exception:
+                    pass
+            if out_path.exists():
+                return out_path
+            raise HTTPException(status_code=404, detail="this job has no file yet")
+        if job.get("provider") == "assembly":
+            # A put-together movie lands finished from its
+            # worker, exactly as it should play back: the
+            # joining already happened, so no finishing chain
+            # ever touches it.
             if not out_path.exists():
                 try:
                     data_volume.reload()
@@ -20965,6 +21233,141 @@ document.getElementById('go').onclick = async () => {{
             ],
         }
 
+    def _assembly_source_hidden(src) -> bool:
+        """Whether one source clip could not itself list in
+        the public gallery under the per-job rules (the
+        account-wide legs, the owner's opt-out above all, are
+        not read here: they apply to the finished movie
+        exactly as they apply to the clip). Read at assembly
+        creation from the source's own record, mirroring the
+        legs gallery_visible checks, so a movie built from a
+        hidden clip carries the stamp and stays hidden."""
+        if src.get("removed") or legal_hold_active(src.get("id") or ""):
+            return True
+        if src.get("short_parent") or src.get("drama_parent"):
+            return True
+        if job_is_nsfw(src):
+            return True
+        if prompt_is_nsfw(src.get("user_prompt") or src.get("prompt") or ""):
+            return True
+        if src.get("output_flagged"):
+            return True
+        if src.get("output_nsfw_score") is None \
+                and float(src.get("created_at") or 0) \
+                >= OUTPUT_CLASSIFIER_SINCE:
+            return True
+        if src.get("input_flagged"):
+            return True
+        if src.get("gallery_public") is False \
+                and not job_is_uncensored(src):
+            return True
+        return False
+
+    def create_assembly_core(user: dict, body: dict, ip: str):
+        """Put them together (Jack, 2026-11-27): the one
+        assembly creation path behind the website endpoint
+        and the retry rebuild. The user picks two or more of
+        their own finished video jobs, in their order; the
+        picks are validated against the live records (another
+        account's job reads as unknown, an unfinished one
+        refuses plainly, one clip alone refuses plainly: a
+        movie is more than one clip), each source's finished
+        file is resolved the way a download resolves it, and
+        the assembly job itself carries no charge and no free
+        count: it is a finishing step on clips already paid
+        for, the treatment chained and drama assembly get.
+        The finished movie is a normal library job, and a
+        movie built from a gallery-hidden clip is stamped so
+        it stays hidden."""
+        if _rate_limited("assemble", user["id"], 6):
+            raise HTTPException(
+                status_code=429, detail="too many jobs, slow down")
+        if not user["verified"]:
+            raise HTTPException(
+                status_code=403, detail="verify your email before creating")
+        if user.get("past_due"):
+            raise HTTPException(
+                status_code=403,
+                detail="your subscription payment is past due")
+        raw_ids = body.get("job_ids")
+        if not isinstance(raw_ids, list):
+            raise HTTPException(
+                status_code=422,
+                detail="pick the clips to put together first")
+        ids = [str(x) for x in raw_ids if str(x or "").strip()]
+        picks = []
+        for jid in ids:
+            src = jobs.get(jid)
+            if src and src.get("user_id") == user["id"]:
+                src = mirror_status(src)
+            picks.append(src)
+        refusal = assembly_pick_refusal(picks, user["id"])
+        if refusal:
+            raise HTTPException(
+                status_code=refusal[0], detail=refusal[1])
+        sources = picks
+        for src in sources:
+            try:
+                ensure_processed(src)
+            except HTTPException:
+                raise HTTPException(
+                    status_code=422,
+                    detail="one of the picked clips has no finished file to join")
+            if not (FILES_DIR / f"{src['id']}.mp4").exists():
+                raise HTTPException(
+                    status_code=422,
+                    detail="one of the picked clips has no finished file to join")
+        lines = []
+        for i, src in enumerate(sources):
+            text = (src.get("user_prompt") or src.get("prompt")
+                    or "").strip()
+            lines.append(f"{i + 1}. {text}" if text else f"{i + 1}. Clip")
+        prompt = (f"Movie put together from {len(sources)} clips.\n"
+                  + "\n".join(lines))[:8000]
+        # The illegal-content gate, on the words the movie
+        # will carry, before the job exists.
+        enforce_prompt_gate(user, "assembly", ip, prompt)
+        job_id = pysecrets.token_hex(8)
+        job = {
+            "id": job_id,
+            "user_id": user["id"],
+            "provider": "assembly",
+            "kind": "assembly",
+            "lane": "assembly",
+            "model": "assembly",
+            "prompt": prompt,
+            "user_prompt": prompt,
+            "status": "queued",
+            "stage": "Queued",
+            "error": None,
+            "created_at": _now(),
+            "created_ip": ip,
+            "charged_cents": 0,
+            "plan_at_job": user.get("plan"),
+            "free_tier": False,
+            "assembly_sources": ids,
+            "assembly_from_hidden": any(
+                _assembly_source_hidden(src) for src in sources),
+            "input_flagged": any(
+                bool(src.get("input_flagged")) for src in sources),
+            "aspect_ratio": sources[0].get("aspect_ratio") or "9:16",
+            "segments_total": len(ids),
+            "segments_done": 0,
+        }
+        jobs[job_id] = job
+        _index_job(job)
+        process_assembly_job.spawn(job_id)
+        return job
+
+    @web.post("/api/assemblies")
+    async def create_assembly(request: Request, mf_session: str = Cookie(default="")):
+        user = require_user(request, mf_session)
+        body = await request.json()
+        if not bot_check_ok(body, client_ip(request), user):
+            raise HTTPException(status_code=403, detail="bot check failed")
+        job = create_assembly_core(user, body, client_ip(request))
+        return JSONResponse(public_job(job), status_code=202)
+
     @web.post("/api/shorts")
     async def create_short(request: Request, mf_session: str = Cookie(default="")):
         user = require_user(request, mf_session)
@@ -22292,6 +22695,16 @@ document.getElementById('go').onclick = async () => {{
         # same rule: only the parent episode can ever list.
         if job.get("drama_parent"):
             return False
+        # A movie put together from clips inherits a hidden
+        # source's privacy (Jack, 2026-11-27): when any clip
+        # that went into the assembly could not itself list
+        # under the per-job rules, the movie does not list
+        # either. The stamp is computed at creation from the
+        # sources' own records; the owner's account-wide
+        # opt-out above needs no stamp, it applies to the
+        # movie the same as to any of their jobs.
+        if job.get("assembly_from_hidden"):
+            return False
         # NSFW jobs never list publicly (Jack, 2026-11-18),
         # whatever the owner's opt-out setting: the classification
         # is computed live here, so jobs finished before this rule
@@ -22404,6 +22817,7 @@ document.getElementById('go').onclick = async () => {{
                 if job.get("kind") == "template"
                 else "Faceless short" if job.get("kind") == "short"
                 else "Short drama" if job.get("kind") == "drama"
+                else "Movie" if job.get("kind") == "assembly"
                 else "Effects" if job.get("effect")
                 else MODEL_LABELS.get(job.get("model") or DEFAULT_MODEL, "Wan 2.2")
             )
@@ -26788,6 +27202,15 @@ APP_HTML = (
     <p id="job-msg"></p>
   </div>
 
+  <div class="card" style="max-width:640px;margin:18px auto 0">
+    <div class="create-head">
+      <h2>Make a movie</h2>
+    </div>
+    <p class="muted">Four steps, in order. Create your AI model, make a start frame with your product in their hand, generate clips on the model you like, then put them together into one movie in your library.</p>
+    <div id="mf1-root"></div>
+    <div id="botcheck-mf1"></div>
+  </div>
+
   </div>
 
   <div id="upgrade-pane" style="display:none">
@@ -26924,6 +27347,15 @@ APP_HTML = (
       <p id="ec-clone-msg"></p>
     </div>
     <p class="muted">Only edit and clone content you own or have permission to use. Clone is a paid feature. Adding a video, cutting its hook and making a character are free. The clone itself is charged at the model's normal price, shown before you create it.</p>
+  </div>
+
+  <div class="card" style="max-width:640px;margin:18px auto 0">
+    <div class="create-head">
+      <h2>Make a movie</h2>
+    </div>
+    <p class="muted">Four steps, in order. Create your AI model, make a start frame with your product in their hand, generate clips on the model you like, then put them together into one movie in your library.</p>
+    <div id="mf2-root"></div>
+    <div id="botcheck-mf2"></div>
   </div>
   </div>
 
@@ -27139,7 +27571,7 @@ function renderBotChecks() {
     // press (botFieldsOnSubmit below), so the dialog opens
     // with nothing verifying in it and nothing able to hang
     // at "Verifying..." while the user is still typing.
-    for (const id of ['botcheck2', 'botcheck3', 'botcheck4', 'botcheck5', 'botcheck6']) {
+    for (const id of ['botcheck2', 'botcheck3', 'botcheck4', 'botcheck5', 'botcheck6', 'botcheck-mf1', 'botcheck-mf2']) {
       if (!document.getElementById(id)) continue;
       botWidgets[id] = turnstile.render('#' + id, {
         sitekey: cfg.turnstile_site_key,
@@ -29154,6 +29586,516 @@ $('topup-custom-btn').onclick = async () => {
   try { await startTopup(cents); }
   catch (e) { msg('pay-msg', e.message, 'err'); }
 };
+// -- the guided movie flow (Jack, 2026-11-27) ----------------------
+// One implementation in two homes: the same four steps render
+// in the Create tab and in the Clone tab, alongside the Clone
+// tab's own video swap flow, which stays exactly as it was.
+// Every step rides the normal creation paths, so every gate on
+// those paths applies unchanged: step 1 makes the person on
+// the Nano Banana Pro image lane and saves them through the
+// character endpoint; step 2 is an image job on the same lane
+// carrying the character and a product photo as its reference
+// pictures; step 3 is a normal video job from that start frame
+// on the model picked here; step 4 is the assembly endpoint,
+// which joins the picked finished clips in the picked order
+// into one movie in the library and charges nothing.
+const MF_IMAGE_LANE = 'nano_banana_pro';
+const mfState = {
+  mf1: { characterId: '', personJobId: '', productDataUrl: '', productJobId: '', frameJobId: '', picks: [] },
+  mf2: { characterId: '', personJobId: '', productDataUrl: '', productJobId: '', frameJobId: '', picks: [] }
+};
+let mfJobsCache = [];
+let mfCharactersCache = [];
+
+function mfBotId(p) { return 'botcheck-' + p; }
+function mfMsg(p, text, kind) { msg(p + '-msg', text, kind); }
+function mfEsc(s) {
+  return String(s || '').replace(/[&<>"']/g, c => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+function mfLane() {
+  return (cfg.image_models || []).find(m => m.id === MF_IMAGE_LANE) || null;
+}
+function mfImageSize() {
+  const lane = mfLane();
+  const sizes = lane ? (lane.sizes || []) : [];
+  return sizes.find(s => s.endsWith('-9:16')) || sizes[0] || '1K';
+}
+function mfShortLabel(j) {
+  const t = String(j.prompt || 'Video').trim();
+  return (t.length > 64 ? t.slice(0, 64).trimEnd() + '…' : t) +
+    ' (' + (j.duration_seconds || '?') + 's)';
+}
+function mfVideoJobs() {
+  return mfJobsCache.filter(j => j.kind !== 'image' && j.status === 'done'
+    && !['clip_job', 'edit_source', 'ec_character', 'voice_clone'].includes(j.kind));
+}
+function mfImageJobs() {
+  return mfJobsCache.filter(j => j.kind === 'image' && j.status === 'done');
+}
+async function mfPollJob(id) {
+  for (let i = 0; i < 200; i++) {
+    await new Promise(r => setTimeout(r, 3000));
+    const j = await api('/api/jobs/' + id);
+    if (j.status === 'done') return j;
+    if (j.status === 'error') throw new Error(j.error || 'that failed');
+  }
+  throw new Error('that is taking a long time. It still lands in your library when it finishes.');
+}
+function mfFileDataUrl(file) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(r.result);
+    r.onerror = rej;
+    r.readAsDataURL(file);
+  });
+}
+async function mfJobImageDataUrl(jobId) {
+  const r = await fetch('/api/jobs/' + jobId + '/file');
+  if (!r.ok) throw new Error('that image could not be loaded');
+  const blob = await r.blob();
+  return new Promise((res, rej) => {
+    const fr = new FileReader();
+    fr.onload = () => res(fr.result);
+    fr.onerror = rej;
+    fr.readAsDataURL(blob);
+  });
+}
+function mfRootHtml(p) {
+  return '' +
+  '<p class="group-label">Step 1 of 4</p>' +
+  '<h3>Create your AI model</h3>' +
+  '<label>Your saved models</label>' +
+  '<select id="' + p + '-character"><option value="">Choose a model</option></select>' +
+  '<p class="muted">Or make a new one. Describe the person, generate them on Nano Banana Pro, then save them as your model.</p>' +
+  '<label>Name for the new model</label>' +
+  '<input id="' + p + '-char-name" type="text" maxlength="60" placeholder="Name this person">' +
+  '<label>Describe the person</label>' +
+  '<textarea id="' + p + '-char-prompt" rows="3" placeholder="e.g. a woman in her thirties with long dark hair, wearing a plain white shirt, standing against a plain background, full body"></textarea>' +
+  '<p><button class="btn secondary" id="' + p + '-char-gen" type="button">Generate the person</button> ' +
+  '<button class="btn secondary" id="' + p + '-char-save" type="button" style="display:none">Save as my model</button></p>' +
+  '<div id="' + p + '-char-preview"></div>' +
+  '<p class="group-label">Step 2 of 4</p>' +
+  '<h3>Make a start frame</h3>' +
+  '<p class="muted">Your model from step 1, holding your product. Upload a product photo, or pick one of your images.</p>' +
+  '<label>Product photo</label>' +
+  '<input id="' + p + '-product-file" type="file" accept="image/png,image/jpeg">' +
+  '<div id="' + p + '-product-grid" class="libgrid"></div>' +
+  '<div id="' + p + '-product-preview"></div>' +
+  '<label>Describe the frame</label>' +
+  '<textarea id="' + p + '-frame-prompt" rows="3">The person is holding the product in one hand, showing it to the camera, smiling, in a bright kitchen.</textarea>' +
+  '<p><button class="btn secondary" id="' + p + '-frame-gen" type="button">Make the start frame</button></p>' +
+  '<div id="' + p + '-frame-preview"></div>' +
+  '<p class="group-label">Step 3 of 4</p>' +
+  '<h3>Generate clips</h3>' +
+  '<p class="muted">Each clip starts from your start frame. Pick the model you like, write what happens, and generate as many clips as your movie needs.</p>' +
+  '<label>Model</label>' +
+  '<select id="' + p + '-model"></select>' +
+  '<div class="row"><div class="grow"><label>Length</label><select id="' + p + '-duration"></select></div>' +
+  '<div class="grow"><label>Size</label><select id="' + p + '-resolution"></select></div></div>' +
+  '<label>What happens in this clip</label>' +
+  '<textarea id="' + p + '-clip-prompt" rows="3" placeholder="e.g. she lifts the product toward the camera and talks about it, gentle push in"></textarea>' +
+  '<p class="under" id="' + p + '-clip-quote"></p>' +
+  '<p><button class="btn" id="' + p + '-clip-gen" type="button">Generate clip</button></p>' +
+  '<p class="group-label">Step 4 of 4</p>' +
+  '<h3>Put them together</h3>' +
+  '<p class="muted">Pick two or more of your finished clips, in the order they should play. Putting them together is free. The movie lands in your library.</p>' +
+  '<div id="' + p + '-assemble-grid" class="libgrid"></div>' +
+  '<div id="' + p + '-assemble-picks"></div>' +
+  '<p><button class="btn gen" id="' + p + '-assemble" type="button">Put them together</button></p>' +
+  '<p id="' + p + '-msg"></p>';
+}
+function mfRenderCharacters() {
+  for (const p of ['mf1', 'mf2']) {
+    const sel = $(p + '-character');
+    if (!sel) continue;
+    const keep = mfState[p].characterId || sel.value;
+    sel.innerHTML = '<option value="">Choose a model</option>';
+    for (const c of mfCharactersCache) {
+      const o = document.createElement('option');
+      o.value = c.id;
+      o.textContent = c.name;
+      sel.appendChild(o);
+    }
+    if ([...sel.options].some(o => o.value === keep)) sel.value = keep;
+  }
+}
+function mfRenderModels() {
+  for (const p of ['mf1', 'mf2']) {
+    const sel = $(p + '-model');
+    if (!sel || !cfg.models) continue;
+    const keep = sel.value;
+    sel.innerHTML = '';
+    for (const m of cfg.models) {
+      const o = document.createElement('option');
+      o.value = m.id;
+      o.textContent = m.label + (m.available ? '' : ' (unavailable)');
+      sel.appendChild(o);
+    }
+    if ([...sel.options].some(o => o.value === keep)) sel.value = keep;
+    else if (cfg.default_model
+        && [...sel.options].some(o => o.value === cfg.default_model))
+      sel.value = cfg.default_model;
+    mfFillClipOpts(p);
+  }
+}
+function mfFillClipOpts(p) {
+  const entry = (cfg.models || []).find(m => m.id === $(p + '-model').value);
+  const dur = $(p + '-duration'), res = $(p + '-resolution');
+  if (!dur || !res) return;
+  const row = dur.closest('.row');
+  dur.innerHTML = '';
+  res.innerHTML = '';
+  if (entry && entry.lengths && entry.lengths.length) {
+    for (const s of entry.lengths) {
+      const o = document.createElement('option');
+      o.value = s;
+      o.textContent = s + ' seconds';
+      dur.appendChild(o);
+    }
+    if ([...dur.options].some(o => o.value === '10')) dur.value = '10';
+    for (const r of (entry.resolutions || [])) {
+      const o = document.createElement('option');
+      o.value = r;
+      o.textContent = r;
+      res.appendChild(o);
+    }
+    if ([...res.options].some(o => o.value === '720p')) res.value = '720p';
+    if (row) row.style.display = '';
+  } else if (row) {
+    // House models take their length in segments; the flow
+    // makes one segment clips, so there is nothing to pick.
+    row.style.display = 'none';
+  }
+  mfQuoteClip(p);
+}
+function mfClipBody(p) {
+  const model = $(p + '-model').value;
+  const body = { model: model, prompt: $(p + '-clip-prompt').value.trim(),
+    start_image_job_id: mfState[p].frameJobId || undefined,
+    aspect_ratio: '9:16' };
+  if (isHouseModel(model)) {
+    body.lane = 'draft';
+    body.segments = 1;
+  } else {
+    body.duration_seconds = Number($(p + '-duration').value) || 10;
+    body.resolution = $(p + '-resolution').value || '720p';
+  }
+  return body;
+}
+async function mfQuoteClip(p) {
+  const line = $(p + '-clip-quote');
+  if (!line || !currentUser) return;
+  try {
+    const q = await api('/api/jobs/quote', { method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(mfClipBody(p)) });
+    if (q.lane_paused) { line.textContent = 'That model is paused right now.'; return; }
+    if (q.payment && q.payment.method === 'included') {
+      line.textContent = 'This clip uses your included budget.';
+    } else if (typeof q.balance_debit_cents === 'number') {
+      line.textContent = 'This clip costs $' + (q.balance_debit_cents / 100).toFixed(2) + ' from your balance.';
+    } else if (q.job_price_table
+        && typeof q.job_price_table.draft === 'number') {
+      line.textContent = 'This clip costs $' + (q.job_price_table.draft / 100).toFixed(2) + ' from your balance.';
+    } else {
+      line.textContent = '';
+    }
+  } catch (e) { line.textContent = ''; }
+}
+function mfLibCard(j, dataAttr) {
+  const card = document.createElement('div');
+  card.className = 'libcard';
+  card.dataset[dataAttr] = j.id;
+  const box = document.createElement('span');
+  box.className = 'vidbox';
+  const img = document.createElement('img');
+  img.className = 'thumb';
+  img.loading = 'lazy';
+  img.decoding = 'async';
+  img.src = '/api/jobs/' + j.id + '/thumb';
+  img.alt = '';
+  box.appendChild(img);
+  if (j.kind !== 'image') {
+    const badge = document.createElement('span');
+    badge.className = 'playbadge';
+    badge.textContent = '▶';
+    box.appendChild(badge);
+  }
+  const label = document.createElement('span');
+  label.className = 'libcard-label';
+  label.textContent = mfShortLabel(j);
+  card.appendChild(box);
+  card.appendChild(label);
+  return card;
+}
+function mfRenderProductGrid(p) {
+  const grid = $(p + '-product-grid');
+  if (!grid) return;
+  grid.innerHTML = '';
+  const jobs = mfImageJobs();
+  if (!jobs.length) {
+    grid.innerHTML = '<p class="muted">No images in your library yet. Upload a product photo above.</p>';
+    return;
+  }
+  for (const j of jobs) grid.appendChild(mfLibCard(j, 'mfproduct'));
+}
+function mfRenderAssembly(p) {
+  const grid = $(p + '-assemble-grid');
+  if (!grid) return;
+  const st = mfState[p];
+  grid.innerHTML = '';
+  const jobs = mfVideoJobs();
+  if (!jobs.length) {
+    grid.innerHTML = '<p class="muted">No finished clips yet. Generate clips in step 3 and they will show here.</p>';
+  }
+  for (const j of jobs) {
+    const card = mfLibCard(j, 'mfpick');
+    if (st.picks.includes(j.id)) card.style.outline = '2px solid #888';
+    grid.appendChild(card);
+  }
+  const box = $(p + '-assemble-picks');
+  box.innerHTML = '';
+  if (st.picks.length) {
+    const head = document.createElement('p');
+    head.className = 'muted';
+    head.textContent = 'Your movie, in order:';
+    box.appendChild(head);
+  }
+  st.picks.forEach((id, i) => {
+    const j = mfJobsCache.find(x => x.id === id);
+    const row = document.createElement('p');
+    const label = document.createElement('span');
+    label.textContent = (i + 1) + '. ' + (j ? mfShortLabel(j) : 'Clip') + ' ';
+    row.appendChild(label);
+    for (const [move, text] of [['up', 'Up'], ['down', 'Down'], ['remove', 'Remove']]) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'btn secondary';
+      b.textContent = text;
+      b.dataset.mfmove = move;
+      b.dataset.mfid = id;
+      row.appendChild(b);
+    }
+    box.appendChild(row);
+  });
+}
+async function mfRefresh() {
+  try {
+    const r = await api('/api/jobs');
+    mfJobsCache = r.jobs || [];
+  } catch (e) { /* signed out: the lists refresh on sign in */ }
+  try {
+    const r = await api('/api/characters');
+    mfCharactersCache = r.characters || [];
+  } catch (e) { /* signed out */ }
+  mfRenderCharacters();
+  for (const p of ['mf1', 'mf2']) {
+    mfRenderProductGrid(p);
+    mfRenderAssembly(p);
+  }
+}
+function mfOnConfig() {
+  mfRenderModels();
+  mfRefresh();
+}
+async function mfGeneratePerson(p) {
+  if (!currentUser) { openAuthPanel(); return; }
+  const prompt = $(p + '-char-prompt').value.trim();
+  if (!prompt) { mfMsg(p, 'Describe the person first.', 'err'); return; }
+  const btn = $(p + '-char-gen');
+  btnBusy(btn, 'Starting...');
+  try {
+    if (!(await ensureAdultConfirmed(imageModelIsUncensored(MF_IMAGE_LANE)))) {
+      mfMsg(p, 'Nothing was made. Confirm you are 18 years old or older to use this model.', 'err');
+      return;
+    }
+    const bot = await botFields(mfBotId(p));
+    const r = await api('/api/images', { method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ prompt: prompt, image_model: MF_IMAGE_LANE,
+        image_size: mfImageSize(), ...bot }) });
+    mfState[p].personJobId = r.job_id;
+    mfMsg(p, 'Making your person on Nano Banana Pro...', 'ok');
+    const j = await mfPollJob(r.job_id);
+    $(p + '-char-preview').innerHTML =
+      '<img class="thumb" src="/api/jobs/' + j.id + '/thumb" alt="" style="max-width:220px">';
+    $(p + '-char-save').style.display = '';
+    mfMsg(p, 'Your person is ready. Save them as your model to use them in step 2.', 'ok');
+    mfRefresh();
+  } catch (e) { mfMsg(p, e.message, 'err'); }
+  finally { btnDone(btn); }
+}
+async function mfSavePerson(p) {
+  const name = $(p + '-char-name').value.trim();
+  if (!name) { mfMsg(p, 'Name the model first.', 'err'); return; }
+  if (!mfState[p].personJobId) {
+    mfMsg(p, 'Generate the person first.', 'err');
+    return;
+  }
+  const btn = $(p + '-char-save');
+  btnBusy(btn, 'Saving...');
+  try {
+    const url = await mfJobImageDataUrl(mfState[p].personJobId);
+    const b64 = String(url).split(',', 2)[1];
+    const c = await api('/api/characters', { method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ name: name, images: [b64] }) });
+    mfState[p].characterId = c.id;
+    mfMsg(p, 'Saved. ' + name + ' is your model for step 2.', 'ok');
+    await mfRefresh();
+    $(p + '-character').value = c.id;
+  } catch (e) { mfMsg(p, e.message, 'err'); }
+  finally { btnDone(btn); }
+}
+async function mfMakeFrame(p) {
+  if (!currentUser) { openAuthPanel(); return; }
+  const characterId = mfState[p].characterId || $(p + '-character').value;
+  if (!characterId) {
+    mfMsg(p, 'Pick or save your model in step 1 first.', 'err');
+    return;
+  }
+  if (!mfState[p].productDataUrl && !mfState[p].productJobId) {
+    mfMsg(p, 'Add a product photo first.', 'err');
+    return;
+  }
+  const prompt = $(p + '-frame-prompt').value.trim();
+  if (!prompt) { mfMsg(p, 'Describe the frame first.', 'err'); return; }
+  const btn = $(p + '-frame-gen');
+  btnBusy(btn, 'Starting...');
+  try {
+    if (!(await ensureAdultConfirmed(imageModelIsUncensored(MF_IMAGE_LANE)))) {
+      mfMsg(p, 'Nothing was made. Confirm you are 18 years old or older to use this model.', 'err');
+      return;
+    }
+    let productUrl = mfState[p].productDataUrl;
+    if (!productUrl) productUrl = await mfJobImageDataUrl(mfState[p].productJobId);
+    const bot = await botFields(mfBotId(p));
+    const r = await api('/api/images', { method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ prompt: prompt, image_model: MF_IMAGE_LANE,
+        image_size: mfImageSize(), character_id: characterId,
+        reference_images: [productUrl], ...bot }) });
+    mfMsg(p, 'Making your start frame...', 'ok');
+    const j = await mfPollJob(r.job_id);
+    mfState[p].frameJobId = j.id;
+    $(p + '-frame-preview').innerHTML =
+      '<img class="thumb" src="/api/jobs/' + j.id + '/thumb" alt="" style="max-width:220px">';
+    mfMsg(p, 'Your start frame is ready. Generate clips from it in step 3.', 'ok');
+    mfRefresh();
+  } catch (e) { mfMsg(p, e.message, 'err'); }
+  finally { btnDone(btn); }
+}
+async function mfGenerateClip(p) {
+  if (!currentUser) { openAuthPanel(); return; }
+  if (!mfState[p].frameJobId) {
+    mfMsg(p, 'Make your start frame in step 2 first.', 'err');
+    return;
+  }
+  if (!$(p + '-clip-prompt').value.trim()) {
+    mfMsg(p, 'Write what happens in this clip first.', 'err');
+    return;
+  }
+  const btn = $(p + '-clip-gen');
+  btnBusy(btn, 'Starting...');
+  try {
+    if (!(await ensureAdultConfirmed(modelIsUncensored($(p + '-model').value)))) {
+      mfMsg(p, 'Nothing was made. Confirm you are 18 years old or older to use this model.', 'err');
+      return;
+    }
+    const bot = await botFields(mfBotId(p));
+    const r = await api('/api/jobs', { method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ ...mfClipBody(p), ...bot }) });
+    mfMsg(p, 'Your clip is being made. It joins the picks in step 4 when it is ready.', 'ok');
+    const j = await mfPollJob(r.job_id || r.id);
+    if (!mfState[p].picks.includes(j.id)) mfState[p].picks.push(j.id);
+    mfMsg(p, 'Clip ready. Generate another, or put your clips together in step 4.', 'ok');
+    mfRefresh();
+    loadJobs();
+  } catch (e) { mfMsg(p, e.message, 'err'); }
+  finally { btnDone(btn); }
+}
+async function mfAssemble(p) {
+  if (!currentUser) { openAuthPanel(); return; }
+  const picks = mfState[p].picks;
+  if (picks.length < 2) {
+    mfMsg(p, 'Pick at least two finished clips to put together. One clip on its own is already a finished video.', 'err');
+    return;
+  }
+  const btn = $(p + '-assemble');
+  btnBusy(btn, 'Starting...');
+  try {
+    const bot = await botFields(mfBotId(p));
+    const r = await api('/api/assemblies', { method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ job_ids: picks, ...bot }) });
+    mfMsg(p, 'Putting your movie together. It lands in Your videos below when it is ready.', 'ok');
+    loadJobs();
+    mfPollJob(r.id).then(() => {
+      mfMsg(p, 'Your movie is ready in your library.', 'ok');
+      loadJobs();
+    }).catch(e => mfMsg(p, e.message, 'err'));
+  } catch (e) { mfMsg(p, e.message, 'err'); }
+  finally { btnDone(btn); }
+}
+function mfWireFlow(p) {
+  $(p + '-character').addEventListener('change', () => {
+    mfState[p].characterId = $(p + '-character').value;
+  });
+  $(p + '-char-gen').onclick = () => mfGeneratePerson(p);
+  $(p + '-char-save').onclick = () => mfSavePerson(p);
+  $(p + '-product-file').addEventListener('change', async () => {
+    const f = $(p + '-product-file').files[0];
+    if (!f) return;
+    try {
+      mfState[p].productDataUrl = await mfFileDataUrl(f);
+      mfState[p].productJobId = '';
+      $(p + '-product-preview').innerHTML =
+        '<img class="thumb" src="' + mfState[p].productDataUrl + '" alt="" style="max-width:220px">';
+    } catch (e) { mfMsg(p, 'That image could not be read.', 'err'); }
+  });
+  $(p + '-product-grid').onclick = e => {
+    const card = e.target.closest('[data-mfproduct]');
+    if (!card) return;
+    mfState[p].productJobId = card.dataset.mfproduct;
+    mfState[p].productDataUrl = '';
+    $(p + '-product-preview').innerHTML =
+      '<img class="thumb" src="/api/jobs/' + mfState[p].productJobId + '/thumb" alt="" style="max-width:220px">';
+  };
+  $(p + '-frame-gen').onclick = () => mfMakeFrame(p);
+  $(p + '-model').addEventListener('change', () => mfFillClipOpts(p));
+  $(p + '-duration').addEventListener('change', () => mfQuoteClip(p));
+  $(p + '-resolution').addEventListener('change', () => mfQuoteClip(p));
+  $(p + '-clip-gen').onclick = () => mfGenerateClip(p);
+  $(p + '-assemble-grid').onclick = e => {
+    const card = e.target.closest('[data-mfpick]');
+    if (!card) return;
+    const id = card.dataset.mfpick;
+    const picks = mfState[p].picks;
+    const at = picks.indexOf(id);
+    if (at >= 0) picks.splice(at, 1);
+    else picks.push(id);
+    mfRenderAssembly(p);
+  };
+  $(p + '-assemble-picks').onclick = e => {
+    const b = e.target.closest('[data-mfmove]');
+    if (!b) return;
+    const picks = mfState[p].picks;
+    const at = picks.indexOf(b.dataset.mfid);
+    if (at < 0) return;
+    if (b.dataset.mfmove === 'remove') picks.splice(at, 1);
+    else if (b.dataset.mfmove === 'up' && at > 0) {
+      [picks[at - 1], picks[at]] = [picks[at], picks[at - 1]];
+    } else if (b.dataset.mfmove === 'down' && at < picks.length - 1) {
+      [picks[at + 1], picks[at]] = [picks[at], picks[at + 1]];
+    }
+    mfRenderAssembly(p);
+  };
+  $(p + '-assemble').onclick = () => mfAssemble(p);
+}
+for (const p of ['mf1', 'mf2']) {
+  const root = $(p + '-root');
+  if (root) {
+    root.innerHTML = mfRootHtml(p);
+    mfWireFlow(p);
+  }
+}
+
 // The Create button builds its payload first (buildCreate and
 // the per lane builders below), then fires it (fireCreate). A
 // signed out visitor's build becomes the pending creation and
@@ -29840,6 +30782,8 @@ function showTab(which) {
   $('tab-clone').className = which === 'clone' ? 'btn' : 'btn secondary';
   if ((pane === 'clip' || pane === 'clone')
       && typeof ecRefresh === 'function') ecRefresh();
+  if ((pane === 'create' || pane === 'clone')
+      && typeof mfRefresh === 'function') mfRefresh();
 }
 $('tab-create').onclick = () => showTab('create');
 $('tab-clip').onclick = () => showTab('clip');
@@ -31377,7 +32321,7 @@ async function fireImage(d) {
   }
   msg('job-msg', 'Still working. Your image will appear in your library below when it lands.', 'ok');
 }
-fetch('/api/config').then(r => r.json()).then(c => { cfg = c; catalogCfg = c; renderBotChecks(); applyOAuthProviders(); buildCatalog(); });
+fetch('/api/config').then(r => r.json()).then(c => { cfg = c; catalogCfg = c; renderBotChecks(); applyOAuthProviders(); buildCatalog(); mfOnConfig(); });
 // The pricing payload is account aware (the owner's own
 // session sees raw costs), so it is fetched once at page
 // load and again whenever a studio session starts: an in
