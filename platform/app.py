@@ -2376,6 +2376,88 @@ def legal_hold_destruction_sweep():
     return destroyed
 
 
+# -- retained uploads lifecycle (security fix, 2026-11-27) -------------------
+# Audit finding retained-uploads-unbounded (HIGH): uploads
+# were kept forever -- no cap, no TTL, no deletion path --
+# so the data volume grew monotonically and one free
+# account could retain gigabytes a minute at the rate
+# limit. The lifecycle now: every upload record carries its
+# byte count; the upload endpoints enforce a per-account
+# retained-bytes cap (UPLOAD_CAP_* below, inside api());
+# a job's deletion unlinks its upload source through the
+# shared manifest (see _job_file_manifest); and this reaper
+# removes sources whose job has finished with them (after a
+# grace hour) and any source unconsumed after a week.
+UPLOAD_RECORD_PREFIXES = ("templateupload:", "clipupload:",
+                          "ecupload:")
+UPLOAD_TTL_SECONDS = 7 * 24 * 3600
+UPLOAD_CONSUMED_GRACE_SECONDS = 3600
+
+
+def reap_retained_uploads(now=None) -> list:
+    """Remove retained upload sources past their life (see
+    the lifecycle note above). Returns the record keys
+    reaped. Never raises on one bad record."""
+    if now is None:
+        now = _now()
+    removed = []
+    for key in list(meta.keys()):
+        if not key.startswith(UPLOAD_RECORD_PREFIXES):
+            continue
+        try:
+            rec = meta.get(key) or {}
+            path = rec.get("path")
+            if not path:
+                continue
+            created = float(rec.get("created_at") or 0)
+            drop = now - created > UPLOAD_TTL_SECONDS
+            if not drop and \
+                    now - created > UPLOAD_CONSUMED_GRACE_SECONDS:
+                active = finished = False
+                ent = _user_job_index(rec.get("user_id") or "")
+                for entry in ent.get("ids") or []:
+                    other = jobs.get(entry[0])
+                    if other and other.get("upload_path") == path:
+                        if other.get("status") in ("queued",
+                                                   "running"):
+                            active = True
+                        elif other.get("status") in ("done",
+                                                     "error"):
+                            finished = True
+                drop = finished and not active
+            if drop:
+                try:
+                    Path(path).unlink(missing_ok=True)
+                except Exception:
+                    pass
+                meta[key] = {"user_id": rec.get("user_id"),
+                             "path": None, "reaped": True,
+                             "created_at": created}
+                removed.append(key)
+        except Exception:
+            continue
+    if removed:
+        try:
+            data_volume.commit()
+        except Exception:
+            pass
+    return removed
+
+
+@app.function(
+    image=image,
+    volumes={"/data": data_volume},
+    schedule=modal.Period(hours=6),
+    timeout=900,
+)
+def retained_upload_reaper():
+    """Every six hours: reap retained upload sources past
+    their life (see reap_retained_uploads)."""
+    removed = reap_retained_uploads()
+    print(f"retained upload reaper: {len(removed)} reaped")
+    return removed
+
+
 def _short_word_check(job: dict, out_path: Path):
     """The word check stage for a finished short: the same stage
     the generation finishing chain runs (see _word_check_for_job
@@ -17929,6 +18011,36 @@ document.getElementById('go').onclick = async () => {{
             raise HTTPException(status_code=422, detail="this video is longer than the 3 hour clipping limit")
         return _clip_quote_for(user, duration)
 
+    # Retained-upload quota (security fix, 2026-11-27,
+    # retained-uploads-unbounded): an account's retained
+    # upload sources are capped in total bytes -- 1 GiB for
+    # an account that has never paid (the template lane is
+    # its only upload surface, at 200 MB a file) and 4 GiB
+    # for a paying account (a single clip source may be
+    # 2 GiB). Consumption and the reaper free space back.
+    UPLOAD_CAP_FREE_BYTES = 1 * 1024 ** 3
+    UPLOAD_CAP_PAID_BYTES = 4 * 1024 ** 3
+
+    def _upload_bytes_retained(user_id: str) -> int:
+        total = 0
+        for key in list(meta.keys()):
+            if not key.startswith(UPLOAD_RECORD_PREFIXES):
+                continue
+            rec = meta.get(key) or {}
+            if rec.get("user_id") == user_id and rec.get("path"):
+                total += int(rec.get("bytes") or 0)
+        return total
+
+    UPLOAD_QUOTA_DETAIL = (
+        "your saved uploads are full. Finish or delete "
+        "something that uses an older upload, or wait for "
+        "old uploads to clear")
+
+    def _upload_quota_allows(user: dict, incoming: int) -> bool:
+        cap = UPLOAD_CAP_PAID_BYTES if is_paid(user) \
+            else UPLOAD_CAP_FREE_BYTES
+        return _upload_bytes_retained(user["id"]) + incoming <= cap
+
     @web.post("/api/clips/upload")
     async def upload_clip_source(request: Request, file: UploadFile = File(...),
                                  mf_session: str = Cookie(default="")):
@@ -17957,6 +18069,10 @@ document.getElementById('go').onclick = async () => {{
                     fh.close()
                     dest.unlink(missing_ok=True)
                     raise HTTPException(status_code=413, detail="file is larger than the 2 GiB upload limit")
+                if not _upload_quota_allows(user, size):
+                    fh.close()
+                    dest.unlink(missing_ok=True)
+                    raise HTTPException(status_code=413, detail=UPLOAD_QUOTA_DETAIL)
                 fh.write(chunk)
         data_volume.commit()
         try:
@@ -17969,6 +18085,7 @@ document.getElementById('go').onclick = async () => {{
             raise HTTPException(status_code=422, detail="this video is longer than the 3 hour clipping limit")
         meta[f"clipupload:{upload_id}"] = {
             "user_id": user["id"], "path": str(dest),
+            "bytes": size,
             "duration": float(info["duration"]),
             "filename": (file.filename or "upload")[:120],
             "created_at": _now(),
@@ -18212,6 +18329,10 @@ document.getElementById('go').onclick = async () => {{
                     fh.close()
                     dest.unlink(missing_ok=True)
                     raise HTTPException(status_code=413, detail="file is larger than the 1 GiB upload limit")
+                if not _upload_quota_allows(user, size):
+                    fh.close()
+                    dest.unlink(missing_ok=True)
+                    raise HTTPException(status_code=413, detail=UPLOAD_QUOTA_DETAIL)
                 fh.write(chunk)
         data_volume.commit()
         try:
@@ -18224,6 +18345,7 @@ document.getElementById('go').onclick = async () => {{
             raise HTTPException(status_code=422, detail="this video is longer than the Clone limit of 10 minutes")
         meta[f"ecupload:{upload_id}"] = {
             "user_id": user["id"], "path": str(dest),
+            "bytes": size,
             "duration": float(info["duration"]),
             "filename": (file.filename or "upload")[:120],
             "created_at": _now(),
@@ -18913,11 +19035,16 @@ document.getElementById('go').onclick = async () => {{
                     fh.close()
                     dest.unlink(missing_ok=True)
                     raise HTTPException(status_code=413, detail="that file is too big, keep it under 200 MB")
+                if not _upload_quota_allows(user, size):
+                    fh.close()
+                    dest.unlink(missing_ok=True)
+                    raise HTTPException(status_code=413, detail=UPLOAD_QUOTA_DETAIL)
                 fh.write(chunk)
         data_volume.commit()
         if is_image:
             meta[f"templateupload:{upload_id}"] = {
                 "user_id": user["id"], "path": str(dest),
+                "bytes": size,
                 "kind": "image", "duration": 0.0,
                 "filename": (file.filename or "upload")[:120],
                 "created_at": _now(),
@@ -18936,6 +19063,7 @@ document.getElementById('go').onclick = async () => {{
                 detail="that clip is too long for this one, keep it under a minute")
         meta[f"templateupload:{upload_id}"] = {
             "user_id": user["id"], "path": str(dest),
+            "bytes": size,
             "kind": "video",
             "duration": duration,
             "filename": (file.filename or "upload")[:120],

@@ -258,9 +258,21 @@ def _invidious_info(video_id: str) -> dict:
     }
 
 
-def _invidious_download(video_id: str, job_dir: Path) -> Path:
+DOWNLOAD_MAX_BYTES = 2 * 1024 ** 3
+
+
+class DownloadTooLarge(RuntimeError):
+    """A streamed download crossed the caller's byte cap."""
+
+
+def _invidious_download(video_id: str, job_dir: Path,
+                        max_bytes: int = DOWNLOAD_MAX_BYTES) -> Path:
     """Download a muxed stream (best up to 720p) via Invidious:
-    direct signed URL first, then the instance-proxied URL."""
+    direct signed URL first, then the instance-proxied URL.
+    The body streams through a byte counter that aborts at
+    the caller's cap (security fix, 2026-11-27,
+    invidious-download-unbounded): the Invidious leg used to
+    write an unbounded response body to the volume."""
     import requests
 
     job_dir.mkdir(parents=True, exist_ok=True)
@@ -296,8 +308,14 @@ def _invidious_download(video_id: str, job_dir: Path) -> Path:
             with requests.get(pick["url"], headers=_INVIDIOUS_UA,
                               timeout=120, stream=True) as r:
                 r.raise_for_status()
+                written = 0
                 with dest.open("wb") as fh:
                     for chunk in r.iter_content(1024 * 1024):
+                        written += len(chunk)
+                        if written > max_bytes:
+                            raise DownloadTooLarge(
+                                "the video file is larger than "
+                                "the download limit")
                         fh.write(chunk)
             if dest.stat().st_size < 100_000:
                 raise RuntimeError("stream too small to be the video")
@@ -347,14 +365,24 @@ def download_video(url: str, job_dir: Path) -> Path:
         "quiet": True, "no_warnings": True, "noplaylist": True,
         "format": "bv*[height<=720]+ba/b[height<=720]/b",
         "merge_output_format": "mp4",
+        # The size bound (security fix, 2026-11-27,
+        # clips-download-no-size-bound): the yt-dlp branches
+        # of both download functions take the caller's cap,
+        # and a failed download cleans its work directory
+        # instead of leaving partial files behind.
+        "max_filesize": int(DOWNLOAD_MAX_BYTES),
         "outtmpl": str(job_dir / "source.%(ext)s"),
     }
-    with yt_dlp.YoutubeDL(opts) as ydl:
-        ydl.download([url])
-    files = sorted(job_dir.glob("source.*"))
-    if not files:
-        raise RuntimeError("download produced no file")
-    return files[0]
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            ydl.download([url])
+        files = sorted(job_dir.glob("source.*"))
+        if not files:
+            raise RuntimeError("download produced no file")
+        return files[0]
+    except Exception:
+        shutil.rmtree(job_dir, ignore_errors=True)
+        raise
 
 
 # --- Edit/Clone ingest: any public video site ---------------------------
@@ -429,14 +457,12 @@ def download_any_video(url: str, job_dir: Path, max_seconds: float,
     validate_ingest_url(url)
     video_id = _youtube_video_id(url)
     if video_id:
-        dest = _invidious_download(video_id, job_dir)
+        dest = _invidious_download(video_id, job_dir,
+                                   max_bytes=max_bytes)
         info = probe_media(dest)
         if float(info["duration"]) > max_seconds:
             raise ValueError(
                 "this video is longer than the Clone limit")
-        if dest.stat().st_size > max_bytes:
-            raise ValueError(
-                "this video file is larger than the Clone limit")
         return dest
     import yt_dlp
 
