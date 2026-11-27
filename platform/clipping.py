@@ -357,6 +357,173 @@ def download_video(url: str, job_dir: Path) -> Path:
     return files[0]
 
 
+# --- Edit/Clone ingest: any public video site ---------------------------
+# The clipping fetch above keeps PeakCut's allowlist (YouTube,
+# Twitch, Kick): a clip job's link is read by the server, so the
+# list is the guard. Edit/Clone (2026-11-26) takes a link from ANY
+# public video site (TikTok, YouTube, X, Instagram and the rest of
+# what yt-dlp supports), so the guard is different in kind: http or
+# https only, a real host, and never a loopback, private or
+# reserved address typed as a literal. YouTube still resolves
+# through Invidious (Modal's egress is bot-walled there); every
+# other site goes straight to yt-dlp. Playlists are refused by
+# yt-dlp's noplaylist, exactly as on the clipping path.
+
+import ipaddress
+
+
+def validate_ingest_url(url: str) -> str:
+    """Return the cleaned URL or raise ValueError. Any public
+    video page is welcome; internal addresses are not."""
+    url = str(url or "").strip()
+    if not url:
+        raise ValueError("paste a video link")
+    try:
+        u = urllib.parse.urlparse(url)
+    except ValueError:
+        raise ValueError("that link does not read as a URL")
+    if u.scheme not in ("http", "https"):
+        raise ValueError("only http and https links are supported")
+    host = (u.hostname or "").lower()
+    if not host:
+        raise ValueError("that link has no host")
+    if host == "localhost" or host.endswith(".localhost"):
+        raise ValueError("that link does not point at a public video")
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        ip = None
+    if ip is not None and not ip.is_global:
+        raise ValueError("that link does not point at a public video")
+    return url
+
+
+def fetch_any_info(url: str) -> dict:
+    """Metadata for an Edit/Clone link: title, uploader, duration.
+    YouTube reads through Invidious like the clipping path does."""
+    validate_ingest_url(url)
+    video_id = _youtube_video_id(url)
+    if video_id:
+        return _invidious_info(video_id)
+    import yt_dlp
+
+    opts = {"quiet": True, "no_warnings": True, "noplaylist": True}
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        info = ydl.extract_info(url, download=False)
+    if info.get("_type") == "playlist" or info.get("entries"):
+        raise ValueError(
+            "playlist links are not supported, paste a single video link")
+    return {
+        "title": info.get("title") or "",
+        "uploader": info.get("uploader") or info.get("channel") or "",
+        "duration": float(info.get("duration") or 0),
+    }
+
+
+def download_any_video(url: str, job_dir: Path, max_seconds: float,
+                       max_bytes: int) -> Path:
+    """Download an Edit/Clone source (best up to 720p, merged mp4),
+    bounded by the caller's duration and size caps. A platform that
+    blocks the download raises, and the caller turns that into the
+    plain dead-link message with the upload alternative."""
+    validate_ingest_url(url)
+    video_id = _youtube_video_id(url)
+    if video_id:
+        dest = _invidious_download(video_id, job_dir)
+        info = probe_media(dest)
+        if float(info["duration"]) > max_seconds:
+            raise ValueError(
+                "this video is longer than the Edit / Clone limit")
+        if dest.stat().st_size > max_bytes:
+            raise ValueError(
+                "this video file is larger than the Edit / Clone limit")
+        return dest
+    import yt_dlp
+
+    job_dir.mkdir(parents=True, exist_ok=True)
+    opts = {
+        "quiet": True, "no_warnings": True, "noplaylist": True,
+        "format": "bv*[height<=720]+ba/b[height<=720]/b",
+        "merge_output_format": "mp4",
+        "max_filesize": int(max_bytes),
+        "outtmpl": str(job_dir / "source.%(ext)s"),
+    }
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        ydl.download([url])
+    files = sorted(job_dir.glob("source.*"))
+    if not files:
+        raise RuntimeError("download produced no file")
+    return files[0]
+
+
+def probe_media(path) -> dict:
+    """Probe like probe() above, but a silent video is fine: an
+    Edit/Clone source does not need an audio track to transcribe."""
+    out = _run([
+        "ffprobe", "-v", "error", "-print_format", "json",
+        "-show_format", "-show_streams", str(path),
+    ])
+    data = json.loads(out)
+    v = next((s for s in data["streams"] if s["codec_type"] == "video"),
+             None)
+    if not v:
+        raise RuntimeError("This file has no video track.")
+    w, h = int(v["width"]), int(v["height"])
+    rot = str((v.get("side_data_list") or [{}])[0].get("rotation", "0"))
+    if rot.lstrip("-") in ("90", "270"):
+        w, h = h, w
+    return {"width": w, "height": h,
+            "duration": float(data["format"]["duration"])}
+
+
+def make_poster(src, out_path, at_seconds: float = 1.0):
+    """One frame as a JPEG poster beside the video it came from."""
+    _run([
+        "ffmpeg", "-y", "-v", "error", "-ss", f"{at_seconds:.2f}",
+        "-i", str(src), "-frames:v", "1", "-q:v", "3", str(out_path),
+    ])
+    return Path(out_path)
+
+
+def trim_opening(src, out_path, seconds: float) -> dict:
+    """The hook: the opening seconds of the source as their own
+    clip, re-encoded so the cut lands exactly on the boundary,
+    with a poster cut from its first second. Writes the mp4 at
+    out_path and the poster beside it under the same stem."""
+    out_path = Path(out_path)
+    _run([
+        "ffmpeg", "-y", "-v", "error", "-ss", "0",
+        "-t", f"{float(seconds):.2f}", "-i", str(src),
+        "-map", "0:v:0", "-map", "0:a:0?",
+        "-c:v", "libx264", "-crf", "21", "-preset", "veryfast",
+        "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "160k",
+        "-movflags", "+faststart", str(out_path),
+    ], timeout=900)
+    poster = out_path.with_suffix(".jpg")
+    make_poster(out_path, poster, at_seconds=min(1.0, float(seconds) / 2))
+    return {"file": out_path, "poster": poster}
+
+
+def grab_frames(src, out_dir: Path, stem: str, duration: float,
+                fractions=(0.15, 0.45, 0.75)) -> list:
+    """Representative frames for a character sheet: stills spread
+    across the source, each scaled to at most 1024 wide so the
+    stored copies stay small. Returns the frame paths in order."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    paths = []
+    for i, frac in enumerate(fractions):
+        at = max(0.1, min(float(duration) - 0.1, float(duration) * frac)) \
+            if duration and duration > 0.3 else 0.1
+        dest = out_dir / f"{stem}-{i + 1}.jpg"
+        _run([
+            "ffmpeg", "-y", "-v", "error", "-ss", f"{at:.2f}",
+            "-i", str(src), "-frames:v", "1",
+            "-vf", "scale='min(1024,iw)':-2", "-q:v", "3", str(dest),
+        ])
+        paths.append(dest)
+    return paths
+
+
 # --- transcription (ported from transcribe.py: sherpa-onnx Parakeet) ----
 
 MODEL_NAME = "sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8"

@@ -1,5 +1,14 @@
 # Third-party notices
 
+## yt-dlp (link ingest)
+
+Video link downloads (Clip mode's fetch and the Edit/Clone
+section's any-site ingest) run through yt-dlp
+(https://github.com/yt-dlp/yt-dlp), released into the public
+domain under the Unlicense. It is a runtime dependency of
+the CPU media image; no yt-dlp code is vendored into this
+repository.
+
 ## HunyuanVideo 1.5 (house video lane)
 
 The HunyuanVideo 1.5 video lane runs Tencent's open weights

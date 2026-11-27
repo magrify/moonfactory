@@ -583,6 +583,291 @@ def process_clip_job(job_id: str):
 
 
 # ---------------------------------------------------------------------------
+# Edit/Clone (Jack, 2026-11-26): a section inside the Clip surface.
+# A user brings a video in from any public link (TikTok, YouTube,
+# X, Instagram, anywhere yt-dlp reads), an upload, or their own
+# library; keeps only its opening hook as a library clip; makes a
+# character from frames of it (or from their own pictures, through
+# the existing character store); and clones the video with that
+# character swapped in, through the normal /api/jobs creation path
+# on EDITCLONE_CLONE_MODEL below. Ingest, the hook cut and the
+# frame grabs run here, in the clip image (yt-dlp and ffmpeg live
+# there); the clone itself is an ordinary per-second job, so every
+# creation gate, price and settle rule is the platform's own.
+#
+# The lane: the clone needs a reference video AND a reference
+# image in one job. seedance2_mini is the cheapest lane whose
+# wired route takes both: its Kie reference-to-video submit
+# forwards image_urls and video_urls together, at a $0.019/s
+# provider rate (480p, its only sold tier). Wan 3.0 Prime's
+# sticker is higher and its CometAPI submit forwards one image
+# and no video at all, so it cannot carry Video1; the Veo and
+# Grok 1.5 lanes take no reference video; MAGI-2 takes both but
+# is paused until its key lands and costs $0.08/s besides.
+# ---------------------------------------------------------------------------
+
+EDITCLONE_MAX_SOURCE_SECONDS = 600        # a viral source is short
+EDITCLONE_MAX_UPLOAD_BYTES = 1024 ** 3    # 1 GiB, link or upload
+EDITCLONE_HOOK_SECONDS = 5                # the hook: the first 5s
+EDITCLONE_CLONE_MODEL = "seedance2_mini"
+EDITCLONE_CLONE_RESOLUTION = "480p"
+EDITCLONE_STAGES = ("Getting your video", "Working")
+EDITCLONE_POLL_LIMIT_SECONDS = 3900
+
+# The clone prompt, prefilled word for word (Jack, 2026-11-26).
+# The user can edit it before creating; this is the default the
+# form opens with and the text the clone endpoint falls back to.
+CLONE_PROMPT_TEMPLATE = (
+    "Recreate Video1, replace only the original character with "
+    "Image1. Strictly preserve 100% of Image1's face, hair, body, "
+    "clothing and details. Match Video1's movements, expressions, "
+    "camera angles, framing, lighting, background, timing and "
+    "pacing. Seamless, photorealistic character replacement. "
+    "No other changes."
+)
+
+
+def _worker_fal_upload(data: bytes, content_type: str, file_name: str):
+    """fal storage upload from a worker function: the same
+    initiate/PUT flow the web app's _fal_upload_bytes runs, for
+    the module-level workers that have no access to that closure.
+    Returns the hosted URL or None."""
+    import requests
+
+    key = os.environ.get("FAL_KEY", "")
+    if not key:
+        return None
+    try:
+        resp = requests.post(
+            "https://rest.alpha.fal.ai/storage/upload/initiate",
+            headers={"Authorization": f"Key {key}",
+                     "Content-Type": "application/json"},
+            json={"content_type": content_type, "file_name": file_name},
+            timeout=30,
+        )
+        if resp.status_code != 200:
+            return None
+        info = resp.json() or {}
+        put = requests.put(
+            info["upload_url"], data=data,
+            headers={"Content-Type": content_type}, timeout=600)
+        if put.status_code not in (200, 201, 204):
+            return None
+        return info.get("file_url")
+    except Exception:
+        return None
+
+
+def _save_user_record(user: dict) -> None:
+    """Write a user record back under every index it carries,
+    mirroring the web app's save_user for the module-level
+    workers (the character builder below runs in one)."""
+    users[f"id:{user['id']}"] = user
+    if user.get("email"):
+        users[f"email:{user['email']}"] = user
+    provider = user.get("auth_provider")
+    if provider and user.get("provider_id"):
+        users[f"{provider}:{user['provider_id']}"] = user
+
+
+@app.function(
+    image=clip_image,
+    secrets=[modal.Secret.from_name("moonfactory-providers")],
+    volumes={"/data": data_volume, "/worker-models": worker_models},
+    cpu=4.0,
+    memory=8192,
+    timeout=3600,
+    scaledown_window=60,
+)
+def editclone_probe(url: str) -> dict:
+    """Link metadata (title, channel, duration) for an Edit/Clone
+    link, through the any-site ingest guard."""
+    return clipping.fetch_any_info(url)
+
+
+@app.function(
+    image=clip_image,
+    secrets=[modal.Secret.from_name("moonfactory-providers")],
+    volumes={"/data": data_volume, "/worker-models": worker_models},
+    cpu=4.0,
+    memory=8192,
+    timeout=3600,
+    scaledown_window=60,
+)
+def process_editclone_job(job_id: str):
+    """Run one Edit/Clone job end to end on CPU: ingest a source
+    video into the library, cut a source's opening hook, or build
+    a character from a source's frames. Every output lands in
+    /data/files under its own job id, hashed and classified like
+    every other finished file, so the library, file, poster and
+    delete routes serve them unchanged."""
+    import secrets as _secrets
+    import shutil as _shutil
+
+    job = jobs.get(job_id)
+    if not job:
+        return
+    try:
+        data_volume.reload()
+    except Exception:
+        pass
+    files_dir = Path("/data/files")
+    files_dir.mkdir(parents=True, exist_ok=True)
+    work = Path("/data/ec-work") / job_id
+    work.mkdir(parents=True, exist_ok=True)
+    action = job.get("ec_action")
+
+    def set_stage(stage, status="running"):
+        job["stage"] = stage
+        job["status"] = status
+        jobs[job_id] = job
+
+    try:
+        set_stage(EDITCLONE_STAGES[0])
+        if action == "ingest":
+            if job.get("upload_path"):
+                src = Path(job["upload_path"])
+                if not src.exists():
+                    raise RuntimeError("the uploaded file is missing")
+            else:
+                src = clipping.download_any_video(
+                    job["source_url"], work,
+                    EDITCLONE_MAX_SOURCE_SECONDS,
+                    EDITCLONE_MAX_UPLOAD_BYTES)
+            info = clipping.probe_media(src)
+            duration = float(info["duration"])
+            if duration > EDITCLONE_MAX_SOURCE_SECONDS:
+                raise RuntimeError(
+                    "this video is longer than the Edit / Clone limit")
+            dest = files_dir / f"{job_id}.mp4"
+            # Land the source as an mp4 whatever it arrived as:
+            # a stream copy when the codecs allow it, a re-encode
+            # when they do not.
+            try:
+                clipping._run([
+                    "ffmpeg", "-y", "-v", "error", "-i", str(src),
+                    "-c", "copy", "-movflags", "+faststart",
+                    str(dest)], timeout=900)
+            except Exception:
+                clipping._run([
+                    "ffmpeg", "-y", "-v", "error", "-i", str(src),
+                    "-c:v", "libx264", "-crf", "21", "-preset",
+                    "veryfast", "-pix_fmt", "yuv420p", "-c:a", "aac",
+                    "-movflags", "+faststart", str(dest)], timeout=1800)
+            clipping.make_poster(
+                dest, files_dir / f"{job_id}.jpg",
+                at_seconds=min(1.0, duration / 2))
+            job["duration_seconds"] = round(duration, 2)
+            job["source_width"] = int(info["width"])
+            job["source_height"] = int(info["height"])
+            job["bytes"] = dest.stat().st_size
+            job["has_thumb"] = True
+            jobs[job_id] = job
+            stamp_content_hash(job, dest)
+            classify_job_output(job, dest)
+            # The clone dispatch needs the source at a public URL
+            # (the reference lanes take URLs, never bytes). Host
+            # it now; if the host refuses, the clone endpoint
+            # retries the upload at create time instead.
+            job["hosted_url"] = _worker_fal_upload(
+                dest.read_bytes(), "video/mp4", f"{job_id}.mp4")
+            job["stage"] = "Done"
+            job["status"] = "done"
+            jobs[job_id] = job
+        elif action == "hook":
+            src_job = jobs.get(job.get("source_job_id") or "") or {}
+            src = files_dir / f"{job.get('source_job_id')}.mp4"
+            if not src.exists():
+                raise RuntimeError("the source video is missing")
+            src_info = clipping.probe_media(src)
+            seconds = min(
+                float(EDITCLONE_HOOK_SECONDS),
+                float(src_job.get("duration_seconds")
+                      or src_info["duration"]))
+            dest = files_dir / f"{job_id}.mp4"
+            clipping.trim_opening(src, dest, seconds)
+            info = clipping.probe_media(dest)
+            job["duration_seconds"] = round(float(info["duration"]), 2)
+            job["source_width"] = int(info["width"])
+            job["source_height"] = int(info["height"])
+            job["bytes"] = dest.stat().st_size
+            job["has_thumb"] = True
+            jobs[job_id] = job
+            stamp_content_hash(job, dest)
+            classify_job_output(job, dest)
+            job["stage"] = "Done"
+            job["status"] = "done"
+            jobs[job_id] = job
+        elif action == "character":
+            src_job = jobs.get(job.get("source_job_id") or "") or {}
+            src = files_dir / f"{job.get('source_job_id')}.mp4"
+            if not src.exists():
+                raise RuntimeError("the source video is missing")
+            duration = float(src_job.get("duration_seconds") or 0) \
+                or float(clipping.probe_media(src)["duration"])
+            frames = clipping.grab_frames(src, work, "frame", duration)
+            if not frames:
+                raise RuntimeError("no frames could be read from the video")
+            user = users.get(f"id:{job['user_id']}")
+            if not user:
+                raise RuntimeError("the account is missing")
+            characters = user.get("characters") or []
+            if len(characters) >= 5:
+                raise RuntimeError(
+                    "this account already holds the maximum of 5 characters")
+            stored = []
+            for fp in frames:
+                data = fp.read_bytes()
+                raw = base64.b64encode(data).decode()
+                _validate_image_b64(raw, "character image")
+                hosted = _worker_fal_upload(
+                    data, "image/jpeg", fp.name)
+                if not hosted:
+                    raise RuntimeError("character image hosting failed")
+                stored.append({"b64": raw, "fal_url": hosted})
+            character = {
+                "id": _secrets.token_hex(8),
+                "name": job.get("character_name") or "Character",
+                "images": stored,
+                "lora_url": None,
+                "train_status": "none",
+                "created_at": _now(),
+            }
+            characters.append(character)
+            user["characters"] = characters
+            _save_user_record(user)
+            # The job's own library card shows the character's
+            # middle frame as its picture.
+            _shutil.copyfile(
+                frames[len(frames) // 2],
+                files_dir / f"{job_id}.jpg")
+            job["has_thumb"] = True
+            job["made_character_id"] = character["id"]
+            job["stage"] = "Done"
+            job["status"] = "done"
+            jobs[job_id] = job
+        else:
+            raise RuntimeError(f"unknown editclone action {action}")
+        data_volume.commit()
+    except Exception as exc:  # noqa: BLE001
+        job["status"] = "error"
+        job["stage"] = None
+        job["error"] = "that did not work, nothing was charged"
+        if job.get("source_url") and clipping.LINK_DEAD_MESSAGE.split(
+                ". ")[0] in str(exc):
+            job["error"] = (
+                clipping.LINK_DEAD_MESSAGE + ". Nothing was charged")
+        elif "longer than the Edit / Clone limit" in str(exc) \
+                or "maximum of 5 characters" in str(exc):
+            job["error"] = str(exc)[:200]
+        job["internal_error"] = str(exc)[:300]
+        jobs[job_id] = job
+        data_volume.commit()
+    finally:
+        _shutil.rmtree(work, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
 # Content fingerprints (Jack, 2026-11-24): every finished generation
 # carries the SHA-256 of its stored original file on its job record
 # as content_sha256, stamped by the one helper below at the moment
@@ -9797,6 +10082,22 @@ def api():
                 job["stage"] = None
                 jobs[job["id"]] = job
             return job
+        if job.get("provider") == "editclone":
+            # Edit/Clone jobs run inside process_editclone_job,
+            # whose runner carries the same 3600 second function
+            # timeout as the clip runner. One still marked live
+            # past the bound is dead: fail it clean. The steps
+            # are free, so there is no hold to release.
+            if job["status"] in ("queued", "running") and \
+                    _now() - float(job.get("created_at") or _now()) \
+                    > EDITCLONE_POLL_LIMIT_SECONDS:
+                job["status"] = "error"
+                job["error"] = "that took too long, nothing was charged"
+                job["internal_error"] = (
+                    "editclone job passed its runner time limit")
+                job["stage"] = None
+                jobs[job["id"]] = job
+            return job
         if job.get("provider") == "drama":
             # Drama parents are driven here, one shot at a time:
             # the driver mirrors the current shot job, starts the
@@ -9963,6 +10264,9 @@ def api():
                 if job.get("kind") == "template"
                 else "Faceless short" if job.get("kind") == "short"
                 else "Short drama" if job.get("kind") == "drama"
+                else "Source video" if job.get("kind") == "edit_source"
+                else "Hook" if job.get("kind") == "hook_clip"
+                else "Character" if job.get("kind") == "ec_character"
                 else "Effects" if job.get("effect")
                 else MODEL_LABELS.get(job.get("model") or DEFAULT_MODEL, "Wan 2.2")
             ),
@@ -10001,6 +10305,8 @@ def api():
             "kind": job.get("kind") or "generation",
             "stage": job.get("stage"),
             "hook": job.get("hook"),
+            "made_character_id": job.get("made_character_id"),
+            "source_job_id": job.get("source_job_id"),
             "score": job.get("score"),
             "source_minutes": job.get("source_minutes"),
             "clip_ids": job.get("clip_ids") or [],
@@ -14502,6 +14808,14 @@ def api():
             link_retry(created.get("id"))
             return created
 
+        if kind in ("edit_source", "hook_clip", "ec_character"):
+            # Edit/Clone steps are not generations: there is no
+            # creation body to rebuild. The step is simply run
+            # again from the Edit / Clone section.
+            raise HTTPException(
+                status_code=422,
+                detail="this cannot be retried from here, run it again from the Edit / Clone section")
+
         # Every other error card is a video generation: the
         # existing regenerate path rebuilds it from the same
         # stored inputs.
@@ -14993,6 +15307,18 @@ def api():
             # The drama driver assembles the episode file from
             # its shot jobs; like the shorts lane there is no raw
             # stage and no finishing chain here.
+            if not out_path.exists():
+                try:
+                    data_volume.reload()
+                except Exception:
+                    pass
+            if out_path.exists():
+                return out_path
+            raise HTTPException(status_code=404, detail="this job has no file yet")
+        if job.get("provider") == "editclone":
+            # Edit/Clone sources and hooks land finished from
+            # their worker, exactly as they should play back:
+            # no finishing chain ever touches them.
             if not out_path.exists():
                 try:
                     data_volume.reload()
@@ -15624,6 +15950,332 @@ def api():
         _index_job(job)
         process_clip_job.spawn(job["id"])
         return JSONResponse({**public_job(job), "quote": q}, status_code=202)
+
+    # -- Edit/Clone (2026-11-26) -------------------------------------------
+    # The section inside the Clip surface: ingest a source from
+    # any link, an upload, or the library; cut its hook; build a
+    # character from its frames; and clone it through the normal
+    # job creation path on EDITCLONE_CLONE_MODEL. Ingest, hook
+    # and character building are free for paid accounts (the
+    # character store's own precedent: creation is free, only
+    # training charges); the clone is an ordinary paid job.
+
+    def _editclone_source_job(user: dict, source_job_id) -> dict:
+        """An owned, finished video whose file is in the library:
+        the one shape every Edit/Clone step starts from."""
+        job = jobs.get(str(source_job_id or ""))
+        if not job or job.get("user_id") != user["id"]:
+            raise HTTPException(status_code=404, detail="unknown video")
+        if job.get("kind") == "image":
+            raise HTTPException(
+                status_code=422, detail="that is a picture, pick a video")
+        if job.get("status") != "done":
+            raise HTTPException(
+                status_code=409, detail="that video is not ready yet")
+        if not (FILES_DIR / f"{job['id']}.mp4").exists():
+            raise HTTPException(
+                status_code=422,
+                detail="that video's file is not in your library anymore")
+        return job
+
+    def _editclone_new_job(user: dict, request: Request, **fields) -> dict:
+        job = {
+            "id": pysecrets.token_hex(8),
+            "user_id": user["id"],
+            "worker_job_id": None,
+            "provider": "editclone",
+            "lane": "editclone",
+            "model": "editclone",
+            "camera_presets": [],
+            "camera_preset_names": [],
+            "camera_look": {},
+            "status": "queued",
+            "stage": EDITCLONE_STAGES[0],
+            "error": None,
+            "created_at": _now(),
+            "created_ip": client_ip(request),
+            "charged_cents": 0,
+            "plan_at_job": user["plan"],
+            "free_tier": False,
+            "music_prompt": None,
+            # A source or a hook is the user's own working
+            # material, never a public gallery piece.
+            "gallery_public": False,
+        }
+        job.update(fields)
+        jobs[job["id"]] = job
+        _index_job(job)
+        return job
+
+    @web.post("/api/editclone/upload")
+    async def upload_editclone_source(request: Request,
+                                      file: UploadFile = File(...),
+                                      mf_session: str = Cookie(default="")):
+        user = require_user(request, mf_session)
+        if not user["verified"]:
+            raise HTTPException(status_code=403, detail="verify your email before creating")
+        if not is_paid(user):
+            raise HTTPException(status_code=403, detail="Edit / Clone is a paid feature")
+        if _rate_limited("ecupload", user["id"], 6):
+            raise HTTPException(status_code=429, detail="too many uploads, slow down")
+        upload_id = pysecrets.token_hex(8)
+        src_dir = Path("/data/ec-sources")
+        src_dir.mkdir(parents=True, exist_ok=True)
+        suffix = Path(file.filename or "upload.mp4").suffix.lower()
+        if suffix not in (".mp4", ".mov", ".mkv", ".webm", ".m4v"):
+            suffix = ".mp4"
+        dest = src_dir / f"{upload_id}{suffix}"
+        size = 0
+        with dest.open("wb") as fh:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                size += len(chunk)
+                if size > EDITCLONE_MAX_UPLOAD_BYTES:
+                    fh.close()
+                    dest.unlink(missing_ok=True)
+                    raise HTTPException(status_code=413, detail="file is larger than the 1 GiB upload limit")
+                fh.write(chunk)
+        data_volume.commit()
+        try:
+            info = clipping.probe_media(dest)
+        except Exception as exc:
+            dest.unlink(missing_ok=True)
+            raise HTTPException(status_code=422, detail=str(exc)[:200])
+        if float(info["duration"]) > EDITCLONE_MAX_SOURCE_SECONDS:
+            dest.unlink(missing_ok=True)
+            raise HTTPException(status_code=422, detail="this video is longer than the Edit / Clone limit of 10 minutes")
+        meta[f"ecupload:{upload_id}"] = {
+            "user_id": user["id"], "path": str(dest),
+            "duration": float(info["duration"]),
+            "filename": (file.filename or "upload")[:120],
+            "created_at": _now(),
+        }
+        return {"upload_id": upload_id,
+                "duration_seconds": round(float(info["duration"]), 2)}
+
+    @web.post("/api/editclone/ingest")
+    async def create_editclone_source(request: Request, mf_session: str = Cookie(default="")):
+        user = require_user(request, mf_session)
+        if _rate_limited("ecingest", user["id"], 6):
+            raise HTTPException(status_code=429, detail="too many jobs, slow down")
+        if not user["verified"]:
+            raise HTTPException(status_code=403, detail="verify your email before creating")
+        if user.get("past_due"):
+            raise HTTPException(status_code=403, detail="your subscription payment is past due")
+        body = await request.json()
+        if not bot_check_ok(body, client_ip(request), user):
+            raise HTTPException(status_code=403, detail="bot check failed")
+        if not is_paid(user):
+            raise HTTPException(status_code=403, detail="Edit / Clone is a paid feature")
+        upload_path = None
+        source_url = None
+        source_title = ""
+        duration = 0.0
+        if body.get("upload_id"):
+            rec = meta.get(f"ecupload:{body['upload_id']}")
+            if not rec or rec.get("user_id") != user["id"]:
+                raise HTTPException(status_code=404, detail="unknown upload")
+            upload_path = rec["path"]
+            duration = float(rec["duration"])
+            source_title = rec.get("filename") or ""
+        elif body.get("url"):
+            try:
+                source_url = clipping.validate_ingest_url(body["url"])
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc))
+            try:
+                info = editclone_probe.remote(source_url)
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc))
+            except Exception:
+                raise HTTPException(status_code=502,
+                                    detail=clipping.LINK_DEAD_MESSAGE)
+            duration = float(info.get("duration") or 0)
+            source_title = info.get("title") or ""
+            if duration > EDITCLONE_MAX_SOURCE_SECONDS:
+                raise HTTPException(status_code=422, detail="this video is longer than the Edit / Clone limit of 10 minutes")
+        else:
+            raise HTTPException(status_code=422, detail="paste a link or upload a file")
+        # The illegal-content gate reads the source title, the
+        # only words an ingest carries (the clip path's rule).
+        enforce_prompt_gate(
+            user, "editclone", client_ip(request), source_title)
+        job = _editclone_new_job(
+            user, request,
+            kind="edit_source",
+            prompt=source_title or source_url or "Uploaded video",
+            user_prompt=source_title or source_url or "Uploaded video",
+            ec_action="ingest",
+            source_url=source_url,
+            upload_path=upload_path,
+            source_title=source_title,
+            duration_seconds=round(duration, 2),
+        )
+        process_editclone_job.spawn(job["id"])
+        return JSONResponse(public_job(job), status_code=202)
+
+    @web.post("/api/editclone/hook")
+    async def create_editclone_hook(request: Request, mf_session: str = Cookie(default="")):
+        user = require_user(request, mf_session)
+        if _rate_limited("echook", user["id"], 6):
+            raise HTTPException(status_code=429, detail="too many jobs, slow down")
+        if not user["verified"]:
+            raise HTTPException(status_code=403, detail="verify your email before creating")
+        if not is_paid(user):
+            raise HTTPException(status_code=403, detail="Edit / Clone is a paid feature")
+        body = await request.json()
+        src = _editclone_source_job(user, body.get("source_job_id"))
+        title = src.get("source_title") or src.get("prompt") or "video"
+        job = _editclone_new_job(
+            user, request,
+            kind="hook_clip",
+            prompt=f"Hook of {title}"[:300],
+            user_prompt=f"Hook of {title}"[:300],
+            hook="Opening hook",
+            ec_action="hook",
+            clip_parent=src["id"],
+            source_job_id=src["id"],
+            source_title=src.get("source_title") or "",
+        )
+        process_editclone_job.spawn(job["id"])
+        return JSONResponse(public_job(job), status_code=202)
+
+    @web.post("/api/editclone/character")
+    async def create_editclone_character(request: Request, mf_session: str = Cookie(default="")):
+        user = require_user(request, mf_session)
+        if _rate_limited("eccharacter", user["id"], 6):
+            raise HTTPException(status_code=429, detail="too many jobs, slow down")
+        if not user["verified"]:
+            raise HTTPException(status_code=403, detail="verify your email before creating")
+        if not is_paid(user):
+            raise HTTPException(status_code=403, detail="characters are a paid feature")
+        body = await request.json()
+        name = (body.get("name") or "").strip()[:60]
+        if not name:
+            raise HTTPException(status_code=422, detail="a character needs a name")
+        if len(user.get("characters") or []) >= MAX_CHARACTERS:
+            raise HTTPException(
+                status_code=422,
+                detail=f"an account holds up to {MAX_CHARACTERS} characters")
+        src = _editclone_source_job(user, body.get("source_job_id"))
+        job = _editclone_new_job(
+            user, request,
+            kind="ec_character",
+            prompt=name,
+            user_prompt=name,
+            ec_action="character",
+            character_name=name,
+            source_job_id=src["id"],
+        )
+        process_editclone_job.spawn(job["id"])
+        return JSONResponse(public_job(job), status_code=202)
+
+    def _editclone_clone_body(user: dict, body: dict) -> dict:
+        """The /api/jobs body for a character-swap clone of a
+        library source: Video1 is the source at its hosted URL,
+        Image1 is the character's first saved picture, and the
+        length follows the source up to the lane's reference
+        cap. Building it here, once, means the quote and the
+        create can never disagree about the composition."""
+        src = _editclone_source_job(user, body.get("source_job_id"))
+        character = _find_character(user, body.get("character_id") or "")
+        if not character:
+            raise HTTPException(status_code=404, detail="unknown character")
+        char_images = [
+            im.get("fal_url") for im in character.get("images") or []
+            if im.get("fal_url")]
+        if not char_images:
+            raise HTTPException(
+                status_code=422,
+                detail="that character has no usable picture yet")
+        duration = float(src.get("duration_seconds") or 0)
+        if duration <= 0:
+            try:
+                duration = float(
+                    clipping.probe_media(
+                        FILES_DIR / f"{src['id']}.mp4")["duration"])
+            except Exception:
+                duration = 0.0
+        if duration <= 0:
+            raise HTTPException(
+                status_code=422,
+                detail="that video has no readable length")
+        ref_cap = float(MODEL_REF_VIDEO_SECONDS_CAP.get(
+            EDITCLONE_CLONE_MODEL, 15.0))
+        ref_seconds = min(duration, ref_cap)
+        hosted = src.get("hosted_url")
+        if not hosted:
+            # The ingest hosts the source as it lands; a source
+            # that predates that (or whose hosting failed) is
+            # hosted now, at create time, from its library file.
+            hosted = _fal_upload_bytes(
+                (FILES_DIR / f"{src['id']}.mp4").read_bytes(),
+                "video/mp4", f"{src['id']}.mp4")
+            if not hosted:
+                raise HTTPException(
+                    status_code=503,
+                    detail="that video could not be prepared for cloning, try again")
+            src["hosted_url"] = hosted
+            jobs[src["id"]] = src
+        natives = native_lengths(EDITCLONE_CLONE_MODEL)
+        out_seconds = int(round(ref_seconds))
+        out_seconds = max(natives[0], min(out_seconds, natives[-1]))
+        width = int(src.get("source_width") or 0)
+        height = int(src.get("source_height") or 0)
+        if width and height and width > height:
+            aspect = "16:9"
+        elif width and height and width == height:
+            aspect = "1:1"
+        else:
+            aspect = "9:16"
+        prompt = (body.get("prompt") or CLONE_PROMPT_TEMPLATE).strip()
+        return {
+            "model": EDITCLONE_CLONE_MODEL,
+            "prompt": prompt,
+            "duration_seconds": out_seconds,
+            "resolution": EDITCLONE_CLONE_RESOLUTION,
+            "aspect_ratio": aspect,
+            "reference_video_urls": [hosted],
+            "reference_video_seconds": round(ref_seconds, 2),
+            "reference_image_urls": [char_images[0]],
+        }
+
+    @web.post("/api/editclone/clone/quote")
+    async def quote_editclone_clone(request: Request, mf_session: str = Cookie(default="")):
+        user = require_user(request, mf_session)
+        if not is_paid(user):
+            raise HTTPException(status_code=403, detail="Edit / Clone is a paid feature")
+        body = await request.json()
+        new_body = _editclone_clone_body(user, body)
+        request._body = json.dumps(new_body).encode()
+        return await quote_job(request, mf_session)
+
+    @web.post("/api/editclone/clone")
+    async def create_editclone_clone(request: Request, mf_session: str = Cookie(default="")):
+        user = require_user(request, mf_session)
+        if not is_paid(user):
+            raise HTTPException(status_code=403, detail="Edit / Clone is a paid feature")
+        body = await request.json()
+        new_body = _editclone_clone_body(user, body)
+        for key in ("challenge_id", "challenge_nonce", "turnstile_token"):
+            if body.get(key):
+                new_body[key] = body[key]
+        request._body = json.dumps(new_body).encode()
+        result = await create_job(request, mf_session)
+        try:
+            created = json.loads(result.body)
+            created_id = created.get("id")
+            if created_id:
+                created_job = jobs.get(created_id)
+                if created_job:
+                    created_job["editclone_source_id"] = \
+                        body.get("source_job_id")
+                    jobs[created_id] = created_job
+        except Exception:
+            pass
+        return result
 
     # -- template lane (HyperFrames on Kaggle) ----------------------------
     # Free motion graphics: title cards, captions over a clip, stat
@@ -21934,6 +22586,46 @@ APP_HTML = (
     <p id="clip-msg"></p>
     <p class="muted">Clip only content you own or have permission to use. Clipping is a paid feature. Creator plans use included clipping minutes, or you pay 5 cents per source minute from your balance.</p>
   </div>
+
+  <div class="card" style="max-width:640px;margin:18px auto 0">
+    <div class="create-head">
+      <h2>Edit / Clone</h2>
+    </div>
+    <p class="muted">Bring in a video from anywhere, keep just its hook, and clone it with your own AI character standing in for the original.</p>
+    <label>Video link (TikTok, YouTube, X, Instagram, anywhere)</label>
+    <input id="ec-url" type="url" placeholder="Paste a video link">
+    <label>Or upload a video file</label>
+    <input id="ec-file" type="file" accept="video/*">
+    <label>Or pick a video from your library</label>
+    <select id="ec-library"><option value="">Choose a video you already have</option></select>
+    <p><button class="btn secondary" id="ec-add" type="button">Add this video</button></p>
+    <div id="botcheck4"></div>
+    <p id="ec-msg"></p>
+    <div id="ec-source" style="display:none">
+      <p class="group-label">Your source</p>
+      <p class="muted" id="ec-source-line"></p>
+      <p class="group-label">Hook</p>
+      <p class="muted">Keep only the opening hook, the first 5 seconds, as its own clip in your library.</p>
+      <p><button class="btn secondary" id="ec-hook" type="button">Keep only the hook</button></p>
+      <p class="group-label">Character</p>
+      <label>Character name</label>
+      <input id="ec-char-name" type="text" maxlength="60" placeholder="Name this character">
+      <p><button class="btn secondary" id="ec-clone-char" type="button">Clone the character from this video</button></p>
+      <label>Or make a character from your own pictures</label>
+      <input id="ec-char-files" type="file" accept="image/png,image/jpeg" multiple>
+      <p><button class="btn secondary" id="ec-make-char" type="button">Make character from my pictures</button></p>
+      <p class="group-label">Clone the video</p>
+      <label>Character to put in (Image1)</label>
+      <select id="ec-character"><option value="">Choose a character</option></select>
+      <label>Clone prompt</label>
+      <textarea id="ec-prompt" rows="5">Recreate Video1, replace only the original character with Image1. Strictly preserve 100% of Image1's face, hair, body, clothing and details. Match Video1's movements, expressions, camera angles, framing, lighting, background, timing and pacing. Seamless, photorealistic character replacement. No other changes.</textarea>
+      <p class="muted">Clones are made with Seedance 2.0 Mini at 480p, the cheapest model that takes a reference video and a reference image together. A longer source clones its first 15 seconds.</p>
+      <p class="under" id="ec-quote"></p>
+      <button class="btn gen" id="ec-clone" type="button">Clone the video</button>
+      <p id="ec-clone-msg"></p>
+    </div>
+    <p class="muted">Only edit and clone content you own or have permission to use. Edit / Clone is a paid feature. Adding a video, cutting its hook and making a character are free. The clone itself is charged at the model's normal price, shown before you create it.</p>
+  </div>
   <h2 style="max-width:640px;margin:26px auto 6px">Your clips</h2>
   <div id="clip-results" style="max-width:640px;margin:0 auto"><p class="muted">No clips yet. Paste a link above and your clips will show up here.</p></div>
   </div>
@@ -24524,6 +25216,7 @@ function showTab(which) {
   $('upgrade-pane').style.display = pane === 'upgrade' ? 'block' : 'none';
   $('tab-create').className = which === 'create' ? 'btn' : 'btn secondary';
   $('tab-clip').className = which === 'clip' ? 'btn' : 'btn secondary';
+  if (pane === 'clip' && typeof ecRefresh === 'function') ecRefresh();
 }
 $('tab-create').onclick = () => showTab('create');
 $('tab-clip').onclick = () => showTab('clip');
@@ -24589,6 +25282,214 @@ $('make-clips').onclick = async () => {
     msg('clip-msg', 'Clipping started. First we get the video, then we listen and transcribe it, pick the moments, and cut your clips.', 'ok');
     loadJobs();
   } catch (e) { msg('clip-msg', e.message, 'err'); }
+  finally { btnDone(btn); }
+};
+
+// ---- Edit / Clone ----
+// The section under the Clip card: a source comes in by link
+// (any public video site), by upload, or from the library the
+// user already has. The hook and the character steps are free
+// platform steps; the clone itself is an ordinary job on the
+// clone lane, created server side through /api/editclone/clone
+// so its price and gates are the platform's own.
+let ecSource = null;
+let ecJobsCache = [];
+function ecSetSource(job) {
+  ecSource = job || null;
+  const box = $('ec-source');
+  if (!job) { box.style.display = 'none'; return; }
+  box.style.display = '';
+  $('ec-source-line').textContent =
+    (job.source_title || job.prompt || 'Video') + ' · ' +
+    (job.duration_seconds || '?') + 's' +
+    (job.status !== 'done' ? ' · ' + (job.stage || job.status) : '');
+  ecQuoteClone();
+}
+async function ecRefreshCharacters() {
+  try {
+    const r = await api('/api/characters');
+    const sel = $('ec-character');
+    const keep = sel.value;
+    sel.innerHTML = '<option value="">Choose a character</option>';
+    for (const c of r.characters || []) {
+      const o = document.createElement('option');
+      o.value = c.id;
+      o.textContent = c.name;
+      sel.appendChild(o);
+    }
+    sel.value = keep;
+  } catch (e) { /* refreshed again on the next action */ }
+}
+async function ecRefresh() {
+  try {
+    const r = await api('/api/jobs');
+    ecJobsCache = r.jobs || [];
+    const sel = $('ec-library');
+    const keep = sel.value;
+    sel.innerHTML = '<option value="">Choose a video you already have</option>';
+    for (const j of ecJobsCache) {
+      if (j.kind === 'image' || j.status !== 'done') continue;
+      const o = document.createElement('option');
+      o.value = j.id;
+      o.textContent = (j.prompt || 'Video') + ' (' + (j.duration_seconds || '?') + 's)';
+      sel.appendChild(o);
+    }
+    sel.value = keep;
+    if (ecSource) {
+      const fresh = ecJobsCache.find(j => j.id === ecSource.id);
+      if (fresh) ecSetSource(fresh);
+    }
+  } catch (e) { /* refreshed again on the next action */ }
+  ecRefreshCharacters();
+}
+async function ecPollJob(id, onDone) {
+  for (let i = 0; i < 160; i++) {
+    await new Promise(r => setTimeout(r, 3000));
+    try {
+      const j = await api('/api/jobs/' + id);
+      if (j.status === 'done') { onDone(j); return; }
+      if (j.status === 'error') {
+        msg('ec-msg', j.error || 'that failed', 'err');
+        return;
+      }
+    } catch (e) { return; }
+  }
+}
+$('ec-add').onclick = async () => {
+  const btn = $('ec-add');
+  btnBusy(btn, 'Adding...');
+  try {
+    const file = $('ec-file').files[0];
+    const url = $('ec-url').value.trim();
+    const libId = $('ec-library').value;
+    if (file) {
+      spinMsg('ec-msg', 'Uploading your file...');
+      const fd = new FormData(); fd.append('file', file);
+      const r = await fetch('/api/editclone/upload', { method: 'POST', body: fd });
+      const q = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(q.detail || ('HTTP ' + r.status));
+      msg('ec-msg', 'Working on the bot check...');
+      const bot = await botFields('botcheck4');
+      const job = await api('/api/editclone/ingest', { method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ upload_id: q.upload_id, ...bot }) });
+      ecSetSource(job);
+      msg('ec-msg', 'Getting your video...', '');
+      ecPollJob(job.id, (j) => {
+        ecSetSource(j);
+        msg('ec-msg', 'Your video is in your library.', 'ok');
+        loadJobs();
+      });
+    } else if (url) {
+      msg('ec-msg', 'Working on the bot check...');
+      const bot = await botFields('botcheck4');
+      const job = await api('/api/editclone/ingest', { method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ url, ...bot }) });
+      ecSetSource(job);
+      msg('ec-msg', 'Getting your video...', '');
+      ecPollJob(job.id, (j) => {
+        ecSetSource(j);
+        msg('ec-msg', 'Your video is in your library.', 'ok');
+        loadJobs();
+      });
+    } else if (libId) {
+      const job = ecJobsCache.find(j => j.id === libId);
+      if (job) {
+        ecSetSource(job);
+        msg('ec-msg', 'Source picked from your library.', 'ok');
+      }
+    } else {
+      msg('ec-msg', 'Paste a link, upload a file, or pick a video from your library first.', 'err');
+    }
+  } catch (e) { msg('ec-msg', e.message, 'err'); }
+  finally { btnDone(btn); }
+};
+$('ec-hook').onclick = async () => {
+  if (!ecSource) return;
+  const btn = $('ec-hook');
+  btnBusy(btn, 'Cutting...');
+  try {
+    const job = await api('/api/editclone/hook', { method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ source_job_id: ecSource.id }) });
+    msg('ec-msg', 'Cutting the hook...', '');
+    ecPollJob(job.id, () => {
+      msg('ec-msg', 'Your hook is in your library, the first 5 seconds of the source.', 'ok');
+      loadJobs();
+      ecRefresh();
+    });
+  } catch (e) { msg('ec-msg', e.message, 'err'); }
+  finally { btnDone(btn); }
+};
+$('ec-clone-char').onclick = async () => {
+  if (!ecSource) return;
+  const name = $('ec-char-name').value.trim();
+  if (!name) { msg('ec-msg', 'Name the character first.', 'err'); return; }
+  const btn = $('ec-clone-char');
+  btnBusy(btn, 'Reading frames...');
+  try {
+    const job = await api('/api/editclone/character', { method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ source_job_id: ecSource.id, name }) });
+    msg('ec-msg', 'Reading the character from your video...', '');
+    ecPollJob(job.id, async (done) => {
+      await ecRefreshCharacters();
+      if (done.made_character_id) $('ec-character').value = done.made_character_id;
+      msg('ec-msg', 'Your character ' + name + ' is saved. Pick it below and clone the video.', 'ok');
+      ecQuoteClone();
+    });
+  } catch (e) { msg('ec-msg', e.message, 'err'); }
+  finally { btnDone(btn); }
+};
+$('ec-make-char').onclick = async () => {
+  const name = $('ec-char-name').value.trim();
+  if (!name) { msg('ec-msg', 'Name the character first.', 'err'); return; }
+  const files = [...$('ec-char-files').files].slice(0, 10);
+  if (!files.length) { msg('ec-msg', 'Pick at least one picture for the character.', 'err'); return; }
+  const btn = $('ec-make-char');
+  btnBusy(btn, 'Saving...');
+  try {
+    const images = [];
+    for (const f of files) {
+      const dataUrl = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(f); });
+      images.push(String(dataUrl).split(',')[1]);
+    }
+    const c = await api('/api/characters', { method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ name, images }) });
+    await ecRefreshCharacters();
+    $('ec-character').value = c.id;
+    msg('ec-msg', 'Your character ' + c.name + ' is saved. Pick it below and clone the video.', 'ok');
+    ecQuoteClone();
+  } catch (e) { msg('ec-msg', e.message, 'err'); }
+  finally { btnDone(btn); }
+};
+async function ecQuoteClone() {
+  const line = $('ec-quote');
+  if (!line) return;
+  if (!ecSource || !$('ec-character').value) { line.textContent = ''; return; }
+  try {
+    const r = await api('/api/editclone/clone/quote', { method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ source_job_id: ecSource.id, character_id: $('ec-character').value }) });
+    if (r.lane_paused) { line.textContent = 'The clone model is paused right now.'; return; }
+    if (r.payment && r.payment.method === 'included') {
+      line.textContent = 'This clone uses $' + ((r.payment.included_debit_cents || 0) / 100).toFixed(2) + ' of your included budget.';
+    } else {
+      line.textContent = 'This clone costs $' + ((r.balance_debit_cents || 0) / 100).toFixed(2) + ' from your balance.';
+    }
+  } catch (e) { line.textContent = ''; }
+}
+$('ec-character').addEventListener('change', ecQuoteClone);
+$('ec-clone').onclick = async () => {
+  if (!ecSource) { msg('ec-clone-msg', 'Add a source video first.', 'err'); return; }
+  const characterId = $('ec-character').value;
+  if (!characterId) { msg('ec-clone-msg', 'Pick the character to put in first.', 'err'); return; }
+  const btn = $('ec-clone');
+  btnBusy(btn, 'Starting...');
+  try {
+    msg('ec-clone-msg', 'Working on the bot check...');
+    const bot = await botFields('botcheck4');
+    await api('/api/editclone/clone', { method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ source_job_id: ecSource.id, character_id: characterId, prompt: $('ec-prompt').value, ...bot }) });
+    msg('ec-clone-msg', 'Your clone is being made. It shows in Your videos below when it is ready.', 'ok');
+    loadJobs();
+  } catch (e) { msg('ec-clone-msg', e.message, 'err'); }
   finally { btnDone(btn); }
 };
 
