@@ -67,6 +67,14 @@ SHORTS_MIN_LINES = 2
 # for word (Jack, 2026-11-21). Scripts at or over the
 # threshold keep the polish only instruction exactly.
 SHORT_SCRIPT_EXPAND_WORDS = 40
+# MAGI-2 prompt help (2026-11-26): the lane takes prompts up
+# to 15,000 characters and performs best with a structured
+# prompt, so its Improve mode rewrites into the structure
+# (character, scene, a timeline timed to a tenth of a second,
+# camera, references) instead of one flowing paragraph, and
+# its cap is the lane's own prompt cap, not the 1000 character
+# prompt help cap.
+MAGI2_HELP_MAX_CHARS = 15000
 # Spoken pace the length math plans on, about 150 words a
 # minute. Topic mode writes to a chosen target length; script
 # mode's estimate reads the same pace back to the customer.
@@ -490,8 +498,61 @@ def _clean_helped_script(text: str) -> str:
     return "\n".join(kept)[:SHORTS_MAX_SCRIPT_CHARS]
 
 
+def magi2_help_instruction(text: str, language: str = "en") -> str:
+    """The instruction for one MAGI-2 prompt help call
+    (2026-11-26, from working MAGI-2 users' practice, relayed
+    by the owner): rewrite the draft into the structure the
+    model performs best with. Sections for the character and
+    how they move, the scene, a timeline whose beats are timed
+    to a tenth of a second, the camera, and what each
+    reference is for. Every frame stays filled and the camera
+    keeps moving. The Chinese version writes the whole rewrite
+    in Chinese, the form those users report performing best."""
+    instruction = (
+        "Rewrite the draft below into a structured prompt "
+        "for the MAGI-2 video model. Keep the same subject "
+        "and the same intent. Use these sections, each on its "
+        "own line as a plain heading with the writing under "
+        "it. Character, who is on screen, how they look, and "
+        "how they move and act. Scene, the place, the light, "
+        "and what fills the frame. Timeline, the action in "
+        "order with each beat timed to a tenth of a second, "
+        "written like 0.0s and 2.5s. Camera, how the camera "
+        "moves from the first frame to the last, moving the "
+        "whole time. References, what each reference the "
+        "draft names is for, in order. Fill every frame with "
+        "detail and keep the camera moving in every beat. "
+    )
+    if language == "zh":
+        instruction += (
+            "Write the whole rewritten prompt in Chinese. "
+            "Return only the rewritten prompt, with no words "
+            "before or after it and no quotation marks. "
+            "Draft follows. " + text)
+    else:
+        instruction += (
+            "Return only the rewritten prompt, with no words "
+            "before or after it and no quotation marks. "
+            "Draft follows. " + text)
+    return instruction
+
+
+def _clean_helped_magi2(text: str) -> str:
+    """One helped MAGI-2 prompt as the field should hold it:
+    the section lines kept (the structure is the point),
+    quotes the model wrapped the whole answer in gone, blank
+    lines dropped, capped at the lane's own prompt cap."""
+    cleaned = (text or "").strip().strip('"').strip()
+    kept = [line.strip() for line in cleaned.splitlines()]
+    kept = [line for line in kept if line]
+    if not kept:
+        raise RuntimeError("prompt help came back empty")
+    return "\n".join(kept)[:MAGI2_HELP_MAX_CHARS]
+
+
 def improve_prompt(text: str, draft_model: str = None,
-                   kind: str = "video") -> str:
+                   kind: str = "video",
+                   language: str = "en") -> str:
     """Improve one generative prompt with the picked draft
     model (2026-11-20 expansion: every text to image and text
     to video prompt field in Create carries the draft picker).
@@ -500,10 +561,21 @@ def improve_prompt(text: str, draft_model: str = None,
     llm_providers.DraftModelUnavailable and the field keeps
     the user's own words, with the failure named in the UI.
     The script kind improves a whole pasted short script (up
-    to the script box's own cap) and keeps its line breaks."""
+    to the script box's own cap) and keeps its line breaks.
+    The magi2 kind (2026-11-26) rewrites into the MAGI-2
+    structure at the lane's own cap, in Chinese when the
+    language pick says so, and keeps its section lines."""
     text = (text or "").strip()
     if not text:
         raise ValueError("write a prompt first")
+    if kind == "magi2":
+        if len(text) > MAGI2_HELP_MAX_CHARS:
+            raise ValueError(
+                "that prompt is too long to help with, keep it "
+                f"under {MAGI2_HELP_MAX_CHARS} characters")
+        prompt = magi2_help_instruction(text, language)
+        return _clean_helped_magi2(
+            _picked_draft_text(prompt, draft_model))
     if kind == "script":
         if len(text) > SHORTS_MAX_SCRIPT_CHARS:
             raise ValueError(
@@ -529,7 +601,7 @@ def help_unchanged(text: str, improved: str, kind: str) -> bool:
     2026-11-21). Scripts compare line by line with blank
     lines dropped; prompts compare with whitespace folded,
     matching _clean_helped_script and _clean_helped_prompt."""
-    if kind == "script":
+    if kind in ("script", "magi2"):
         submitted = "\n".join(
             line.strip() for line in (text or "").splitlines()
             if line.strip())
