@@ -308,6 +308,12 @@ image = (
     .add_local_file(
         str(Path(__file__).parent / "icons" / "icon-maskable-512.png"),
         "/platform/icons/icon-maskable-512.png")
+    .add_local_file(
+        str(Path(__file__).parent / "lottie" / "lottie.min.js"),
+        "/platform/lottie/lottie.min.js")
+    .add_local_file(
+        str(Path(__file__).parent / "lottie" / "play-hollow.json"),
+        "/platform/lottie/play-hollow.json")
 )
 
 
@@ -7940,6 +7946,24 @@ def api():
         if not path.exists():
             raise HTTPException(status_code=404, detail="icon missing")
         return FileResponse(path, media_type="image/png",
+                            headers={"Cache-Control": "public, max-age=86400"})
+
+    @web.get("/lottie/{name}")
+    def lottie_file(name: str):
+        # The vendored Lottie player and the one hand-authored
+        # animation the app ships (2026-11-26): both served
+        # from this origin, no external calls, allowlisted by
+        # name like the icons above.
+        types = {"lottie.min.js": "text/javascript",
+                 "play-hollow.json": "application/json"}
+        if name not in types:
+            raise HTTPException(status_code=404, detail="no such file")
+        path = Path("/platform/lottie") / name
+        if not path.exists():
+            path = Path(__file__).parent / "lottie" / name
+        if not path.exists():
+            raise HTTPException(status_code=404, detail="file missing")
+        return FileResponse(path, media_type=types[name],
                             headers={"Cache-Control": "public, max-age=86400"})
 
     @web.get("/healthz")
@@ -26238,13 +26262,42 @@ function elapsedHtml(j) {
   return '<span class="muted" data-since="' + j.created_at + '">Elapsed ' +
     fmtElapsed(Date.now() / 1000 - j.created_at) + '</span>';
 }
+// The library's empty state carries the Play Hollow mark
+// as a small Lottie line drawing (2026-11-26): the player
+// and the animation are both served from this origin by
+// the /lottie route, and the player loads lazily, only
+// when an empty library actually shows.
+function emptyVideosHtml() {
+  setTimeout(mountLibraryLottie, 0);
+  return '<div style="text-align:center;padding:18px 0 6px">'
+    + '<div id="library-lottie" style="width:92px;height:92px;margin:0 auto" aria-hidden="true"></div>'
+    + '<p class="muted">No videos yet.</p></div>';
+}
+let libraryLottieLoading = false;
+function mountLibraryLottie() {
+  const box = document.getElementById('library-lottie');
+  if (!box || box.dataset.mounted) return;
+  box.dataset.mounted = '1';
+  const play = () => {
+    if (!window.lottie) return;
+    window.lottie.loadAnimation({ container: box, renderer: 'svg',
+      loop: true, autoplay: true, path: '/lottie/play-hollow.json' });
+  };
+  if (window.lottie) { play(); return; }
+  if (libraryLottieLoading) return;
+  libraryLottieLoading = true;
+  const s = document.createElement('script');
+  s.src = '/lottie/lottie.min.js';
+  s.onload = play;
+  document.head.appendChild(s);
+}
 async function loadJobs() {
   try {
     const r = await api('/api/jobs?recent=1');
     const parts = splitJobs(r.jobs);
     const vbox = $('jobs');
     if (parts.videos.length) renderJobCards(vbox, parts.videos);
-    else vbox.innerHTML = '<p class="muted">No videos yet.</p>';
+    else vbox.innerHTML = emptyVideosHtml();
     const ibox = $('image-jobs');
     if (parts.images.length) renderJobCards(ibox, parts.images);
     else ibox.innerHTML = '<p class="muted">No images yet.</p>';
