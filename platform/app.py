@@ -168,35 +168,48 @@ def api_key_resolve(store, full_key: str):
     return entry
 
 
+_API_KEY_LOCK = threading.Lock()
+
+
 def api_key_revoke(store, user_id: str, key_id: str) -> bool:
     """Revoke one of the account's own keys by its id. A key id
     that belongs to another account, or no account, revokes
     nothing."""
-    for digest in store.get(f"user:{user_id}") or []:
-        entry = store.get(digest)
-        if entry and entry.get("user_id") == user_id \
-                and entry.get("id") == key_id:
-            if entry.get("revoked"):
-                return False
-            entry["revoked"] = True
-            store[digest] = entry
-            return True
+    with _API_KEY_LOCK:
+        for digest in store.get(f"user:{user_id}") or []:
+            entry = store.get(digest)
+            if entry and entry.get("user_id") == user_id \
+                    and entry.get("id") == key_id:
+                if entry.get("revoked"):
+                    return False
+                entry["revoked"] = True
+                store[digest] = entry
+                return True
     return False
 
 
 def api_key_touch(store, full_key: str, now=None) -> None:
     """Stamp a key's last use, at most once every five minutes:
     the account area shows the fact, and a stamp per call would
-    cost a store write per call for no better information."""
+    cost a store write per call for no better information.
+
+    Security fix (2026-11-27, api-key-touch-revoke-race): the
+    stamp used to write the caller's whole stale entry back, so
+    a revoke landing inside the read-write window was silently
+    undone. The stamp now runs under the same lock as revoke
+    and re-reads the entry at write time, changing only the
+    last-used field on the fresh copy -- a revoked key stays
+    revoked."""
     if now is None:
         now = time.time()
     digest = api_key_digest(full_key)
-    entry = store.get(digest)
-    if not entry:
-        return
-    if now - float(entry.get("last_used_at") or 0) >= 300:
-        entry["last_used_at"] = now
-        store[digest] = entry
+    with _API_KEY_LOCK:
+        entry = store.get(digest)
+        if not entry or entry.get("revoked"):
+            return
+        if now - float(entry.get("last_used_at") or 0) >= 300:
+            entry["last_used_at"] = now
+            store[digest] = entry
 
 # -- user record store: merge-on-save (security fix, 2026-11-27) ---------
 # Audit finding whole-record-money-race-lost-update (HIGH) and its
@@ -8057,6 +8070,10 @@ def api():
 
     def save_user(user: dict):
         users[f"id:{user['id']}"] = user
+        # The id write may have merged against a newer committed
+        # record (see _UsersStore); the sign-in indexes below
+        # point at the committed record, not the caller's copy.
+        committed = users.get(f"id:{user['id']}") or user
         # An account is indexed by every identity it carries:
         # its email when it has one, and its provider identity
         # for the social accounts (X, Telegram) that have no
@@ -8064,11 +8081,11 @@ def api():
         # canonical record sessions resolve; the others are
         # sign-in pointers to it, so a provider sign-in reloads
         # through the id before it trusts the record.
-        if user.get("email"):
-            users[f"email:{user['email']}"] = user
-        provider = user.get("auth_provider")
-        if provider and user.get("provider_id"):
-            users[f"{provider}:{user['provider_id']}"] = user
+        if committed.get("email"):
+            users[f"email:{committed['email']}"] = committed
+        provider = committed.get("auth_provider")
+        if provider and committed.get("provider_id"):
+            users[f"{provider}:{committed['provider_id']}"] = committed
 
     def enforce_prompt_gate(user, lane, ip, *texts):
         """The creation-time illegal-content gate (Jack,
@@ -8284,6 +8301,51 @@ def api():
         if free_job:
             meta["freecount:total"] = \
                 int(meta.get("freecount:total") or 0) + 1
+
+    def reserve_free_slot(user: dict):
+        """Atomically claim one lifetime free generation
+        (security fix, 2026-11-27, whole-record-money-race):
+        under the per-account lock, reload the committed
+        record, check the lifetime cap and the platform
+        ceiling against it, and count the generation in the
+        same step. Two overlapping free creates can no longer
+        both pass the cap. Returns (status, fresh_record):
+        status is "ok", "cap", or "ceiling"; on "ok" the
+        generation is already counted on the returned record
+        and the caller must not count it again at commit.
+        release_free_slot undoes a reservation whose job
+        never got created."""
+        uid = user["id"]
+        with _user_lock(uid):
+            fresh = users.get(f"id:{uid}") or user
+            if free_jobs_total(fresh) >= FREE_CLIPS_TOTAL:
+                return "cap", fresh
+            if int(meta.get("freecount:total") or 0) \
+                    >= FREE_PLATFORM_TOTAL_CEILING:
+                return "ceiling", fresh
+            u = usage(fresh)
+            u["free_jobs"] = int(u.get("free_jobs") or 0) + 1
+            fresh["free_jobs_total"] = free_jobs_total(fresh) + 1
+            fresh["usage"] = u
+            meta["freecount:total"] = \
+                int(meta.get("freecount:total") or 0) + 1
+            save_user(fresh)
+            return "ok", fresh
+
+    def release_free_slot(user: dict):
+        """Undo one reserve_free_slot count (the create it was
+        reserved for failed before its job existed)."""
+        uid = user["id"]
+        with _user_lock(uid):
+            fresh = users.get(f"id:{uid}") or user
+            u = usage(fresh)
+            u["free_jobs"] = max(0, int(u.get("free_jobs") or 0) - 1)
+            fresh["free_jobs_total"] = max(
+                0, free_jobs_total(fresh) - 1)
+            fresh["usage"] = u
+            meta["freecount:total"] = max(
+                0, int(meta.get("freecount:total") or 0) - 1)
+            save_user(fresh)
 
     def display_handle(user: dict) -> str:
         """The only name the public gallery ever shows. A handle the
@@ -15146,17 +15208,24 @@ def api():
             owner=is_owner(user))
             if speech_voice == CLONE_VOICE_ID else 0)
         clone_folded = False
+        free_reserved = False
         if user["plan"] == "free" and not is_paid(user):
             if lane != "draft":
                 raise HTTPException(status_code=403, detail="the free plan covers the Draft lane only")
-            if free_jobs_total(user) >= FREE_CLIPS_TOTAL:
+            # The free slot is claimed atomically here (the
+            # check and the count are one step under the
+            # account lock); the commit below does not count
+            # it again, and a dispatch failure releases it.
+            slot_status, user = reserve_free_slot(user)
+            if slot_status == "cap":
                 raise HTTPException(
                     status_code=403,
                     detail=f"your free clips are used up. The free plan is {FREE_CLIPS_TOTAL} clips in total",
                 )
-            if int(meta.get("freecount:total") or 0) >= FREE_PLATFORM_TOTAL_CEILING:
+            if slot_status == "ceiling":
                 raise HTTPException(status_code=503, detail="the free tier is paused")
             is_free_job = True
+            free_reserved = True
         else:
             # Paid path (Amendment 3): a Creator subscription, or a
             # pay-per-video account that has paid in. The Amendment 2
@@ -15248,12 +15317,16 @@ def api():
                     timeout=30,
                 )
             except Exception as exc:
+                if free_reserved:
+                    release_free_slot(user)
                 raise HTTPException(status_code=502, detail=f"generation worker unreachable: {exc}")
             if resp.status_code != 202:
+                if free_reserved:
+                    release_free_slot(user)
                 raise HTTPException(status_code=502, detail=f"generation worker refused the job ({resp.status_code})")
             worker_job_id = resp.json()["job_id"]
         # Commit the quota/balance only after the worker accepted the job.
-        if is_free_job:
+        if is_free_job and not free_reserved:
             u["free_jobs"] += 1
             user["free_jobs_total"] = free_jobs_total(user) + 1
             meta["freecount:total"] = int(meta.get("freecount:total") or 0) + 1
@@ -15810,17 +15883,21 @@ def api():
             if adult_refusal:
                 raise HTTPException(status_code=403, detail=adult_refusal)
             if free_lane:
+                free_reserved = False
                 if user["plan"] == "free" and not is_paid(user):
-                    if free_jobs_total(user) >= FREE_CLIPS_TOTAL:
+                    # Atomic free-slot claim, as in create_job:
+                    # the cap check and the count are one step.
+                    slot_status, user = reserve_free_slot(user)
+                    if slot_status == "cap":
                         raise HTTPException(
                             status_code=403,
                             detail=f"your free clips are used up. The free plan is {FREE_CLIPS_TOTAL} clips in total")
-                    if int(meta.get("freecount:total") or 0) \
-                            >= FREE_PLATFORM_TOTAL_CEILING:
+                    if slot_status == "ceiling":
                         raise HTTPException(
                             status_code=503,
                             detail="the free tier is paused")
                     served_free = True
+                    free_reserved = True
                 if lane["provider"] == "cloudflare" \
                         and not _cf_neuron_budget_allows(
                             _cf_neuron_estimate(lane_id, size)):
@@ -15840,6 +15917,8 @@ def api():
                         # the shared daily free allowance is
                         # spent, and the route never spills to a
                         # paid one.
+                        if free_reserved:
+                            release_free_slot(user)
                         raise HTTPException(
                             status_code=503,
                             detail="the free image allowance is used up for today. It resets at midnight UTC")
@@ -15850,6 +15929,8 @@ def api():
                     # pace (2 images a minute without a
                     # project key, 400 with one), and the
                     # route never spills to a paid one.
+                    if free_reserved:
+                        release_free_slot(user)
                     raise HTTPException(
                         status_code=503,
                         detail="the free SDXL lane is busy right now. Wait a few seconds and try again")
@@ -16051,13 +16132,17 @@ def api():
                 else:
                     _fail_provider_image(
                         job, "the image model is unavailable right now, nothing was charged")
+                    if free_reserved:
+                        release_free_slot(user)
                     raise HTTPException(status_code=503, detail=MODEL_UNAVAILABLE)
             # Provider shelf photos count toward the 5 free
             # too (the free counter rule, 2026-11-20), once
             # the image is actually submitted. A free lane
             # serving a free account is a free tier job, so
-            # it also moves the platform free ceiling.
-            count_generation(user, free_job=served_free)
+            # it also moves the platform free ceiling. (A slot
+            # reserved at the gate above is already counted.)
+            if not free_reserved:
+                count_generation(user, free_job=served_free)
             save_user(user)
             return {"job_id": job_id,
                     "status": "queued" if klein_on_kaggle
@@ -16085,15 +16170,21 @@ def api():
         used_budget = 0.0
         job_cost_cents = 0.0
         is_free_job = False
+        free_reserved = False
         if user["plan"] == "free" and not is_paid(user):
-            if free_jobs_total(user) >= FREE_CLIPS_TOTAL:
+            # Atomic free-slot claim (check and count in one
+            # step), as in create_job.
+            slot_status, user = reserve_free_slot(user)
+            if slot_status == "cap":
                 raise HTTPException(
                     status_code=403,
                     detail=f"your free clips are used up. The free plan is {FREE_CLIPS_TOTAL} clips in total",
                 )
-            if int(meta.get("freecount:total") or 0) >= FREE_PLATFORM_TOTAL_CEILING:
+            if slot_status == "ceiling":
                 raise HTTPException(status_code=503, detail="the free tier is paused")
             is_free_job = True
+            free_reserved = True
+            u = usage(user)
         else:
             # Amendment 2 ceiling, before dispatch, as on every
             # paid path.
@@ -16119,7 +16210,7 @@ def api():
         worker_job_id = None
         # Commit the quota/balance only after the worker accepted
         # the job, exactly like the video lanes.
-        if is_free_job:
+        if is_free_job and not free_reserved:
             u["free_jobs"] += 1
             user["free_jobs_total"] = free_jobs_total(user) + 1
             meta["freecount:total"] = int(meta.get("freecount:total") or 0) + 1
@@ -18397,14 +18488,19 @@ def api():
             if refusal:
                 raise HTTPException(status_code=422, detail=refusal)
         is_free_job = False
+        free_reserved = False
         if not is_paid(user):
-            if free_jobs_total(user) >= FREE_CLIPS_TOTAL:
+            # Atomic free-slot claim (check and count in one
+            # step), as in create_job.
+            slot_status, user = reserve_free_slot(user)
+            if slot_status == "cap":
                 raise HTTPException(
                     status_code=403,
                     detail=f"your free clips are used up. The free plan is {FREE_CLIPS_TOTAL} clips in total")
-            if int(meta.get("freecount:total") or 0) >= FREE_PLATFORM_TOTAL_CEILING:
+            if slot_status == "ceiling":
                 raise HTTPException(status_code=503, detail="the free tier is paused")
             is_free_job = True
+            free_reserved = True
         else:
             if _hf_daily_used(user) >= TEMPLATE_DAILY_CAP_PAID:
                 raise HTTPException(
@@ -18487,7 +18583,7 @@ def api():
             job["voice_child_id"] = (voice_child or {}).get("id")
             job["stage"] = "Making the voiceover"
             jobs[job["id"]] = job
-        if is_free_job:
+        if is_free_job and not free_reserved:
             u = usage(user)
             u["free_jobs"] += 1
             user["free_jobs_total"] = free_jobs_total(user) + 1
@@ -19641,14 +19737,19 @@ x_api_key: str = Header(default="")):
             user, "short", client_ip(request), script_text,
             clone_reference_text, music_prompt)
         is_free_job = False
+        free_reserved = False
         if not is_paid(user):
-            if free_jobs_total(user) >= FREE_CLIPS_TOTAL:
+            # Atomic free-slot claim (check and count in one
+            # step), as in create_job.
+            slot_status, user = reserve_free_slot(user)
+            if slot_status == "cap":
                 raise HTTPException(
                     status_code=403,
                     detail=f"your free clips are used up. The free plan is {FREE_CLIPS_TOTAL} clips in total")
-            if int(meta.get("freecount:total") or 0) >= FREE_PLATFORM_TOTAL_CEILING:
+            if slot_status == "ceiling":
                 raise HTTPException(status_code=503, detail="the free tier is paused")
             is_free_job = True
+            free_reserved = True
         else:
             if _shorts_daily_used(user) >= SHORTS_DAILY_CAP_PAID:
                 raise HTTPException(
@@ -19738,7 +19839,7 @@ x_api_key: str = Header(default="")):
         _index_job(job)
         _store_clone_reference(job, clone_reference,
                                clone_reference_text)
-        if is_free_job:
+        if is_free_job and not free_reserved:
             u = usage(user)
             u["free_jobs"] += 1
             user["free_jobs_total"] = free_jobs_total(user) + 1
