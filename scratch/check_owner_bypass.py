@@ -199,7 +199,8 @@ for _model, _tiers in pricing.PROVIDER_RATES_CENTS_PER_SECOND.items():
                   f"{_model} {_res}")
         if _f["pricing_basis"] == "at_cost_residual":
             _want = pricing._ceil3(
-                _f["cost_cents_per_second"] / (1 - pricing.STRIPE_PCT))
+                pricing.per_second_shelf_cost_cents(_model, _res)
+                / (1 - pricing.STRIPE_PCT))
             check(abs(_f["sell_cents_per_second"] - _want) < 0.0011,
                   f"residual sell not fee-grossed cost on "
                   f"{_model} {_res}: {_f['sell_cents_per_second']} "
@@ -211,8 +212,9 @@ for _model, _tiers in pricing.PROVIDER_RATES_CENTS_PER_SECOND.items():
                   f"{_model} {_res}")
         if _f["pricing_basis"] == "at_cost_undercut":
             check(abs(_f["sell_cents_per_second"]
-                      - _f["cost_cents_per_second"]) < 0.0011,
-                  f"undercut lane not at raw cost on "
+                      - pricing.per_second_shelf_cost_cents(
+                          _model, _res)) < 0.0011,
+                  f"undercut lane not at shelf cost on "
                   f"{_model} {_res}")
 
 if failures:

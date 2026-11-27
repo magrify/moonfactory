@@ -108,9 +108,9 @@ check(pricing.MODEL_RESOLUTIONS.get("seedance")
 rates = pricing.PROVIDER_RATES_CENTS_PER_SECOND
 expected = {
     # res: (provider $/s, owner c/s, customer sell c/s, higgsfield c/s)
-    "480p": (3.5, 3.6, 14.308, 14.75),
-    "720p": (4.7, 4.8, 33.368, 34.4),
-    "1080p": (8.0, 8.1, 76.307, 78.666),
+    "480p": (3.5, 3.51, 14.308, 14.75),
+    "720p": (4.7, 4.71, 33.368, 34.4),
+    "1080p": (8.0, 8.01, 76.307, 78.666),
 }
 for res, (provider, owner_sell, sell, higgs) in expected.items():
     lane = pricing.frontier_lane("seedance", res, rates)
@@ -131,7 +131,7 @@ for res, (provider, owner_sell, sell, higgs) in expected.items():
     check(owner_lane["sell_cents_per_second"] == owner_sell,
           f"seedance {res} owner rate is not the raw FrameHush cost")
     est = pricing.per_second_estimate("seedance", res, 5, 0.0, rates)
-    check(est["raw_cost_cents"] == round(owner_sell * 5, 2),
+    check(round(est["raw_cost_cents"], 2) == round(owner_sell * 5, 2),
           f"seedance {res} 5s raw cost drifted")
     check(est["balance_debit_cents"] > est["raw_cost_cents"],
           f"seedance {res} customer debit carries no markup")

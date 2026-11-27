@@ -44,11 +44,11 @@ check(app.provider_for("grok15", "720p") == "kie",
 
 # --- pricing math (the scope's numbers, from the live tables) ---------
 est = pricing.per_second_estimate("grok15", "720p", 20, 0.0, None)
-check(est["raw_cost_cents"] == 47.0, "episode raw cost is 47 cents")
+check(round(est["raw_cost_cents"], 2) == 45.2, "episode raw cost is 45.2 cents (post cut, 2026-11-26)")
 check(est["balance_debit_cents"] == 59, "episode customer price is 59")
 est_o = pricing.per_second_estimate(
     "grok15", "720p", 20, 0.0, None, owner=True)
-check(est_o["balance_debit_cents"] == 47, "episode owner price is 47")
+check(est_o["balance_debit_cents"] == 46, "episode owner price is 46 (post cut, 2026-11-26)")
 one = pricing.per_second_estimate("grok15", "720p", 5, 0.0, None)
 check(one["balance_debit_cents"] == 15, "one shot retake is 15 customer")
 one_o = pricing.per_second_estimate(

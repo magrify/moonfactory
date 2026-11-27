@@ -106,11 +106,11 @@ check(lane["sell_cents_per_second"] == 10.125,
       "magi2 customer rate is not (cost + post) x 1.25 = $0.10/s")
 owner_lane = pricing.frontier_lane("magi2", "1080p", rates,
                                    owner=True)
-check(owner_lane["sell_cents_per_second"] == 8.1,
-      "magi2 owner rate is not the raw cost (rate + post)")
+check(owner_lane["sell_cents_per_second"] == 8.01,
+      "magi2 owner rate is not the raw cost (rate + cut post, 2026-11-26)")
 est = pricing.per_second_estimate("magi2", "1080p", 5, 0.0, rates)
-check(est["raw_cost_cents"] == 40.5,
-      "magi2 5s raw cost is not (8.0 + 0.1 post) x 5")
+check(est["raw_cost_cents"] == 40.05,
+      "magi2 5s raw cost is not (8.0 + 0.01 post) x 5")
 check(est["balance_debit_cents"] > est["raw_cost_cents"],
       "magi2 customer debit carries no markup")
 owner_est = pricing.per_second_estimate(

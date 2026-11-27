@@ -1036,12 +1036,18 @@ def _flat_clip_picture(model: str, resolution: str,
             "sell_cents_per_second": round(raw / seconds, 3),
             "pricing_basis": "standard",
         }
-    sell_total = raw * FRONTIER_MIN_MARKUP
+    # The customer sell total is built on the shelf raw (the
+    # frozen pre-cut post figure), so the post cut moves no
+    # flat-lane price either; raw above stays the true cost for
+    # the owner picture and for accounting.
+    shelf_raw = raw + (SHELF_POST_COST_CENTS_PER_SECOND
+                       - POST_COST_CENTS_PER_SECOND) * seconds
+    sell_total = shelf_raw * FRONTIER_MIN_MARKUP
     basis = frontier_lane(model, resolution, rates)["pricing_basis"]
     if basis == "at_cost_residual":
-        sell_total = raw / (1 - STRIPE_PCT)
+        sell_total = shelf_raw / (1 - STRIPE_PCT)
     elif basis == "at_cost_undercut":
-        sell_total = raw
+        sell_total = shelf_raw
     return {
         "raw_cost_cents": raw,
         "balance_debit_cents": customer_debit_cents(sell_total),
@@ -1051,11 +1057,35 @@ def _flat_clip_picture(model: str, resolution: str,
 
 
 # Local post cost per finished second for per-second-lane outputs,
-# in cents. Measured 2026-11-16: the loudness pass on a 5 s clip is
-# a fraction of a CPU second on the platform container; carried at
-# 0.1c/s so the lane cost is never understated. The optional GPU
-# upscale pass is not sold on these lanes yet and is not in here.
-POST_COST_CENTS_PER_SECOND = 0.1
+# in cents. Re-measured end to end 2026-11-26 (the owner's
+# cost-cutting pass): the whole finishing chain for an API-lane
+# job — the download, the loudnorm/mux pass (video stream copy,
+# audio only), the SHA-256 stamp, the output classifier's frame
+# grabs and ONNX inferences, the probes — totals roughly 2 to
+# 3.5 CPU core-seconds per JOB on this workspace's cores (a 5 s
+# 480p clip ~2.1, an 8 s 720p clip ~3.3, classifier inference
+# estimated at the top of its range), which at Modal's published
+# CPU price ($0.047 per core-hour) is about 0.0006c per finished
+# second. The 0.1c/s figure carried since 2026-11-16 was a
+# deliberate pad, roughly 150x the measured compute. The constant
+# now sits at 0.01c/s: a 10x cut that still covers the padded
+# worst case (a short 1080p clip, sparse keyframes, ~0.0015c/s)
+# several times over. This is the TRUE cost: it is what the
+# owner pays and what settled-cost accounting records. The
+# optional GPU upscale pass is not sold on these lanes yet and
+# is not in here.
+POST_COST_CENTS_PER_SECOND = 0.01
+
+# The shelf post figure, frozen at the pre-cut 0.1c/s (Jack,
+# 2026-11-26: "cut OUR cost, not our users' prices"). Customer
+# sell rates keep being built on a cost basis that carries THIS
+# post figure, exactly as they were before the cut, so no
+# customer price moves; the savings land as margin, the same
+# shape as the FrameHush route swap. Only the true-cost side
+# (owner price, cost accounting, hold caps) uses the cut figure
+# above. The two figures differ by a constant 0.09c/s, so a
+# future provider rate change flows through both bases alike.
+SHELF_POST_COST_CENTS_PER_SECOND = 0.1
 
 # Built-in lip sync (Jack's product rule, 2026-11-17): every video
 # where someone or something is talking gets its mouth matched to
@@ -1255,7 +1285,12 @@ def frontier_lane(model: str, resolution: str, rates=None,
     cost itself: no markup, per the owner pricing exemption."""
     table = rates if rates is not None else PROVIDER_RATES_CENTS_PER_SECOND
     cost = per_second_lane_cost_cents(model, resolution, table)
-    minimum = cost * FRONTIER_MIN_MARKUP
+    # Customer sell math runs on the SHELF cost basis (the frozen
+    # pre-cut post figure), so the 2026-11-26 post cut moves no
+    # customer price; only the reported true cost and the owner
+    # price below use the cut figure.
+    shelf_cost = per_second_shelf_cost_cents(model, resolution, table)
+    minimum = shelf_cost * FRONTIER_MIN_MARKUP
     higgsfield = _higgsfield_effective_cents_per_second(
         model, resolution, table)
     if owner:
@@ -1297,7 +1332,7 @@ def frontier_lane(model: str, resolution: str, rates=None,
         sell, can_undercut = minimum, None
     basis = "standard"
     if effective is not None and sell >= effective:
-        if cost >= effective:
+        if shelf_cost >= effective:
             # Residual exception, restated by Jack 2026-11-19:
             # raw cost alone meets or exceeds Higgsfield's price,
             # so the lane sells at the cheapest figure that does
@@ -1314,10 +1349,10 @@ def frontier_lane(model: str, resolution: str, rates=None,
             # (at_cost_residual); it is named to Jack, never sold
             # below cost, and clears the moment a cheaper route
             # or a Higgsfield price rise lets it undercut.
-            sell = _ceil3(cost / (1 - STRIPE_PCT))
+            sell = _ceil3(shelf_cost / (1 - STRIPE_PCT))
             basis = "at_cost_residual"
         else:
-            sell = cost
+            sell = shelf_cost
             basis = "at_cost_undercut"
         can_undercut = sell < effective
     elif effective is not None and can_undercut is None:
@@ -1395,19 +1430,38 @@ def included_budget_cents() -> float:
     return net_of(CREATOR_PRICE_CENTS) / MARGIN_MULTIPLIER
 
 
-def per_second_lane_cost_cents(model: str, resolution: str, rates=None) -> float:
-    """Worst-case cost per billed second for a per-second lane.
-    Raises ValueError for a model or resolution the rate table does
-    not carry, so an unorderable combination fails as a validation
-    error instead of a KeyError."""
+def _provider_rate_cents(model: str, resolution: str, rates=None) -> float:
+    """The provider's raw per-second rate for one lane at one
+    resolution. Raises ValueError for a model or resolution the
+    rate table does not carry, so an unorderable combination
+    fails as a validation error instead of a KeyError."""
     table = rates if rates is not None else PROVIDER_RATES_CENTS_PER_SECOND
     try:
-        rate = float(table[model][resolution])
+        return float(table[model][resolution])
     except (KeyError, TypeError, ValueError):
         raise ValueError(
             f"no provider rate for {model} at {resolution}"
         ) from None
-    return rate + POST_COST_CENTS_PER_SECOND
+
+
+def per_second_lane_cost_cents(model: str, resolution: str, rates=None) -> float:
+    """Worst-case TRUE cost per billed second for a per-second
+    lane: the provider rate plus the measured post cost
+    (POST_COST_CENTS_PER_SECOND). This is the owner price basis
+    and the settled-cost accounting basis."""
+    return _provider_rate_cents(model, resolution, rates) \
+        + POST_COST_CENTS_PER_SECOND
+
+
+def per_second_shelf_cost_cents(model: str, resolution: str, rates=None) -> float:
+    """The cost basis customer sell rates are built on: the
+    provider rate plus the FROZEN shelf post figure
+    (SHELF_POST_COST_CENTS_PER_SECOND). Identical to the true
+    cost until the 2026-11-26 post cut; since then it sits a
+    constant 0.09c/s above the true cost, which is exactly the
+    margin the cut creates. Never use this for accounting."""
+    return _provider_rate_cents(model, resolution, rates) \
+        + SHELF_POST_COST_CENTS_PER_SECOND
 
 
 def per_second_estimate(model: str, resolution: str, output_seconds: float,

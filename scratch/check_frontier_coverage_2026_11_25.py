@@ -114,13 +114,13 @@ check(pricing.FALLBACK_PROVIDER_RATES_CENTS_PER_SECOND.get("veo3_fast")
 
 # The quote prices the clip, not the second.
 est = pricing.per_second_estimate("veo3", "720p", 8, 0.0, rates)
-check(est["raw_cost_cents"] == 125.8,
-      "veo3 720p 8s raw is not the flat cost plus post")
+check(est["raw_cost_cents"] == 125.08,
+      "veo3 720p 8s raw is not the flat cost plus cut post")
 check(est["balance_debit_cents"] == 158,
       "veo3 720p 8s customer debit is not ceil(125.8 x 1.25)")
 est = pricing.per_second_estimate("veo3_fast", "720p", 8, 0.0, rates)
-check(est["raw_cost_cents"] == 30.8,
-      "veo3_fast 720p 8s raw is not the flat cost plus post")
+check(est["raw_cost_cents"] == 30.08,
+      "veo3_fast 720p 8s raw is not the flat cost plus cut post")
 check(est["balance_debit_cents"] == 39,
       "veo3_fast 720p 8s customer debit is not ceil(30.8 x 1.25)")
 owner_est = pricing.per_second_estimate(

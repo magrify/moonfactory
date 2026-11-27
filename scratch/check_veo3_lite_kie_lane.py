@@ -114,7 +114,7 @@ check(lane.get("flat_clip_cost_cents") == 15.0
 # debit is the flat cost (plus post) x 1.25 rounded up, the
 # same at every sold length.
 for seconds, raw_want, debit_want, owner_want in (
-        (4, 15.4, 20, 16), (6, 15.6, 20, 16), (8, 15.8, 20, 16)):
+        (4, 15.04, 20, 16), (6, 15.06, 20, 16), (8, 15.08, 20, 16)):
     est = pricing.per_second_estimate(
         "veo3_lite", "720p", seconds, 0.0, rates)
     check(est["raw_cost_cents"] == raw_want,
@@ -126,8 +126,8 @@ for seconds, raw_want, debit_want, owner_want in (
     check(owner_est["balance_debit_cents"] == owner_want,
           f"veo3_lite 720p {seconds}s owner debit is not raw cost")
 est = pricing.per_second_estimate("veo3_lite", "1080p", 8, 0.0, rates)
-check(est["raw_cost_cents"] == 18.3,
-      "veo3_lite 1080p 8s raw is not the flat cost plus post")
+check(est["raw_cost_cents"] == 17.58,
+      "veo3_lite 1080p 8s raw is not the flat cost plus cut post")
 check(est["balance_debit_cents"] == 23,
       "veo3_lite 1080p customer debit is not ceil(18.3 x 1.25)")
 check(pricing.per_second_balance_debit_cents(
@@ -149,13 +149,13 @@ check(pricing.flat_clip_segments("veo3_lite", 60) == 8,
 check(pricing.flat_clip_segments("veo3_lite", 120) == 15,
       "120s does not compose to 15 flat generations (15x8)")
 est = pricing.per_second_estimate("veo3_lite", "720p", 60, 0.0, rates)
-check(est["raw_cost_cents"] == 126.0,
-      "veo3_lite 720p 60s raw is not 8 clips plus post")
+check(est["raw_cost_cents"] == 120.6,
+      "veo3_lite 720p 60s raw is not 8 clips plus cut post")
 check(est["balance_debit_cents"] == 158,
       "veo3_lite 720p 60s customer debit is not ceil(126 x 1.25)")
 owner_est = pricing.per_second_estimate(
     "veo3_lite", "720p", 60, 0.0, rates, owner=True)
-check(owner_est["balance_debit_cents"] == 126,
+check(owner_est["balance_debit_cents"] == 121,
       "veo3_lite 720p 60s owner debit is not the raw cost")
 
 # -- lengths, sizes, audio ------------------------------------------------

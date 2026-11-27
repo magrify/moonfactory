@@ -2046,7 +2046,7 @@ def _short_word_check(job: dict, out_path: Path):
                  "-i", str(fixed_path),
                  "-map", "0:v:0", "-map", "1:a:0",
                  "-c:v", "copy", "-c:a", "aac", "-b:a", "160k",
-                 "-shortest", str(swapped_path)],
+                 "-shortest", "-movflags", "+faststart", str(swapped_path)],
                 capture_output=True, text=True, timeout=1800)
             if proc.returncode != 0 or not swapped_path.exists():
                 raise RuntimeError("fixed audio swap failed")
@@ -15305,7 +15305,7 @@ def api():
                      "-i", str(fixed_path),
                      "-map", "0:v:0", "-map", "1:a:0",
                      "-c:v", "copy", "-c:a", "aac", "-b:a", "160k",
-                     "-shortest", str(swapped_path)],
+                     "-shortest", "-movflags", "+faststart", str(swapped_path)],
                     capture_output=True, text=True, timeout=1800)
                 if proc.returncode != 0 or not swapped_path.exists():
                     raise RuntimeError("fixed audio swap failed")
@@ -15414,7 +15414,7 @@ def api():
                 ["ffmpeg", "-y", "-i", str(out_path),
                  "-vf", f"subtitles={ass_path.name}",
                  "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
-                 "-c:a", "copy", str(burned_path)],
+                 "-c:a", "copy", "-movflags", "+faststart", str(burned_path)],
                 capture_output=True, text=True, timeout=1800,
                 cwd=FILES_DIR)
             if proc.returncode != 0 or not burned_path.exists():
@@ -20272,7 +20272,7 @@ def _process_file(raw_path: Path, out_path: Path, watermark: bool, bed_path=None
                     "-vf", vf]
         else:
             cmd += ["-c:v", "copy"]
-        cmd += ["-shortest", str(out_path)]
+        cmd += ["-shortest", "-movflags", "+faststart", str(out_path)]
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
         if proc.returncode != 0 or not out_path.exists():
             raise RuntimeError(f"ffmpeg failed: {proc.stderr[-400:]}")
@@ -20291,10 +20291,10 @@ def _process_file(raw_path: Path, out_path: Path, watermark: bool, bed_path=None
         )
         cmd = ["ffmpeg", "-y", "-i", str(raw_path), *audio_in, *audio_map,
                "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
-               "-vf", vf, *audio_codec, "-shortest", str(out_path)]
+               "-vf", vf, *audio_codec, "-shortest", "-movflags", "+faststart", str(out_path)]
     else:
         cmd = ["ffmpeg", "-y", "-i", str(raw_path), *audio_in, *audio_map,
-               "-c:v", "copy", *audio_codec, "-shortest", str(out_path)]
+               "-c:v", "copy", *audio_codec, "-shortest", "-movflags", "+faststart", str(out_path)]
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
     if proc.returncode != 0 or not out_path.exists():
         raise RuntimeError(f"ffmpeg failed: {proc.stderr[-400:]}")
@@ -20329,7 +20329,11 @@ def _process_api_file(raw_path: Path, out_path: Path, bed_path=None,
     Paid lanes are never watermarked. The optional GPU upscale
     pass is not part of this lane yet (design s.3 step 6 lists it
     as optional); the file ships at the resolution the user
-    picked."""
+    picked. The output is written faststart (moov up front), as
+    are _process_file's outputs and the caption/word-fix
+    rewrites: a delivered file then never needs the serve-time
+    remux in ensure_web_file, which stays only for files
+    finished before 2026-11-26 (post-cost pass)."""
     bed = bed_path if bed_path and Path(bed_path).exists() else None
     voice = voice_path if voice_path and Path(voice_path).exists() else None
     inputs = ["-i", str(raw_path)]
@@ -20358,14 +20362,14 @@ def _process_api_file(raw_path: Path, out_path: Path, bed_path=None,
                "-filter_complex", ";".join(filters),
                "-map", "0:v:0", "-map", "[aout]",
                "-c:v", "copy", "-c:a", "aac", "-b:a", "160k",
-               "-shortest", str(out_path)]
+               "-shortest", "-movflags", "+faststart", str(out_path)]
     else:
         cmd = ["ffmpeg", "-y", "-i", str(raw_path),
                "-f", "lavfi", "-i",
                "anullsrc=channel_layout=stereo:sample_rate=44100",
                "-map", "0:v:0", "-map", "1:a:0",
                "-c:v", "copy", "-c:a", "aac", "-b:a", "160k",
-               "-shortest", str(out_path)]
+               "-shortest", "-movflags", "+faststart", str(out_path)]
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
     if proc.returncode != 0 or not out_path.exists():
         raise RuntimeError(f"ffmpeg failed: {proc.stderr[-400:]}")
