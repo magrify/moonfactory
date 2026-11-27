@@ -676,10 +676,15 @@ PROVIDER_RATES_CENTS_PER_SECOND = {
     # 720p / 1080p tiers; the platform's 480p tier maps to the
     # supplier's 540p tier in the submit (app.py).
     "pixverse_v6_max": {"480p": 5.0, "720p": 7.0, "1080p": 13.0},
-    # Vidu Q4 Preview via VidLab, UNPAUSED the same way:
-    # $0.06 / $0.12 / $0.13 per second at its 540p / 720p /
-    # 1080p tiers; the platform's 480p tier maps to 540p.
-    "vidu_q4": {"480p": 6.0, "720p": 12.0, "1080p": 13.0},
+    # Vidu Q4 Preview via Kie (route audit, 2026-11-26):
+    # Kie's vidu-q4 pages price the tiers at $0.036 / $0.076 /
+    # $0.096 per second (540p / 720p / 1080p), under VidLab's
+    # $0.06 / $0.12 / $0.13 (recorded in DISPLACED_RATES below
+    # as vidu_q4_vidlab). The platform's 480p tier maps to the
+    # supplier's 540p tier, the same mapping the VidLab route
+    # used. The customer shelf stays frozen on the VidLab-built
+    # rates (SHELF_PROVIDER_RATES below).
+    "vidu_q4": {"480p": 3.6, "720p": 7.6, "1080p": 9.6},
     # Wan 2.5 via VidLab: $0.05 / $0.08 / $0.13 per second.
     "wan25": {"480p": 5.0, "720p": 8.0, "1080p": 13.0},
     # Wan 2.6 via VidLab: $0.07/s at 720p, $0.11/s at 1080p.
@@ -801,6 +806,9 @@ DISPLACED_RATES_CENTS_PER_SECOND = {
     # VidLab rates displaced by the 2026-11-26 route audit's
     # SpicyAPI move for Seedance 2.0 Fast.
     "seedance2_fast_vidlab": {"480p": 5.0, "720p": 11.0},
+    # VidLab rates displaced by the same audit's Kie move for
+    # Vidu Q4 Preview.
+    "vidu_q4_vidlab": {"480p": 6.0, "720p": 12.0, "1080p": 13.0},
     "seedance2_mini": {"480p": 3.283, "720p": 7.363},
     "omni12": {"720p": 4.9, "1080p": 7.28},
     "grok": {"480p": 2.5, "720p": 5.0, "1080p": 9.0},
@@ -1164,6 +1172,9 @@ SHELF_PROVIDER_RATES_CENTS_PER_SECOND = {
     # Seedance 2.0 Fast's shelf was built on VidLab's rates;
     # the lane now runs on SpicyAPI at the lower true rates.
     "seedance2_fast": {"480p": 5.0, "720p": 11.0},
+    # Vidu Q4 Preview's shelf was built on VidLab's rates;
+    # the lane now runs on Kie at the lower true rates.
+    "vidu_q4": {"480p": 6.0, "720p": 12.0, "1080p": 13.0},
 }
 
 # Built-in lip sync (Jack's product rule, 2026-11-17): every video

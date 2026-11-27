@@ -1,5 +1,7 @@
-"""Local checks for the 2026-11-26 route audit's FrameHush
-moves: Wan 3.0 and MiniMax H3 from BeatAPI to FrameHush.
+"""Local checks for the 2026-11-26 route audit's moves:
+Wan 3.0 and MiniMax H3 from BeatAPI to FrameHush, LTX-2.5
+from fal to SpicyAPI, Seedance 2.0 Fast from VidLab to
+SpicyAPI, and Vidu Q4 Preview from VidLab to Kie.
 
 Pins:
 - both lanes route to FrameHush in MODEL_PROVIDER and carry
@@ -91,6 +93,17 @@ check(shelf["seedance2_fast"] == {"480p": 5.0, "720p": 11.0},
       "seedance2_fast shelf frozen on the VidLab-built rates")
 check('"seedance2_fast": {"slug": "seedance-2.0-fast",' not in APP,
       "seedance2_fast leaves the VidLab model table")
+check('"vidu_q4": "kie",' in APP, "vidu_q4 routes to kie")
+check('("vidu_q4", "text"): "vidu-q4/text-to-video",' in APP,
+      "vidu_q4 carries Kie endpoints")
+check(rates["vidu_q4"] == {"480p": 3.6, "720p": 7.6, "1080p": 9.6},
+      "vidu_q4 true rates are Kie's tier prices")
+check(disp["vidu_q4_vidlab"] == {"480p": 6.0, "720p": 12.0, "1080p": 13.0},
+      "vidu_q4 VidLab rates recorded displaced")
+check(shelf["vidu_q4"] == {"480p": 6.0, "720p": 12.0, "1080p": 13.0},
+      "vidu_q4 shelf frozen on the VidLab-built rates")
+check('"vidu_q4": {"slug": "vidu-q4-preview",' not in APP,
+      "vidu_q4 leaves the VidLab model table")
 check('"wan3": ("https://beatapi.io/wan-3-0-api", "")' not in APP,
       "rate refresh no longer reads BeatAPI's Wan 3.0 page")
 check('required = set()' in APP,

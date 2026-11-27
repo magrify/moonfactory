@@ -3942,7 +3942,7 @@ MODEL_PROVIDER = {
     # their price-paused WaveSpeed wiring to VidLab
     # 2026-11-23, which publishes per-second rates for all
     # three; the WaveSpeed submit paths stay wired as spares.
-    "vidu_q4": "vidlab",
+    "vidu_q4": "kie",
     "seedance25_flash": "vidlab",
     "pixverse_v6": "vidlab",
     "runway_gen45": "runway",
@@ -6422,9 +6422,6 @@ VIDLAB_VIDEO_MODELS = {
                     "end_image": True, "seed": True,
                     "rate_variants": {"720p": "720p+audio",
                                       "1080p": "1080p+audio"}},
-    "vidu_q4": {"slug": "vidu-q4-preview", "seed": True,
-                "rate_variants": {"480p": "540p", "720p": "720p",
-                                  "1080p": "1080p"}},
     "vidlab15": {"slug": "vidlab-video-flash",
                  "no_resolution": True, "no_duration": True,
                  "text_script": True,
@@ -11485,6 +11482,14 @@ def api():
             ("grok15", "reference"): "grok-imagine-video-1-5-preview",
             ("hailuo23", "text"): "hailuo-2.3/text-to-video",
             ("hailuo23", "image"): "hailuo-2.3/image-to-video",
+            # Vidu Q4 Preview (route audit, 2026-11-26): Kie's
+            # vidu-q4 endpoints, priced per tier in pricing.py;
+            # the resolution rides in the input like Grok 1.5's,
+            # with the platform's 480p tier sent as the
+            # supplier's 540p tier.
+            ("vidu_q4", "text"): "vidu-q4/text-to-video",
+            ("vidu_q4", "image"): "vidu-q4/image-to-video",
+            ("vidu_q4", "reference"): "vidu-q4/reference-to-video",
         }
         slug = slugs.get((model, mode))
         if not slug:
@@ -11533,6 +11538,16 @@ def api():
             # Payload-unverified like the rest of this submit
             # until the funded pass.
             inp["resolution"] = params["resolution"]
+        if model == "vidu_q4":
+            # Vidu Q4 Preview (route audit, 2026-11-26): Kie's
+            # price list is per tier (540p / 720p / 1080p), so
+            # the tier rides in the input at every level, with
+            # the platform's 480p tier sent as 540p, the same
+            # mapping the VidLab route used. Payload-unverified
+            # like the rest of this submit.
+            inp["resolution"] = (
+                "540p" if params["resolution"] == "480p"
+                else params["resolution"])
         try:
             if mode == "image":
                 inp["first_frame"] = _beatapi_media_url(
