@@ -585,6 +585,28 @@ PROVIDER_RATES_CENTS_PER_SECOND = {
     # Higgsfield figure: frontier_lane() sells each at the
     # standard hard minimum (cost x FRONTIER_MIN_MARKUP) and the
     # owner at raw cost, like the other un-compared lanes.
+    # Grok Imagine in its maker's spicy mode via Kie
+    # (2026-11-27 wiring pass): the same grok-imagine
+    # text-to-video slug the moderated grok lane rides, with
+    # the input's mode carried as spicy on every job. Kie
+    # bills the model per second at the same published rates
+    # as the moderated lane (2.4 credits = $0.012/s at 480p,
+    # 4.5 credits = $0.0225/s at 720p; Kie's own Grok Imagine
+    # FAQ, read 2026-11-27), and failed tasks are not charged.
+    # Text mode only: Kie's own image-to-video documentation
+    # states spicy is not supported with external image inputs
+    # and automatically switches to normal there, so the lane
+    # refuses image inputs rather than sell a downgrade (the
+    # one spicy image path, chaining from a Grok image task on
+    # Kie, has no platform input to ride: the platform's Grok
+    # image lanes run on VidLab, not Kie). The 1080p tier is
+    # NOT sold: Kie's text-to-video schema tops out at 720p
+    # (its 1080p rate is an image-to-video tier), so the lane
+    # sells the two documented text tiers. Spicy is the
+    # model's less-restrictive mode, not an unmoderated one:
+    # xAI still filters some prompts server-side and those
+    # tasks fail uncharged.
+    "grok_unc": {"480p": 1.2, "720p": 2.25},
     # Wan 2.2 (uncensored build) via SpicyAPI: the supplier's
     # own catalog API, read 2026-11-17 with the stored key,
     # prices its image-to-video endpoint at $0.019/s at 480p
@@ -979,6 +1001,10 @@ MODEL_RESOLUTIONS = {
     "grok15_lite": ("480p", "720p"),
     "vidu_q3": ("480p", "720p"),
     "runway_gen45": ("720p", "1080p"),
+    # Grok Imagine spicy sells only the two tiers Kie's
+    # text-to-video schema documents (its 1080p is an
+    # image-to-video tier; see the rate entry above).
+    "grok_unc": ("480p", "720p"),
     "wan22_unc": ("480p", "720p"),
     "wan3_unc": ("480p", "720p", "1080p"),
     "seedance25_unc": ("480p", "720p", "1080p"),

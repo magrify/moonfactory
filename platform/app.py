@@ -3868,6 +3868,16 @@ MODELS = [
     {"id": "seedance15pro_unc", "label": "Seedance 1.5 Pro", "paid_only": True},
     {"id": "ltx23_unc", "label": "LTX 2.3", "paid_only": True},
     {"id": "ltx23_lora_unc", "label": "LTX 2.3 LoRA", "paid_only": True},
+    # Grok Imagine in its maker's spicy mode (2026-11-27):
+    # the moderated lane's own model on the same Kie route,
+    # with the content mode carried as spicy on every job
+    # (see pricing.py). Text only: spicy does not survive an
+    # external start image on Kie (it silently falls back to
+    # normal there), so the lane takes a prompt alone and
+    # validation refuses the rest. The label is the plain
+    # model name like every uncensored lane; the Uncensored
+    # Models group heading is the differentiator.
+    {"id": "grok_unc", "label": "Grok Imagine Video", "paid_only": True},
     # LTX-2.5 Uncensored (2026-11-20): the ChrisColeTech FP8
     # build on the house worker, the one house lane that runs
     # on Modal (Jack's call). Paid only, gallery excluded via
@@ -3932,6 +3942,10 @@ UNCENSORED_VIDEO_MODELS = (
     "wan3prime_unc", "wan22_lora_unc", "seedance2_unc",
     "seedance2fast_unc", "seedance2mini_unc", "seedance15pro_unc",
     "ltx23_unc", "ltx23_lora_unc",
+    # Grok Imagine's spicy mode (2026-11-27): the maker's own
+    # less-restrictive content mode on the wired Kie route,
+    # carried in the submit input; same treatment.
+    "grok_unc",
     # The house Uncut lane: our own worker, open weights, no
     # provider moderation layer.
     "wan22_uncut",
@@ -4733,7 +4747,7 @@ PER_SECOND_MODELS = (
     "vidu_q3_unc", "wan26_unc", "wan27_unc", "wan3pro_unc",
     "wan3prime_unc", "wan22_lora_unc", "seedance2_unc",
     "seedance2fast_unc", "seedance2mini_unc", "seedance15pro_unc",
-    "ltx23_unc", "ltx23_lora_unc",
+    "ltx23_unc", "ltx23_lora_unc", "grok_unc",
     "wan_motion",
     # VidLab lanes (2026-11-23).
     "vidlab15", "vidlab2", "vidra3", "seedance25_boost", "wan25",
@@ -4787,6 +4801,9 @@ MODEL_PROVIDER = {
     "omni11": "beatapi",
     "grok": "kie",
     "grok15": "kie",
+    # Grok Imagine spicy (2026-11-27): the same Kie route as
+    # the moderated lane; the mode rides in the submit input.
+    "grok_unc": "kie",
     "grok15_lite": "fal",
     "happyhorse": "openrouter",
     "minimax_h3": "framehush",
@@ -5023,6 +5040,8 @@ LANE_AUDIO = {
                "note": "Grok Imagine Video 1.5 native audio incl. lip-synced dialogue; generated in the same pass on the wired route, no audio switch"},
     "grok15_lite": {"native_speech": True, "native_audio": True,
                     "note": "Grok Imagine Video 1.5 Lite native synchronized audio incl. lip-synced dialogue; always on, no audio parameter on the wired route"},
+    "grok_unc": {"native_speech": True, "native_audio": True,
+                 "note": "Grok Imagine native audio incl. dialogue in spicy mode on the wired Kie route; the model's audio track is generated with the video and cannot be turned off"},
     "luma_ray32": {"native_speech": False, "native_audio": False,
                    "note": "no published native-audio mode on the wired route"},
     "ltx25": {"native_speech": False, "native_audio": True,
@@ -7277,6 +7296,12 @@ MODEL_DURATION_BOUNDS = {
     "seedance15pro_unc": (4, 12),
     "ltx23_unc": (3, 20),
     "ltx23_lora_unc": (3, 20),
+    # Grok Imagine spicy (2026-11-27): Kie's text-to-video
+    # schema offers 6 / 10 / 15 second durations (the steps
+    # ride MODEL_DURATION_STEPS below), so the bounds are
+    # its own shortest and longest steps, not the moderated
+    # lane's wider range.
+    "grok_unc": (6, 15),
 }
 # Veo generates only these clip lengths; anything else is refused
 # at validation instead of being silently rounded by the provider.
@@ -7294,6 +7319,9 @@ MODEL_DURATION_STEPS = {
     # page caps the family at 20 seconds).
     "ltx25": (6, 8, 10, 12, 14, 16, 18, 20),
     "ltx25_fast": (6, 8, 10, 12, 14, 16, 18, 20),
+    # Grok Imagine spicy on Kie (2026-11-27): the
+    # text-to-video schema's own published duration options.
+    "grok_unc": (6, 10, 15),
     # The uncensored builds on the per-run supplier accept only
     # their listed lengths (its published duration options).
     # Wan 2.2 is fixed at 5 seconds in the maker's own
@@ -7356,8 +7384,13 @@ UNIVERSAL_LONG_LENGTHS = (45, 60, 90, 120)
 # model's own 4 to 30 second range, so the lane offers no
 # chained lengths; its image-to-video field names are also
 # still payload-unverified, and chaining rides on that mode.
+# Grok Imagine spicy is the second exception (2026-11-27):
+# a continuation segment starts from the previous segment's
+# last frame, an image input, and spicy does not survive
+# image inputs on Kie, so the lane offers its native lengths
+# only.
 CHAIN_CONTINUATION_MODELS = tuple(
-    m for m in PER_SECOND_MODELS if m != "magi2")
+    m for m in PER_SECOND_MODELS if m not in ("magi2", "grok_unc"))
 
 # Per-lane reference caps (images, videos, audios), raised from
 # the old flat platform cap to what each model actually supports
@@ -7413,6 +7446,9 @@ MODEL_REF_CAPS = {
     # TEXT_IMAGE_ONLY_MODELS below refuses them first).
     "grok15": (7, 0, 0),
     "grok15_lite": (0, 0, 0),
+    # Grok Imagine spicy (2026-11-27): the text-only lane
+    # takes no references at all (TEXT_ONLY_MODELS above).
+    "grok_unc": (0, 0, 0),
 }
 MODEL_REF_VIDEO_SECONDS_CAP = {
     "seedance": 30.0,
@@ -7731,6 +7767,19 @@ TEXT_IMAGE_ONLY_MODELS = (
     "vidu_q3_pro", "vidu_q3_turbo", "skyreels_v4_fast",
     "skyreels_v4_std", "seedance15pro", "seedance10pro_fast",
     "pixverse_v6_max",
+)
+# Models that take a prompt and nothing else on their wired
+# route: any image, video or audio input is refused at
+# create, never silently dropped. Grok Imagine spicy
+# (2026-11-27): Kie's own documentation states spicy is not
+# supported with external image inputs on image-to-video and
+# automatically switches to normal there, so an attached
+# start image or reference would sell a downgrade; the lane
+# refuses them instead. Its clone adaptation resolves to
+# text from the zero reference caps in MODEL_REF_CAPS,
+# like every prompt-only lane.
+TEXT_ONLY_MODELS = (
+    "grok_unc",
 )
 # Models that accept references but only still images: their
 # supplier schemas have no reference video or audio inputs.
@@ -12815,6 +12864,19 @@ document.getElementById('go').onclick = async () => {{
                 status_code=422,
                 detail="this model takes a prompt or a start image only",
             )
+        if model in TEXT_ONLY_MODELS and (
+                start_image or end_image
+                or ref_images or ref_videos or ref_audios):
+            # Prompt-only lanes (TEXT_ONLY_MODELS): an image
+            # input would silently change what the lane sells
+            # (on Grok Imagine spicy it drops the mode back to
+            # normal on the supplier), so it is refused rather
+            # than dropped, on quotes as well as creates: a
+            # composition the lane cannot produce has no price.
+            raise HTTPException(
+                status_code=422,
+                detail="this model takes a prompt only",
+            )
         if model == "grok15_lite" and end_image:
             # Lite takes no end frame on any route (xAI's docs,
             # read 2026-11-17); refused rather than silently
@@ -13785,6 +13847,13 @@ document.getElementById('go').onclick = async () => {{
             ("omni12", "reference"): "gemini-omni-1.2-flash/reference-to-video",
             ("grok", "text"): "grok-imagine/text-to-video",
             ("grok", "image"): "grok-imagine/image-to-video",
+            # Grok Imagine spicy (2026-11-27): the same
+            # text-to-video slug as the moderated lane, with
+            # the mode carried as spicy in the input below.
+            # Text mode only: validation refuses every other
+            # mode on this lane (TEXT_ONLY_MODELS), because
+            # spicy does not survive external image inputs.
+            ("grok_unc", "text"): "grok-imagine/text-to-video",
             # Grok Imagine Video 1.5 as its own lane (2026-11-17):
             # Kie's own 1.5 page names a single model id,
             # grok-imagine-video-1-5-preview, for every mode; the
@@ -13842,6 +13911,22 @@ document.getElementById('go').onclick = async () => {{
             # documented value. Payload-unverified like the rest
             # of this submit until the funded pass.
             inp["resolution"] = params["resolution"]
+        if model == "grok_unc":
+            # Grok Imagine spicy (2026-11-27): the lane IS the
+            # mode, so mode rides in the input as spicy on
+            # every job. Kie's text-to-video schema carries
+            # duration as a string enum ("6" / "10" / "15")
+            # and resolution with 480p as the documented
+            # default, so the 720p tier sends its value and
+            # 480p sends nothing, like the moderated lane
+            # above. Validation has already refused every
+            # non-text job on this lane, so mode is always
+            # text here. Payload-unverified like the rest of
+            # this submit until the funded pass.
+            inp["mode"] = "spicy"
+            inp["duration"] = str(params["duration"])
+            if params.get("resolution") == "720p":
+                inp["resolution"] = "720p"
         if model == "grok15":
             # Grok Imagine Video 1.5 (2026-11-17): Kie's own 1.5
             # page documents the resolution as a per-job parameter
@@ -29127,6 +29212,7 @@ const MODEL_OPTS = {
   seedance15pro_unc: { durations: LENGTHS, resolutions: ['480p', '720p', '1080p'] },
   ltx23_unc: { durations: LENGTHS, resolutions: ['480p', '720p', '1080p'] },
   ltx23_lora_unc: { durations: LENGTHS, resolutions: ['480p', '720p', '1080p'] },
+  grok_unc: { durations: LENGTHS, resolutions: ['480p', '720p'] },
   wan_motion: { durations: LENGTHS, resolutions: ['720p'] }
 };
 // Resolution picker labels (Jack, 2026-11-17): real pixel
