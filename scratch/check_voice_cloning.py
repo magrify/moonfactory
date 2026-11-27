@@ -174,6 +174,25 @@ check("k2-fsa" not in SRC and "k2-fsa" not in KERNEL
       and "from omnivoice" not in KERNEL.lower(),
       "OmniVoice (CC-BY-NC weights) is wired somewhere in the build")
 
+# The engine's own dependency seam (fix, 2026-11-27): the
+# pinned CosyVoice frontend imports the whisper module
+# (cosyvoice/cli/frontend.py, "import whisper", OpenAI's
+# package) at load time. The kernel's install list never
+# carried it, and the load self-heal loop installed the
+# bare PyPI name "whisper" (an unrelated package), so
+# engine setup failed in every Kaggle session and no clone
+# ever completed. The kernel must install openai-whisper
+# up front, pinned, and the heal loop must map the module
+# to that same pinned package.
+check("openai-whisper==20231117" in KERNEL,
+      "voice kernel does not install openai-whisper up front: "
+      "the CosyVoice frontend imports the whisper module at "
+      "load and engine setup fails without it")
+check('"whisper": "openai-whisper==20231117"' in KERNEL,
+      "voice kernel load self-heal does not map the whisper "
+      "module to openai-whisper (the bare PyPI name whisper "
+      "is an unrelated package)")
+
 # Studio markup and payloads: the plain pick in both voice
 # pickers, a reference block in both forms, and the base64
 # fields in both create payloads.
