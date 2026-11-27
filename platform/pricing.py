@@ -607,6 +607,31 @@ PROVIDER_RATES_CENTS_PER_SECOND = {
     # xAI still filters some prompts server-side and those
     # tasks fail uncharged.
     "grok_unc": {"480p": 1.2, "720p": 2.25},
+    # Grok Imagine Video 1.5 in its spicy preset via UnificAlly
+    # (2026-11-27 provider-scan pass): the grok.com build of
+    # Grok Imagine 1.5 (xai/grok-imagine-1.5-fast-video), the
+    # only Grok route outside Kie whose own API reference
+    # documents a less-restrictive generation mode on a newer
+    # generation: its video_preset enum is custom / spicy /
+    # fun / normal, with spicy documented in UnificAlly's own
+    # docs as "Extremely spicy/NSFW", and its model page
+    # states NSFW output comes via the presets on this build
+    # only (the official 1.5 API build is safe-for-work with
+    # no presets). Unlike the Kie route above, no downgrade
+    # with image inputs is documented anywhere in its schema:
+    # the preset rides on text, start-frame and reference
+    # jobs alike, so the lane takes images (7 reference caps
+    # like the moderated 1.5 lane). UnificAlly's published
+    # rates for the model (its model page and pricing page,
+    # read 2026-11-27): $0.04/s at 480p, $0.07/s at 720p,
+    # $0.125/s at 1080p; billed per second from a prepaid
+    # balance, no subscription, the balance never expires
+    # (the supplier's own FAQ), failed generations are not
+    # charged. Durations 1-30 s (the longest single pass of
+    # any Grok route). Spicy is still the maker's
+    # less-restrictive preset, not an unmoderated one: xAI
+    # can filter server-side and those tasks fail uncharged.
+    "grok15_unc": {"480p": 4.0, "720p": 7.0, "1080p": 12.5},
     # Wan 2.2 (uncensored build) via SpicyAPI: the supplier's
     # own catalog API, read 2026-11-17 with the stored key,
     # prices its image-to-video endpoint at $0.019/s at 480p
@@ -1005,6 +1030,9 @@ MODEL_RESOLUTIONS = {
     # text-to-video schema documents (its 1080p is an
     # image-to-video tier; see the rate entry above).
     "grok_unc": ("480p", "720p"),
+    # Grok Imagine 1.5 spicy sells all three tiers its
+    # UnificAlly schema documents (480p / 720p / 1080p).
+    "grok15_unc": ("480p", "720p", "1080p"),
     "wan22_unc": ("480p", "720p"),
     "wan3_unc": ("480p", "720p", "1080p"),
     "seedance25_unc": ("480p", "720p", "1080p"),
@@ -2603,6 +2631,30 @@ IMAGE_LANES = {
         "edit": True,
         "raw_cents": {"match": 2.0},
     },
+    "grok_imagine_unc": {
+        # Grok Imagine Image on the maker's less-restrictive
+        # channel via UnificAlly (2026-11-27 provider-scan
+        # pass): the supplier's own parameter table for
+        # xai/grok-imagine-1.0-image documents enable_nsfw
+        # ("Allow NSFW content generation") beside the
+        # nsfw_check toggle, and its Grok Imagine pricing
+        # guide states that setting enable_nsfw moves the
+        # request to a separate generation channel. The lane
+        # sends enable_nsfw on every job and carries the
+        # uncensored flag (the Uncensored picker group and
+        # the 18+ gate read it), under the plain model name
+        # like every uncensored lane. Flat $0.01 per image
+        # (the supplier's published rate, read 2026-11-27);
+        # the channel takes no resolution choice, so the
+        # single 1K tier sells, shaped by the aspect ratios
+        # the model documents (IMAGE_ASPECTS below).
+        # UnificAlly is prepaid balance, no subscription,
+        # and the balance never expires (its own FAQ).
+        "label": "Grok Imagine Image · $", "provider": "unifically",
+        "endpoint": "xai/grok-imagine-1.0-image",
+        "uncensored": True,
+        "raw_cents": {"1K": 1.0},
+    },
 }
 
 
@@ -2807,6 +2859,10 @@ IMAGE_ASPECTS = {
                              "2:3"),
     "grok_imagine_image20_quality": ("16:9", "9:16", "4:3", "3:4",
                                      "3:2", "2:3"),
+    # The UnificAlly NSFW channel's documented shapes for
+    # Grok Imagine Image (its five ratios are 1:1 plus these
+    # four; the plain tier is the square).
+    "grok_imagine_unc": ("16:9", "9:16", "3:2", "2:3"),
 }
 
 for _lane_id, _aspects in IMAGE_ASPECTS.items():

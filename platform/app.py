@@ -3878,6 +3878,16 @@ MODELS = [
     # model name like every uncensored lane; the Uncensored
     # Models group heading is the differentiator.
     {"id": "grok_unc", "label": "Grok Imagine Video", "paid_only": True},
+    # Grok Imagine Video 1.5 spicy (2026-11-27): the newer
+    # generation's less-restrictive preset, on the UnificAlly
+    # route (the grok.com build of 1.5, the only route whose
+    # own API reference documents the spicy preset; see
+    # pricing.py). Unlike the Kie lane above, its schema
+    # documents no downgrade of the preset with image inputs,
+    # so this lane takes a start frame and reference images
+    # as well as a prompt. The label is the plain model name
+    # like every uncensored lane.
+    {"id": "grok15_unc", "label": "Grok Imagine Video 1.5", "paid_only": True},
     # LTX-2.5 Uncensored (2026-11-20): the ChrisColeTech FP8
     # build on the house worker, the one house lane that runs
     # on Modal (Jack's call). Paid only, gallery excluded via
@@ -3946,6 +3956,10 @@ UNCENSORED_VIDEO_MODELS = (
     # less-restrictive content mode on the wired Kie route,
     # carried in the submit input; same treatment.
     "grok_unc",
+    # Grok Imagine 1.5's spicy preset (2026-11-27): the same
+    # maker's mode one generation up, on the UnificAlly route
+    # whose docs carry the preset; same treatment.
+    "grok15_unc",
     # The house Uncut lane: our own worker, open weights, no
     # provider moderation layer.
     "wan22_uncut",
@@ -4747,7 +4761,7 @@ PER_SECOND_MODELS = (
     "vidu_q3_unc", "wan26_unc", "wan27_unc", "wan3pro_unc",
     "wan3prime_unc", "wan22_lora_unc", "seedance2_unc",
     "seedance2fast_unc", "seedance2mini_unc", "seedance15pro_unc",
-    "ltx23_unc", "ltx23_lora_unc", "grok_unc",
+    "ltx23_unc", "ltx23_lora_unc", "grok_unc", "grok15_unc",
     "wan_motion",
     # VidLab lanes (2026-11-23).
     "vidlab15", "vidlab2", "vidra3", "seedance25_boost", "wan25",
@@ -4804,6 +4818,11 @@ MODEL_PROVIDER = {
     # Grok Imagine spicy (2026-11-27): the same Kie route as
     # the moderated lane; the mode rides in the submit input.
     "grok_unc": "kie",
+    # Grok Imagine 1.5 spicy (2026-11-27): UnificAlly is the
+    # only route whose own API reference documents the spicy
+    # preset on the 1.5 generation (its grok.com build); the
+    # preset rides in the submit input on every job.
+    "grok15_unc": "unifically",
     "grok15_lite": "fal",
     "happyhorse": "openrouter",
     "minimax_h3": "framehush",
@@ -4925,6 +4944,7 @@ PROVIDER_KEY_ENV = {
     "vidlab": "VIDLAB_API_KEY",
     "higgsfield": "HIGGSFIELD_API_KEY",
     "framehush": "FRAMEHUSH_API_KEY",
+    "unifically": "UNIFICALLY_API_KEY",
 }
 # Per-resolution route overrides: a lane whose cheapest route
 # is a different supplier at some resolutions than at others
@@ -5042,6 +5062,8 @@ LANE_AUDIO = {
                     "note": "Grok Imagine Video 1.5 Lite native synchronized audio incl. lip-synced dialogue; always on, no audio parameter on the wired route"},
     "grok_unc": {"native_speech": True, "native_audio": True,
                  "note": "Grok Imagine native audio incl. dialogue in spicy mode on the wired Kie route; the model's audio track is generated with the video and cannot be turned off"},
+    "grok15_unc": {"native_speech": True, "native_audio": True,
+                   "note": "Grok Imagine Video 1.5 native audio incl. lip-synced dialogue in the spicy preset on the wired UnificAlly route; generated in the same pass, on by default"},
     "luma_ray32": {"native_speech": False, "native_audio": False,
                    "note": "no published native-audio mode on the wired route"},
     "ltx25": {"native_speech": False, "native_audio": True,
@@ -5180,7 +5202,7 @@ URL_RESULT_PROVIDERS = (
     "fal", "beatapi", "kie", "cometapi", "piapi", "openrouter",
     "novita", "wavespeed", "eachlabs", "runway", "vidu", "minimax",
     "spicyapi", "hotapi", "wiro", "vidlab", "higgsfield",
-    "framehush",
+    "framehush", "unifically",
 )
 # Suppliers polled through mirror_api_status (fal and BeatAPI keep
 # their original mirror functions).
@@ -5188,7 +5210,7 @@ API_POLL_PROVIDERS = (
     "kie", "cometapi", "piapi", "openrouter", "novita",
     "wavespeed", "eachlabs", "runway", "vidu", "minimax",
     "spicyapi", "hotapi", "wiro", "vidlab", "higgsfield",
-    "framehush",
+    "framehush", "unifically",
 )
 # Bounded poll lifetimes, in seconds from job creation (the
 # universal safety net, 2026-11-17). The SpicyAPI lesson: a
@@ -7302,6 +7324,11 @@ MODEL_DURATION_BOUNDS = {
     # its own shortest and longest steps, not the moderated
     # lane's wider range.
     "grok_unc": (6, 15),
+    # Grok Imagine 1.5 spicy (2026-11-27): the UnificAlly
+    # schema accepts any whole second from 1 to 30, the
+    # longest single pass of any Grok route, so the bounds
+    # are the schema's own range and no steps are listed.
+    "grok15_unc": (1, 30),
 }
 # Veo generates only these clip lengths; anything else is refused
 # at validation instead of being silently rounded by the provider.
@@ -7449,6 +7476,11 @@ MODEL_REF_CAPS = {
     # Grok Imagine spicy (2026-11-27): the text-only lane
     # takes no references at all (TEXT_ONLY_MODELS above).
     "grok_unc": (0, 0, 0),
+    # Grok Imagine 1.5 spicy (2026-11-27): the UnificAlly
+    # schema takes up to 7 reference images and no reference
+    # video or audio, the same caps as the moderated 1.5
+    # lane; the lane is also in IMAGE_REFS_ONLY_MODELS.
+    "grok15_unc": (7, 0, 0),
 }
 MODEL_REF_VIDEO_SECONDS_CAP = {
     "seedance": 30.0,
@@ -7784,7 +7816,7 @@ TEXT_ONLY_MODELS = (
 # Models that accept references but only still images: their
 # supplier schemas have no reference video or audio inputs.
 IMAGE_REFS_ONLY_MODELS = (
-    "grok", "grok15", "happyhorse",
+    "grok", "grok15", "grok15_unc", "happyhorse",
     # VidLab lanes (2026-11-23): Kling O1 and MiniMax H3 Max
     # take reference images only; Vidu Q4 takes start images
     # only; Seedance 2.0 Fast's VidLab route takes start, end
@@ -12093,6 +12125,34 @@ document.getElementById('go').onclick = async () => {{
             if not task_id:
                 raise RuntimeError("image submit returned no task id")
             job["provider_task_id"] = task_id
+        elif provider == "unifically":
+            # UnificAlly image lane (2026-11-27): the unified
+            # tasks API, the same envelope as the Grok 1.5
+            # spicy video lane. This lane is Grok Imagine
+            # Image on the maker's less-restrictive channel:
+            # the supplier's own parameter table for the model
+            # documents enable_nsfw, and the lane sends it on
+            # every job, with the pre-generation nsfw_check
+            # off (its documented default). The size key
+            # carries only the shape: the channel takes no
+            # resolution choice and the price is flat per
+            # image. PAYLOAD-UNVERIFIED like the other shelf
+            # branches until a funded job proves it.
+            _tier, _, aspect = size.partition("-")
+            image_input = {"prompt": prompt,
+                           "aspect_ratio": aspect or "1:1",
+                           "enable_nsfw": True,
+                           "nsfw_check": False}
+            data = _submit_post(
+                job, f"{UNIFICALLY_BASE}/v1/tasks",
+                _api_headers("unifically"),
+                {"model": endpoint, "input": image_input})
+            task_id = data.get("task_id") or data.get("id") or \
+                (data.get("data") or {}).get("task_id") or \
+                (data.get("data") or {}).get("id")
+            if not task_id:
+                raise RuntimeError("image submit returned no task id")
+            job["provider_task_id"] = task_id
         elif provider == "cometapi":
             # CometAPI Midjourney lanes (2026-11-27): the
             # relay's imagine endpoint. The lane carries its
@@ -12373,6 +12433,31 @@ document.getElementById('go').onclick = async () => {{
                             first = outputs[0]
                             url = first.get("url") \
                                 if isinstance(first, dict) else first
+                        if url:
+                            _settle_provider_image(job, url)
+                        else:
+                            _fail_provider_image(
+                                job, "the image came back empty, nothing was charged")
+                    elif status == "failed":
+                        _fail_provider_image(
+                            job, "the image could not be made, nothing was charged")
+                    else:
+                        job["status"] = "running"
+                        jobs[job["id"]] = job
+            elif provider == "unifically":
+                resp = requests.get(
+                    f"{UNIFICALLY_BASE}/v1/tasks/"
+                    f"{job['provider_task_id']}",
+                    headers=_api_headers("unifically"), timeout=15)
+                if resp.status_code == 200:
+                    task = resp.json() or {}
+                    if isinstance(task.get("data"), dict):
+                        task = task["data"]
+                    status = str(task.get("status") or "").lower()
+                    if status == "completed":
+                        output = task.get("output") or {}
+                        url = output.get("image_url") \
+                            or output.get("url")
                         if url:
                             _settle_provider_image(job, url)
                         else:
@@ -12881,6 +12966,16 @@ document.getElementById('go').onclick = async () => {{
             # Lite takes no end frame on any route (xAI's docs,
             # read 2026-11-17); refused rather than silently
             # dropped, like the motion lane's end frame above.
+            raise HTTPException(
+                status_code=422,
+                detail="this model takes no end frame",
+            )
+        if model == "grok15_unc" and end_image:
+            # The UnificAlly fast build's schema has no end
+            # frame field (end frames exist only on the
+            # official 1.5 API build, a different route);
+            # refused rather than silently dropped, like Lite
+            # above.
             raise HTTPException(
                 status_code=422,
                 detail="this model takes no end frame",
@@ -13430,6 +13525,7 @@ document.getElementById('go').onclick = async () => {{
     # prices pending console confirmation.
     # ------------------------------------------------------------------
     KIE_BASE = "https://api.kie.ai"
+    UNIFICALLY_BASE = "https://api.unifically.com"
     COMETAPI_BASE = "https://api.cometapi.com"
     FRAMEHUSH_BASE = "https://www.framehush.com"
     # FrameHush's own model ids, one per lane (its catalog,
@@ -14585,6 +14681,99 @@ document.getElementById('go').onclick = async () => {{
             pass
         return job
 
+    # -- UnificAlly ---------------------------------------------------------
+
+    def submit_unifically_job(job: dict, body: dict, params: dict,
+                              prompt: str):
+        """UnificAlly unified tasks API: POST /v1/tasks {model,
+        input} returns the task id at once; poll
+        GET /v1/tasks/{id}. This lane is Grok Imagine 1.5's
+        spicy preset on UnificAlly's grok.com build
+        (xai/grok-imagine-1.5-fast-video): the preset rides in
+        the input as video_preset="spicy" on every job, text,
+        start-frame and reference alike (the supplier's own
+        API reference documents the preset with no image-input
+        downgrade, and describes spicy as "Extremely
+        spicy/NSFW"). The schema's nsfw_check stays off, its
+        documented default. Payload details PAYLOAD-UNVERIFIED
+        (no funded pass yet)."""
+        inp = {"prompt": prompt,
+               "duration": params["duration"],
+               "resolution": params["resolution"],
+               "video_preset": "spicy",
+               "nsfw_check": False}
+        if params["mode"] == "image":
+            # The start frame governs the shape on this build;
+            # the aspect ratio is a text/reference control, so
+            # it is not sent on a start-frame job.
+            try:
+                inp["start_image_url"] = _beatapi_media_url(
+                    params["start_image"], "first-frame")
+            except Exception as exc:
+                _submit_failed(job, f"media upload failed: {exc}")
+        else:
+            inp["aspect_ratio"] = params["aspect_ratio"]
+            if params["mode"] == "reference" and \
+                    params["reference_image_urls"]:
+                try:
+                    inp["image_urls"] = [
+                        _beatapi_media_url(u, "reference-image")
+                        for u in params["reference_image_urls"]]
+                except Exception as exc:
+                    _submit_failed(job, f"media upload failed: {exc}")
+        data = _submit_post(
+            job, f"{UNIFICALLY_BASE}/v1/tasks",
+            _api_headers("unifically"),
+            {"model": "xai/grok-imagine-1.5-fast-video",
+             "input": inp})
+        task_id = data.get("task_id") or data.get("id") or \
+            (data.get("data") or {}).get("task_id") or \
+            (data.get("data") or {}).get("id")
+        if not task_id:
+            _submit_failed(job, "submit returned no task id")
+        job["provider_task_id"] = task_id
+        jobs[job["id"]] = job
+
+    def mirror_unifically_status(job: dict) -> dict:
+        """Poll the UnificAlly task on the shared cadence. The
+        finished task carries the video URL in its output and
+        the supplier's own settled charge in USD in its cost
+        field; settlement prefers that charge (see
+        settle_fal_job)."""
+        if not _poll_gate(job):
+            return job
+        try:
+            resp = requests.get(
+                f"{UNIFICALLY_BASE}/v1/tasks/"
+                f"{job['provider_task_id']}",
+                headers=_api_headers("unifically"), timeout=15)
+            if resp.status_code == 200:
+                task = resp.json() or {}
+                if isinstance(task.get("data"), dict):
+                    task = task["data"]
+                status = str(task.get("status") or "").lower()
+                if status == "completed":
+                    output = task.get("output") or {}
+                    url = output.get("video_url") or output.get("url")
+                    if url:
+                        seg_cost = None
+                        if task.get("cost") is not None:
+                            seg_cost = round(
+                                float(task["cost"]) * 100, 2)
+                        _poll_done(job, url, cost_cents=seg_cost)
+                    else:
+                        _poll_retry_or_fail(job)
+                elif status == "failed":
+                    _poll_fail(job, str(task.get("error"))[:200])
+                elif status == "processing":
+                    job["status"] = "running"
+                    jobs[job["id"]] = job
+                else:
+                    _note_unparsed(job, "unifically", status, task)
+        except Exception:
+            pass
+        return job
+
     # -- Novita -------------------------------------------------------------
     def submit_novita_job(job: dict, body: dict, params: dict,
                           prompt: str):
@@ -15735,6 +15924,8 @@ document.getElementById('go').onclick = async () => {{
             submit_piapi_job(job, body, params, prompt)
         elif provider == "openrouter":
             submit_openrouter_job(job, body, params, prompt)
+        elif provider == "unifically":
+            submit_unifically_job(job, body, params, prompt)
         elif provider == "novita":
             submit_novita_job(job, body, params, prompt)
         elif provider == "wavespeed":
@@ -15773,6 +15964,8 @@ document.getElementById('go').onclick = async () => {{
             return mirror_piapi_status(job)
         if provider == "openrouter":
             return mirror_openrouter_status(job)
+        if provider == "unifically":
+            return mirror_unifically_status(job)
         if provider == "novita":
             return mirror_novita_status(job)
         if provider == "wavespeed":
@@ -29213,6 +29406,7 @@ const MODEL_OPTS = {
   ltx23_unc: { durations: LENGTHS, resolutions: ['480p', '720p', '1080p'] },
   ltx23_lora_unc: { durations: LENGTHS, resolutions: ['480p', '720p', '1080p'] },
   grok_unc: { durations: LENGTHS, resolutions: ['480p', '720p'] },
+  grok15_unc: { durations: LENGTHS, resolutions: ['480p', '720p', '1080p'] },
   wan_motion: { durations: LENGTHS, resolutions: ['720p'] }
 };
 // Resolution picker labels (Jack, 2026-11-17): real pixel

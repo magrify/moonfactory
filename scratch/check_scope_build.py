@@ -147,12 +147,14 @@ for mid in app.PER_SECOND_MODELS:
         check(res in rates, f"{mid} missing a rate for {res}")
 
 # --- image shelf (item 1) ------------------------------------------
-check(len(pricing.IMAGE_LANES) == 54,
-      "image shelf has 54 lanes (33 VidLab lanes added 2026-11-23, "
+check(len(pricing.IMAGE_LANES) == 55,
+      "image shelf has 55 lanes (33 VidLab lanes added 2026-11-23, "
       "GPT Image 2.6 Sunburst added 2026-11-25, LongCat-Image "
       "added 2026-11-26, MAI Image 2.7 and 2.7 Flash added "
       "2026-11-27, Midjourney V8.2, V8.1, V6.1 and Niji 7 "
-      "added 2026-11-27 on CometAPI; superseded 2026-11-25: "
+      "added 2026-11-27 on CometAPI, Grok Imagine Image "
+      "uncensored added 2026-11-27 on UnificAlly; superseded "
+      "2026-11-25: "
       "was 48 until "
       "GPT Image 1 was removed the same day, its upstream shut "
       "down by OpenAI 2026-10-23, leaving 47 until LongCat)")
