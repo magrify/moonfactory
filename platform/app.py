@@ -892,9 +892,10 @@ def process_clip_job(job_id: str):
 
 
 # ---------------------------------------------------------------------------
-# Clone (Jack, 2026-11-26): a section of its own inside Create,
-# next to the composer (it started life inside the Clip pane and
-# moved out the same day). A user brings a video in from any
+# Clone (Jack, 2026-11-26; a top-level tab of its own since
+# 2026-11-27, beside Create and Clip: it started life inside
+# the Clip pane, moved into Create the same day, and Jack then
+# ruled it a first-class tab). A user brings a video in from any
 # public link (TikTok, YouTube, X, Instagram, anywhere yt-dlp
 # reads), an upload, or their own library; keeps only its
 # opening hook as a library clip; makes a character from frames
@@ -18688,7 +18689,7 @@ document.getElementById('go').onclick = async () => {{
         return JSONResponse({**public_job(job), "quote": q}, status_code=202)
 
     # -- Clone (2026-11-26) ------------------------------------------------
-    # The Clone section inside Create: ingest a source from any
+    # The Clone tab: ingest a source from any
     # link, an upload, or the library; cut its hook; build a
     # character from its frames; and clone it through the normal
     # job creation path on the model the user picks in the
@@ -22285,7 +22286,7 @@ document.getElementById('go').onclick = async () => {{
             "avatar_url": avatar_url(owner),
             "lane": job["lane"],
             "model": model_label,
-            "prompt": (job.get("prompt") or "")[:200],
+            "prompt": job.get("prompt") or "",
             "camera_presets": job.get("camera_preset_names") or [],
             "camera_look": job.get("camera_look") or {},
             "effect": job.get("effect_name"),
@@ -24207,6 +24208,14 @@ _CSS = """
   .tile .report:disabled{color:var(--faint);cursor:default}
   .job video{max-width:360px}
   .job img.thumb{width:140px;border-radius:10px}
+  /* Full prompt on cards (Jack, 2026-11-27): the card keeps
+     its short snippet; the whole prompt opens in this bounded,
+     scrollable box so even a 15,000 character prompt cannot
+     stretch the page. */
+  .fullprompt{max-height:220px;overflow:auto;white-space:pre-wrap;word-break:break-word;background:var(--inset);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-top:8px;font-size:14px;line-height:1.55;color:var(--ink)}
+  .prompt-actions{display:inline-flex;gap:8px;margin-top:8px;flex-wrap:wrap}
+  .prompt-actions .btn{padding:7px 14px;font-size:13.5px}
+  .tile .gprompt{margin-top:6px}
   /* Thumbnails only in every listing (Jack, 2026-11-24): a
      card shows the small derivative and a play badge; the
      player element is built on the click, never before. */
@@ -25597,6 +25606,7 @@ APP_HTML = (
   <div class="tabs"><div class="seg">
     <button class="btn" id="tab-create">Create</button>
     <button class="btn secondary" id="tab-clip">Clip</button>
+    <button class="btn secondary" id="tab-clone">Clone</button>
   </div></div>
 
   <div id="create-pane">
@@ -26513,47 +26523,6 @@ APP_HTML = (
     <p id="job-msg"></p>
   </div>
 
-  <div class="card" style="max-width:640px;margin:18px auto 0">
-    <div class="create-head">
-      <h2>Clone</h2>
-    </div>
-    <p class="muted">Bring in a video from anywhere, keep just its hook, and clone it with your own AI character standing in for the original.</p>
-    <label>Video link (TikTok, YouTube, X, Instagram, anywhere)</label>
-    <input id="ec-url" type="url" placeholder="Paste a video link">
-    <label>Or upload a video file</label>
-    <input id="ec-file" type="file" accept="video/*">
-    <label>Or pick a video from your library</label>
-    <select id="ec-library"><option value="">Choose a video you already have</option></select>
-    <p><button class="btn secondary" id="ec-add" type="button">Add this video</button></p>
-    <div id="botcheck4"></div>
-    <p id="ec-msg"></p>
-    <div id="ec-source" style="display:none">
-      <p class="group-label">Your source</p>
-      <p class="muted" id="ec-source-line"></p>
-      <p class="group-label">Hook</p>
-      <p class="muted">Keep only the opening hook, the first 5 seconds, as its own clip in your library.</p>
-      <p><button class="btn secondary" id="ec-hook" type="button">Keep only the hook</button></p>
-      <p class="group-label">Character</p>
-      <label>Character name</label>
-      <input id="ec-char-name" type="text" maxlength="60" placeholder="Name this character">
-      <p><button class="btn secondary" id="ec-clone-char" type="button">Clone the character from this video</button></p>
-      <label>Or make a character from your own pictures</label>
-      <input id="ec-char-files" type="file" accept="image/png,image/jpeg" multiple>
-      <p><button class="btn secondary" id="ec-make-char" type="button">Make character from my pictures</button></p>
-      <p class="group-label">Clone the video</p>
-      <label>Model</label>
-      <select id="ec-model"></select>
-      <p class="muted" id="ec-feed"></p>
-      <label>Character to put in (Image1)</label>
-      <select id="ec-character"><option value="">Choose a character</option></select>
-      <label>Clone prompt</label>
-      <textarea id="ec-prompt" rows="5">Recreate Video1, replace only the original character with Image1. Strictly preserve 100% of Image1's face, hair, body, clothing and details. Match Video1's movements, expressions, camera angles, framing, lighting, background, timing and pacing. Seamless, photorealistic character replacement. No other changes.</textarea>
-      <p class="under" id="ec-quote"></p>
-      <button class="btn gen" id="ec-clone" type="button">Clone the video</button>
-      <p id="ec-clone-msg"></p>
-    </div>
-    <p class="muted">Only edit and clone content you own or have permission to use. Clone is a paid feature. Adding a video, cutting its hook and making a character are free. The clone itself is charged at the model's normal price, shown before you create it.</p>
-  </div>
   </div>
 
   <div id="upgrade-pane" style="display:none">
@@ -26636,6 +26605,50 @@ APP_HTML = (
 
   <h2 style="max-width:640px;margin:26px auto 6px">Your clips</h2>
   <div id="clip-results" style="max-width:640px;margin:0 auto"><p class="muted">No clips yet. Paste a link above and your clips will show up here.</p></div>
+  </div>
+
+  <div id="clone-pane" style="display:none">
+  <div class="card" style="max-width:640px;margin:18px auto 0">
+    <div class="create-head">
+      <h2>Clone</h2>
+    </div>
+    <p class="muted">Bring in a video from anywhere, keep just its hook, and clone it with your own AI character standing in for the original.</p>
+    <label>Video link (TikTok, YouTube, X, Instagram, anywhere)</label>
+    <input id="ec-url" type="url" placeholder="Paste a video link">
+    <label>Or upload a video file</label>
+    <input id="ec-file" type="file" accept="video/*">
+    <label>Or pick a video from your library</label>
+    <select id="ec-library"><option value="">Choose a video you already have</option></select>
+    <p><button class="btn secondary" id="ec-add" type="button">Add this video</button></p>
+    <div id="botcheck4"></div>
+    <p id="ec-msg"></p>
+    <div id="ec-source" style="display:none">
+      <p class="group-label">Your source</p>
+      <p class="muted" id="ec-source-line"></p>
+      <p class="group-label">Hook</p>
+      <p class="muted">Keep only the opening hook, the first 5 seconds, as its own clip in your library.</p>
+      <p><button class="btn secondary" id="ec-hook" type="button">Keep only the hook</button></p>
+      <p class="group-label">Character</p>
+      <label>Character name</label>
+      <input id="ec-char-name" type="text" maxlength="60" placeholder="Name this character">
+      <p><button class="btn secondary" id="ec-clone-char" type="button">Clone the character from this video</button></p>
+      <label>Or make a character from your own pictures</label>
+      <input id="ec-char-files" type="file" accept="image/png,image/jpeg" multiple>
+      <p><button class="btn secondary" id="ec-make-char" type="button">Make character from my pictures</button></p>
+      <p class="group-label">Clone the video</p>
+      <label>Model</label>
+      <select id="ec-model"></select>
+      <p class="muted" id="ec-feed"></p>
+      <label>Character to put in (Image1)</label>
+      <select id="ec-character"><option value="">Choose a character</option></select>
+      <label>Clone prompt</label>
+      <textarea id="ec-prompt" rows="5">Recreate Video1, replace only the original character with Image1. Strictly preserve 100% of Image1's face, hair, body, clothing and details. Match Video1's movements, expressions, camera angles, framing, lighting, background, timing and pacing. Seamless, photorealistic character replacement. No other changes.</textarea>
+      <p class="under" id="ec-quote"></p>
+      <button class="btn gen" id="ec-clone" type="button">Clone the video</button>
+      <p id="ec-clone-msg"></p>
+    </div>
+    <p class="muted">Only edit and clone content you own or have permission to use. Clone is a paid feature. Adding a video, cutting its hook and making a character are free. The clone itself is charged at the model's normal price, shown before you create it.</p>
+  </div>
   </div>
 
 
@@ -29279,6 +29292,19 @@ function jobCardEl(j) {
       let html = '<strong>' + title + '</strong>' + spec + ' · ' +
         (activeJob ? '<span class="pulse-dot" aria-hidden="true"></span>' : '') + j.status +
         '<br><span class="muted">' + j.prompt.slice(0, 120) + '</span>';
+      // Full prompt (Jack, 2026-11-27): the snippet above is
+      // all the card shows by default, but the whole prompt is
+      // one tap away and copyable. The full text rides on the
+      // element itself (set below), never in the markup, and
+      // the click handler fills the bounded box as text.
+      if (j.prompt) {
+        html += '<br><span class="prompt-actions">' +
+          (j.prompt.length > 120
+            ? '<button class="btn secondary" data-prompt-toggle="' + j.id + '">Full prompt</button>'
+            : '') +
+          '<button class="btn secondary" data-prompt-copy="' + j.id + '">Copy prompt</button></span>' +
+          '<div class="fullprompt" hidden></div>';
+      }
       html += costLine(j);
       if (j.aspect_ratio && j.model_id === 'wan2.2') html += '<br><span class="muted">Shape ' + j.aspect_ratio + '</span>';
       if (j.segments_total > 1) html += '<br><span class="muted">Segment ' + Math.min(j.segments_done + (j.status === 'done' ? 0 : 1), j.segments_total) + ' of ' + j.segments_total + (j.status === 'done' ? ' joined into one video' : '') + '</span>';
@@ -29318,6 +29344,7 @@ function jobCardEl(j) {
           : '') +
         '<button class="btn secondary" data-del="' + j.id + '" data-delkind="' + (j.kind || 'generation') + '" data-ingallery="' + (j.in_gallery ? '1' : '0') + '">Delete</button>';
   div.innerHTML = html;
+  div._prompt = j.prompt || '';
   return div;
 }
 function renderClipResults(jobs) {
@@ -29372,6 +29399,43 @@ async function jobBoxClick(e) {
     open.src = '/api/jobs/' + open.dataset.open + '/file';
     open.removeAttribute('data-open');
     open.style.width = 'min(360px, 100%)';
+    return;
+  }
+  const ptoggle = e.target.closest('[data-prompt-toggle]');
+  if (ptoggle) {
+    const card = ptoggle.closest('.card');
+    const box = card ? card.querySelector('.fullprompt') : null;
+    if (!box) return;
+    if (box.hidden) {
+      box.textContent = (card && card._prompt) || '';
+      box.hidden = false;
+      ptoggle.textContent = 'Hide prompt';
+    } else {
+      box.hidden = true;
+      ptoggle.textContent = 'Full prompt';
+    }
+    return;
+  }
+  const pcopy = e.target.closest('[data-prompt-copy]');
+  if (pcopy) {
+    const card = pcopy.closest('.card');
+    const text = (card && card._prompt) || '';
+    if (!text) return;
+    let ok = false;
+    try { await navigator.clipboard.writeText(text); ok = true; }
+    catch (err) {}
+    if (!ok) {
+      // Plain fallback for browsers where the clipboard API
+      // refuses (insecure context, denied permission).
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      try { ok = document.execCommand('copy'); } catch (err) {}
+      ta.remove();
+    }
+    pcopy.textContent = ok ? 'Copied' : 'Copy failed';
+    setTimeout(() => { pcopy.textContent = 'Copy prompt'; }, 1600);
     return;
   }
   const fix = e.target.closest('[data-drama-fix]');
@@ -29457,16 +29521,20 @@ function showTab(which) {
   // gets the upgrade prompt in its place.
   const paidSurface = isPaidSurface();
   const pane = which === 'clip' ? (paidSurface ? 'clip' : 'upgrade')
-    : 'create';
+    : which;
   $('create-pane').style.display = pane === 'create' ? 'block' : 'none';
   $('clip-pane').style.display = pane === 'clip' ? 'block' : 'none';
+  $('clone-pane').style.display = pane === 'clone' ? 'block' : 'none';
   $('upgrade-pane').style.display = pane === 'upgrade' ? 'block' : 'none';
   $('tab-create').className = which === 'create' ? 'btn' : 'btn secondary';
   $('tab-clip').className = which === 'clip' ? 'btn' : 'btn secondary';
-  if (pane === 'clip' && typeof ecRefresh === 'function') ecRefresh();
+  $('tab-clone').className = which === 'clone' ? 'btn' : 'btn secondary';
+  if ((pane === 'clip' || pane === 'clone')
+      && typeof ecRefresh === 'function') ecRefresh();
 }
 $('tab-create').onclick = () => showTab('create');
 $('tab-clip').onclick = () => showTab('clip');
+$('tab-clone').onclick = () => showTab('clone');
 $('upgrade-creator').onclick = () => $('buy-creator').click();
 $('upgrade-topup').onclick = () => {
   const b = document.querySelector('[data-topup="1000"]');
@@ -29533,7 +29601,7 @@ $('make-clips').onclick = async () => {
 };
 
 // ---- Clone ----
-// The Clone section in Create: a source comes in by link
+// The Clone tab: a source comes in by link
 // (any public video site), by upload, or from the library the
 // user already has. The hook and the character steps are free
 // platform steps; the clone itself is an ordinary job on the
@@ -31079,7 +31147,48 @@ async function loadGallery() {
           report.disabled = true;
         } catch (e) { report.textContent = 'Report failed, try again'; }
       };
-      t.appendChild(f); t.appendChild(h); t.appendChild(report);
+      t.appendChild(f); t.appendChild(h);
+      if (item.prompt) {
+        const p = document.createElement('div'); p.className = 'gprompt';
+        const snip = document.createElement('span'); snip.className = 'muted';
+        snip.textContent = item.prompt.slice(0, 120);
+        p.appendChild(snip);
+        const full = document.createElement('div');
+        full.className = 'fullprompt'; full.hidden = true;
+        full.textContent = item.prompt;
+        const actions = document.createElement('span');
+        actions.className = 'prompt-actions';
+        if (item.prompt.length > 120) {
+          const tg = document.createElement('button');
+          tg.className = 'btn secondary'; tg.textContent = 'Full prompt';
+          tg.onclick = () => {
+            full.hidden = !full.hidden;
+            tg.textContent = full.hidden ? 'Full prompt' : 'Hide prompt';
+          };
+          actions.appendChild(tg);
+        }
+        const cp = document.createElement('button');
+        cp.className = 'btn secondary'; cp.textContent = 'Copy prompt';
+        cp.onclick = async () => {
+          let ok = false;
+          try { await navigator.clipboard.writeText(item.prompt); ok = true; }
+          catch (e) {}
+          if (!ok) {
+            const ta = document.createElement('textarea');
+            ta.value = item.prompt;
+            ta.style.position = 'fixed'; ta.style.opacity = '0';
+            document.body.appendChild(ta); ta.select();
+            try { ok = document.execCommand('copy'); } catch (e) {}
+            ta.remove();
+          }
+          cp.textContent = ok ? 'Copied' : 'Copy failed';
+          setTimeout(() => { cp.textContent = 'Copy prompt'; }, 1600);
+        };
+        actions.appendChild(cp);
+        p.appendChild(actions); p.appendChild(full);
+        t.appendChild(p);
+      }
+      t.appendChild(report);
       box.appendChild(t);
     }
   } catch (e) {
