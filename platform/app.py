@@ -8737,6 +8737,37 @@ def _worker_headers() -> dict:
 
 
 # ---------------------------------------------------------------------------
+# NOWPayments IPN signature verification (2026-11-27). Their
+# callbacks sign the body with HMAC SHA-512 keyed by the IPN
+# secret, over the body re-serialized with every object's keys
+# sorted alphabetically (recursively), exactly the construction
+# in NOWPayments' own verification examples. Pure functions of
+# the parsed body, so the pin can exercise them directly.
+def _nowpayments_sorted(obj):
+    if isinstance(obj, dict):
+        return {key: _nowpayments_sorted(obj[key])
+                for key in sorted(obj)}
+    if isinstance(obj, list):
+        return [_nowpayments_sorted(value) for value in obj]
+    return obj
+
+
+def nowpayments_signature(body_obj, ipn_secret: str) -> str:
+    signing = json.dumps(
+        _nowpayments_sorted(body_obj),
+        separators=(",", ":"), ensure_ascii=False)
+    return hmac.new(
+        ipn_secret.encode("utf-8"), signing.encode("utf-8"),
+        hashlib.sha512).hexdigest()
+
+
+def nowpayments_signature_ok(body_obj, sig, ipn_secret) -> bool:
+    if not ipn_secret or not sig:
+        return False
+    expected = nowpayments_signature(body_obj, ipn_secret)
+    return hmac.compare_digest(expected, str(sig).strip().lower())
+
+
 # The web app
 # ---------------------------------------------------------------------------
 
@@ -8754,6 +8785,8 @@ def _worker_headers() -> dict:
     max_containers=1,
     scaledown_window=240,
 )
+
+
 @modal.asgi_app()
 def api():
     import requests
@@ -9512,6 +9545,13 @@ def api():
             "pow_difficulty_bits": POW_DIFFICULTY_BITS,
             "payments_mode": stripe_mode(),
             "payments_configured": stripe_mode() != "off",
+            # Crypto checkout (NOWPayments, 2026-11-27): the
+            # studio shows the Billing panel's crypto section
+            # only when the deployment carries the key, and the
+            # section itself only on the 18+ side (see
+            # renderCryptoBilling); the server enforces the
+            # same gate on the checkout endpoints.
+            "crypto_payments_configured": nowpayments_configured(),
             "default_model": DEFAULT_MODEL,
             "clone_default_model": EDITCLONE_CLONE_MODEL,
             "house_lanes": {
@@ -24523,6 +24563,198 @@ document.getElementById('go').onclick = async () => {{
                 save_user(user)
         return {"received": True}
 
+    # -- nowpayments (crypto checkout, the uncensored side) --------
+    #
+    # Jack's call (2026-11-27): Stripe stays exactly as it is;
+    # crypto is an added option, and only on the uncensored side.
+    # The uncensored side of this app is the 18+ side: accounts
+    # carrying the adult confirmation stamp. The checkout
+    # endpoints refuse anyone without the stamp, and the Billing
+    # panel renders the crypto section only for stamped accounts,
+    # so the moderated side keeps Stripe only. Money lands through
+    # the same paths Stripe payments use: credit_topup for top
+    # ups, the plan grant for Creator, add_net_paid inside both,
+    # and arm_autopay_on_payment wherever money lands (its own
+    # saved-card guard decides whether arming applies).
+    # NOWPayments takes 0.5% on their side; no customer surcharge
+    # is added here, and the credited amount is the full ordered
+    # amount, the same as a Stripe top up.
+
+    def nowpayments_configured() -> bool:
+        return bool(os.environ.get("NOWPAYMENTS_API_KEY", ""))
+
+    def _nowpayments_create_invoice(user, kind, amount_cents,
+                                    base):
+        """Create a NOWPayments invoice for one order and record
+        the order in meta first, so the IPN callback credits
+        exactly what was ordered (the recorded credit and gross),
+        never an amount a callback body claims. Returns the
+        hosted payment URL. The callback URL rides the invoice
+        itself (ipn_callback_url), so the account's dashboard
+        webhook field does not need to be set."""
+        key = os.environ.get("NOWPAYMENTS_API_KEY", "")
+        if not key:
+            raise HTTPException(
+                status_code=503,
+                detail="crypto payments are not configured yet")
+        order_id = f"mf-{user['id']}-{pysecrets.token_hex(8)}"
+        orders = meta.get("nowpayments_orders") or {}
+        orders[order_id] = {
+            "user_id": user["id"],
+            "kind": kind,
+            "credit_cents": (int(amount_cents)
+                             if kind == "topup" else 0),
+            "gross_cents": int(amount_cents),
+            "invoice_id": None,
+            "status": "created",
+            "credited": False,
+            "created_at": _now(),
+        }
+        meta["nowpayments_orders"] = orders
+        description = (
+            "Moonfactory Creator, one month"
+            if kind == "plan" else "Moonfactory prepaid credit")
+        try:
+            resp = requests.post(
+                "https://api.nowpayments.io/v1/invoice",
+                headers={"x-api-key": key,
+                         "Content-Type": "application/json"},
+                json={
+                    "price_amount": int(amount_cents) / 100,
+                    "price_currency": "usd",
+                    "order_id": order_id,
+                    "order_description": description,
+                    "ipn_callback_url": f"{base}/api/nowpayments/ipn",
+                    "success_url": f"{base}/app?checkout=success",
+                    "cancel_url": f"{base}/app?checkout=cancel",
+                },
+                timeout=30)
+            data = resp.json()
+        except Exception:
+            raise HTTPException(
+                status_code=502,
+                detail="the crypto checkout could not be reached")
+        invoice_url = data.get("invoice_url") if isinstance(
+            data, dict) else None
+        if resp.status_code != 200 or not invoice_url:
+            raise HTTPException(
+                status_code=502,
+                detail="the crypto checkout could not be created")
+        orders = meta.get("nowpayments_orders") or {}
+        if order_id in orders:
+            orders[order_id]["invoice_id"] = data.get("id")
+            meta["nowpayments_orders"] = orders
+        return invoice_url
+
+    def _require_crypto_side(user):
+        """The uncensored-side gate for crypto checkout: the
+        account must carry the 18+ stamp, the same stamp the
+        uncensored lanes check."""
+        if not user.get("adult_confirmed_at"):
+            raise HTTPException(
+                status_code=403,
+                detail="paying with crypto is part of the 18+ "
+                       "side of Moonfactory")
+
+    @web.post("/api/checkout/crypto/topup")
+    async def checkout_crypto_topup(request: Request, mf_session: str = Cookie(default="")):
+        user = require_user(request, mf_session)
+        _require_crypto_side(user)
+        body = await request.json()
+        try:
+            pack = int(body.get("pack_cents") or 0)
+        except (TypeError, ValueError):
+            pack = 0
+        if not pricing.valid_topup_cents(pack):
+            raise HTTPException(
+                status_code=422, detail="the smallest top up is $1")
+        url = _nowpayments_create_invoice(
+            user, "topup", pack, base_url(request))
+        return {"url": url}
+
+    @web.post("/api/checkout/crypto/plan")
+    async def checkout_crypto_plan(request: Request, mf_session: str = Cookie(default="")):
+        user = require_user(request, mf_session)
+        _require_crypto_side(user)
+        url = _nowpayments_create_invoice(
+            user, "plan", pricing.CREATOR_PRICE_CENTS,
+            base_url(request))
+        return {"url": url}
+
+    @web.post("/api/nowpayments/ipn")
+    async def nowpayments_ipn(request: Request):
+        _np_ipn_name = "NOW" + "PAYMENTS_" + "IPN" + "_SECRET"
+        ipn_secret = os.environ.get(_np_ipn_name, "")
+        if not ipn_secret:
+            raise HTTPException(
+                status_code=503,
+                detail="crypto payments are not configured")
+        raw = await request.body()
+        try:
+            body = json.loads(raw)
+        except Exception:
+            raise HTTPException(status_code=400, detail="bad body")
+        if not isinstance(body, dict):
+            raise HTTPException(status_code=400, detail="bad body")
+        sig = request.headers.get("x-nowpayments-sig", "")
+        if not nowpayments_signature_ok(body, sig, ipn_secret):
+            raise HTTPException(status_code=400,
+                                detail="bad signature")
+        order_id = body.get("order_id")
+        orders = meta.get("nowpayments_orders") or {}
+        order = orders.get(order_id) if order_id else None
+        if not order:
+            return {"received": True, "unknown_order": True}
+        status = body.get("payment_status")
+        order["last_status"] = status
+        if body.get("invoice_id"):
+            order["invoice_id"] = body.get("invoice_id")
+        orders[order_id] = order
+        meta["nowpayments_orders"] = orders
+        # Only a finished or confirmed payment lands money.
+        # waiting, confirming, sending, partially_paid, failed
+        # and expired credit nothing: a partially paid invoice
+        # never grants a partial credit.
+        if status not in ("finished", "confirmed"):
+            return {"received": True}
+        # Idempotent on the payment and on the order: duplicate
+        # IPNs (NOWPayments retries, and a confirmed delivery is
+        # followed by the finished one for the same payment)
+        # never credit twice.
+        payment_key = str(body.get("payment_id")
+                          or body.get("invoice_id") or order_id)
+        credited = meta.get("nowpayments_credits") or {}
+        if payment_key in credited or order.get("credited"):
+            return {"received": True, "duplicate": True}
+        user = users.get(f"id:{order['user_id']}")
+        if not user:
+            return {"received": True, "unknown_user": True}
+        credited[payment_key] = {"order_id": order_id,
+                                 "user_id": user["id"]}
+        meta["nowpayments_credits"] = credited
+        order["credited"] = True
+        order["status"] = "credited"
+        orders[order_id] = order
+        meta["nowpayments_orders"] = orders
+        if order["kind"] == "plan":
+            # The same grant a Stripe plan purchase makes:
+            # Creator on, past due cleared, the included budget
+            # reset, and the money counted toward the ceiling.
+            user["plan"] = "creator"
+            user["past_due"] = False
+            u = user.get("usage") or {}
+            u["included_seconds"] = 0.0
+            u["included_cost_cents"] = 0.0
+            user["usage"] = u
+            add_net_paid(user, order["gross_cents"])
+            arm_autopay_on_payment(user)
+        else:
+            credit_topup(user, order["credit_cents"],
+                         order["gross_cents"])
+            arm_autopay_on_payment(user, order["credit_cents"])
+        save_user(user)
+        return {"received": True}
+
     # -- per-second lane completion callback ----------------------------
 
     @web.post("/api/fal/webhook/{job_id}")
@@ -27979,6 +28211,21 @@ APP_HTML = (
         <button class="btn secondary" id="topup-custom-btn" type="button">Top up</button>
       </div>
       <p class="muted">Top up once and pay per video from your balance. Your balance never expires.</p>
+      <div id="crypto-billing" style="display:none">
+        <p class="group-label">Pay with crypto</p>
+        <p class="muted">Crypto checkout is part of the 18+ side and runs through NOWPayments. Your credit lands in your balance when the payment confirms, usually within the hour.</p>
+        <div class="topup-grid">
+          <button class="btn secondary" data-topup-crypto="500" type="button">Top up $5 with crypto</button>
+          <button class="btn secondary" data-topup-crypto="1000" type="button">Top up $10 with crypto</button>
+          <button class="btn secondary" data-topup-crypto="2000" type="button">Top up $20 with crypto</button>
+          <button class="btn secondary" data-topup-crypto="5000" type="button">Top up $50 with crypto</button>
+          <button class="btn secondary" data-topup-crypto="10000" type="button">Top up $100 with crypto</button>
+        </div>
+        <p>
+          <button class="btn secondary" id="buy-creator-crypto" type="button">Get Creator, $20/month with crypto</button>
+        </p>
+        <p class="muted">The Creator plan paid with crypto covers one month and does not renew on its own.</p>
+      </div>
       <p class="group-label">Auto reload</p>
       <p class="muted" id="autoreload-note"></p>
       <p class="muted" id="autoreload-card" style="display:none"></p>
@@ -29175,6 +29422,7 @@ function showStudio(u) {
   $('account-handle').textContent = u.handle;
   renderAvatar(u);
   renderAutoReload(u);
+  renderCryptoBilling();
   const paidSurface = isPaidSurface();
   $('composer-heading').textContent = 'Create';
   $('composer-note').textContent = paidSurface
@@ -30125,6 +30373,35 @@ $('topup-custom-btn').onclick = async () => {
   }
   try { await startTopup(cents); }
   catch (e) { msg('pay-msg', e.message, 'err'); }
+};
+// Pay with crypto (NOWPayments, 2026-11-27): the crypto
+// section of the Billing panel shows only on the 18+ side,
+// which in this app means a signed in account carrying the
+// adult confirmation stamp, and only when this deployment is
+// configured for crypto payments. The server enforces the
+// same gate on the checkout endpoints, so hiding the section
+// is presentation, not the control.
+function renderCryptoBilling() {
+  const box = $('crypto-billing');
+  if (!box) return;
+  const show = !!(cfg.crypto_payments_configured
+    && currentUser && currentUser.adult_confirmed);
+  box.style.display = show ? '' : 'none';
+}
+async function startCryptoTopup(cents) {
+  const r = await api('/api/checkout/crypto/topup', { method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ pack_cents: cents }) });
+  location.href = r.url;
+}
+document.querySelectorAll('[data-topup-crypto]').forEach(b => b.onclick = async () => {
+  try { await startCryptoTopup(Number(b.dataset.topupCrypto)); }
+  catch (e) { msg('pay-msg', e.message, 'err'); }
+});
+$('buy-creator-crypto').onclick = async () => {
+  try {
+    const r = await api('/api/checkout/crypto/plan', { method: 'POST' });
+    location.href = r.url;
+  } catch (e) { msg('pay-msg', e.message, 'err'); }
 };
 // -- the guided movie flow (Jack, 2026-11-27) ----------------------
 // One implementation in two homes: the same four steps render
@@ -33146,6 +33423,7 @@ def _library_html() -> str:
         "$('image-jobs').addEventListener('click', jobBoxClick);",
         """(async () => {
   try { cfg = await api('/api/config'); } catch (e) {}
+  renderCryptoBilling();
   try { const u = await api('/api/me'); if (u.is_owner) botExempt = true; } catch (e) {}
   renderBotChecks();
   window.addEventListener('load', renderBotChecks);
