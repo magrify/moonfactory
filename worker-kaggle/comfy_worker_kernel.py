@@ -627,9 +627,13 @@ def read_key() -> str:
     try:
         from kaggle_secrets import UserSecretsClient
 
-        value = UserSecretsClient().get_secret("MOONFACTORY_TEMPLATE_KEY")
-        if value:
-            return value.strip()
+        # Per-family key first (MOONFACTORY_COMFY_KEY), then
+        # the shared legacy name, then the dataset key file.
+        for secret_name in ("MOONFACTORY_COMFY_KEY",
+                            "MOONFACTORY_TEMPLATE_KEY"):
+            value = UserSecretsClient().get_secret(secret_name)
+            if value:
+                return value.strip()
     except Exception:
         pass
     key_file = find_dataset_file("moonfactory-hf-key", "worker_key.txt")

@@ -81,9 +81,13 @@ def read_key() -> str:
     try:
         from kaggle_secrets import UserSecretsClient
 
-        value = UserSecretsClient().get_secret("MOONFACTORY_TEMPLATE_KEY")
-        if value:
-            return value.strip()
+        # Per-family key first (MOONFACTORY_VOICE_KEY), then
+        # the shared legacy name, then the dataset key file.
+        for secret_name in ("MOONFACTORY_VOICE_KEY",
+                            "MOONFACTORY_TEMPLATE_KEY"):
+            value = UserSecretsClient().get_secret(secret_name)
+            if value:
+                return value.strip()
     except Exception:
         pass
     return KEY_FILE.read_text().strip()
