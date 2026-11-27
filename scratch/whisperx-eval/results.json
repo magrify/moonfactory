@@ -1,0 +1,288 @@
+{
+  "A": {
+    "clip": "scratch/framehush-verify/voice.wav",
+    "script": "Welcome to Moonfactory",
+    "energy_onsets": 21,
+    "faster_whisper": {
+      "words": 8,
+      "mean_onset_dist_s": 0.0925,
+      "median_onset_dist_s": 0.084,
+      "p90_onset_dist_s": 0.22
+    },
+    "whisperx": {
+      "words": 8,
+      "mean_onset_dist_s": 0.0407,
+      "median_onset_dist_s": 0.017,
+      "p90_onset_dist_s": 0.136
+    },
+    "faster_whisper_words": [
+      {
+        "word": "Today",
+        "start": 1.3799999999999994
+      },
+      {
+        "word": "is",
+        "start": 1.9
+      },
+      {
+        "word": "a",
+        "start": 2.16
+      },
+      {
+        "word": "beautiful",
+        "start": 2.28
+      },
+      {
+        "word": "day,",
+        "start": 2.72
+      },
+      {
+        "word": "don't",
+        "start": 3.12
+      },
+      {
+        "word": "you",
+        "start": 3.36
+      },
+      {
+        "word": "think?",
+        "start": 3.5
+      }
+    ],
+    "whisperx_words": [
+      {
+        "word": "Today",
+        "start": 1.694
+      },
+      {
+        "word": "is",
+        "start": 2.017
+      },
+      {
+        "word": "a",
+        "start": 2.259
+      },
+      {
+        "word": "beautiful",
+        "start": 2.38
+      },
+      {
+        "word": "day,",
+        "start": 2.944
+      },
+      {
+        "word": "don't",
+        "start": 3.247
+      },
+      {
+        "word": "you",
+        "start": 3.448
+      },
+      {
+        "word": "think?",
+        "start": 3.569
+      }
+    ]
+  },
+  "B": {
+    "clip": "scratch/beat-sync-proof/work/narration.wav",
+    "note": "no speech content (both systems hear zero words); excluded"
+  },
+  "C": {
+    "clip": "scratch/whisperx-eval/jfk.flac (faster-whisper test asset)",
+    "script": "And so, my fellow Americans, ask not what your country can do for you, ask what you can do for your country.",
+    "energy_onsets": 61,
+    "faster_whisper": {
+      "words": 22,
+      "mean_onset_dist_s": 0.0975,
+      "median_onset_dist_s": 0.096,
+      "p90_onset_dist_s": 0.152
+    },
+    "whisperx": {
+      "words": 22,
+      "mean_onset_dist_s": 0.0266,
+      "median_onset_dist_s": 0.023,
+      "p90_onset_dist_s": 0.062
+    },
+    "faster_whisper_words": [
+      {
+        "word": "And",
+        "start": 0.0
+      },
+      {
+        "word": "so",
+        "start": 0.52
+      },
+      {
+        "word": "my",
+        "start": 0.84
+      },
+      {
+        "word": "fellow",
+        "start": 1.2
+      },
+      {
+        "word": "Americans",
+        "start": 1.58
+      },
+      {
+        "word": "ask",
+        "start": 2.1
+      },
+      {
+        "word": "not",
+        "start": 3.72
+      },
+      {
+        "word": "what",
+        "start": 4.24
+      },
+      {
+        "word": "your",
+        "start": 5.52
+      },
+      {
+        "word": "country",
+        "start": 5.76
+      },
+      {
+        "word": "can",
+        "start": 6.22
+      },
+      {
+        "word": "do",
+        "start": 6.62
+      },
+      {
+        "word": "for",
+        "start": 6.82
+      },
+      {
+        "word": "you,",
+        "start": 7.08
+      },
+      {
+        "word": "ask",
+        "start": 7.42
+      },
+      {
+        "word": "what",
+        "start": 8.48
+      },
+      {
+        "word": "you",
+        "start": 8.76
+      },
+      {
+        "word": "can",
+        "start": 9.04
+      },
+      {
+        "word": "do",
+        "start": 9.32
+      },
+      {
+        "word": "for",
+        "start": 9.56
+      },
+      {
+        "word": "your",
+        "start": 9.78
+      },
+      {
+        "word": "country.",
+        "start": 9.94
+      }
+    ],
+    "whisperx_words": [
+      {
+        "word": "And",
+        "start": 0.421
+      },
+      {
+        "word": "so",
+        "start": 0.642
+      },
+      {
+        "word": "my",
+        "start": 1.022
+      },
+      {
+        "word": "fellow",
+        "start": 1.323
+      },
+      {
+        "word": "Americans,",
+        "start": 1.704
+      },
+      {
+        "word": "ask",
+        "start": 3.548
+      },
+      {
+        "word": "not",
+        "start": 4.029
+      },
+      {
+        "word": "what",
+        "start": 5.412
+      },
+      {
+        "word": "your",
+        "start": 5.652
+      },
+      {
+        "word": "country",
+        "start": 5.953
+      },
+      {
+        "word": "can",
+        "start": 6.494
+      },
+      {
+        "word": "do",
+        "start": 6.694
+      },
+      {
+        "word": "for",
+        "start": 6.975
+      },
+      {
+        "word": "you,",
+        "start": 7.155
+      },
+      {
+        "word": "ask",
+        "start": 8.398
+      },
+      {
+        "word": "what",
+        "start": 8.638
+      },
+      {
+        "word": "you",
+        "start": 8.899
+      },
+      {
+        "word": "can",
+        "start": 9.239
+      },
+      {
+        "word": "do",
+        "start": 9.44
+      },
+      {
+        "word": "for",
+        "start": 9.7
+      },
+      {
+        "word": "your",
+        "start": 9.861
+      },
+      {
+        "word": "country.",
+        "start": 10.081
+      }
+    ]
+  }
+}

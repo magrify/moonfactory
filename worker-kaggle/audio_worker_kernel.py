@@ -174,7 +174,10 @@ print(f"VOICEOVER {len(data)} samples", flush=True)
 # normalization, alignment, ratio and splice code, the
 # same faster-whisper base model pass, and the same
 # Kokoro fix pass, speaking through the venv's own
-# KPipeline. It runs under the Python 3.12 venv python
+# KPipeline. One deliberate divergence from the Modal
+# stage: the words that leave are retimed by WhisperX
+# forced alignment when it installs (see _align_words).
+# It runs under the Python 3.12 venv python
 # like the voiceover recipe, because faster-whisper's
 # stack shares that venv's constraints; the model runs
 # on the session's GPU (float16) when it can and falls
@@ -458,6 +461,74 @@ def _transcribe_words(model, audio_path) -> list:
     return heard
 
 
+_ALIGN_MODEL = {}
+
+
+def _align_words(audio_path, heard) -> list:
+    """Retime the heard words by forced alignment
+    (2026-11-27). The words that leave this stage are the
+    captions stage's source, and faster-whisper's own word
+    timestamps sit measurably late against the sound: on
+    two speech clips (30 words total, scratch/whisperx-
+    eval/ in the repo) their starts averaged 0.093s and
+    0.098s from the nearest waveform energy onset, where
+    WhisperX's wav2vec2 forced alignment averaged 0.041s
+    and 0.027s (medians 0.017s and 0.023s against 0.084s
+    and 0.096s). So the final heard words are retimed
+    through WhisperX when it is installed, and ANY failure
+    (not installed, model or tokenizer download, a word
+    sequence that does not line up) returns the
+    faster-whisper timings untouched: the stage's contract
+    never depends on the aligner. Only the words that
+    leave are retimed; the word check's own comparisons
+    and splice windows keep the original pass's timings,
+    which is also why this kernel deliberately diverges
+    here from the Modal stage it was ported from."""
+    if not heard:
+        return heard
+    try:
+        import whisperx
+        if "model" not in _ALIGN_MODEL:
+            try:
+                import nltk
+                try:
+                    nltk.data.find("tokenizers/punkt_tab")
+                except LookupError:
+                    nltk.download("punkt_tab", quiet=True)
+            except Exception:
+                pass
+            import torch
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            model, metadata = whisperx.load_align_model(
+                language_code="en", device=device)
+            _ALIGN_MODEL["model"] = model
+            _ALIGN_MODEL["metadata"] = metadata
+            _ALIGN_MODEL["device"] = device
+        audio = whisperx.load_audio(str(audio_path))
+        segment = {"start": heard[0]["start"],
+                   "end": heard[-1]["end"],
+                   "text": " ".join(w["word"] for w in heard)}
+        aligned = whisperx.align(
+            [segment], _ALIGN_MODEL["model"],
+            _ALIGN_MODEL["metadata"], audio,
+            _ALIGN_MODEL["device"], return_char_alignments=False)
+        wx = [w for seg in aligned["segments"]
+              for w in (seg.get("words") or []) if "start" in w]
+        if len(wx) != len(heard):
+            return heard
+        out = []
+        for fw_w, wx_w in zip(heard, wx):
+            if (fw_w["word"].strip().lower().strip(".,!?")
+                    != wx_w["word"].strip().lower().strip(".,!?")):
+                return heard
+            out.append({"word": fw_w["word"],
+                        "start": float(wx_w["start"]),
+                        "end": float(wx_w.get("end", fw_w["end"]))})
+        return out
+    except Exception:
+        return heard
+
+
 def _load_model():
     from faster_whisper import WhisperModel
     try:
@@ -478,6 +549,7 @@ def main():
     model = _load_model()
     heard = _transcribe_words(model, source)
     if mode == "transcribe":
+        heard = _align_words(source, heard)
         with open("/tmp/wc_result.json", "w") as fh:
             json.dump({"words": heard}, fh)
         print(f"TRANSCRIBE {len(heard)} words", flush=True)
@@ -497,6 +569,7 @@ def main():
     first = evaluate_script(script, heard)
     final = first
     final_heard = heard
+    final_audio = source
     applied = 0
     if first["wrong"] and voice:
         holder = {}
@@ -528,6 +601,11 @@ def main():
                 sf.write("/tmp/wc_fixed.wav", new_samples, rate,
                          format="WAV", subtype="PCM_16")
                 final_heard = fixed_heard
+                final_audio = "/tmp/wc_fixed.wav"
+    # The words that leave are retimed against the audio
+    # they describe (the repaired track when a fix was
+    # spliced in, the source otherwise); see _align_words.
+    final_heard = _align_words(final_audio, final_heard)
     status = decide_status(first["ratio"], final["ratio"],
                            bool(applied))
     result = {
@@ -1017,6 +1095,20 @@ def setup_whisper():
         raise RuntimeError(
             f"uv pip install faster-whisper failed: "
             f"{(r.stdout + r.stderr)[-280:]}")
+    # Best effort only: WhisperX retimes the words that
+    # leave the word check / transcribe stages (see
+    # _align_words in WORDCHECK_SCRIPT). Its install must
+    # never fail this setup: the stage's contract is
+    # faster-whisper, and the aligner carries its own
+    # run-time fallback. The faster-whisper and av pins
+    # repeat here so the resolver keeps the Modal stage's
+    # own versions while it adds WhisperX.
+    r = subprocess.run(
+        [uv, "pip", "install", "--python",
+         str(KOKORO_VENV_PYTHON),
+         "whisperx", "faster-whisper==1.2.1", "av<19"],
+        capture_output=True, text=True, timeout=1800)
+    log(f"uv pip install whisperx (best effort) -> rc={r.returncode}")
     _WHISPER_READY = True
     log("faster-whisper ready (word check / transcribe)")
 
