@@ -734,9 +734,14 @@ def setup_comfy() -> dict:
     if not (COMFY_DIR / "main.py").exists():
         log("cloning ComfyUI")
         subprocess.run(
-            ["git", "clone", "--depth", "1",
+            ["git", "clone",
              "https://github.com/comfyanonymous/ComfyUI.git",
              str(COMFY_DIR)], check=True, timeout=900)
+        # Pin the clone to a commit: a floating HEAD clone
+        # would run whatever upstream serves on session day.
+        subprocess.run(
+            ["git", "-C", str(COMFY_DIR), "checkout", "-q",
+             "7c78b5641ab2d6cb7f7766a183a8a43a59de0a8b"], check=True, timeout=300)
     # The clone persists in the working volume between
     # sessions but pip installs land in the session's own
     # environment, which does not: the requirements install
@@ -767,6 +772,10 @@ def setup_comfy() -> dict:
     except ImportError:
         log("no torch in the session image, installing from "
             "ComfyUI's requirements")
+    # Both requirements installs (ComfyUI's own and the
+    # VideoHelperSuite's) read files inside clones pinned to
+    # commits above, so their contents are transitively
+    # pinned by those checkouts.
     req_path = WORKING / "comfy-requirements.txt"
     req_path.write_text("\n".join(req))
     subprocess.run(
@@ -775,9 +784,12 @@ def setup_comfy() -> dict:
     vhs = COMFY_DIR / "custom_nodes" / "ComfyUI-VideoHelperSuite"
     if not vhs.exists():
         subprocess.run(
-            ["git", "clone", "--depth", "1",
+            ["git", "clone",
              "https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git",
              str(vhs)], check=True, timeout=600)
+        subprocess.run(
+            ["git", "-C", str(vhs), "checkout", "-q",
+             "775ae691ecbab6a6d09a2c186f95d130cf8a10d3"], check=True, timeout=300)
     vhs_req = vhs / "requirements.txt"
     if vhs_req.exists():
         subprocess.run(
@@ -791,7 +803,7 @@ def setup_comfy() -> dict:
         log("no ffmpeg on PATH, installing imageio-ffmpeg")
         subprocess.run(
             [sys.executable, "-m", "pip", "install", "-q",
-             "imageio-ffmpeg"], check=True, timeout=600)
+             "imageio-ffmpeg==0.8.1"], check=True, timeout=600)
         import imageio_ffmpeg
 
         bin_dir = WORKING / "bin"

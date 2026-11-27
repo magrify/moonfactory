@@ -693,13 +693,18 @@ def uv_path() -> str:
         if found is None and candidate.exists():
             found = str(candidate)
         if found is None:
+            # uv itself is pinned: a bare curl|sh installer
+            # would run whatever the site serves today.
             r = subprocess.run(
-                "curl -LsSf https://astral.sh/uv/install.sh | sh",
-                shell=True, capture_output=True, text=True)
-            if r.returncode != 0 or not candidate.exists():
+                [sys.executable, "-m", "pip", "install", "-q",
+                 "uv==0.13.10"],
+                capture_output=True, text=True)
+            found = shutil.which("uv")
+            if found is None and candidate.exists():
+                found = str(candidate)
+            if r.returncode != 0 or found is None:
                 raise RuntimeError(
                     f"uv install failed: {(r.stderr or '')[-300:]}")
-            found = str(candidate)
         _UV_PATH = found
         return found
 
@@ -713,9 +718,14 @@ def setup_ace():
         return
     if not ACE_ROOT.exists():
         r = subprocess.run(
-            ["git", "clone", "--depth", "1",
+            ["git", "clone",
              "https://github.com/ace-step/ACE-Step-1.5.git",
              str(ACE_ROOT)], capture_output=True, text=True)
+        if r.returncode == 0:
+            r = subprocess.run(
+                ["git", "-C", str(ACE_ROOT), "checkout", "-q",
+                 "ca1e85fe9430179831e6bc6be790c332190a3866"],
+                capture_output=True, text=True)
         if r.returncode != 0:
             raise RuntimeError(
                 f"ACE-Step clone failed: {(r.stderr or '')[-300:]}")
@@ -771,8 +781,8 @@ def setup_kokoro():
 
 def setup_kokoro_pytorch():
     """Install the genuine PyTorch kokoro package, the
-    Modal image's own pins (kokoro>=0.9.2, soundfile,
-    numpy), into a Python 3.12 uv venv: the package
+    Modal image's own pins (kokoro==0.9.4, soundfile==0.14.0,
+    numpy==2.5.5), into a Python 3.12 uv venv: the package
     cannot install on this kernel's Python 3.13 at all
     (its releases declare Requires-Python <3.13, and the
     older tree pins numpy==1.26.4, which has no 3.13
@@ -814,10 +824,10 @@ def setup_kokoro_pytorch():
                 f"uv pip install {pkgs} failed: "
                 f"{(r.stdout + r.stderr)[-280:]}")
 
-    uv_pip(["torch"],
+    uv_pip(["torch==2.15.0"],
            index_url="https://download.pytorch.org/whl/cpu")
     heartbeat()
-    uv_pip(["kokoro>=0.9.2", "soundfile", "numpy"])
+    uv_pip(["kokoro==0.9.4", "soundfile==0.14.0", "numpy==2.5.5"])
     heartbeat()
     uv_pip([f"en-core-web-sm @ {SPACY_MODEL_WHEEL}"])
     made = run_voiceover_script("Hello.", "af_heart")
@@ -860,7 +870,8 @@ def setup_kokoro_onnx():
     runtime that installs on this kernel's Python 3.13.
     Reached only when the genuine engine's setup failed;
     the session log names it as the fallback."""
-    pip_install_checked(["kokoro-onnx", "soundfile", "numpy"])
+    pip_install_checked(["kokoro-onnx==0.6.1", "soundfile==0.14.0",
+                         "numpy==2.5.5"])
     _download(KOKORO_MODEL_URL, KOKORO_MODEL_PATH)
     heartbeat()
     _download(KOKORO_VOICES_URL, KOKORO_VOICES_PATH)
@@ -999,7 +1010,7 @@ _WHISPER_READY = False
 def setup_whisper():
     """Install faster-whisper into the Python 3.12 venv
     the speech stage already uses (the Modal word check's
-    own pins: faster-whisper 1.2.1, av<19), so the word
+    own pins: faster-whisper==1.2.1, av==18.1.1), so the word
     check and transcribe stages can run here. The venv
     usually exists already (the Kokoro setup made it);
     its setup thread is joined first, without inheriting
@@ -1025,7 +1036,8 @@ def setup_whisper():
     r = subprocess.run(
         [uv, "pip", "install", "--python",
          str(KOKORO_VENV_PYTHON),
-         "faster-whisper==1.2.1", "av<19", "soundfile", "numpy"],
+         "faster-whisper==1.2.1", "av==18.1.1",
+         "soundfile==0.14.0", "numpy==2.5.5"],
         capture_output=True, text=True, timeout=1800)
     log(f"uv pip install faster-whisper -> rc={r.returncode}")
     if r.returncode != 0:

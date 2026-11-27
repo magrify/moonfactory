@@ -43,7 +43,7 @@ volume = modal.Volume.from_name(VOLUME_NAME, create_if_missing=True)
 
 download_image = (
     modal.Image.debian_slim(python_version="3.12")
-    .pip_install("huggingface_hub")
+    .pip_install("huggingface_hub==2.5.0")
 )
 
 MODEL_REPO = "Comfy-Org/Wan_2.2_ComfyUI_Repackaged"
@@ -91,12 +91,17 @@ def download_models():
 comfy_image = (
     modal.Image.debian_slim(python_version="3.12")
     .apt_install("git", "ffmpeg")
-    .pip_install("comfy-cli")
-    .run_commands("comfy --skip-prompt install --nvidia")
+    .pip_install("comfy-cli==1.29.0")
+    .run_commands("comfy --skip-prompt install --nvidia --commit 7c78b5641ab2d6cb7f7766a183a8a43a59de0a8b")
     .run_commands(
         "git clone https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git "
         "/root/comfy/ComfyUI/custom_nodes/ComfyUI-VideoHelperSuite"
+        " && git -C /root/comfy/ComfyUI/custom_nodes/ComfyUI-VideoHelperSuite"
+        " checkout 775ae691ecbab6a6d09a2c186f95d130cf8a10d3"
     )
+    # The requirements.txt installs below read files inside the
+    # clones pinned to commits above, so their contents are
+    # transitively pinned by those checkouts.
     .run_commands(
         "pip install -r "
         "/root/comfy/ComfyUI/custom_nodes/ComfyUI-VideoHelperSuite/requirements.txt"
@@ -104,6 +109,8 @@ comfy_image = (
     .run_commands(
         "git clone https://github.com/Fannovel16/ComfyUI-Frame-Interpolation.git "
         "/root/comfy/ComfyUI/custom_nodes/ComfyUI-Frame-Interpolation"
+        " && git -C /root/comfy/ComfyUI/custom_nodes/ComfyUI-Frame-Interpolation"
+        " checkout 26545cc2dd95bc3d27f056016300673bdeee78f5"
     )
     .run_commands(
         "pip install -r "
@@ -113,6 +120,8 @@ comfy_image = (
     .run_commands(
         "git clone https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler.git "
         "/root/comfy/ComfyUI/custom_nodes/ComfyUI-SeedVR2_VideoUpscaler"
+        " && git -C /root/comfy/ComfyUI/custom_nodes/ComfyUI-SeedVR2_VideoUpscaler"
+        " checkout f7362118d67db1045f4374428a0f5c814c7d0b7a"
     )
     .run_commands(
         "pip install -r "
@@ -129,9 +138,11 @@ comfy_image = (
     .run_commands(
         "git clone https://github.com/ChrisColeTech/ComfyUI-GGUF-Loader.git "
         "/root/comfy/ComfyUI/custom_nodes/ComfyUI-GGUF-Loader"
+        " && git -C /root/comfy/ComfyUI/custom_nodes/ComfyUI-GGUF-Loader"
+        " checkout 109a281b1a49570cb708f8543efea6383baba40a"
     )
     .run_commands(
-        "pip install gguf sentencepiece protobuf || true"
+        "pip install gguf==0.19.0 sentencepiece==0.2.3 protobuf==7.36.2 || true"
     )
 )
 
@@ -737,7 +748,7 @@ LANE_DEFAULT_IMAGES = {
 api_image = (
     modal.Image.debian_slim(python_version="3.12")
     .apt_install("ffmpeg")
-    .pip_install("fastapi[standard]")
+    .pip_install("fastapi[standard]==0.165.0")
     .add_local_file(
         str(Path(__file__).parent.parent / "workflows" / "draft_i2v_5b.json"),
         "/workflows/draft_i2v_5b.json",

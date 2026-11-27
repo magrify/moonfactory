@@ -136,6 +136,10 @@ def pip_install(pkgs, only_binary=False):
 _MODEL = None
 _WHISPER = None
 
+# Pinned specs for the load self-healing loop in setup_engine,
+# keyed by importable module name.
+LOAD_MISS_PINS = {"x_transformers": "x-transformers==2.32.4"}
+
 
 def setup_engine():
     """Install deps, fetch the CosyVoice code and weights,
@@ -147,15 +151,18 @@ def setup_engine():
     # installed and measured in the 2026-11-22 test (Kaggle's
     # torch stays: it ships no older wheel for its Python).
     for pkg in (["conformer==0.3.2"], ["diffusers==0.29.0"],
-                ["transformers==4.51.3"], ["modelscope"],
+                ["transformers==4.51.3"], ["modelscope==1.40.3"],
                 ["wetext==0.0.4"], ["pyworld==0.3.4"],
                 ["pyarrow==18.1.0"], ["librosa==0.10.2"],
-                ["lightning==2.2.4"], ["hyperpyyaml"],
-                ["omegaconf"], ["hydra-core"], ["inflect"],
-                ["onnxruntime"], ["gdown"], ["soundfile"],
-                ["faster-whisper"], ["matplotlib"],
-                ["networkx==3.1"], ["rich"], ["wget"],
-                ["protobuf"], ["tensorboard"], ["onnx"]):
+                ["lightning==2.2.4"], ["hyperpyyaml==1.2.3"],
+                ["omegaconf==2.4.0"], ["hydra-core==1.3.8"],
+                ["inflect==7.6.0"],
+                ["onnxruntime==1.32.0"], ["gdown==6.5.2"],
+                ["soundfile==0.14.0"],
+                ["faster-whisper==1.2.1"], ["matplotlib==3.11.2"],
+                ["networkx==3.1"], ["rich==15.0.0"], ["wget==3.2"],
+                ["protobuf==7.36.2"], ["tensorboard==2.21.0"],
+                ["onnx==1.23.2"]):
         pip_install(pkg)
     heartbeat()
     # The pinned frontend normalizes text with the wetext
@@ -213,9 +220,14 @@ def setup_engine():
         if matcha.exists():
             shutil.rmtree(matcha)
         r = subprocess.run(
-            ["git", "clone", "--depth", "1",
+            ["git", "clone",
              "https://github.com/shivammehta25/Matcha-TTS.git",
              str(matcha)], capture_output=True, text=True)
+        if r.returncode == 0:
+            r = subprocess.run(
+                ["git", "-C", str(matcha), "checkout", "-q",
+                 "bd4d90d93214b37f7a159cf205ae85762c2c10aa"],
+                capture_output=True, text=True)
         if r.returncode != 0 or not (matcha / "matcha").exists():
             raise RuntimeError(
                 f"Matcha-TTS clone failed: {(r.stderr or '')[-300:]}")
@@ -256,10 +268,16 @@ def setup_engine():
             if not m:
                 raise
             name = m.group(1).split(".")[0]
-            pkg = {"x_transformers": "x-transformers"}.get(name, name)
-            log(f"load miss: installing {pkg} (module {name}), "
+            # Self-healing installs resolve through a pinned
+            # allowlist only: an unlisted missing module
+            # re-raises instead of installing whatever PyPI
+            # serves today under a bare name.
+            spec = LOAD_MISS_PINS.get(name)
+            if spec is None:
+                raise
+            log(f"load miss: installing {spec} (module {name}), "
                 f"attempt {attempt + 1}")
-            pip_install([pkg])
+            pip_install([spec])
             heartbeat()
     if _MODEL is None:
         raise RuntimeError("CosyVoice load kept failing on "
