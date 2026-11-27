@@ -1,0 +1,21 @@
+{
+ "wan-3.0|480p": "200 {\"available\":true,\"group\":\"default\",\"usd\":0.15}",
+ "wan-3.0|720p": "200 {\"available\":true,\"group\":\"default\",\"usd\":0.3}",
+ "wan-3.0|1080p": "200 {\"available\":true,\"group\":\"default\",\"usd\":0.485}",
+ "MiniMax-H3|720p": "200 {\"available\":true,\"group\":\"default\",\"usd\":0.075}",
+ "MiniMax-H3|1080p": "200 {\"available\":true,\"group\":\"default\",\"usd\":0.075}",
+ "MiniMax-H3|2K": "200 {\"available\":true,\"group\":\"default\",\"usd\":0.075}",
+ "ME-MiniMax-H3-2K|1080p": "200 {\"available\":true,\"group\":\"default\",\"usd\":0.25}",
+ "ME-MiniMax-H3-2K|2K": "200 {\"available\":true,\"group\":\"default\",\"usd\":0.25}",
+ "mtapi-minimax-h3|720p": "200 {\"available\":true,\"group\":\"default\",\"usd\":0.2}",
+ "mtapi-minimax-h3|1080p": "200 {\"available\":true,\"group\":\"default\",\"usd\":0.2}",
+ "seedance_2.0|480p": "503 {\"error\":{\"code\":\"model_maintenance\",\"message\":\"This model is temporarily under maintenance. Please try again later. (request id: 202611270525014097481268268d9d6549UYd7D)\",\"type\":\"new_api_error\"}}",
+ "seedance_2.0|720p": "503 {\"error\":{\"code\":\"model_maintenance\",\"message\":\"This model is temporarily under maintenance. Please try again later. (request id: 202611270525016338380198268d9d6HW6tzlUw)\",\"type\":\"new_api_error\"}}",
+ "seedance_2.0|1080p": "503 {\"error\":{\"code\":\"model_maintenance\",\"message\":\"This model is temporarily under maintenance. Please try again later. (request id: 202611270525018812875318268d9d6QvJ1vjuf)\",\"type\":\"new_api_error\"}}",
+ "seedance_2.0|4K": "503 {\"error\":{\"code\":\"model_maintenance\",\"message\":\"This model is temporarily under maintenance. Please try again later. (request id: 202611270525021277705248268d9d66vlY0T1B)\",\"type\":\"new_api_error\"}}",
+ "XG-Seedance-2.0-720|720p": "200 {\"available\":true,\"group\":\"default\",\"usd\":0.7}",
+ "sd2.5-flash|480p": "503 {\"error\":{\"code\":\"model_maintenance\",\"message\":\"This model is temporarily under maintenance. Please try again later. (request id: 202611270525025766253218268d9d6Ulec2hnB)\",\"type\":\"new_api_error\"}}",
+ "sd2.5-flash|720p": "503 {\"error\":{\"code\":\"model_maintenance\",\"message\":\"This model is temporarily under maintenance. Please try again later. (request id: 202611270525028288108788268d9d6ec4zNqcG)\",\"type\":\"new_api_error\"}}",
+ "doubao-seedance-2-5-flash-261115|480p": "200 {\"available\":true,\"group\":\"default\",\"usd\":0.210394}",
+ "doubao-seedance-2-5-flash-261115|720p": "200 {\"available\":true,\"group\":\"default\",\"usd\":0.326384}"
+}

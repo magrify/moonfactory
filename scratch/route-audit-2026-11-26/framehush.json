@@ -1,0 +1,163 @@
+{
+ "status": 200,
+ "bytes": 2108,
+ "data": {
+  "data": [
+   {
+    "id": "L-Seedance-2.5-480p",
+    "object": "model",
+    "created": 1626777600,
+    "owned_by": "openai",
+    "supported_endpoint_types": [
+     "openai"
+    ]
+   },
+   {
+    "id": "L-Seedance-2.5-720p",
+    "object": "model",
+    "created": 1626777600,
+    "owned_by": "openai",
+    "supported_endpoint_types": [
+     "openai"
+    ]
+   },
+   {
+    "id": "ME-MiniMax-H3-2K",
+    "object": "model",
+    "created": 1626777600,
+    "owned_by": "openai",
+    "supported_endpoint_types": [
+     "openai"
+    ]
+   },
+   {
+    "id": "MiniMax-H3",
+    "object": "model",
+    "created": 1626777600,
+    "owned_by": "openai",
+    "supported_endpoint_types": [
+     "openai"
+    ]
+   },
+   {
+    "id": "XG-Seedance-2.0-720",
+    "object": "model",
+    "created": 1626777600,
+    "owned_by": "openai",
+    "supported_endpoint_types": [
+     "openai"
+    ]
+   },
+   {
+    "id": "auto-hd",
+    "object": "model",
+    "created": 1626777600,
+    "owned_by": "openai",
+    "supported_endpoint_types": [
+     "openai"
+    ]
+   },
+   {
+    "id": "doubao-seedance-2-5",
+    "object": "model",
+    "created": 1626777600,
+    "owned_by": "openai",
+    "supported_endpoint_types": [
+     "openai"
+    ]
+   },
+   {
+    "id": "doubao-seedance-2-5-260628",
+    "object": "model",
+    "created": 1626777600,
+    "owned_by": "openai",
+    "supported_endpoint_types": [
+     "openai"
+    ]
+   },
+   {
+    "id": "doubao-seedance-2-5-flash-261115",
+    "object": "model",
+    "created": 1626777600,
+    "owned_by": "openai",
+    "supported_endpoint_types": [
+     "openai"
+    ]
+   },
+   {
+    "id": "magi-2-1080P",
+    "object": "model",
+    "created": 1626777600,
+    "owned_by": "openai",
+    "supported_endpoint_types": [
+     "openai"
+    ]
+   },
+   {
+    "id": "mtapi-minimax-h3",
+    "object": "model",
+    "created": 1626777600,
+    "owned_by": "openai",
+    "supported_endpoint_types": [
+     "openai"
+    ]
+   },
+   {
+    "id": "sd2.5-flash",
+    "object": "model",
+    "created": 1626777600,
+    "owned_by": "openai",
+    "supported_endpoint_types": [
+     "openai"
+    ]
+   },
+   {
+    "id": "sd2.5-full-face",
+    "object": "model",
+    "created": 1626777600,
+    "owned_by": "openai",
+    "supported_endpoint_types": [
+     "openai"
+    ]
+   },
+   {
+    "id": "seedance-2-5",
+    "object": "model",
+    "created": 1626777600,
+    "owned_by": "openai",
+    "supported_endpoint_types": [
+     "openai"
+    ]
+   },
+   {
+    "id": "seedance_2.0",
+    "object": "model",
+    "created": 1626777600,
+    "owned_by": "openai",
+    "supported_endpoint_types": [
+     "openai"
+    ]
+   },
+   {
+    "id": "wan-3.0",
+    "object": "model",
+    "created": 1626777600,
+    "owned_by": "openai",
+    "supported_endpoint_types": [
+     "openai"
+    ]
+   },
+   {
+    "id": "\u7279\u4ef7v-sd-2.5-\u6309\u79d2",
+    "object": "model",
+    "created": 1626777600,
+    "owned_by": "openai",
+    "supported_endpoint_types": [
+     "openai"
+    ]
+   }
+  ],
+  "object": "list",
+  "success": true
+ }
+}

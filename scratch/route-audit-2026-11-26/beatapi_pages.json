@@ -1,0 +1,1160 @@
+{
+ "sitemap_urls": 992,
+ "pages": {
+  "https://beatapi.io/zh": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/zh-tw": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/ja": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/ko": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/de": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/fr": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/pt": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/pt-br": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/es-419": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/ru": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/data": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/zh/data": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/ja/data": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/ru/data": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/seo": {
+   "status": 200,
+   "prices": [
+    {
+     "usd": 0.0003,
+     "unit": "",
+     "ctx": "bel\">Keyword overview</span><span class=\"api-op-meta\"><span class=\"api-op-price\">$0.018 + $0.0003 / row</span><svg xmlns=\"http://www.w3.org/2000/svg\" "
+    },
+    {
+     "usd": 0.0003,
+     "unit": "",
+     "ctx": "-label\">Keyword ideas</span><span class=\"api-op-meta\"><span class=\"api-op-price\">$0.018 + $0.0003 / row</span><svg xmlns=\"http://www.w3.org/2000/svg\" "
+    },
+    {
+     "usd": 0.0003,
+     "unit": "",
+     "ctx": "l\">Keyword difficulty</span><span class=\"api-op-meta\"><span class=\"api-op-price\">$0.018 + $0.0003 / row</span><svg xmlns=\"http://www.w3.org/2000/svg\" "
+    },
+    {
+     "usd": 0.0003,
+     "unit": "",
+     "ctx": "-status-dot\" aria-hidden=\"true\"></span>200 OK</span><span class=\"api-price-pill\">$0.018 + $0.0003 / row</span></span></div><div class=\"api-input-strip"
+    },
+    {
+     "usd": 0.0003,
+     "unit": "",
+     "ctx": "abel\">Domain overview</span><span class=\"api-op-meta\"><span class=\"api-op-price\">$0.018 + $0.0003 / row</span><svg xmlns=\"http://www.w3.org/2000/svg\" "
+    },
+    {
+     "usd": 0.0003,
+     "unit": "",
+     "ctx": "abel\">Ranked keywords</span><span class=\"api-op-meta\"><span class=\"api-op-price\">$0.018 + $0.0003 / row</span><svg xmlns=\"http://www.w3.org/2000/svg\" "
+    },
+    {
+     "usd": 0.0003,
+     "unit": "",
+     "ctx": "i-op-label\">Top pages</span><span class=\"api-op-meta\"><span class=\"api-op-price\">$0.018 + $0.0003 / row</span><svg xmlns=\"http://www.w3.org/2000/svg\" "
+    },
+    {
+     "usd": 0.0003,
+     "unit": "",
+     "ctx": "l\">Search competitors</span><span class=\"api-op-meta\"><span class=\"api-op-price\">$0.018 + $0.0003 / row</span><svg xmlns=\"http://www.w3.org/2000/svg\" "
+    },
+    {
+     "usd": 0.0003,
+     "unit": "",
+     "ctx": "-status-dot\" aria-hidden=\"true\"></span>200 OK</span><span class=\"api-price-pill\">$0.018 + $0.0003 / row</span></span></div><div class=\"api-input-strip"
+    },
+    {
+     "usd": 0.0002,
+     "unit": "",
+     "ctx": "bel\">Backlink summary</span><span class=\"api-op-meta\"><span class=\"api-op-price\">$0.035 + $0.0002 / row</span><svg xmlns=\"http://www.w3.org/2000/svg\" "
+    },
+    {
+     "usd": 0.0002,
+     "unit": "",
+     "ctx": "i-op-label\">Backlinks</span><span class=\"api-op-meta\"><span class=\"api-op-price\">$0.035 + $0.0002 / row</span><svg xmlns=\"http://www.w3.org/2000/svg\" "
+    },
+    {
+     "usd": 0.0002,
+     "unit": "",
+     "ctx": "-status-dot\" aria-hidden=\"true\"></span>200 OK</span><span class=\"api-price-pill\">$0.035 + $0.0002 / row</span></span></div><div class=\"api-input-strip"
+    },
+    {
+     "usd": 0.005,
+     "unit": "",
+     "ctx": "s=\"api-op-label\">Domain Rating</span><span class=\"api-op-meta\"><span class=\"api-op-price\">$0.005 / call</span><svg xmlns=\"http://www.w3.org/2000/svg\" "
+    },
+    {
+     "usd": 0.004,
+     "unit": "",
+     "ctx": "p-label\">Domain Rating history</span><span class=\"api-op-meta\"><span class=\"api-op-price\">$0.004 / month</span><svg xmlns=\"http://www.w3.org/2000/svg\""
+    }
+   ]
+  },
+  "https://beatapi.io/zh/seo": {
+   "status": 200,
+   "prices": [
+    {
+     "usd": 0.0003,
+     "unit": "",
+     "ctx": "=\"api-op-label\">\u5173\u952e\u8bcd\u6982\u89c8</span><span class=\"api-op-meta\"><span class=\"api-op-price\">$0.018 + $0.0003 / row</span><svg xmlns=\"http://www.w3.org/2000/svg\" "
+    },
+    {
+     "usd": 0.0003,
+     "unit": "",
+     "ctx": "=\"api-op-label\">\u5173\u952e\u8bcd\u5efa\u8bae</span><span class=\"api-op-meta\"><span class=\"api-op-price\">$0.018 + $0.0003 / row</span><svg xmlns=\"http://www.w3.org/2000/svg\" "
+    },
+    {
+     "usd": 0.0003,
+     "unit": "",
+     "ctx": "=\"api-op-label\">\u5173\u952e\u8bcd\u96be\u5ea6</span><span class=\"api-op-meta\"><span class=\"api-op-price\">$0.018 + $0.0003 / row</span><svg xmlns=\"http://www.w3.org/2000/svg\" "
+    },
+    {
+     "usd": 0.0003,
+     "unit": "",
+     "ctx": "-status-dot\" aria-hidden=\"true\"></span>200 OK</span><span class=\"api-price-pill\">$0.018 + $0.0003 / row</span></span></div><div class=\"api-input-strip"
+    },
+    {
+     "usd": 0.0003,
+     "unit": "",
+     "ctx": "s=\"api-op-label\">\u57df\u540d\u6982\u89c8</span><span class=\"api-op-meta\"><span class=\"api-op-price\">$0.018 + $0.0003 / row</span><svg xmlns=\"http://www.w3.org/2000/svg\" "
+    },
+    {
+     "usd": 0.0003,
+     "unit": "",
+     "ctx": "=\"api-op-label\">\u6392\u540d\u5173\u952e\u8bcd</span><span class=\"api-op-meta\"><span class=\"api-op-price\">$0.018 + $0.0003 / row</span><svg xmlns=\"http://www.w3.org/2000/svg\" "
+    },
+    {
+     "usd": 0.0003,
+     "unit": "",
+     "ctx": "s=\"api-op-label\">\u4e3b\u8981\u9875\u9762</span><span class=\"api-op-meta\"><span class=\"api-op-price\">$0.018 + $0.0003 / row</span><svg xmlns=\"http://www.w3.org/2000/svg\" "
+    },
+    {
+     "usd": 0.0003,
+     "unit": "",
+     "ctx": "=\"api-op-label\">\u641c\u7d22\u7ade\u4e89\u8005</span><span class=\"api-op-meta\"><span class=\"api-op-price\">$0.018 + $0.0003 / row</span><svg xmlns=\"http://www.w3.org/2000/svg\" "
+    },
+    {
+     "usd": 0.0003,
+     "unit": "",
+     "ctx": "-status-dot\" aria-hidden=\"true\"></span>200 OK</span><span class=\"api-price-pill\">$0.018 + $0.0003 / row</span></span></div><div class=\"api-input-strip"
+    },
+    {
+     "usd": 0.0002,
+     "unit": "",
+     "ctx": "s=\"api-op-label\">\u5916\u94fe\u6982\u89c8</span><span class=\"api-op-meta\"><span class=\"api-op-price\">$0.035 + $0.0002 / row</span><svg xmlns=\"http://www.w3.org/2000/svg\" "
+    },
+    {
+     "usd": 0.0002,
+     "unit": "",
+     "ctx": "s=\"api-op-label\">\u5916\u94fe\u5217\u8868</span><span class=\"api-op-meta\"><span class=\"api-op-price\">$0.035 + $0.0002 / row</span><svg xmlns=\"http://www.w3.org/2000/svg\" "
+    },
+    {
+     "usd": 0.0002,
+     "unit": "",
+     "ctx": "-status-dot\" aria-hidden=\"true\"></span>200 OK</span><span class=\"api-price-pill\">$0.035 + $0.0002 / row</span></span></div><div class=\"api-input-strip"
+    },
+    {
+     "usd": 0.005,
+     "unit": "",
+     "ctx": "span class=\"api-op-label\">\u57df\u540d\u8bc4\u5206</span><span class=\"api-op-meta\"><span class=\"api-op-price\">$0.005 / call</span><svg xmlns=\"http://www.w3.org/2000/svg\" "
+    },
+    {
+     "usd": 0.004,
+     "unit": "",
+     "ctx": "an class=\"api-op-label\">\u57df\u540d\u8bc4\u5206\u5386\u53f2</span><span class=\"api-op-meta\"><span class=\"api-op-price\">$0.004 / month</span><svg xmlns=\"http://www.w3.org/2000/svg\""
+    }
+   ]
+  },
+  "https://beatapi.io/ja/seo": {
+   "status": 200,
+   "prices": [
+    {
+     "usd": 0.0003,
+     "unit": "",
+     "ctx": "api-op-label\">\u30ad\u30fc\u30ef\u30fc\u30c9\u6982\u8981</span><span class=\"api-op-meta\"><span class=\"api-op-price\">$0.018 + $0.0003 / row</span><svg xmlns=\"http://www.w3.org/2000/svg\" "
+    },
+    {
+     "usd": 0.0003,
+     "unit": "",
+     "ctx": "api-op-label\">\u30ad\u30fc\u30ef\u30fc\u30c9\u5019\u88dc</span><span class=\"api-op-meta\"><span class=\"api-op-price\">$0.018 + $0.0003 / row</span><svg xmlns=\"http://www.w3.org/2000/svg\" "
+    },
+    {
+     "usd": 0.0003,
+     "unit": "",
+     "ctx": "pi-op-label\">\u30ad\u30fc\u30ef\u30fc\u30c9\u96e3\u6613\u5ea6</span><span class=\"api-op-meta\"><span class=\"api-op-price\">$0.018 + $0.0003 / row</span><svg xmlns=\"http://www.w3.org/2000/svg\" "
+    },
+    {
+     "usd": 0.0003,
+     "unit": "",
+     "ctx": "-status-dot\" aria-hidden=\"true\"></span>200 OK</span><span class=\"api-price-pill\">$0.018 + $0.0003 / row</span></span></div><div class=\"api-input-strip"
+    },
+    {
+     "usd": 0.0003,
+     "unit": "",
+     "ctx": "\"api-op-label\">\u30c9\u30e1\u30a4\u30f3\u6982\u8981</span><span class=\"api-op-meta\"><span class=\"api-op-price\">$0.018 + $0.0003 / row</span><svg xmlns=\"http://www.w3.org/2000/svg\" "
+    },
+    {
+     "usd": 0.0003,
+     "unit": "",
+     "ctx": "i-op-label\">\u9806\u4f4d\u4ed8\u304d\u30ad\u30fc\u30ef\u30fc\u30c9</span><span class=\"api-op-meta\"><span class=\"api-op-price\">$0.018 + $0.0003 / row</span><svg xmlns=\"http://www.w3.org/2000/svg\" "
+    },
+    {
+     "usd": 0.0003,
+     "unit": "",
+     "ctx": "=\"api-op-label\">\u4e3b\u8981\u30da\u30fc\u30b8</span><span class=\"api-op-meta\"><span class=\"api-op-price\">$0.018 + $0.0003 / row</span><svg xmlns=\"http://www.w3.org/2000/svg\" "
+    },
+    {
+     "usd": 0.0003,
+     "unit": "",
+     "ctx": "\"api-op-label\">\u691c\u7d22\u4e0a\u306e\u7af6\u5408</span><span class=\"api-op-meta\"><span class=\"api-op-price\">$0.018 + $0.0003 / row</span><svg xmlns=\"http://www.w3.org/2000/svg\" "
+    },
+    {
+     "usd": 0.0003,
+     "unit": "",
+     "ctx": "-status-dot\" aria-hidden=\"true\"></span>200 OK</span><span class=\"api-price-pill\">$0.018 + $0.0003 / row</span></span></div><div class=\"api-input-strip"
+    },
+    {
+     "usd": 0.0002,
+     "unit": "",
+     "ctx": "\"api-op-label\">\u88ab\u30ea\u30f3\u30af\u6982\u8981</span><span class=\"api-op-meta\"><span class=\"api-op-price\">$0.035 + $0.0002 / row</span><svg xmlns=\"http://www.w3.org/2000/svg\" "
+    },
+    {
+     "usd": 0.0002,
+     "unit": "",
+     "ctx": "\"api-op-label\">\u88ab\u30ea\u30f3\u30af\u4e00\u89a7</span><span class=\"api-op-meta\"><span class=\"api-op-price\">$0.035 + $0.0002 / row</span><svg xmlns=\"http://www.w3.org/2000/svg\" "
+    },
+    {
+     "usd": 0.0002,
+     "unit": "",
+     "ctx": "-status-dot\" aria-hidden=\"true\"></span>200 OK</span><span class=\"api-price-pill\">$0.035 + $0.0002 / row</span></span></div><div class=\"api-input-strip"
+    },
+    {
+     "usd": 0.005,
+     "unit": "",
+     "ctx": "s=\"api-op-label\">Domain Rating</span><span class=\"api-op-meta\"><span class=\"api-op-price\">$0.005 / call</span><svg xmlns=\"http://www.w3.org/2000/svg\" "
+    },
+    {
+     "usd": 0.004,
+     "unit": "",
+     "ctx": "pi-op-label\">Domain Rating \u306e\u5c65\u6b74</span><span class=\"api-op-meta\"><span class=\"api-op-price\">$0.004 / month</span><svg xmlns=\"http://www.w3.org/2000/svg\""
+    }
+   ]
+  },
+  "https://beatapi.io/muse": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/zh/muse": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/ja/muse": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/case": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/zh/case": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/ja/case": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/case/codex-reset-monitor": {
+   "status": 200,
+   "prices": [
+    {
+     "usd": 0.003,
+     "unit": "",
+     "ctx": "mt-3 text-sm leading-6 text-[var(--marketing-muted)]\">At the currently inspected price of $0.003 per Social Data request:</p><div class=\"mt-6 overflow"
+    }
+   ]
+  },
+  "https://beatapi.io/zh/case/codex-reset-monitor": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/ja/case/codex-reset-monitor": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/case/growth-diagnosis": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/zh/case/growth-diagnosis": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/case/openrouter-model-radar": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/zh/case/openrouter-model-radar": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/ja/case/openrouter-model-radar": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/case/reddit-startup-idea-miner": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/zh/case/reddit-startup-idea-miner": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/ja/case/reddit-startup-idea-miner": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/generator": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/zh/generator": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/zh-tw/generator": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/ja/generator": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/ko/generator": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/de/generator": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/fr/generator": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/pt/generator": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/pt-br/generator": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/es-419/generator": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/ru/generator": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/magi-2-api": {
+   "status": 200,
+   "prices": [
+    {
+     "usd": 0.088,
+     "unit": "",
+     "ctx": "Generate 4\u201330 second 1080p videos with sound from text, frames, or up to 20 references at $0.088/s.\"/><meta property=\"og:type\" content=\"website\"/><met"
+    },
+    {
+     "usd": 0.088,
+     "unit": "",
+     "ctx": "Generate 4\u201330 second 1080p videos with sound from text, frames, or up to 20 references at $0.088/s.\"/><meta property=\"og:url\" content=\"https://beatapi"
+    },
+    {
+     "usd": 0.088,
+     "unit": "",
+     "ctx": "Generate 4\u201330 second 1080p videos with sound from text, frames, or up to 20 references at $0.088/s.\"/><meta name=\"twitter:image\" content=\"https://beat"
+    },
+    {
+     "usd": 0.088,
+     "unit": "",
+     "ctx": "Generate 4\u201330 second 1080p videos with sound from text, frames, or up to 20 references at $0.088/s.\",\"inLanguage\":\"en\",\"isPartOf\":{\"@id\":\"https://beat"
+    },
+    {
+     "usd": 0.088,
+     "unit": "",
+     "ctx": "Generate 4\u201330 second 1080p videos with sound from text, frames, or up to 20 references at $0.088/s.\",\"category\":\"AI video API\",\"provider\":{\"@id\":\"http"
+    },
+    {
+     "usd": 0.088,
+     "unit": "",
+     "ctx": "API?\",\"acceptedAnswer\":{\"@type\":\"Answer\",\"text\":\"BeatAPI bills MAGI-2 at one flat rate of $0.088/s ($0.704 for 8s at 1080p; $0.352 for 4s, $0.44 for 5"
+    },
+    {
+     "usd": 0.704,
+     "unit": "",
+     "ctx": "marketing-muted)]\">Billing</dt><dd class=\"mt-2 break-words text-lg font-medium leading-6\">$0.704/8s \u00b7 1080p</dd></div></dl></div><div id=\"playground\" "
+    },
+    {
+     "usd": 0.088,
+     "unit": "",
+     "ctx": "pared with other video APIs on BeatAPI?\",answer:\"BeatAPI bills MAGI-2 at one flat rate of $0.088/s ($0.704 for 8s at 1080p; $0.352 for 4s, $0.44 for 5"
+    },
+    {
+     "usd": 0.088,
+     "unit": "",
+     "ctx": "Generate 4\u201330 second 1080p videos with sound from text, frames, or up to 20 references at $0.088/s.\"},ssr:!0}]})($R[\"tsr\"]);$_TSR.e()</script><script "
+    },
+    {
+     "usd": 0.088,
+     "unit": "",
+     "ctx": "leading-6 text-[var(--marketing-muted)]\">BeatAPI bills MAGI-2 strictly by output seconds ($0.088/s). Sending reference images, reference videos, or re"
+    },
+    {
+     "usd": 0.704,
+     "unit": "",
+     "ctx": "-5 py-4 align-top leading-6 text-[var(--marketing-muted)]\">POST /v1/videos/tasks (async); $0.704 per 8s 1080p ($0.088/s) in every mode</td></tr></tbod"
+    },
+    {
+     "usd": 0.088,
+     "unit": "",
+     "ctx": "ding-6 text-[var(--marketing-muted)]\">POST /v1/videos/tasks (async); $0.704 per 8s 1080p ($0.088/s) in every mode</td></tr></tbody></table></section><"
+    },
+    {
+     "usd": 3.869168,
+     "unit": "",
+     "ctx": "ted)]\">$0.704</td><td class=\"px-5 py-4 align-top leading-6 text-[var(--marketing-muted)]\">$3.869168 / $4.610925</td><td class=\"px-5 py-4 align-top lea"
+    },
+    {
+     "usd": 1.84,
+     "unit": "",
+     "ctx": "8 / $4.610925</td><td class=\"px-5 py-4 align-top leading-6 text-[var(--marketing-muted)]\">$1.84 / $2.24</td><td class=\"px-5 py-4 align-top leading-6 t"
+    }
+   ]
+  },
+  "https://beatapi.io/zh/magi-2-api": {
+   "status": 200,
+   "prices": [
+    {
+     "usd": 0.088,
+     "unit": "",
+     "ctx": "\u7c7b\u6a21\u578b\u7701\u591a\u5c11\uff1f\",\"acceptedAnswer\":{\"@type\":\"Answer\",\"text\":\"\u5728 BeatAPI \u4e0a\uff0cMAGI-2 \u6240\u6709\u6a21\u5f0f\u548c\u58f0\u97f3\u5f00\u5173\u90fd\u6309\u8f93\u51fa\u79d2\u6570\u7edf\u4e00\u6536 $0.088/\u79d2\uff088 \u79d2 1080p \u4e3a $0.704\uff0c4 \u79d2 $0.352\uff0c5 \u79d2 $0.44\uff0c30 \u79d2 $2.64\uff09"
+    },
+    {
+     "usd": 0.704,
+     "unit": "",
+     "ctx": "(--marketing-muted)]\">\u8ba1\u8d39\u65b9\u5f0f</dt><dd class=\"mt-2 break-words text-lg font-medium leading-6\">$0.704/8s \u00b7 1080p</dd></div></dl></div><div id=\"playground\" "
+    },
+    {
+     "usd": 0.088,
+     "unit": "",
+     "ctx": "question:\"\u7ecf\u5e38\u5e26\u591a\u5f20\u53c2\u8003\u56fe\u548c\u53c2\u8003\u89c6\u9891\uff0cMAGI-2 \u5b9e\u9645\u6bd4\u540c\u7c7b\u6a21\u578b\u7701\u591a\u5c11\uff1f\",answer:\"\u5728 BeatAPI \u4e0a\uff0cMAGI-2 \u6240\u6709\u6a21\u5f0f\u548c\u58f0\u97f3\u5f00\u5173\u90fd\u6309\u8f93\u51fa\u79d2\u6570\u7edf\u4e00\u6536 $0.088/\u79d2\uff088 \u79d2 1080p \u4e3a $0.704\uff0c4 \u79d2 $0.352\uff0c5 \u79d2 $0.44\uff0c30 \u79d2 $2.64\uff09"
+    },
+    {
+     "usd": 3.869168,
+     "unit": "",
+     "ctx": "ted)]\">$0.704</td><td class=\"px-5 py-4 align-top leading-6 text-[var(--marketing-muted)]\">$3.869168 / $4.610925</td><td class=\"px-5 py-4 align-top lea"
+    },
+    {
+     "usd": 1.84,
+     "unit": "",
+     "ctx": "8 / $4.610925</td><td class=\"px-5 py-4 align-top leading-6 text-[var(--marketing-muted)]\">$1.84 / $2.24</td><td class=\"px-5 py-4 align-top leading-6 t"
+    },
+    {
+     "usd": 0.088,
+     "unit": "",
+     "ctx": " text-[var(--marketing-muted)]\">\u4e0d\u5c11\u652f\u6301\u53c2\u8003\u89c6\u9891\u7684\u6a21\u578b\u4f1a\u628a\u53c2\u8003\u89c6\u9891\u7684\u79d2\u6570\u7b97\u8fdb\u8d26\u5355\u91cc\u3002\u5728 BeatAPI \u8c03\u7528 MAGI-2\uff0c\u6240\u6709\u6a21\u5f0f\u90fd\u6309\u8f93\u51fa\u79d2\u6570\u6536 $0.088/\u79d2\uff088 \u79d2 1080p \u4e3a $0.704\uff09\uff0c\u5927\u7ea6\u662f Seedance 2.5 \u7684\u4e94\u5206\u4e4b\u4e00\u3001Kling 4."
+    },
+    {
+     "usd": 0.088,
+     "unit": "",
+     "ctx": "-6 text-sm leading-7 text-[var(--marketing-muted)]\">\u5728 BeatAPI \u4e0a\uff0cMAGI-2 \u6240\u6709\u6a21\u5f0f\u548c\u58f0\u97f3\u5f00\u5173\u90fd\u6309\u8f93\u51fa\u79d2\u6570\u7edf\u4e00\u6536 $0.088/\u79d2\uff088 \u79d2 1080p \u4e3a $0.704\uff0c4 \u79d2 $0.352\uff0c5 \u79d2 $0.44\uff0c30 \u79d2 $2.64\uff09"
+    }
+   ]
+  },
+  "https://beatapi.io/ja/magi-2-api": {
+   "status": 200,
+   "prices": [
+    {
+     "usd": 0.088,
+     "unit": "",
+     "ctx": "\u3059\u304b\uff1f\",\"acceptedAnswer\":{\"@type\":\"Answer\",\"text\":\"BeatAPI \u306e MAGI-2 \u306f\u5168\u5165\u529b\u30e2\u30fc\u30c9\u30fb\u97f3\u58f0\u30aa\u30f3/\u30aa\u30d5\u5171\u901a\u3067\u51fa\u529b\u79d2\u6570\u306e\u307f $0.088/\u79d2\uff088\u79d21080p $0.704\u30014\u79d2 $0.352\u30015\u79d2 $0.44\u300130\u79d2 $2.64\uff09\u3067\u3059\u3002\u53c2\u7167\u753b\u50cf"
+    },
+    {
+     "usd": 0.704,
+     "unit": "",
+     "ctx": "(--marketing-muted)]\">\u8ab2\u91d1\u65b9\u5f0f</dt><dd class=\"mt-2 break-words text-lg font-medium leading-6\">$0.704/8s \u00b7 1080p</dd></div></dl></div><div id=\"playground\" "
+    },
+    {
+     "usd": 0.088,
+     "unit": "",
+     "ctx": "\u7528\u3059\u308b\u5236\u4f5c\u3067\u306f\u3001BeatAPI \u306e\u4ed6\u30e2\u30c7\u30eb\u3068\u6bd4\u3079\u3066\u3069\u308c\u304f\u3089\u3044\u5b89\u304f\u306a\u308a\u307e\u3059\u304b\uff1f\",answer:\"BeatAPI \u306e MAGI-2 \u306f\u5168\u5165\u529b\u30e2\u30fc\u30c9\u30fb\u97f3\u58f0\u30aa\u30f3/\u30aa\u30d5\u5171\u901a\u3067\u51fa\u529b\u79d2\u6570\u306e\u307f $0.088/\u79d2\uff088\u79d21080p $0.704\u30014\u79d2 $0.352\u30015\u79d2 $0.44\u300130\u79d2 $2.64\uff09\u3067\u3059\u3002\u53c2\u7167\u753b\u50cf"
+    },
+    {
+     "usd": 0.088,
+     "unit": "",
+     "ctx": "gn-top leading-6 text-[var(--marketing-muted)]\">POST /v1/videos/tasks\uff08\u975e\u540c\u671f\uff09\u30028\u79d21080p $0.704\uff08$0.088/\u79d2\uff09\u3001\u5168\u30e2\u30fc\u30c9\u4e00\u5f8b</td></tr></tbody></table></section></div></"
+    },
+    {
+     "usd": 3.869168,
+     "unit": "",
+     "ctx": "ted)]\">$0.704</td><td class=\"px-5 py-4 align-top leading-6 text-[var(--marketing-muted)]\">$3.869168 / $4.610925</td><td class=\"px-5 py-4 align-top lea"
+    },
+    {
+     "usd": 1.84,
+     "unit": "",
+     "ctx": "8 / $4.610925</td><td class=\"px-5 py-4 align-top leading-6 text-[var(--marketing-muted)]\">$1.84 / $2.24</td><td class=\"px-5 py-4 align-top leading-6 t"
+    },
+    {
+     "usd": 0.088,
+     "unit": "",
+     "ctx": "ading-6 text-[var(--marketing-muted)]\">\u53c2\u7167\u52d5\u753b\u306e\u79d2\u6570\u3082\u52a0\u7b97\u8ab2\u91d1\u3059\u308b\u30e2\u30c7\u30eb\u3068\u9055\u3044\u3001BeatAPI \u306e MAGI-2 \u306f\u5168\u30e2\u30fc\u30c9\u3067\u51fa\u529b\u79d2\u6570\u306e\u307f $0.088/\u79d2\uff088\u79d21080p $0.704\uff09\u3067\u3059\u30021080p\u57fa\u6e96\u3067 Seedance 2.5 \u306e\u7d045\u5206\u306e1\u3001Klin"
+    },
+    {
+     "usd": 0.088,
+     "unit": "",
+     "ctx": "ext-sm leading-7 text-[var(--marketing-muted)]\">BeatAPI \u306e MAGI-2 \u306f\u5168\u5165\u529b\u30e2\u30fc\u30c9\u30fb\u97f3\u58f0\u30aa\u30f3/\u30aa\u30d5\u5171\u901a\u3067\u51fa\u529b\u79d2\u6570\u306e\u307f $0.088/\u79d2\uff088\u79d21080p $0.704\u30014\u79d2 $0.352\u30015\u79d2 $0.44\u300130\u79d2 $2.64\uff09\u3067\u3059\u3002\u53c2\u7167\u753b\u50cf"
+    }
+   ]
+  },
+  "https://beatapi.io/ko/magi-2-api": {
+   "status": 200,
+   "prices": [
+    {
+     "usd": 0.704,
+     "unit": "",
+     "ctx": "ar(--marketing-muted)]\">\uacfc\uae08</dt><dd class=\"mt-2 break-words text-lg font-medium leading-6\">$0.704/8s \u00b7 1080p</dd></div></dl></div><div id=\"playground\" "
+    },
+    {
+     "usd": 0.088,
+     "unit": "",
+     "ctx": "<p class=\"mt-3 text-sm leading-6 text-[var(--marketing-muted)]\">BeatAPI\ub294 MAGI-2\ub97c \uc624\uc9c1 \ucd9c\ub825 \ucd08\uc218($0.088/\ucd08) \uae30\uc900\uc73c\ub85c\ub9cc \uacfc\uae08\ud569\ub2c8\ub2e4. \ucc38\uc870 \uc774\ubbf8\uc9c0\u00b7\uc601\uc0c1\u00b7\uc624\ub514\uc624\ub97c \uc5ec\ub7ec \uac1c \ub123\uc5b4\ub3c4 \ucd94\uac00 \ube44\uc6a9\uc774 \uc5c6\uace0, ge"
+    },
+    {
+     "usd": 3.869168,
+     "unit": "",
+     "ctx": "ted)]\">$0.704</td><td class=\"px-5 py-4 align-top leading-6 text-[var(--marketing-muted)]\">$3.869168 / $4.610925</td><td class=\"px-5 py-4 align-top lea"
+    },
+    {
+     "usd": 1.84,
+     "unit": "",
+     "ctx": "8 / $4.610925</td><td class=\"px-5 py-4 align-top leading-6 text-[var(--marketing-muted)]\">$1.84 / $2.24</td><td class=\"px-5 py-4 align-top leading-6 t"
+    }
+   ]
+  },
+  "https://beatapi.io/seedance-2.5-flash-api": {
+   "status": 200,
+   "prices": [
+    {
+     "usd": 0.152,
+     "unit": "second",
+     "ctx": "spect ratio and duration affect the quote. The separate BytePlus launch list reference of $0.152 per second applies to 720p text-to-video and image-to"
+    },
+    {
+     "usd": 0.504239,
+     "unit": "",
+     "ctx": "marketing-muted)]\">Billing</dt><dd class=\"mt-2 break-words text-lg font-medium leading-6\">$0.504239/8s \u00b7 480p</dd></div></dl></div><div id=\"playground"
+    },
+    {
+     "usd": 0.152,
+     "unit": "second",
+     "ctx": "spect ratio and duration affect the quote. The separate BytePlus launch list reference of $0.152 per second applies to 720p text-to-video and image-to"
+    },
+    {
+     "usd": 0.152,
+     "unit": "second",
+     "ctx": "g-6 text-[var(--marketing-muted)]\">The 720p text-to-video and image-to-video list rate is $0.152 per second. Lower model costs make repeated ad variat"
+    },
+    {
+     "usd": 0.152,
+     "unit": "second",
+     "ctx": "spect ratio and duration affect the quote. The separate BytePlus launch list reference of $0.152 per second applies to 720p text-to-video and image-to"
+    }
+   ]
+  },
+  "https://beatapi.io/zh/seedance-2.5-flash-api": {
+   "status": 200,
+   "prices": [
+    {
+     "usd": 0.504239,
+     "unit": "",
+     "ctx": "(--marketing-muted)]\">\u8ba1\u8d39\u65b9\u5f0f</dt><dd class=\"mt-2 break-words text-lg font-medium leading-6\">$0.504239/8s \u00b7 480p</dd></div></dl></div><div id=\"playground"
+    }
+   ]
+  },
+  "https://beatapi.io/ja/seedance-2.5-flash-api": {
+   "status": 200,
+   "prices": [
+    {
+     "usd": 0.152,
+     "unit": "",
+     "ctx": "p \u304c $1.084384 \u3067\u3059\u3002\u3053\u308c\u306f\u30af\u30ea\u30c3\u30d7\u4f8b\u3067\u3042\u308a\u3001\u56fa\u5b9a\u306e\u79d2\u5358\u4fa1\u3067\u306f\u3042\u308a\u307e\u305b\u3093\u3002\u5165\u529b\u3057\u305f\u5bf8\u6cd5\u3001\u30a2\u30b9\u30da\u30af\u30c8\u6bd4\u3001\u9577\u3055\u3067\u898b\u7a4d\u3082\u308a\u304c\u5909\u308f\u308a\u307e\u3059\u3002\u5225\u8a18\u306e BytePlus \u516c\u958b\u6642\u5b9a\u4fa1 $0.152/\u79d2\u306f 720p \u30c6\u30ad\u30b9\u30c8\u52d5\u753b\u30fb\u753b\u50cf\u52d5\u753b\u751f\u6210\u306e\u53c2\u8003\u5024\u3067\u3001BeatAPI \u306e\u8ab2\u91d1\u5358\u4fa1\u3067\u306f\u3042\u308a\u307e\u305b\u3093\u3002\"}},{"
+    },
+    {
+     "usd": 0.504239,
+     "unit": "",
+     "ctx": "(--marketing-muted)]\">\u8ab2\u91d1\u65b9\u5f0f</dt><dd class=\"mt-2 break-words text-lg font-medium leading-6\">$0.504239/8s \u00b7 480p</dd></div></dl></div><div id=\"playground"
+    },
+    {
+     "usd": 0.152,
+     "unit": "",
+     "ctx": "p \u304c $1.084384 \u3067\u3059\u3002\u3053\u308c\u306f\u30af\u30ea\u30c3\u30d7\u4f8b\u3067\u3042\u308a\u3001\u56fa\u5b9a\u306e\u79d2\u5358\u4fa1\u3067\u306f\u3042\u308a\u307e\u305b\u3093\u3002\u5165\u529b\u3057\u305f\u5bf8\u6cd5\u3001\u30a2\u30b9\u30da\u30af\u30c8\u6bd4\u3001\u9577\u3055\u3067\u898b\u7a4d\u3082\u308a\u304c\u5909\u308f\u308a\u307e\u3059\u3002\u5225\u8a18\u306e BytePlus \u516c\u958b\u6642\u5b9a\u4fa1 $0.152/\u79d2\u306f 720p \u30c6\u30ad\u30b9\u30c8\u52d5\u753b\u30fb\u753b\u50cf\u52d5\u753b\u751f\u6210\u306e\u53c2\u8003\u5024\u3067\u3001BeatAPI \u306e\u8ab2\u91d1\u5358\u4fa1\u3067\u306f\u3042\u308a\u307e\u305b\u3093\u3002\"},$R"
+    },
+    {
+     "usd": 0.152,
+     "unit": "",
+     "ctx": "p \u304c $1.084384 \u3067\u3059\u3002\u3053\u308c\u306f\u30af\u30ea\u30c3\u30d7\u4f8b\u3067\u3042\u308a\u3001\u56fa\u5b9a\u306e\u79d2\u5358\u4fa1\u3067\u306f\u3042\u308a\u307e\u305b\u3093\u3002\u5165\u529b\u3057\u305f\u5bf8\u6cd5\u3001\u30a2\u30b9\u30da\u30af\u30c8\u6bd4\u3001\u9577\u3055\u3067\u898b\u7a4d\u3082\u308a\u304c\u5909\u308f\u308a\u307e\u3059\u3002\u5225\u8a18\u306e BytePlus \u516c\u958b\u6642\u5b9a\u4fa1 $0.152/\u79d2\u306f 720p \u30c6\u30ad\u30b9\u30c8\u52d5\u753b\u30fb\u753b\u50cf\u52d5\u753b\u751f\u6210\u306e\u53c2\u8003\u5024\u3067\u3001BeatAPI \u306e\u8ab2\u91d1\u5358\u4fa1\u3067\u306f\u3042\u308a\u307e\u305b\u3093\u3002</p><"
+    }
+   ]
+  },
+  "https://beatapi.io/ko/seedance-2.5-flash-api": {
+   "status": 200,
+   "prices": [
+    {
+     "usd": 0.504239,
+     "unit": "",
+     "ctx": "ar(--marketing-muted)]\">\uacfc\uae08</dt><dd class=\"mt-2 break-words text-lg font-medium leading-6\">$0.504239/8s \u00b7 480p</dd></div></dl></div><div id=\"playground"
+    }
+   ]
+  },
+  "https://beatapi.io/qwen4-api": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/zh/qwen4-api": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/ja/qwen4-api": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/model": {
+   "status": 200,
+   "prices": [
+    {
+     "usd": 0.088,
+     "unit": "",
+     "ctx": "n class=\"mr-1 font-sans text-[10px] font-medium text-[var(--marketing-muted)]\">From</span>$0.088/s</span><span class=\"ml-auto flex min-w-0 items-cente"
+    },
+    {
+     "usd": 0.504239,
+     "unit": "",
+     "ctx": "n class=\"mr-1 font-sans text-[10px] font-medium text-[var(--marketing-muted)]\">From</span>$0.504239/8s</span><span class=\"ml-auto flex min-w-0 items-c"
+    },
+    {
+     "usd": 0.049,
+     "unit": "",
+     "ctx": "n class=\"mr-1 font-sans text-[10px] font-medium text-[var(--marketing-muted)]\">From</span>$0.049/s</span><span class=\"ml-auto flex min-w-0 items-cente"
+    },
+    {
+     "usd": 0.06,
+     "unit": "",
+     "ctx": "n class=\"mr-1 font-sans text-[10px] font-medium text-[var(--marketing-muted)]\">From</span>$0.06/s</span><span class=\"ml-auto flex min-w-0 items-center"
+    },
+    {
+     "usd": 0.15,
+     "unit": "",
+     "ctx": "n class=\"mr-1 font-sans text-[10px] font-medium text-[var(--marketing-muted)]\">From</span>$0.15/s</span><span class=\"ml-auto flex min-w-0 items-center"
+    },
+    {
+     "usd": 0.05,
+     "unit": "",
+     "ctx": "n class=\"mr-1 font-sans text-[10px] font-medium text-[var(--marketing-muted)]\">From</span>$0.05/s</span><span class=\"ml-auto flex min-w-0 items-center"
+    },
+    {
+     "usd": 0.0593,
+     "unit": "image",
+     "ctx": "n class=\"mr-1 font-sans text-[10px] font-medium text-[var(--marketing-muted)]\">From</span>$0.0593/image</span><span class=\"ml-auto flex min-w-0 items-"
+    },
+    {
+     "usd": 0.015725,
+     "unit": "image",
+     "ctx": "n class=\"mr-1 font-sans text-[10px] font-medium text-[var(--marketing-muted)]\">From</span>$0.015725/image</span><span class=\"ml-auto flex min-w-0 item"
+    },
+    {
+     "usd": 0.014,
+     "unit": "image",
+     "ctx": "n class=\"mr-1 font-sans text-[10px] font-medium text-[var(--marketing-muted)]\">From</span>$0.014/image</span><span class=\"ml-auto flex min-w-0 items-c"
+    },
+    {
+     "usd": 0.013,
+     "unit": "image",
+     "ctx": "n class=\"mr-1 font-sans text-[10px] font-medium text-[var(--marketing-muted)]\">From</span>$0.013/image</span><span class=\"ml-auto flex min-w-0 items-c"
+    },
+    {
+     "usd": 0.012,
+     "unit": "image",
+     "ctx": "n class=\"mr-1 font-sans text-[10px] font-medium text-[var(--marketing-muted)]\">From</span>$0.012/image</span><span class=\"ml-auto flex min-w-0 items-c"
+    },
+    {
+     "usd": 0.016,
+     "unit": "image",
+     "ctx": "n class=\"mr-1 font-sans text-[10px] font-medium text-[var(--marketing-muted)]\">From</span>$0.016/image</span><span class=\"ml-auto flex min-w-0 items-c"
+    },
+    {
+     "usd": 0.065,
+     "unit": "",
+     "ctx": "n class=\"mr-1 font-sans text-[10px] font-medium text-[var(--marketing-muted)]\">From</span>$0.065/1M tokens</span><span class=\"ml-auto flex min-w-0 ite"
+    },
+    {
+     "usd": 0.0441,
+     "unit": "",
+     "ctx": "n class=\"mr-1 font-sans text-[10px] font-medium text-[var(--marketing-muted)]\">From</span>$0.0441/1M tokens</span><span class=\"ml-auto flex min-w-0 it"
+    }
+   ]
+  },
+  "https://beatapi.io/zh/model": {
+   "status": 200,
+   "prices": [
+    {
+     "usd": 0.088,
+     "unit": "",
+     "ctx": "pan class=\"mr-1 font-sans text-[10px] font-medium text-[var(--marketing-muted)]\">\u8d77\u4ef7</span>$0.088/s</span><span class=\"ml-auto flex min-w-0 items-cente"
+    },
+    {
+     "usd": 0.504239,
+     "unit": "",
+     "ctx": "pan class=\"mr-1 font-sans text-[10px] font-medium text-[var(--marketing-muted)]\">\u8d77\u4ef7</span>$0.504239/8s</span><span class=\"ml-auto flex min-w-0 items-c"
+    },
+    {
+     "usd": 0.049,
+     "unit": "",
+     "ctx": "pan class=\"mr-1 font-sans text-[10px] font-medium text-[var(--marketing-muted)]\">\u8d77\u4ef7</span>$0.049/s</span><span class=\"ml-auto flex min-w-0 items-cente"
+    },
+    {
+     "usd": 0.06,
+     "unit": "",
+     "ctx": "pan class=\"mr-1 font-sans text-[10px] font-medium text-[var(--marketing-muted)]\">\u8d77\u4ef7</span>$0.06/s</span><span class=\"ml-auto flex min-w-0 items-center"
+    },
+    {
+     "usd": 0.15,
+     "unit": "",
+     "ctx": "pan class=\"mr-1 font-sans text-[10px] font-medium text-[var(--marketing-muted)]\">\u8d77\u4ef7</span>$0.15/s</span><span class=\"ml-auto flex min-w-0 items-center"
+    },
+    {
+     "usd": 0.05,
+     "unit": "",
+     "ctx": "pan class=\"mr-1 font-sans text-[10px] font-medium text-[var(--marketing-muted)]\">\u8d77\u4ef7</span>$0.05/s</span><span class=\"ml-auto flex min-w-0 items-center"
+    },
+    {
+     "usd": 0.0593,
+     "unit": "image",
+     "ctx": "pan class=\"mr-1 font-sans text-[10px] font-medium text-[var(--marketing-muted)]\">\u8d77\u4ef7</span>$0.0593/image</span><span class=\"ml-auto flex min-w-0 items-"
+    },
+    {
+     "usd": 0.015725,
+     "unit": "image",
+     "ctx": "pan class=\"mr-1 font-sans text-[10px] font-medium text-[var(--marketing-muted)]\">\u8d77\u4ef7</span>$0.015725/image</span><span class=\"ml-auto flex min-w-0 item"
+    },
+    {
+     "usd": 0.014,
+     "unit": "image",
+     "ctx": "pan class=\"mr-1 font-sans text-[10px] font-medium text-[var(--marketing-muted)]\">\u8d77\u4ef7</span>$0.014/image</span><span class=\"ml-auto flex min-w-0 items-c"
+    },
+    {
+     "usd": 0.013,
+     "unit": "image",
+     "ctx": "pan class=\"mr-1 font-sans text-[10px] font-medium text-[var(--marketing-muted)]\">\u8d77\u4ef7</span>$0.013/image</span><span class=\"ml-auto flex min-w-0 items-c"
+    },
+    {
+     "usd": 0.012,
+     "unit": "image",
+     "ctx": "pan class=\"mr-1 font-sans text-[10px] font-medium text-[var(--marketing-muted)]\">\u8d77\u4ef7</span>$0.012/image</span><span class=\"ml-auto flex min-w-0 items-c"
+    },
+    {
+     "usd": 0.016,
+     "unit": "image",
+     "ctx": "pan class=\"mr-1 font-sans text-[10px] font-medium text-[var(--marketing-muted)]\">\u8d77\u4ef7</span>$0.016/image</span><span class=\"ml-auto flex min-w-0 items-c"
+    },
+    {
+     "usd": 0.065,
+     "unit": "",
+     "ctx": "pan class=\"mr-1 font-sans text-[10px] font-medium text-[var(--marketing-muted)]\">\u8d77\u4ef7</span>$0.065/1M tokens</span><span class=\"ml-auto flex min-w-0 ite"
+    },
+    {
+     "usd": 0.0441,
+     "unit": "",
+     "ctx": "pan class=\"mr-1 font-sans text-[10px] font-medium text-[var(--marketing-muted)]\">\u8d77\u4ef7</span>$0.0441/1M tokens</span><span class=\"ml-auto flex min-w-0 it"
+    }
+   ]
+  },
+  "https://beatapi.io/ja/model": {
+   "status": 200,
+   "prices": [
+    {
+     "usd": 0.088,
+     "unit": "",
+     "ctx": "n class=\"mr-1 font-sans text-[10px] font-medium text-[var(--marketing-muted)]\">\u6700\u4f4e\u6599\u91d1</span>$0.088/s</span><span class=\"ml-auto flex min-w-0 items-cente"
+    },
+    {
+     "usd": 0.504239,
+     "unit": "",
+     "ctx": "n class=\"mr-1 font-sans text-[10px] font-medium text-[var(--marketing-muted)]\">\u6700\u4f4e\u6599\u91d1</span>$0.504239/8s</span><span class=\"ml-auto flex min-w-0 items-c"
+    },
+    {
+     "usd": 0.049,
+     "unit": "",
+     "ctx": "n class=\"mr-1 font-sans text-[10px] font-medium text-[var(--marketing-muted)]\">\u6700\u4f4e\u6599\u91d1</span>$0.049/s</span><span class=\"ml-auto flex min-w-0 items-cente"
+    },
+    {
+     "usd": 0.06,
+     "unit": "",
+     "ctx": "n class=\"mr-1 font-sans text-[10px] font-medium text-[var(--marketing-muted)]\">\u6700\u4f4e\u6599\u91d1</span>$0.06/s</span><span class=\"ml-auto flex min-w-0 items-center"
+    },
+    {
+     "usd": 0.15,
+     "unit": "",
+     "ctx": "n class=\"mr-1 font-sans text-[10px] font-medium text-[var(--marketing-muted)]\">\u6700\u4f4e\u6599\u91d1</span>$0.15/s</span><span class=\"ml-auto flex min-w-0 items-center"
+    },
+    {
+     "usd": 0.05,
+     "unit": "",
+     "ctx": "n class=\"mr-1 font-sans text-[10px] font-medium text-[var(--marketing-muted)]\">\u6700\u4f4e\u6599\u91d1</span>$0.05/s</span><span class=\"ml-auto flex min-w-0 items-center"
+    },
+    {
+     "usd": 0.0593,
+     "unit": "image",
+     "ctx": "n class=\"mr-1 font-sans text-[10px] font-medium text-[var(--marketing-muted)]\">\u6700\u4f4e\u6599\u91d1</span>$0.0593/image</span><span class=\"ml-auto flex min-w-0 items-"
+    },
+    {
+     "usd": 0.015725,
+     "unit": "image",
+     "ctx": "n class=\"mr-1 font-sans text-[10px] font-medium text-[var(--marketing-muted)]\">\u6700\u4f4e\u6599\u91d1</span>$0.015725/image</span><span class=\"ml-auto flex min-w-0 item"
+    },
+    {
+     "usd": 0.014,
+     "unit": "image",
+     "ctx": "n class=\"mr-1 font-sans text-[10px] font-medium text-[var(--marketing-muted)]\">\u6700\u4f4e\u6599\u91d1</span>$0.014/image</span><span class=\"ml-auto flex min-w-0 items-c"
+    },
+    {
+     "usd": 0.013,
+     "unit": "image",
+     "ctx": "n class=\"mr-1 font-sans text-[10px] font-medium text-[var(--marketing-muted)]\">\u6700\u4f4e\u6599\u91d1</span>$0.013/image</span><span class=\"ml-auto flex min-w-0 items-c"
+    },
+    {
+     "usd": 0.012,
+     "unit": "image",
+     "ctx": "n class=\"mr-1 font-sans text-[10px] font-medium text-[var(--marketing-muted)]\">\u6700\u4f4e\u6599\u91d1</span>$0.012/image</span><span class=\"ml-auto flex min-w-0 items-c"
+    },
+    {
+     "usd": 0.016,
+     "unit": "image",
+     "ctx": "n class=\"mr-1 font-sans text-[10px] font-medium text-[var(--marketing-muted)]\">\u6700\u4f4e\u6599\u91d1</span>$0.016/image</span><span class=\"ml-auto flex min-w-0 items-c"
+    },
+    {
+     "usd": 0.065,
+     "unit": "",
+     "ctx": "n class=\"mr-1 font-sans text-[10px] font-medium text-[var(--marketing-muted)]\">\u6700\u4f4e\u6599\u91d1</span>$0.065/1M tokens</span><span class=\"ml-auto flex min-w-0 ite"
+    },
+    {
+     "usd": 0.0441,
+     "unit": "",
+     "ctx": "n class=\"mr-1 font-sans text-[10px] font-medium text-[var(--marketing-muted)]\">\u6700\u4f4e\u6599\u91d1</span>$0.0441/1M tokens</span><span class=\"ml-auto flex min-w-0 it"
+    }
+   ]
+  },
+  "https://beatapi.io/ko/model": {
+   "status": 200,
+   "prices": [
+    {
+     "usd": 0.088,
+     "unit": "",
+     "ctx": "pan class=\"mr-1 font-sans text-[10px] font-medium text-[var(--marketing-muted)]\">\ucd5c\uc800</span>$0.088/s</span><span class=\"ml-auto flex min-w-0 items-cente"
+    },
+    {
+     "usd": 0.504239,
+     "unit": "",
+     "ctx": "pan class=\"mr-1 font-sans text-[10px] font-medium text-[var(--marketing-muted)]\">\ucd5c\uc800</span>$0.504239/8s</span><span class=\"ml-auto flex min-w-0 items-c"
+    },
+    {
+     "usd": 0.049,
+     "unit": "",
+     "ctx": "pan class=\"mr-1 font-sans text-[10px] font-medium text-[var(--marketing-muted)]\">\ucd5c\uc800</span>$0.049/s</span><span class=\"ml-auto flex min-w-0 items-cente"
+    },
+    {
+     "usd": 0.06,
+     "unit": "",
+     "ctx": "pan class=\"mr-1 font-sans text-[10px] font-medium text-[var(--marketing-muted)]\">\ucd5c\uc800</span>$0.06/s</span><span class=\"ml-auto flex min-w-0 items-center"
+    },
+    {
+     "usd": 0.15,
+     "unit": "",
+     "ctx": "pan class=\"mr-1 font-sans text-[10px] font-medium text-[var(--marketing-muted)]\">\ucd5c\uc800</span>$0.15/s</span><span class=\"ml-auto flex min-w-0 items-center"
+    },
+    {
+     "usd": 0.05,
+     "unit": "",
+     "ctx": "pan class=\"mr-1 font-sans text-[10px] font-medium text-[var(--marketing-muted)]\">\ucd5c\uc800</span>$0.05/s</span><span class=\"ml-auto flex min-w-0 items-center"
+    },
+    {
+     "usd": 0.0593,
+     "unit": "",
+     "ctx": "pan class=\"mr-1 font-sans text-[10px] font-medium text-[var(--marketing-muted)]\">\ucd5c\uc800</span>$0.0593/\uc774\ubbf8\uc9c0</span><span class=\"ml-auto flex min-w-0 items-ce"
+    },
+    {
+     "usd": 0.015725,
+     "unit": "",
+     "ctx": "pan class=\"mr-1 font-sans text-[10px] font-medium text-[var(--marketing-muted)]\">\ucd5c\uc800</span>$0.015725/\uc774\ubbf8\uc9c0</span><span class=\"ml-auto flex min-w-0 items-"
+    },
+    {
+     "usd": 0.014,
+     "unit": "",
+     "ctx": "pan class=\"mr-1 font-sans text-[10px] font-medium text-[var(--marketing-muted)]\">\ucd5c\uc800</span>$0.014/\uc774\ubbf8\uc9c0</span><span class=\"ml-auto flex min-w-0 items-cen"
+    },
+    {
+     "usd": 0.013,
+     "unit": "",
+     "ctx": "pan class=\"mr-1 font-sans text-[10px] font-medium text-[var(--marketing-muted)]\">\ucd5c\uc800</span>$0.013/\uc774\ubbf8\uc9c0</span><span class=\"ml-auto flex min-w-0 items-cen"
+    },
+    {
+     "usd": 0.012,
+     "unit": "",
+     "ctx": "pan class=\"mr-1 font-sans text-[10px] font-medium text-[var(--marketing-muted)]\">\ucd5c\uc800</span>$0.012/\uc774\ubbf8\uc9c0</span><span class=\"ml-auto flex min-w-0 items-cen"
+    },
+    {
+     "usd": 0.016,
+     "unit": "",
+     "ctx": "pan class=\"mr-1 font-sans text-[10px] font-medium text-[var(--marketing-muted)]\">\ucd5c\uc800</span>$0.016/\uc774\ubbf8\uc9c0</span><span class=\"ml-auto flex min-w-0 items-cen"
+    },
+    {
+     "usd": 0.56,
+     "unit": "",
+     "ctx": "mt-0.5 truncate font-mono text-xs font-semibold tabular-nums text-[var(--marketing-ink)]\">$0.56/100\ub9cc \ud1a0\ud070</div></div><div class=\"px-3 py-2\"><div class=\""
+    },
+    {
+     "usd": 1.76,
+     "unit": "",
+     "ctx": "mt-0.5 truncate font-mono text-xs font-medium tabular-nums text-[var(--marketing-muted)]\">$1.76/100\ub9cc \ud1a0\ud070</div></div></div></a><a href=\"/gemini-4-neon-a"
+    }
+   ]
+  },
+  "https://beatapi.io/pricing": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/zh/pricing": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/ja/pricing": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/ko/pricing": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/ru/pricing": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/ai-api-cost-calculator": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/zh/ai-api-cost-calculator": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/ja/ai-api-cost-calculator": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/alternatives": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/zh/alternatives": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/ja/alternatives": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/gallery": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/zh/gallery": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/ja/gallery": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/tool": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/zh/tool": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/ja/tool": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/tools/twitter-viewer": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/zh/tools/twitter-viewer": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/ja/tools/twitter-viewer": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/tools/linkedin-profile-viewer": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/zh/tools/linkedin-profile-viewer": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/ja/tools/linkedin-profile-viewer": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/web-search-api": {
+   "status": 200,
+   "prices": [
+    {
+     "usd": 0.002,
+     "unit": "",
+     "ctx": "pan><h3 class=\"mt-2.5 text-sm font-medium text-[var(--marketing-ink)]\">Pages read per $1 ($0.002 / URL)</h3><p class=\"mt-1.5 text-sm leading-6 text-[v"
+    },
+    {
+     "usd": 0.001,
+     "unit": "",
+     "ctx": "--marketing-muted)]\">web_read bills per readable URL (failed URLs cost $0); web_map bills $0.001 per returned URL.</p></div><div class=\"py-6 md:py-8 m"
+    },
+    {
+     "usd": 0.005,
+     "unit": "",
+     "ctx": "n><h3 class=\"mt-2.5 text-sm font-medium text-[var(--marketing-ink)]\">Web searches per $1 ($0.005 / call)</h3><p class=\"mt-1.5 text-sm leading-6 text-["
+    }
+   ]
+  },
+  "https://beatapi.io/zh/web-search-api": {
+   "status": 200,
+   "prices": [
+    {
+     "usd": 0.002,
+     "unit": "",
+     "ctx": ">500</span><h3 class=\"mt-2.5 text-sm font-medium text-[var(--marketing-ink)]\">$1 \u53ef\u8bfb\u53d6\u7f51\u9875\u6b63\u6587\u6570\uff08$0.002 / URL\uff09</h3><p class=\"mt-1.5 text-sm leading-6 text-[v"
+    },
+    {
+     "usd": 0.001,
+     "unit": "",
+     "ctx": "eading-6 text-[var(--marketing-muted)]\">web_read \u6309\u6210\u529f\u8bfb\u53d6\u7684 URL \u8ba1\u8d39\uff0c\u8bfb\u53d6\u5931\u8d25\u4e0d\u6536\u8d39\uff1bweb_map \u6309\u8fd4\u56de URL \u8ba1\u8d39\uff08$0.001 / URL\uff09\u3002</p></div><div class=\"py-6 md:py-8 md:px-8\"><s"
+    },
+    {
+     "usd": 0.005,
+     "unit": "",
+     "ctx": "200</span><h3 class=\"mt-2.5 text-sm font-medium text-[var(--marketing-ink)]\">$1 \u53ef\u6267\u884c\u7f51\u9875\u641c\u7d22\u6b21\u6570\uff08$0.005 / \u6b21\uff09</h3><p class=\"mt-1.5 text-sm leading-6 text-[var"
+    }
+   ]
+  },
+  "https://beatapi.io/ja/web-search-api": {
+   "status": 200,
+   "prices": [
+    {
+     "usd": 0.002,
+     "unit": "",
+     "ctx": "pan><h3 class=\"mt-2.5 text-sm font-medium text-[var(--marketing-ink)]\">Pages read per $1 ($0.002 / URL)</h3><p class=\"mt-1.5 text-sm leading-6 text-[v"
+    },
+    {
+     "usd": 0.001,
+     "unit": "",
+     "ctx": "--marketing-muted)]\">web_read bills per readable URL (failed URLs cost $0); web_map bills $0.001 per returned URL.</p></div><div class=\"py-6 md:py-8 m"
+    },
+    {
+     "usd": 0.005,
+     "unit": "",
+     "ctx": "n><h3 class=\"mt-2.5 text-sm font-medium text-[var(--marketing-ink)]\">Web searches per $1 ($0.005 / call)</h3><p class=\"mt-1.5 text-sm leading-6 text-["
+    }
+   ]
+  },
+  "https://beatapi.io/ru/web-search-api": {
+   "status": 200,
+   "prices": [
+    {
+     "usd": 0.002,
+     "unit": "",
+     "ctx": "pan><h3 class=\"mt-2.5 text-sm font-medium text-[var(--marketing-ink)]\">Pages read per $1 ($0.002 / URL)</h3><p class=\"mt-1.5 text-sm leading-6 text-[v"
+    },
+    {
+     "usd": 0.001,
+     "unit": "",
+     "ctx": "--marketing-muted)]\">web_read bills per readable URL (failed URLs cost $0); web_map bills $0.001 per returned URL.</p></div><div class=\"py-6 md:py-8 m"
+    },
+    {
+     "usd": 0.005,
+     "unit": "",
+     "ctx": "n><h3 class=\"mt-2.5 text-sm font-medium text-[var(--marketing-ink)]\">Web searches per $1 ($0.005 / call)</h3><p class=\"mt-1.5 text-sm leading-6 text-["
+    }
+   ]
+  },
+  "https://beatapi.io/open-source": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/zh/open-source": {
+   "status": 200,
+   "prices": []
+  },
+  "https://beatapi.io/ja/open-source": {
+   "status": 200,
+   "prices": []
+  }
+ }
+}

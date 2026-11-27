@@ -1,0 +1,580 @@
+
+### wan3  (now beatapi: {'480p': 3.55, '720p': 7.1, '1080p': 13.6} c/s)
+   vidlab     wan-3.0                                                          per_second     {'480p': 4.0, '720p': 7.0, '1080p': 14.0} operational routes=2
+   vidlab     wan-3.0-prime                                                    per_second     {'480p': 7.0, '720p': 13.0, '1080p': 26.0} operational routes=2
+   spicyapi   alibaba/wan-3.0-prime/image-to-video                             per_second     {'480p': 6.12, '720p': 12.6, '1080p': 25.2} available Wan 3.0 Prime · Image to Video
+   spicyapi   alibaba/wan-3.0-prime/reference-to-video                         per_second     {'480p': 6.12, '720p': 12.6, '1080p': 25.2} available Wan 3.0 Prime · Reference to Video
+   spicyapi   alibaba/wan-3.0-prime/text-to-video                              per_second     {'480p': 6.12, '720p': 12.6, '1080p': 25.2} available Wan 3.0 Prime · Text to Video
+   spicyapi   alibaba/wan-3.0-prime/video-edit                                 per_second     {'480p': 6.12, '720p': 12.6, '1080p': 25.2} available Wan 3.0 Prime · Video Edit
+   spicyapi   alibaba/wan-3.0-prime/video-extend                               per_second     {'480p': 6.12, '720p': 12.6, '1080p': 25.2} available Wan 3.0 Prime · Video Extend
+   spicyapi   alibaba/wan-3.0/image-to-video                                   per_second     {'480p': 4.5, '720p': 9.0, '1080p': 18.0} available Wan 3.0 · Image to Video
+   spicyapi   alibaba/wan-3.0/reference-to-video                               per_second     {'480p': 4.5, '720p': 9.0, '1080p': 18.0} available Wan 3.0 · Reference to Video
+   spicyapi   alibaba/wan-3.0/text-to-video                                    per_second     {'480p': 4.5, '720p': 9.0, '1080p': 18.0} available Wan 3.0 · Text to Video
+   spicyapi   alibaba/wan-3.0/video-edit                                       per_second     {'480p': 4.5, '720p': 9.0, '1080p': 18.0} available Wan 3.0 · Video Edit
+   spicyapi   alibaba/wan-3.0-pro-prime/image-to-video                         per_second     {'1080p': 23.4, '2k': 25.2, '4k': 27.9} available Wan 3.0 Pro Prime · Image To Video
+   spicyapi   alibaba/wan-3.0-pro-prime/reference-to-video                     per_second     {'1080p': 23.4, '2k': 25.2, '4k': 27.9} available Wan 3.0 Pro Prime · Reference To Video
+   spicyapi   alibaba/wan-3.0-pro-prime/text-to-video                          per_second     {'1080p': 23.4, '2k': 25.2, '4k': 27.9} available Wan 3.0 Pro Prime · Text To Video
+   spicyapi   alibaba/wan-3.0/video-extend                                     per_second     {'480p': 4.5, '720p': 9.0, '1080p': 18.0} available Wan 3.0 · Video Extend
+   spicyapi   alibaba/wan-3.0-pro-prime/video-extend                           per_second     {'1080p': 23.4, '2k': 25.2, '4k': 27.9} available Wan 3.0 Pro Prime · Video Extend
+   spicyapi   alibaba/wan-3.0-pro/image-to-video                               per_second     {'1080p': 14.4, '2k': 16.0, '4k': 18.4} available Wan 3.0 Pro · Image To Video
+   spicyapi   alibaba/wan-3.0-pro/reference-to-video                           per_second     {'1080p': 14.4, '2k': 16.0, '4k': 18.4} available Wan 3.0 Pro · Reference To Video
+   spicyapi   alibaba/wan-3.0-pro/text-to-video                                per_second     {'1080p': 14.4, '2k': 16.0, '4k': 18.4} available Wan 3.0 Pro · Text To Video
+   spicyapi   alibaba/wan-3.0-pro/video-extend                                 per_second     {'1080p': 14.4, '2k': 16.0, '4k': 18.4} available Wan 3.0 Pro · Video Extend
+   spicyapi   alibaba/wan-3.0-spicy/image-to-video                             per_second     {'480p': 5.7, '720p': 11.4, '1080p': 22.8} available Wan 3.0 Spicy · Image to Video
+   spicyapi   alibaba/wan-3.0-prime-spicy/image-to-video                       per_second     {'480p': 9.0, '720p': 18.0, '1080p': 36.0} available Wan 3.0 Prime Spicy · Image to Video
+   spicyapi   alibaba/wan-3.0-spicy/video-extend                               per_second     {'480p': 5.7, '720p': 11.4, '1080p': 22.8} available Wan 3.0 Spicy · Video Extend
+   spicyapi   alibaba/wan-3.0-prime-spicy/video-extend                         per_second     {'480p': 9.0, '720p': 18.0, '1080p': 36.0} available Wan 3.0 Prime Spicy · Video Extend
+   framehush  wan-3.0                                                          estimate-only  {}  
+   cometapi   wan3.0                                                           no-price-in-catalog {}  
+   cometapi   wan3.0-prime                                                     no-price-in-catalog {}  
+   eachlabs   alibaba-wan-3-0-prime-reference-to-video                         no-price-in-catalog {}  alibaba-wan-3-0-prime-reference-to-video
+   eachlabs   alibaba-wan-3-0-prime-image-to-video                             no-price-in-catalog {}  alibaba-wan-3-0-prime-image-to-video
+   eachlabs   alibaba-wan-3-0-prime-text-to-video                              no-price-in-catalog {}  alibaba-wan-3-0-prime-text-to-video
+   eachlabs   alibaba-wan-3-0-reference-to-video                               no-price-in-catalog {}  alibaba-wan-3-0-reference-to-video
+   eachlabs   alibaba-wan-3-0-image-to-video                                   no-price-in-catalog {}  alibaba-wan-3-0-image-to-video
+   eachlabs   alibaba-wan-3-0-text-to-video                                    no-price-in-catalog {}  alibaba-wan-3-0-text-to-video
+
+### wan3_prime  (now cometapi: {'480p': 5.44, '720p': 5.44, '1080p': 5.44} c/s)
+   vidlab     wan-3.0-prime                                                    per_second     {'480p': 7.0, '720p': 13.0, '1080p': 26.0} operational routes=2
+   spicyapi   alibaba/wan-3.0-prime/image-to-video                             per_second     {'480p': 6.12, '720p': 12.6, '1080p': 25.2} available Wan 3.0 Prime · Image to Video
+   spicyapi   alibaba/wan-3.0-prime/reference-to-video                         per_second     {'480p': 6.12, '720p': 12.6, '1080p': 25.2} available Wan 3.0 Prime · Reference to Video
+   spicyapi   alibaba/wan-3.0-prime/text-to-video                              per_second     {'480p': 6.12, '720p': 12.6, '1080p': 25.2} available Wan 3.0 Prime · Text to Video
+   spicyapi   alibaba/wan-3.0-prime/video-edit                                 per_second     {'480p': 6.12, '720p': 12.6, '1080p': 25.2} available Wan 3.0 Prime · Video Edit
+   spicyapi   alibaba/wan-3.0-prime/video-extend                               per_second     {'480p': 6.12, '720p': 12.6, '1080p': 25.2} available Wan 3.0 Prime · Video Extend
+   spicyapi   alibaba/wan-3.0-prime-spicy/image-to-video                       per_second     {'480p': 9.0, '720p': 18.0, '1080p': 36.0} available Wan 3.0 Prime Spicy · Image to Video
+   spicyapi   alibaba/wan-3.0-prime-spicy/video-extend                         per_second     {'480p': 9.0, '720p': 18.0, '1080p': 36.0} available Wan 3.0 Prime Spicy · Video Extend
+
+### wan_motion  (now fal: {'720p': 6.0} c/s)
+   vidlab     kling-2.6-motion-control                                         per_second     {'720p': 7.0, '1080p': 12.0} operational routes=1
+   vidlab     kling-3.0-motion-control                                         per_second     {'720p': 13.0, '1080p': 17.0} operational routes=1
+   spicyapi   spicyapi/motion-control-flash/character-animation                per_second     {'480p': 16.2, '720p': 32.4} available Motion Control Flash · Motion Control Flash
+   kie        kling-2.6/motion-control                                         per_second?    {}  12.6 credits/s ($0.063) for 720P, 20.2 credits/s ($0.101) for 1080P — about 10% 
+   kie        kling-3.0/motion-control                                         per_second?    {}  22.7 credits/s ($0.1135) for 720P, 30.2 credits/s ($0.151) for 1080P — about 10%
+   beatapi    kling-2.6-motion-control                                         per_second     {'720p': 6.0, '1080p': 10.0}  720p=Kling 2.6 Motion Control: 8 sec · 720p; 1080p=Kling 2.6 Motion Control: 8 s
+   beatapi    kling-3-motion-control                                           per_second     {'720p': 11.0, '1080p': 14.0}  720p=Kling 3.0 Motion Control: 8 sec · 720p; 1080p=Kling 3.0 Motion Control: 8 s
+   cometapi   kling_video_motion_control                                       no-price-in-catalog {}  
+   eachlabs   koix-motion-control                                              no-price-in-catalog {}  koix-motion-control
+
+### seedance  (now framehush: {'480p': 3.5, '720p': 4.7, '1080p': 8.0} c/s)
+   vidlab     seedance-2.5                                                     per_second     {'480p': 9.0, '720p': 21.0, '1080p': 52.0, '480p+video_input': 5.9, '720p+video_input': 15.0, '1080p+video_input': 34.0} operational routes=2
+   vidlab     seedance-2.5-boost                                               per_second     {'1080p': 27.0, '1080p+video_input': 16.0} operational routes=1
+   vidlab     seedance-2.5-flash                                               per_second     {'480p': 8.5, '720p': 18.5, '480p+video_input': 5.3, '720p+video_input': 10.9} operational routes=1
+   spicyapi   bytedance/seedance-2.5-flash/image-to-video                      per_second     {'480p': 9.2, '720p': 19.14} available Seedance 2.5 Flash · Image to Video
+   spicyapi   bytedance/seedance-2.5-flash/reference-to-video                  per_second     {'resolution=480p;with_video=true': 5.65, 'resolution=480p;with_video=false': 9.2, 'resolution=720p;with_video=true': 11.76, 'resolution=720p;with_video=false': 19.14} available Seedance 2.5 Flash · Reference to Video
+   spicyapi   bytedance/seedance-2.5-flash/text-to-video                       per_second     {'480p': 9.2, '720p': 19.14} available Seedance 2.5 Flash · Text to Video
+   spicyapi   bytedance/seedance-2.5-flash/video-edit                          per_second     {'480p': 18.0, '720p': 36.0} available Seedance 2.5 Flash · Video Edit
+   spicyapi   bytedance/seedance-2.5-flash/video-extend                        per_second     {'480p': 9.2, '720p': 19.14} available Seedance 2.5 Flash · Video Extend
+   spicyapi   bytedance/seedance-2.5-spicy/image-to-video                      per_second     {'generate_audio=false;resolution=480p': 21.6, 'generate_audio=true;resolution=480p': 21.6, 'generate_audio=false;resolution=720p': 43.2, 'generate_audio=true;resolution=720p': 43.2, 'generate_audio=false;resolution=1080p': 108.0, 'generate_audio=true;resolution=1080p': 108.0, 'generate_audio=false;resolution=4k': 216.0, 'generate_audio=true;resolution=4k': 216.0} available Seedance 2.5 Spicy · Image to Video
+   spicyapi   bytedance/seedance-2.5-spicy/video-extend                        per_second     {'generate_audio=false;resolution=480p': 21.6, 'generate_audio=true;resolution=480p': 21.6, 'generate_audio=false;resolution=720p': 43.2, 'generate_audio=true;resolution=720p': 43.2, 'generate_audio=false;resolution=1080p': 108.0, 'generate_audio=true;resolution=1080p': 108.0, 'generate_audio=false;resolution=4k': 216.0, 'generate_audio=true;resolution=4k': 216.0} available Seedance 2.5 Spicy · Video Extend
+   spicyapi   bytedance/seedance-2.5/image-to-video                            per_second     {'generate_audio=false;resolution=480p': 12.34, 'generate_audio=true;resolution=480p': 12.34, 'draft=true;generate_audio=false;resolution=480p': 16.94, 'draft=true;generate_audio=true;resolution=480p': 16.94, 'generate_audio=false;resolution=720p': 27.73, 'generate_audio=true;resolution=720p': 27.73, 'generate_audio=false;resolution=1080p': 68.23, 'generate_audio=true;resolution=1080p': 68.23, 'generate_audio=false;resolution=4k': 154.4, 'generate_audio=true;resolution=4k': 154.4} available Seedance 2.5 · Image to Video
+   spicyapi   bytedance/seedance-2.5/reference-to-video                        per_second     {'generate_audio=false;resolution=480p;with_video=true': 7.38, 'generate_audio=true;resolution=480p;with_video=true': 7.38, 'generate_audio=false;resolution=480p;with_video=false': 12.34, 'generate_audio=true;resolution=480p;with_video=false': 12.34, 'generate_audio=false;resolution=720p;with_video=true': 16.59, 'generate_audio=true;resolution=720p;with_video=true': 16.59, 'generate_audio=false;resolution=720p;with_video=false': 27.73, 'generate_audio=true;resolution=720p;with_video=false': 27.73, 'generate_audio=false;resolution=1080p;with_video=true': 40.82, 'generate_audio=true;resolution=1080p;with_video=true': 40.82, 'generate_audio=false;resolution=1080p;with_video=false': 68.23, 'generate_audio=true;resolution=1080p;with_video=false': 68.23} available Seedance 2.5 · Reference to Video
+   spicyapi   bytedance/seedance-2.5/text-to-video                             per_second     {'generate_audio=false;resolution=480p': 12.34, 'generate_audio=true;resolution=480p': 12.34, 'draft=true;generate_audio=false;resolution=480p': 16.94, 'draft=true;generate_audio=true;resolution=480p': 16.94, 'generate_audio=false;resolution=720p': 27.73, 'generate_audio=true;resolution=720p': 27.73, 'generate_audio=false;resolution=1080p': 68.23, 'generate_audio=true;resolution=1080p': 68.23, 'generate_audio=false;resolution=4k': 154.4, 'generate_audio=true;resolution=4k': 154.4} available Seedance 2.5 · Text to Video
+   spicyapi   bytedance/seedance-2.5/upscale                                   per_second     {'generate_audio=false;resolution=1080p': 71.7, 'generate_audio=true;resolution=1080p': 71.7, 'generate_audio=~;resolution=1080p': 71.7} available Seedance 2.5 · Draft to 1080p
+   spicyapi   bytedance/seedance-2.5/video-edit                                per_second     {'generate_audio=false;resolution=480p': 20.4, 'generate_audio=true;resolution=480p': 20.4, 'generate_audio=false;resolution=720p': 45.6, 'generate_audio=true;resolution=720p': 45.6, 'generate_audio=false;resolution=1080p': 114.0, 'generate_audio=true;resolution=1080p': 114.0} available Seedance 2.5 · Video Edit
+   spicyapi   bytedance/seedance-2.5/video-extend                              per_second     {'generate_audio=false;resolution=480p;with_video=true': 7.38, 'generate_audio=true;resolution=480p;with_video=true': 7.38, 'generate_audio=false;resolution=480p;with_video=false': 12.34, 'generate_audio=true;resolution=480p;with_video=false': 12.34, 'generate_audio=false;resolution=720p;with_video=true': 16.59, 'generate_audio=true;resolution=720p;with_video=true': 16.59, 'generate_audio=false;resolution=720p;with_video=false': 27.73, 'generate_audio=true;resolution=720p;with_video=false': 27.73, 'generate_audio=false;resolution=1080p;with_video=true': 40.82, 'generate_audio=true;resolution=1080p;with_video=true': 40.82, 'generate_audio=false;resolution=1080p;with_video=false': 68.23, 'generate_audio=true;resolution=1080p;with_video=false': 68.23} available Seedance 2.5 · Video Extend
+   kie        bytedance/seedance-2-5                                           per_second?    {'*': 8.5}  480P: 17 credits/s ($0.085/s, with video) | 28 credits/s ($0.140/s, no video)
+72
+   kie        bytedance/seedance-2-5-draft                                     per_second?    {}  The upgrade step inherits the billing mode (with-video / no-video) of the source
+   kie        bytedance/seedance-2-5-flash                                     per_second?    {'*': 5.75}  480P: 11.5 credits/s ($0.0575/s, with video) | 18.5 credits/s ($0.0925/s, no vid
+   beatapi    seedance-2.5-flash                                               per_second     {'480p': 6.3, '480p (Seedance 2.5 Flash: 8 sec · 480p_v2v · w)': 7.65, '720p': 13.55, '720p (Seedance 2.5 Flash: 8 sec · 720p_v2v · w)': 16.46}  480p=Seedance 2.5 Flash: 8 sec · 480p; 480p (Seedance 2.5 Flash: 8 sec · 480p_v2
+   beatapi    seedance-2.5                                                     per_second     {'480p': 9.68, '480p (Seedance 2.5: 8 sec · 480p · with video )': 11.59, '720p': 19.54, '720p (Seedance 2.5: 8 sec · 720p · with video )': 23.39, '1080p': 48.37, '1080p (Seedance 2.5: 8 sec · 1080p · with video)': 57.64}  480p=Seedance 2.5: 8 sec · 480p · no video input; 480p (Seedance 2.5: 8 sec · 48
+   cometapi   seedance-2-5                                                     no-price-in-catalog {}  
+   eachlabs   bytedance-seedance-2-5-flash-reference-to-video                  no-price-in-catalog {}  bytedance-seedance-2.5-flash-reference-to-video
+   eachlabs   bytedance-seedance-2-5-flash-image-to-video                      no-price-in-catalog {}  bytedance-seedance-2.5-flash-image-to-video
+   eachlabs   bytedance-seedance-2-5-flash-text-to-video                       no-price-in-catalog {}  bytedance-seedance-2.5-flash-text-to-video
+   eachlabs   bytedance-seedance-2-5-draft-completion                          no-price-in-catalog {}  bytedance-seedance-2-5-draft-completion
+
+### veo3  (now kie: {'720p': 31.25, '1080p': 31.875, '4K': 46.25} c/s)
+   vidlab     veo-3.1-fast                                                     per_second     {'720p': 8.0, '720p+audio': 10.0, '1080p': 10.0, '1080p+audio': 11.0, '4k': 25.0, '4k+audio': 29.0} operational routes=1
+   vidlab     veo-3.1                                                          per_second     {'720p': 20.0, '720p+audio': 40.0, '1080p': 20.0, '1080p+audio': 40.0, '4k': 40.0, '4k+audio': 58.0} operational routes=1
+   vidlab     veo-3.1-lite                                                     per_second     {'720p': 5.0, '1080p': 6.0, '4k': 24.0} operational routes=1
+   spicyapi   google/veo-3.1-lite/image-to-video                               per_request    {'4': 18.0, '6': 27.0, '8': 36.0, 'duration_seconds=8;resolution=1080p': 57.6} available Veo 3.1 Lite · Image to Video
+   spicyapi   google/veo-3.1-lite/reference-to-video                           per_request    {'8': 36.0, 'duration_seconds=8;resolution=1080p': 57.6} available Veo 3.1 Lite · Reference to Video
+   spicyapi   google/veo-3.1-lite/text-to-video                                per_request    {'4': 18.0, '6': 27.0, '8': 36.0, 'duration_seconds=8;resolution=1080p': 57.6} available Veo 3.1 Lite · Text to Video
+   spicyapi   google/veo-3.1-lite/video-extend                                 per_request    {'4': 18.0, '6': 27.0, '8': 36.0, 'duration_seconds=8;resolution=1080p': 57.6} available Veo 3.1 Lite · Video Extend
+   spicyapi   google/veo-3.1/image-to-video                                    per_request    {'4': 144.0, '6': 216.0, '8': 288.0, 'duration_seconds=8;resolution=1080p': 288.0, 'duration_seconds=8;resolution=4k': 432.0} available Veo 3.1 · Image to Video
+   spicyapi   google/veo-3.1/text-to-video                                     per_request    {'4': 144.0, '6': 216.0, '8': 288.0, 'duration_seconds=8;resolution=1080p': 288.0, 'duration_seconds=8;resolution=4k': 432.0} available Veo 3.1 · Text to Video
+   spicyapi   google/veo-3.1-fast/image-to-video                               per_request    {'4': 36.0, '6': 54.0, '8': 72.0, 'duration_seconds=8;resolution=1080p': 86.4, 'duration_seconds=8;resolution=4k': 216.0} available Veo 3.1 Fast · Image to Video
+   spicyapi   google/veo-3.1-fast/reference-to-video                           per_request    {'8': 72.0, 'duration_seconds=8;resolution=1080p': 86.4, 'duration_seconds=8;resolution=4k': 216.0} available Veo 3.1 Fast · Reference to Video
+   spicyapi   google/veo-3.1-fast/text-to-video                                per_request    {'4': 36.0, '6': 54.0, '8': 72.0, 'duration_seconds=8;resolution=1080p': 86.4, 'duration_seconds=8;resolution=4k': 216.0} available Veo 3.1 Fast · Text to Video
+   spicyapi   google/veo-3.1/video-extend                                      per_request    {'4': 144.0, '6': 216.0, '8': 288.0, 'duration_seconds=8;resolution=1080p': 288.0, 'duration_seconds=8;resolution=4k': 432.0} available Veo 3.1 · Video Extend
+   spicyapi   google/veo-3.1-fast/video-extend                                 per_request    {'4': 36.0, '6': 54.0, '8': 72.0, 'duration_seconds=8;resolution=1080p': 86.4, 'duration_seconds=8;resolution=4k': 216.0} available Veo 3.1 Fast · Video Extend
+   beatapi    veo-3.1                                                          per_second     {'720p': 1.88, '1080p': 3.12, '4K': 9.38, '720p (Veo 3.1: 8 sec · Fast · 720p · audio)': 3.75, '1080p (Veo 3.1: 8 sec · Fast · 1080p · audio)': 5.0, '4K (Veo 3.1: 8 sec · Fast · 4K · audio)': 11.25, '720p (Veo 3.1: 8 sec · Quality · 720p · audio)': 23.12, '1080p (Veo 3.1: 8 sec · Quality · 1080p · audio)': 23.75, '4K (Veo 3.1: 8 sec · Quality · 4K · audio)': 31.25}  720p=Veo 3.1: 8 sec · Lite · 720p · audio; 1080p=Veo 3.1: 8 sec · Lite · 1080p ·
+   cometapi   veo3.1                                                           no-price-in-catalog {}  
+   cometapi   veo3.1-fast                                                      no-price-in-catalog {}  
+
+### veo3_fast  (now kie: {'720p': 7.5, '1080p': 8.125, '4K': 22.5} c/s)
+   vidlab     veo-3.1-fast                                                     per_second     {'720p': 8.0, '720p+audio': 10.0, '1080p': 10.0, '1080p+audio': 11.0, '4k': 25.0, '4k+audio': 29.0} operational routes=1
+   spicyapi   google/veo-3.1-fast/image-to-video                               per_request    {'4': 36.0, '6': 54.0, '8': 72.0, 'duration_seconds=8;resolution=1080p': 86.4, 'duration_seconds=8;resolution=4k': 216.0} available Veo 3.1 Fast · Image to Video
+   spicyapi   google/veo-3.1-fast/reference-to-video                           per_request    {'8': 72.0, 'duration_seconds=8;resolution=1080p': 86.4, 'duration_seconds=8;resolution=4k': 216.0} available Veo 3.1 Fast · Reference to Video
+   spicyapi   google/veo-3.1-fast/text-to-video                                per_request    {'4': 36.0, '6': 54.0, '8': 72.0, 'duration_seconds=8;resolution=1080p': 86.4, 'duration_seconds=8;resolution=4k': 216.0} available Veo 3.1 Fast · Text to Video
+   spicyapi   google/veo-3.1-fast/video-extend                                 per_request    {'4': 36.0, '6': 54.0, '8': 72.0, 'duration_seconds=8;resolution=1080p': 86.4, 'duration_seconds=8;resolution=4k': 216.0} available Veo 3.1 Fast · Video Extend
+
+### veo3_lite  (now kie: {'720p': 3.75, '1080p': 4.375} c/s)
+   vidlab     veo-3.1-lite                                                     per_second     {'720p': 5.0, '1080p': 6.0, '4k': 24.0} operational routes=1
+   spicyapi   google/veo-3.1-lite/image-to-video                               per_request    {'4': 18.0, '6': 27.0, '8': 36.0, 'duration_seconds=8;resolution=1080p': 57.6} available Veo 3.1 Lite · Image to Video
+   spicyapi   google/veo-3.1-lite/reference-to-video                           per_request    {'8': 36.0, 'duration_seconds=8;resolution=1080p': 57.6} available Veo 3.1 Lite · Reference to Video
+   spicyapi   google/veo-3.1-lite/text-to-video                                per_request    {'4': 18.0, '6': 27.0, '8': 36.0, 'duration_seconds=8;resolution=1080p': 57.6} available Veo 3.1 Lite · Text to Video
+   spicyapi   google/veo-3.1-lite/video-extend                                 per_request    {'4': 18.0, '6': 27.0, '8': 36.0, 'duration_seconds=8;resolution=1080p': 57.6} available Veo 3.1 Lite · Video Extend
+
+### kling3  (now kie: {'720p': 11.35, '1080p': 15.1, '4K': 37.75} c/s)
+   vidlab     kling-3.0                                                        per_second     {'720p': 9.0, '720p+audio': 13.0, '1080p': 12.0, '1080p+audio': 17.0, '4k': 42.0, '4k+audio': 42.0} operational routes=1
+   vidlab     kling-3.0-motion-control                                         per_second     {'720p': 13.0, '1080p': 17.0} operational routes=1
+   vidlab     kling-3.0-omni                                                   per_second     {'720p': 9.0, '720p+audio': 12.0, '720p+video_input': 13.0, '1080p': 12.0, '1080p+audio': 14.0, '1080p+video_input': 17.0} operational routes=1
+   spicyapi   kling/3.0-turbo/image-to-video                                   per_second     {'720p': 11.2, '1080p': 14.0} available Kling 3.0 Turbo · Image to Video
+   spicyapi   kling/3.0-turbo/text-to-video                                    per_second     {'720p': 11.2, '1080p': 14.0} available Kling 3.0 Turbo · Text to Video
+   spicyapi   kling/3.0/character-animation                                    per_second     {'720p': 10.08, '1080p': 13.44} available Kling 3.0 · Motion Control
+   spicyapi   kling/3.0/image-to-video                                         per_second     {'generate_audio=false;resolution=720p': 6.72, 'generate_audio=false;resolution=1080p': 8.96, 'generate_audio=true;resolution=720p': 10.08, 'generate_audio=true;resolution=1080p': 13.44, 'generate_audio=false;resolution=4k': 33.6, 'generate_audio=true;resolution=4k': 33.6} available Kling 3.0 · Image to Video
+   spicyapi   kling/3.0/text-to-video                                          per_second     {'generate_audio=false;resolution=720p': 6.72, 'generate_audio=false;resolution=1080p': 8.96, 'generate_audio=true;resolution=720p': 10.08, 'generate_audio=true;resolution=1080p': 13.44, 'generate_audio=false;resolution=4k': 33.6, 'generate_audio=true;resolution=4k': 33.6} available Kling 3.0 · Text to Video
+   beatapi    kling-3                                                          per_second     {'720p': 11.0, '1080p': 13.0}  720p=Kling 3.0: 8 sec · 720p Standard · no audio; 1080p=Kling 3.0: 8 sec · 1080p
+   beatapi    kling-3-motion-control                                           per_second     {'720p': 11.0, '1080p': 14.0}  720p=Kling 3.0 Motion Control: 8 sec · 720p; 1080p=Kling 3.0 Motion Control: 8 s
+
+### kling4  (now vidlab: {'720p': 13.5, '1080p': 20.0} c/s)
+   spicyapi   kling/4.0-flash/image-to-video                                   per_second     {'*': 11.28} available Kling 4.0 Flash · Image to Video
+   spicyapi   kling/4.0-flash/reference-to-video                               per_second     {'*': 11.28, 'with_video=true': 15.12} available Kling 4.0 Flash · Reference to Video
+   spicyapi   kling/4.0-flash/text-to-video                                    per_second     {'*': 11.28} available Kling 4.0 Flash · Text to Video
+   spicyapi   kling/4.0-flash/video-edit                                       per_second     {'*': 15.12} available Kling 4.0 Flash · Video Edit
+   spicyapi   kling/4.0/image-to-video                                         per_second     {'720p': 18.84, '1080p': 28.2} available Kling 4.0 · Image to Video
+   spicyapi   kling/4.0/reference-to-video                                     per_second     {'resolution=720p;with_video=true': 11.28, 'resolution=1080p;with_video=true': 16.92, '720p': 18.84, '1080p': 28.2} available Kling 4.0 · Reference to Video
+   spicyapi   kling/4.0/text-to-video                                          per_second     {'720p': 18.84, '1080p': 28.2} available Kling 4.0 · Text to Video
+   spicyapi   kling/4.0/video-edit                                             per_second     {'720p': 11.28, '1080p': 16.92} available Kling 4.0 · Video Edit
+   spicyapi   kling/4.0/video-extend                                           per_second     {'720p': 18.84, '1080p': 28.2} available Kling 4.0 · Video Extend
+   kie        kling-4.0/keyframe-to-video                                      per_second?    {}  720P: 28.5 credits/s ($0.1425), 1080P: 42.5 credits/s ($0.2125), 4K: 99 credits/
+   kie        kling-4.0/reference-to-video                                     per_second?    {'*': 8.5}  720P: 17 credits/s ($0.085/s, with video) | 28.5 credits/s ($0.1425/s, no video)
+   kie        kling-4.0/flash-reference-to-video                               per_second?    {'*': 5.65}  720P: 11.3 credits/s ($0.0565/s, with video) | 17 credits/s ($0.085/s, no video)
+   kie        kling-4.0/flash-keyframe-to-video                                per_second?    {'*': 8.5}  720P: 17 credits/s ($0.085/s) — billed on the output duration (3–20 s).
+
+High-ti
+   kie        kling-4-0/long-image                                             per_second?    {}  Webpage: 99 credits ($0.495) at 1K, 107.5 credits ($0.5375) at 2K.
+E-commerce de
+   kie        kling-4-0/image                                                  per_second?    {}  2K: 11.3 credits ($0.0565), 4K: 17 credits ($0.085), 8K: 28.3 credits ($0.1415) 
+   beatapi    kling-v4                                                         per_second     {'720p': 15.0, '720p (Kling V4: 8 sec · 720p · with video inpu)': 18.0, '1080p': 23.0, '1080p (Kling V4: 8 sec · 1080p · with video inp)': 28.0}  720p=Kling V4: 8 sec · 720p; 720p (Kling V4: 8 sec · 720p · with video inpu)=Kli
+
+### kling3_omni  (now kie: {'720p': 10.1, '1080p': 12.6, '4K': 37.75} c/s)
+   vidlab     kling-3.0-omni                                                   per_second     {'720p': 9.0, '720p+audio': 12.0, '720p+video_input': 13.0, '1080p': 12.0, '1080p+audio': 14.0, '1080p+video_input': 17.0} operational routes=1
+
+### kling26_std  (now vidlab: {'720p': 5.0} c/s)
+   kie        kling-2.6/text-to-video                                          per_second?    {}  5-second video: 63 credits ($0.315) without audio, 126 credits ($0.63) with audi
+   kie        kling-2.6/image-to-video                                         per_second?    {}  5-second video: 63 credits ($0.315) without audio, 126 credits ($0.63) with audi
+   kie        kling-2.6/motion-control                                         per_second?    {}  12.6 credits/s ($0.063) for 720P, 20.2 credits/s ($0.101) for 1080P — about 10% 
+   beatapi    kling-2.6-motion-control                                         per_second     {'720p': 6.0, '1080p': 10.0}  720p=Kling 2.6 Motion Control: 8 sec · 720p; 1080p=Kling 2.6 Motion Control: 8 s
+
+### kling_o1  (now vidlab: {'720p': 9.0, '1080p': 12.0} c/s)
+   spicyapi   kling/2.6/character-animation                                    per_second     {'720p': 6.9, '1080p': 11.2} available Kling 2.6 · Motion Control
+   spicyapi   kling/2.6/image-to-video                                         per_second     {'false': 6.9, 'true': 13.8} available Kling 2.6 · Image to Video
+   spicyapi   kling/2.6/text-to-video                                          per_second     {'false': 6.9, 'true': 13.8} available Kling 2.6 · Text to Video
+   beatapi    kling-2.6-motion-control                                         per_second     {'720p': 6.0, '1080p': 10.0}  720p=Kling 2.6 Motion Control: 8 sec · 720p; 1080p=Kling 2.6 Motion Control: 8 s
+
+### seedance2  (now beatapi: {'480p': 7.725, '720p': 15.593, '1080p': 38.842, '4K': 80.19} c/s)
+   vidlab     seedance-2.5                                                     per_second     {'480p': 9.0, '720p': 21.0, '1080p': 52.0, '480p+video_input': 5.9, '720p+video_input': 15.0, '1080p+video_input': 34.0} operational routes=2
+   vidlab     seedance-2.5-boost                                               per_second     {'1080p': 27.0, '1080p+video_input': 16.0} operational routes=1
+   vidlab     seedance-2.5-flash                                               per_second     {'480p': 8.5, '720p': 18.5, '480p+video_input': 5.3, '720p+video_input': 10.9} operational routes=1
+   vidlab     seedance-2.0                                                     per_second     {'480p': 8.0, '720p': 15.0, '1080p': 40.0, '4k': 83.0} operational routes=2
+   vidlab     seedance-2.0-face                                                per_second     {'480p': 13.0, '720p': 27.0, '1080p': 63.0} operational routes=1
+   vidlab     seedance-2.0-fast                                                per_second     {'480p': 5.0, '720p': 11.0} operational routes=2
+   vidlab     seedance-2.0-fast-face                                           per_second     {'480p': 10.0, '720p': 22.0} operational routes=1
+   vidlab     seedance-2.0-mini                                                per_second     {'480p': 3.0, '720p': 5.0} operational routes=1
+   spicyapi   bytedance/seedance-2.5-flash/image-to-video                      per_second     {'480p': 9.2, '720p': 19.14} available Seedance 2.5 Flash · Image to Video
+   spicyapi   bytedance/seedance-2.5-flash/reference-to-video                  per_second     {'resolution=480p;with_video=true': 5.65, 'resolution=480p;with_video=false': 9.2, 'resolution=720p;with_video=true': 11.76, 'resolution=720p;with_video=false': 19.14} available Seedance 2.5 Flash · Reference to Video
+   spicyapi   bytedance/seedance-2.5-flash/text-to-video                       per_second     {'480p': 9.2, '720p': 19.14} available Seedance 2.5 Flash · Text to Video
+   spicyapi   bytedance/seedance-2.5-flash/video-edit                          per_second     {'480p': 18.0, '720p': 36.0} available Seedance 2.5 Flash · Video Edit
+   spicyapi   bytedance/seedance-2.5-flash/video-extend                        per_second     {'480p': 9.2, '720p': 19.14} available Seedance 2.5 Flash · Video Extend
+   spicyapi   bytedance/seedance-2.5-spicy/image-to-video                      per_second     {'generate_audio=false;resolution=480p': 21.6, 'generate_audio=true;resolution=480p': 21.6, 'generate_audio=false;resolution=720p': 43.2, 'generate_audio=true;resolution=720p': 43.2, 'generate_audio=false;resolution=1080p': 108.0, 'generate_audio=true;resolution=1080p': 108.0, 'generate_audio=false;resolution=4k': 216.0, 'generate_audio=true;resolution=4k': 216.0} available Seedance 2.5 Spicy · Image to Video
+   spicyapi   bytedance/seedance-2.5-spicy/video-extend                        per_second     {'generate_audio=false;resolution=480p': 21.6, 'generate_audio=true;resolution=480p': 21.6, 'generate_audio=false;resolution=720p': 43.2, 'generate_audio=true;resolution=720p': 43.2, 'generate_audio=false;resolution=1080p': 108.0, 'generate_audio=true;resolution=1080p': 108.0, 'generate_audio=false;resolution=4k': 216.0, 'generate_audio=true;resolution=4k': 216.0} available Seedance 2.5 Spicy · Video Extend
+   spicyapi   bytedance/seedance-2.5/image-to-video                            per_second     {'generate_audio=false;resolution=480p': 12.34, 'generate_audio=true;resolution=480p': 12.34, 'draft=true;generate_audio=false;resolution=480p': 16.94, 'draft=true;generate_audio=true;resolution=480p': 16.94, 'generate_audio=false;resolution=720p': 27.73, 'generate_audio=true;resolution=720p': 27.73, 'generate_audio=false;resolution=1080p': 68.23, 'generate_audio=true;resolution=1080p': 68.23, 'generate_audio=false;resolution=4k': 154.4, 'generate_audio=true;resolution=4k': 154.4} available Seedance 2.5 · Image to Video
+   spicyapi   bytedance/seedance-2.5/reference-to-video                        per_second     {'generate_audio=false;resolution=480p;with_video=true': 7.38, 'generate_audio=true;resolution=480p;with_video=true': 7.38, 'generate_audio=false;resolution=480p;with_video=false': 12.34, 'generate_audio=true;resolution=480p;with_video=false': 12.34, 'generate_audio=false;resolution=720p;with_video=true': 16.59, 'generate_audio=true;resolution=720p;with_video=true': 16.59, 'generate_audio=false;resolution=720p;with_video=false': 27.73, 'generate_audio=true;resolution=720p;with_video=false': 27.73, 'generate_audio=false;resolution=1080p;with_video=true': 40.82, 'generate_audio=true;resolution=1080p;with_video=true': 40.82, 'generate_audio=false;resolution=1080p;with_video=false': 68.23, 'generate_audio=true;resolution=1080p;with_video=false': 68.23} available Seedance 2.5 · Reference to Video
+   spicyapi   bytedance/seedance-2.5/text-to-video                             per_second     {'generate_audio=false;resolution=480p': 12.34, 'generate_audio=true;resolution=480p': 12.34, 'draft=true;generate_audio=false;resolution=480p': 16.94, 'draft=true;generate_audio=true;resolution=480p': 16.94, 'generate_audio=false;resolution=720p': 27.73, 'generate_audio=true;resolution=720p': 27.73, 'generate_audio=false;resolution=1080p': 68.23, 'generate_audio=true;resolution=1080p': 68.23, 'generate_audio=false;resolution=4k': 154.4, 'generate_audio=true;resolution=4k': 154.4} available Seedance 2.5 · Text to Video
+   spicyapi   bytedance/seedance-2.5/upscale                                   per_second     {'generate_audio=false;resolution=1080p': 71.7, 'generate_audio=true;resolution=1080p': 71.7, 'generate_audio=~;resolution=1080p': 71.7} available Seedance 2.5 · Draft to 1080p
+   spicyapi   bytedance/seedance-2.5/video-edit                                per_second     {'generate_audio=false;resolution=480p': 20.4, 'generate_audio=true;resolution=480p': 20.4, 'generate_audio=false;resolution=720p': 45.6, 'generate_audio=true;resolution=720p': 45.6, 'generate_audio=false;resolution=1080p': 114.0, 'generate_audio=true;resolution=1080p': 114.0} available Seedance 2.5 · Video Edit
+   spicyapi   bytedance/seedance-2.5/video-extend                              per_second     {'generate_audio=false;resolution=480p;with_video=true': 7.38, 'generate_audio=true;resolution=480p;with_video=true': 7.38, 'generate_audio=false;resolution=480p;with_video=false': 12.34, 'generate_audio=true;resolution=480p;with_video=false': 12.34, 'generate_audio=false;resolution=720p;with_video=true': 16.59, 'generate_audio=true;resolution=720p;with_video=true': 16.59, 'generate_audio=false;resolution=720p;with_video=false': 27.73, 'generate_audio=true;resolution=720p;with_video=false': 27.73, 'generate_audio=false;resolution=1080p;with_video=true': 40.82, 'generate_audio=true;resolution=1080p;with_video=true': 40.82, 'generate_audio=false;resolution=1080p;with_video=false': 68.23, 'generate_audio=true;resolution=1080p;with_video=false': 68.23} available Seedance 2.5 · Video Extend
+   spicyapi   bytedance/seedance-2.0-mini-spicy/image-to-video                 per_second     {'generate_audio=false;resolution=480p': 3.87, 'generate_audio=true;resolution=480p': 3.87, 'generate_audio=false;resolution=720p': 8.21, 'generate_audio=true;resolution=720p': 8.21} available Seedance 2.0 Mini Spicy · Image to Video
+   spicyapi   bytedance/seedance-2.0-mini-spicy/video-extend                   per_second     {'generate_audio=false;resolution=480p': 3.87, 'generate_audio=true;resolution=480p': 3.87, 'generate_audio=false;resolution=720p': 8.21, 'generate_audio=true;resolution=720p': 8.21} available Seedance 2.0 Mini Spicy · Video Extend
+   spicyapi   bytedance/seedance-2.0-mini/image-to-video                       per_second     {'generate_audio=false;resolution=480p': 2.46, 'generate_audio=true;resolution=480p': 2.46, 'enable_web_search=true;generate_audio=false;resolution=480p': 3.6, 'enable_web_search=true;generate_audio=true;resolution=480p': 3.6, 'generate_audio=false;resolution=720p': 5.29, 'generate_audio=true;resolution=720p': 5.29, 'enable_web_search=true;generate_audio=false;resolution=720p': 7.2, 'enable_web_search=true;generate_audio=true;resolution=720p': 7.2} available Seedance 2.0 Mini · Image to Video
+   spicyapi   bytedance/seedance-2.0-mini/reference-to-video                   per_second     {'generate_audio=false;resolution=480p;with_video=true': 1.1, 'generate_audio=true;resolution=480p;with_video=true': 1.1, 'generate_audio=false;resolution=720p;with_video=true': 2.36, 'generate_audio=true;resolution=720p;with_video=true': 2.36, 'generate_audio=false;resolution=480p;with_video=false': 2.46, 'generate_audio=true;resolution=480p;with_video=false': 2.46, 'enable_web_search=true;generate_audio=false;resolution=480p;with_video=false': 3.6, 'enable_web_search=true;generate_audio=false;resolution=480p;with_video=true': 3.6, 'enable_web_search=true;generate_audio=true;resolution=480p;with_video=false': 3.6, 'enable_web_search=true;generate_audio=true;resolution=480p;with_video=true': 3.6, 'generate_audio=false;resolution=720p;with_video=false': 5.29, 'generate_audio=true;resolution=720p;with_video=false': 5.29, 'enable_web_search=true;generate_audio=false;resolution=720p;with_video=false': 7.2, 'enable_web_search=true;generate_audio=false;resolution=720p;with_video=true': 7.2, 'enable_web_search=true;generate_audio=true;resolution=720p;with_video=false': 7.2, 'enable_web_search=true;generate_audio=true;resolution=720p;with_video=true': 7.2} available Seedance 2.0 Mini · Reference to Video
+   spicyapi   bytedance/seedance-2.0-mini/text-to-video                        per_second     {'generate_audio=false;resolution=480p': 2.46, 'generate_audio=true;resolution=480p': 2.46, 'generate_audio=false;resolution=720p': 5.29, 'generate_audio=true;resolution=720p': 5.29} available Seedance 2.0 Mini · Text to Video
+   spicyapi   bytedance/seedance-2.0-mini/video-edit                           per_second     {'480p': 2.19, '720p': 4.72} available Seedance 2.0 Mini · Video Edit
+   spicyapi   bytedance/seedance-2.0-mini/video-extend                         per_second     {'generate_audio=false;resolution=480p': 2.46, 'generate_audio=true;resolution=480p': 2.46, 'enable_web_search=true;generate_audio=false;resolution=480p': 3.6, 'enable_web_search=true;generate_audio=true;resolution=480p': 3.6, 'generate_audio=false;resolution=720p': 5.29, 'generate_audio=true;resolution=720p': 5.29, 'enable_web_search=true;generate_audio=false;resolution=720p': 7.2, 'enable_web_search=true;generate_audio=true;resolution=720p': 7.2} available Seedance 2.0 Mini · Video Extend
+   spicyapi   bytedance/seedance-2.0-spicy/image-to-video                      per_second     {'generate_audio=false;resolution=480p': 11.4, 'generate_audio=true;resolution=480p': 11.4, 'generate_audio=false;resolution=720p': 22.8, 'generate_audio=true;resolution=720p': 22.8, 'generate_audio=false;resolution=1080p': 57.0, 'generate_audio=true;resolution=1080p': 57.0, 'generate_audio=false;resolution=4k': 114.0, 'generate_audio=true;resolution=4k': 114.0} available Seedance 2.0 Spicy · Image to Video
+   spicyapi   bytedance/seedance-2.0-spicy/video-extend                        per_second     {'generate_audio=false;resolution=480p': 11.4, 'generate_audio=true;resolution=480p': 11.4, 'generate_audio=false;resolution=720p': 22.8, 'generate_audio=true;resolution=720p': 22.8, 'generate_audio=false;resolution=1080p': 57.0, 'generate_audio=true;resolution=1080p': 57.0, 'generate_audio=false;resolution=4k': 114.0, 'generate_audio=true;resolution=4k': 114.0} available Seedance 2.0 Spicy · Video Extend
+   spicyapi   bytedance/seedance-2.0/image-to-video                            per_second     {'generate_audio=false;resolution=480p': 7.0, 'generate_audio=true;resolution=480p': 7.0, 'generate_audio=false;resolution=720p': 15.2, 'generate_audio=true;resolution=720p': 15.2, 'generate_audio=false;resolution=1080p': 37.4, 'generate_audio=true;resolution=1080p': 37.4, 'generate_audio=false;resolution=4k': 77.8, 'generate_audio=true;resolution=4k': 77.8} available Seedance 2.0 · Image to Video
+   spicyapi   bytedance/seedance-2.0/reference-to-video                        per_second     {'generate_audio=false;resolution=480p;with_video=true': 4.31, 'generate_audio=true;resolution=480p;with_video=true': 4.31, 'generate_audio=false;resolution=480p;with_video=false': 7.0, 'generate_audio=true;resolution=480p;with_video=false': 7.0, 'generate_audio=false;resolution=720p;with_video=true': 9.28, 'generate_audio=true;resolution=720p;with_video=true': 9.28, 'generate_audio=false;resolution=720p;with_video=false': 15.2, 'generate_audio=true;resolution=720p;with_video=false': 15.2, 'generate_audio=false;resolution=1080p;with_video=true': 22.84, 'generate_audio=true;resolution=1080p;with_video=true': 22.84, 'generate_audio=false;resolution=1080p;with_video=false': 37.4, 'generate_audio=true;resolution=1080p;with_video=false': 37.4, 'generate_audio=false;resolution=4k;with_video=false': 77.8, 'generate_audio=false;resolution=4k;with_video=true': 77.8, 'generate_audio=true;resolution=4k;with_video=false': 77.8, 'generate_audio=true;resolution=4k;with_video=true': 77.8} available Seedance 2.0 · Reference to Video
+   spicyapi   bytedance/seedance-2.0/text-to-video                             per_second     {'generate_audio=false;resolution=480p': 7.0, 'generate_audio=true;resolution=480p': 7.0, 'enable_web_search=true;generate_audio=false;resolution=480p': 11.4, 'enable_web_search=true;generate_audio=true;resolution=480p': 11.4, 'generate_audio=false;resolution=720p': 15.2, 'generate_audio=true;resolution=720p': 15.2, 'enable_web_search=true;generate_audio=false;resolution=720p': 24.6, 'enable_web_search=true;generate_audio=true;resolution=720p': 24.6, 'generate_audio=false;resolution=1080p': 37.4, 'generate_audio=true;resolution=1080p': 37.4, 'enable_web_search=true;generate_audio=false;resolution=1080p': 61.2, 'enable_web_search=true;generate_audio=true;resolution=1080p': 61.2, 'generate_audio=false;resolution=4k': 77.8, 'generate_audio=true;resolution=4k': 77.8, 'enable_web_search=true;generate_audio=false;resolution=4k': 124.8, 'enable_web_search=true;generate_audio=true;resolution=4k': 124.8} available Seedance 2.0 · Text to Video
+   spicyapi   bytedance/seedance-2.0/video-edit                                per_second     {'480p': 8.62, '720p': 18.56, '1080p': 45.68} available Seedance 2.0 · Video Edit
+   spicyapi   bytedance/seedance-2.0-fast-spicy/image-to-video                 per_second     {'generate_audio=false;resolution=480p': 8.1, 'generate_audio=true;resolution=480p': 8.1, 'generate_audio=false;resolution=720p': 17.42, 'generate_audio=true;resolution=720p': 17.42} available Seedance 2.0 Fast Spicy · Image to Video
+   spicyapi   bytedance/seedance-2.0/video-extend                              per_second     {'generate_audio=false;resolution=480p': 7.0, 'generate_audio=true;resolution=480p': 7.0, 'generate_audio=false;resolution=720p': 15.2, 'generate_audio=true;resolution=720p': 15.2, 'generate_audio=false;resolution=1080p': 37.4, 'generate_audio=true;resolution=1080p': 37.4, 'generate_audio=false;resolution=4k': 77.8, 'generate_audio=true;resolution=4k': 77.8} available Seedance 2.0 · Video Extend
+   spicyapi   bytedance/seedance-2.0-fast-spicy/video-extend                   per_second     {'generate_audio=false;resolution=480p': 8.1, 'generate_audio=true;resolution=480p': 8.1, 'generate_audio=false;resolution=720p': 17.42, 'generate_audio=true;resolution=720p': 17.42} available Seedance 2.0 Fast Spicy · Video Extend
+   spicyapi   bytedance/seedance-2.0-fast/image-to-video                       per_second     {'generate_audio=false;resolution=480p': 4.5, 'generate_audio=true;resolution=480p': 4.5, 'generate_audio=false;resolution=720p': 9.68, 'generate_audio=true;resolution=720p': 9.68} available Seedance 2.0 Fast · Image to Video
+   spicyapi   bytedance/seedance-2.0-fast/reference-to-video                   per_second     {'generate_audio=false;resolution=480p;with_video=true': 2.25, 'generate_audio=true;resolution=480p;with_video=true': 2.25, 'generate_audio=false;resolution=480p;with_video=false': 4.5, 'generate_audio=true;resolution=480p;with_video=false': 4.5, 'generate_audio=false;resolution=720p;with_video=true': 4.85, 'generate_audio=true;resolution=720p;with_video=true': 4.85, 'generate_audio=false;resolution=720p;with_video=false': 9.68, 'generate_audio=true;resolution=720p;with_video=false': 9.68} available Seedance 2.0 Fast · Reference to Video
+   spicyapi   bytedance/seedance-2.0-fast/text-to-video                        per_second     {'generate_audio=false;resolution=480p': 4.5, 'generate_audio=true;resolution=480p': 4.5, 'enable_web_search=true;generate_audio=false;resolution=480p': 7.02, 'enable_web_search=true;generate_audio=true;resolution=480p': 7.02, 'generate_audio=false;resolution=720p': 9.68, 'generate_audio=true;resolution=720p': 9.68, 'enable_web_search=true;generate_audio=false;resolution=720p': 14.88, 'enable_web_search=true;generate_audio=true;resolution=720p': 14.88} available Seedance 2.0 Fast · Text to Video
+   spicyapi   bytedance/seedance-2.0-fast/video-edit                           per_second     {'480p': 4.51, '720p': 9.69} available Seedance 2.0 Fast · Video Edit
+   spicyapi   bytedance/seedance-2.0-fast/video-extend                         per_second     {'generate_audio=false;resolution=480p': 4.5, 'generate_audio=true;resolution=480p': 4.5, 'generate_audio=false;resolution=720p': 9.68, 'generate_audio=true;resolution=720p': 9.68} available Seedance 2.0 Fast · Video Extend
+   kie        bytedance/seedance-2                                             per_second?    {'*': 5.75}  480P: 11.5 credits/s ($0.0575/s, with video) | 19 credits/s ($0.095/s, no video)
+   kie        bytedance/seedance-2-fast                                        per_second?    {'*': 3.4}  480P: 6.8 credits/s ($0.034/s, with video) | 11.7 credits/s ($0.059/s, no video)
+   kie        bytedance/seedance-2-mini                                        per_second?    {'*': 1.2}  480p — 2.4 credits/s ($0.012/s, with video) | 3.8 credits/s ($0.019/s, no video)
+   kie        bytedance/seedance-2-5                                           per_second?    {'*': 8.5}  480P: 17 credits/s ($0.085/s, with video) | 28 credits/s ($0.140/s, no video)
+72
+   kie        bytedance/seedance-2-5-draft                                     per_second?    {}  The upgrade step inherits the billing mode (with-video / no-video) of the source
+   kie        bytedance/seedance-2-5-flash                                     per_second?    {'*': 5.75}  480P: 11.5 credits/s ($0.0575/s, with video) | 18.5 credits/s ($0.0925/s, no vid
+   framehush  L-Seedance-2.5-480p                                              estimate-only  {}  
+   framehush  L-Seedance-2.5-720p                                              estimate-only  {}  
+   framehush  XG-Seedance-2.0-720                                              estimate-only  {}  
+   framehush  doubao-seedance-2-5                                              estimate-only  {}  
+   framehush  doubao-seedance-2-5-260628                                       estimate-only  {}  
+   framehush  doubao-seedance-2-5-flash-261115                                 estimate-only  {}  
+   framehush  seedance-2-5                                                     estimate-only  {}  
+   framehush  seedance_2.0                                                     estimate-only  {}  
+   cometapi   doubao-seedance-2-0                                              no-price-in-catalog {}  
+   cometapi   doubao-seedance-2-0-fast                                         no-price-in-catalog {}  
+   cometapi   doubao-seedance-2-0-mini                                         no-price-in-catalog {}  
+   cometapi   seedance-2-5                                                     no-price-in-catalog {}  
+   eachlabs   bytedance-seedance-2-5-flash-reference-to-video                  no-price-in-catalog {}  bytedance-seedance-2.5-flash-reference-to-video
+   eachlabs   bytedance-seedance-2-5-flash-image-to-video                      no-price-in-catalog {}  bytedance-seedance-2.5-flash-image-to-video
+   eachlabs   bytedance-seedance-2-5-flash-text-to-video                       no-price-in-catalog {}  bytedance-seedance-2.5-flash-text-to-video
+   eachlabs   bytedance-seedance-2-5-draft-completion                          no-price-in-catalog {}  bytedance-seedance-2-5-draft-completion
+
+### seedance2_fast  (now vidlab: {'480p': 5.0, '720p': 11.0} c/s)
+   spicyapi   bytedance/seedance-2.0-fast-spicy/image-to-video                 per_second     {'generate_audio=false;resolution=480p': 8.1, 'generate_audio=true;resolution=480p': 8.1, 'generate_audio=false;resolution=720p': 17.42, 'generate_audio=true;resolution=720p': 17.42} available Seedance 2.0 Fast Spicy · Image to Video
+   spicyapi   bytedance/seedance-2.0-fast-spicy/video-extend                   per_second     {'generate_audio=false;resolution=480p': 8.1, 'generate_audio=true;resolution=480p': 8.1, 'generate_audio=false;resolution=720p': 17.42, 'generate_audio=true;resolution=720p': 17.42} available Seedance 2.0 Fast Spicy · Video Extend
+   spicyapi   bytedance/seedance-2.0-fast/image-to-video                       per_second     {'generate_audio=false;resolution=480p': 4.5, 'generate_audio=true;resolution=480p': 4.5, 'generate_audio=false;resolution=720p': 9.68, 'generate_audio=true;resolution=720p': 9.68} available Seedance 2.0 Fast · Image to Video
+   spicyapi   bytedance/seedance-2.0-fast/reference-to-video                   per_second     {'generate_audio=false;resolution=480p;with_video=true': 2.25, 'generate_audio=true;resolution=480p;with_video=true': 2.25, 'generate_audio=false;resolution=480p;with_video=false': 4.5, 'generate_audio=true;resolution=480p;with_video=false': 4.5, 'generate_audio=false;resolution=720p;with_video=true': 4.85, 'generate_audio=true;resolution=720p;with_video=true': 4.85, 'generate_audio=false;resolution=720p;with_video=false': 9.68, 'generate_audio=true;resolution=720p;with_video=false': 9.68} available Seedance 2.0 Fast · Reference to Video
+   spicyapi   bytedance/seedance-2.0-fast/text-to-video                        per_second     {'generate_audio=false;resolution=480p': 4.5, 'generate_audio=true;resolution=480p': 4.5, 'enable_web_search=true;generate_audio=false;resolution=480p': 7.02, 'enable_web_search=true;generate_audio=true;resolution=480p': 7.02, 'generate_audio=false;resolution=720p': 9.68, 'generate_audio=true;resolution=720p': 9.68, 'enable_web_search=true;generate_audio=false;resolution=720p': 14.88, 'enable_web_search=true;generate_audio=true;resolution=720p': 14.88} available Seedance 2.0 Fast · Text to Video
+   spicyapi   bytedance/seedance-2.0-fast/video-edit                           per_second     {'480p': 4.51, '720p': 9.69} available Seedance 2.0 Fast · Video Edit
+   spicyapi   bytedance/seedance-2.0-fast/video-extend                         per_second     {'generate_audio=false;resolution=480p': 4.5, 'generate_audio=true;resolution=480p': 4.5, 'generate_audio=false;resolution=720p': 9.68, 'generate_audio=true;resolution=720p': 9.68} available Seedance 2.0 Fast · Video Extend
+   kie        bytedance/seedance-2-fast                                        per_second?    {'*': 3.4}  480P: 6.8 credits/s ($0.034/s, with video) | 11.7 credits/s ($0.059/s, no video)
+
+### seedance2_mini  (now kie: {'480p': 1.9, '720p': 4.1} c/s)
+   vidlab     seedance-2.0-mini                                                per_second     {'480p': 3.0, '720p': 5.0} operational routes=1
+   spicyapi   bytedance/seedance-2.0-mini-spicy/image-to-video                 per_second     {'generate_audio=false;resolution=480p': 3.87, 'generate_audio=true;resolution=480p': 3.87, 'generate_audio=false;resolution=720p': 8.21, 'generate_audio=true;resolution=720p': 8.21} available Seedance 2.0 Mini Spicy · Image to Video
+   spicyapi   bytedance/seedance-2.0-mini-spicy/video-extend                   per_second     {'generate_audio=false;resolution=480p': 3.87, 'generate_audio=true;resolution=480p': 3.87, 'generate_audio=false;resolution=720p': 8.21, 'generate_audio=true;resolution=720p': 8.21} available Seedance 2.0 Mini Spicy · Video Extend
+   spicyapi   bytedance/seedance-2.0-mini/image-to-video                       per_second     {'generate_audio=false;resolution=480p': 2.46, 'generate_audio=true;resolution=480p': 2.46, 'enable_web_search=true;generate_audio=false;resolution=480p': 3.6, 'enable_web_search=true;generate_audio=true;resolution=480p': 3.6, 'generate_audio=false;resolution=720p': 5.29, 'generate_audio=true;resolution=720p': 5.29, 'enable_web_search=true;generate_audio=false;resolution=720p': 7.2, 'enable_web_search=true;generate_audio=true;resolution=720p': 7.2} available Seedance 2.0 Mini · Image to Video
+   spicyapi   bytedance/seedance-2.0-mini/reference-to-video                   per_second     {'generate_audio=false;resolution=480p;with_video=true': 1.1, 'generate_audio=true;resolution=480p;with_video=true': 1.1, 'generate_audio=false;resolution=720p;with_video=true': 2.36, 'generate_audio=true;resolution=720p;with_video=true': 2.36, 'generate_audio=false;resolution=480p;with_video=false': 2.46, 'generate_audio=true;resolution=480p;with_video=false': 2.46, 'enable_web_search=true;generate_audio=false;resolution=480p;with_video=false': 3.6, 'enable_web_search=true;generate_audio=false;resolution=480p;with_video=true': 3.6, 'enable_web_search=true;generate_audio=true;resolution=480p;with_video=false': 3.6, 'enable_web_search=true;generate_audio=true;resolution=480p;with_video=true': 3.6, 'generate_audio=false;resolution=720p;with_video=false': 5.29, 'generate_audio=true;resolution=720p;with_video=false': 5.29, 'enable_web_search=true;generate_audio=false;resolution=720p;with_video=false': 7.2, 'enable_web_search=true;generate_audio=false;resolution=720p;with_video=true': 7.2, 'enable_web_search=true;generate_audio=true;resolution=720p;with_video=false': 7.2, 'enable_web_search=true;generate_audio=true;resolution=720p;with_video=true': 7.2} available Seedance 2.0 Mini · Reference to Video
+   spicyapi   bytedance/seedance-2.0-mini/text-to-video                        per_second     {'generate_audio=false;resolution=480p': 2.46, 'generate_audio=true;resolution=480p': 2.46, 'generate_audio=false;resolution=720p': 5.29, 'generate_audio=true;resolution=720p': 5.29} available Seedance 2.0 Mini · Text to Video
+   spicyapi   bytedance/seedance-2.0-mini/video-edit                           per_second     {'480p': 2.19, '720p': 4.72} available Seedance 2.0 Mini · Video Edit
+   spicyapi   bytedance/seedance-2.0-mini/video-extend                         per_second     {'generate_audio=false;resolution=480p': 2.46, 'generate_audio=true;resolution=480p': 2.46, 'enable_web_search=true;generate_audio=false;resolution=480p': 3.6, 'enable_web_search=true;generate_audio=true;resolution=480p': 3.6, 'generate_audio=false;resolution=720p': 5.29, 'generate_audio=true;resolution=720p': 5.29, 'enable_web_search=true;generate_audio=false;resolution=720p': 7.2, 'enable_web_search=true;generate_audio=true;resolution=720p': 7.2} available Seedance 2.0 Mini · Video Extend
+   beatapi    seedance-2-mini                                                  per_second     {'480p': 1.7, '480p (Seedance 2.0 Mini: 8 sec · 480p · with v)': 2.15, '720p': 3.6, '720p (Seedance 2.0 Mini: 8 sec · 720p · with v)': 4.5}  480p=Seedance 2.0 Mini: 8 sec · 480p · no video input; 480p (Seedance 2.0 Mini: 
+
+### omni12  (now kie: {'720p': 4.5, '1080p': 5.0} c/s)
+   vidlab     gemini-omni-1.2-flash                                            per_second     {'360p': 1.9, '720p': 4.4, '1080p': 4.9, '4k': 10.0} operational routes=2
+   spicyapi   google/gemini-omni-1.2-flash/image-to-video                      per_second     {'360p': 2.76, '720p': 8.4, '1080p': 12.6, '4k': 25.2} available Gemini Omni 1.2 Flash · Image to Video
+   spicyapi   google/gemini-omni-1.2-flash/reference-to-video                  per_second     {'360p': 2.76, '720p': 8.4, '1080p': 12.6, '4k': 25.2} available Gemini Omni 1.2 Flash · Reference to Video
+   spicyapi   google/gemini-omni-1.2-flash/text-to-video                       per_second     {'360p': 2.76, '720p': 8.4, '1080p': 12.6, '4k': 25.2} available Gemini Omni 1.2 Flash · Text to Video
+   spicyapi   google/gemini-omni-1.2-flash/video-edit                          per_second     {'360p': 5.76, '720p': 12.48, '1080p': 17.52, '4k': 32.64} available Gemini Omni 1.2 Flash · Video Editing
+   beatapi    gemini-omni-1-2-flash                                            per_second     {'720p': 4.9, '1080p': 7.28, '4K': 14.63}  720p=Gemini Omni 1.2 Flash: 8 sec · 720p; 1080p=Gemini Omni 1.2 Flash: 8 sec · 1
+   eachlabs   google-gemini-omni-1-2-flash-video-extend                        no-price-in-catalog {}  google-gemini-omni-1-2-flash-video-extend
+   eachlabs   google-gemini-omni-1-2-flash-video-upscale                       no-price-in-catalog {}  google-gemini-omni-1-2-flash-video-upscale
+   eachlabs   google-gemini-omni-1-2-flash-video-editing                       no-price-in-catalog {}  google-gemini-omni-1-2-flash-video-editing
+   eachlabs   google-gemini-omni-1-2-flash-text-to-video                       no-price-in-catalog {}  google-gemini-omni-1-2-flash-text-to-video
+   eachlabs   google-gemini-omni-1-2-flash-reference-to-video                  no-price-in-catalog {}  google-gemini-omni-1-2-flash-reference-to-video
+   eachlabs   google-gemini-omni-1-2-flash-image-to-video                      no-price-in-catalog {}  google-gemini-omni-1-2-flash-image-to-video
+
+### omni11  (now beatapi: {'720p': 6.0, '1080p': 9.0} c/s)
+   vidlab     gemini-omni-1.1-flash                                            per_second     {'360p': 4.3, '720p': 7.1, '1080p': 7.1} operational routes=1
+   spicyapi   google/gemini-omni-1.1-flash/image-to-video                      per_request    {'duration_seconds=4;resolution=720p': 36.48, 'duration_seconds=4;resolution=1080p': 54.73, 'duration_seconds=6;resolution=720p': 54.73, 'duration_seconds=8;resolution=720p': 72.97, 'duration_seconds=6;resolution=1080p': 82.1, 'duration_seconds=10;resolution=720p': 91.22, 'duration_seconds=4;resolution=4k': 109.46, 'duration_seconds=8;resolution=1080p': 109.46, 'duration_seconds=10;resolution=1080p': 136.83, 'duration_seconds=6;resolution=4k': 164.2, 'duration_seconds=8;resolution=4k': 218.93, 'duration_seconds=10;resolution=4k': 273.67} available Gemini Omni 1.1 Flash · Image to Video
+   spicyapi   google/gemini-omni-1.1-flash/reference-to-video                  per_request    {'duration_seconds=4;resolution=720p': 36.48, 'duration_seconds=4;resolution=1080p': 54.73, 'duration_seconds=6;resolution=720p': 54.73, 'duration_seconds=8;resolution=720p': 72.97, 'duration_seconds=6;resolution=1080p': 82.1, 'duration_seconds=10;resolution=720p': 91.22, 'duration_seconds=4;resolution=4k': 109.46, 'duration_seconds=8;resolution=1080p': 109.46, 'duration_seconds=10;resolution=1080p': 136.83, 'duration_seconds=6;resolution=4k': 164.2, 'duration_seconds=8;resolution=4k': 218.93, 'duration_seconds=10;resolution=4k': 273.67} available Gemini Omni 1.1 Flash · Reference to Video
+   spicyapi   google/gemini-omni-1.1-flash/text-to-video                       per_request    {'duration_seconds=4;resolution=720p': 36.48, 'duration_seconds=4;resolution=1080p': 54.73, 'duration_seconds=6;resolution=720p': 54.73, 'duration_seconds=8;resolution=720p': 72.97, 'duration_seconds=6;resolution=1080p': 82.1, 'duration_seconds=10;resolution=720p': 91.22, 'duration_seconds=4;resolution=4k': 109.46, 'duration_seconds=8;resolution=1080p': 109.46, 'duration_seconds=10;resolution=1080p': 136.83, 'duration_seconds=6;resolution=4k': 164.2, 'duration_seconds=8;resolution=4k': 218.93, 'duration_seconds=10;resolution=4k': 273.67} available Gemini Omni 1.1 Flash · Text to Video
+   eachlabs   google-gemini-omni-1-1-flash-reference-to-video                  no-price-in-catalog {}  google-gemini-omni-1-1-flash-reference-to-video
+   eachlabs   google-gemini-omni-1-1-flash-image-to-video                      no-price-in-catalog {}  google-gemini-omni-1-1-flash-image-to-video
+   eachlabs   google-gemini-omni-1-1-flash-video-editing                       no-price-in-catalog {}  google-gemini-omni-1-1-flash-video-editing
+   eachlabs   google-gemini-omni-1-1-flash-text-to-video                       no-price-in-catalog {}  google-gemini-omni-1-1-flash-text-to-video
+
+### hailuo23  (now kie: {'720p': 2.5} c/s)
+   vidlab     hailuo-2.3                                                       per_second     {'768p': 6.0, '1080p': 9.0} operational routes=1
+   vidlab     hailuo-2.3-fast                                                  per_second     {'768p': 4.0, '1080p': 6.0} operational routes=1
+   spicyapi   minimax/hailuo-2.3/image-to-video                                per_request    {'fast': 16.3, 'standard': 25.6} available MiniMax Hailuo 2.3 · Image to Video
+
+### hailuo23_fast  (now vidlab: {'720p': 4.0, '1080p': 6.0} c/s)
+
+### minimax_h3  (now beatapi: {'480p': 2.0, '720p': 3.0, '1080p': 4.7} c/s)
+   vidlab     minimax-h3                                                       per_second     {'768p': 4.5, '768p+video_input': 5.0, '2k': 8.0, '2k+video_input': 8.0} operational routes=1
+   vidlab     minimax-h3-max                                                   per_second     {'480p': 5.0, '768p': 8.0, '1080p': 16.0} operational routes=1
+   spicyapi   minimax/h3-image-highspeed/edit                                  per_image      {'1k': 5.4, '2k': 5.52, '4k': 16.44} available MiniMax H3-Image HighSpeed · Image Edit
+   spicyapi   minimax/h3-image-highspeed/text-to-image                         per_image      {'1k': 4.2, '2k': 4.32, '4k': 15.6} available MiniMax H3-Image HighSpeed · Text to Image
+   spicyapi   minimax/h3-image-open-lora/edit                                  per_image      {'1k': 4.2, '1.5k': 6.0, '2k': 7.8, '3k': 15.0, '4k': 22.2} available MiniMax H3-Image Open Weights LoRA · Image Editing
+   spicyapi   minimax/h3-image-open-lora/text-to-image                         per_image      {'1k': 4.2, '1.5k': 5.4, '2k': 6.6, '3k': 11.4, '4k': 16.2} available MiniMax H3-Image Open Weights LoRA · Text to Image
+   spicyapi   minimax/h3-image-open/edit                                       per_image      {'1k': 2.4, '1.5k': 4.2, '2k': 6.0, '3k': 13.2, '4k': 20.4} available MiniMax H3-Image Open Weights · Image Editing
+   spicyapi   minimax/h3-image-open/text-to-image                              per_image      {'1k': 2.4, '1.5k': 3.6, '2k': 4.8, '3k': 9.6, '4k': 14.4} available MiniMax H3-Image Open Weights · Text to Image
+   spicyapi   minimax/h3-image/edit                                            per_image      {'1k': 3.6, '2k': 3.6, '4k': 10.8} available MiniMax H3-Image · Image Editing
+   spicyapi   minimax/h3-image/text-to-image                                   per_image      {'1k': 3.6, '2k': 3.6, '4k': 10.8} available MiniMax H3-Image · Text to Image
+   spicyapi   pruna-ai/p-h3-image-lora/edit                                    per_image      {'1k': 4.8, '1.5k': 6.6, '2k': 8.4, '3k': 15.6, '4k': 22.8} available P-H3-Image LoRA · Image Editing
+   spicyapi   pruna-ai/p-h3-image-lora/text-to-image                           per_image      {'1k': 4.2, '1.5k': 5.4, '2k': 6.6, '3k': 11.4, '4k': 16.2} available P-H3-Image LoRA · Text to Image
+   spicyapi   pruna-ai/p-h3-image/edit                                         per_image      {'1k': 3.0, '1.5k': 4.8, '2k': 6.6, '3k': 13.8, '4k': 21.0} available P-H3-Image · Image Editing
+   spicyapi   pruna-ai/p-h3-image/text-to-image                                per_image      {'1k': 2.4, '1.5k': 3.6, '2k': 4.8, '3k': 9.6, '4k': 14.4} available P-H3-Image · Text to Image
+   spicyapi   minimax/h3-highspeed/image-to-video                              per_second     {'768p': 6.0} available MiniMax H3 HighSpeed · Image to Video
+   spicyapi   minimax/h3-highspeed/reference-to-video                          per_second     {'768p': 6.0} available MiniMax H3 HighSpeed · Reference to Video
+   spicyapi   minimax/h3-highspeed/text-to-video                               per_second     {'768p': 6.0} available MiniMax H3 HighSpeed · Text to Video
+   spicyapi   minimax/h3-lite/image-to-video                                   per_second     {'480p': 2.5, '768p': 4.0} available MiniMax H3 Lite · Image to Video
+   spicyapi   minimax/h3-lite/reference-to-video                               per_second     {'480p': 2.5, '768p': 4.0} available MiniMax H3 Lite · Reference to Video
+   spicyapi   minimax/h3-lite/text-to-video                                    per_second     {'480p': 2.5, '768p': 4.0} available MiniMax H3 Lite · Text to Video
+   spicyapi   minimax/h3-x/image-to-video                                      per_second     {'480p': 2.2, '720p': 3.2, '1080p': 4.5} available MiniMax H3 X · Image to Video
+   spicyapi   minimax/h3-x/reference-to-video                                  per_second     {'480p': 2.2, '720p': 3.2, '1080p': 4.5} available MiniMax H3 X · Reference to Video
+   spicyapi   minimax/h3-x/text-to-video                                       per_second     {'480p': 2.2, '720p': 3.2, '1080p': 4.5} available MiniMax H3 X · Text to Video
+   spicyapi   minimax/h3-x-turbo/image-to-video                                per_second     {'480p': 1.5, '720p': 2.4, '1080p': 3.2} available MiniMax H3 X Turbo · Image to Video
+   spicyapi   minimax/h3-x-turbo/reference-to-video                            per_second     {'480p': 1.5, '720p': 2.4, '1080p': 3.2} available MiniMax H3 X Turbo · Reference to Video
+   spicyapi   minimax/h3-x-turbo/text-to-video                                 per_second     {'480p': 1.5, '720p': 2.4, '1080p': 3.2} available MiniMax H3 X Turbo · Text to Video
+   spicyapi   minimax/h3-360-orbit/image-to-video                              per_second     {'480p': 5.0, '540p': 7.5, '768p': 10.0, '1080p': 20.0} available MiniMax H3 360 Orbit · Image to Video
+   spicyapi   minimax/h3-character-swap/video-edit                             per_second     {'480p': 6.0, '540p': 9.0, '768p': 12.0, '1080p': 24.0} available MiniMax H3 Character Swap · Video Edit
+   spicyapi   minimax/h3-singularity-lora/image-to-video                       per_second     {'480p': 6.25, '540p': 9.38, '768p': 12.5, '1080p': 25.0} available MiniMax H3 Singularity LoRA · Image to Video
+   spicyapi   minimax/h3-singularity-lora/reference-to-video                   per_second     {'480p': 6.0, '540p': 9.0, '768p': 12.0, '1080p': 24.0} available MiniMax H3 Singularity LoRA · Reference to Video
+   spicyapi   minimax/h3-singularity-lora/video-extend                         per_second     {'480p': 6.25, '540p': 9.38, '768p': 12.5, '1080p': 25.0} available MiniMax H3 Singularity LoRA · Video Extend
+   spicyapi   minimax/h3-max/image-to-video                                    per_second     {'480p': 5.0, '768p': 8.0} available MiniMax H3 Max · Image to Video
+   spicyapi   minimax/h3-max/text-to-video                                     per_second     {'480p': 5.0, '768p': 8.0} available MiniMax H3 Max · Text to Video
+   spicyapi   minimax/h3-max/video-extend                                      per_second     {'480p': 5.0, '768p': 8.0} available MiniMax H3 Max · Video Extend
+   spicyapi   minimax/h3-lora/image-to-video                                   per_second     {'480p': 5.0, '540p': 7.5, '768p': 10.0, '1080p': 20.0} available MiniMax H3 LoRA · Image to Video
+   spicyapi   minimax/h3-lora/reference-to-video                               per_second     {'480p': 6.0, '540p': 9.0, '768p': 12.0, '1080p': 24.0} available MiniMax H3 LoRA · Reference to Video
+   spicyapi   minimax/h3-lora/text-to-video                                    per_second     {'480p': 5.0, '540p': 7.5, '768p': 10.0, '1080p': 20.0} available MiniMax H3 LoRA · Text to Video
+   spicyapi   minimax/h3-image-lora/edit                                       per_image      {'1k': 5.4, '2k': 12.6} available MiniMax H3 Image LoRA · Image Editing
+   spicyapi   minimax/h3-image-lora/text-to-image                              per_image      {'1k': 4.2, '2k': 9.0} available MiniMax H3 Image LoRA · Text to Image
+   spicyapi   minimax/h3-lora/video-extend                                     per_second     {'480p': 5.0, '540p': 7.5, '768p': 10.0, '1080p': 20.0} available MiniMax H3 LoRA · Video Extend
+   spicyapi   minimax/h3-spicy/image-to-video                                  per_second     {'480p': 3.8, '540p': 5.7, '768p': 8.4, '1080p': 15.2} available MiniMax H3 Spicy · Image to Video
+   spicyapi   minimax/h3-spicy/video-extend                                    per_second     {'480p': 3.8, '540p': 5.7, '768p': 8.4, '1080p': 15.2} available MiniMax H3 Spicy · Video Extend
+   spicyapi   minimax/h3/image-to-video                                        per_second     {'480p': 2.5, '768p': 3.7, '2k': 5.8} available MiniMax H3 · Image to Video
+   spicyapi   minimax/h3/reference-to-video                                    per_second     {'480p': 2.5, '768p': 3.7, '2k': 5.8} available MiniMax H3 · Reference to Video
+   spicyapi   minimax/h3/text-to-video                                         per_second     {'480p': 2.5, '768p': 3.7, '2k': 5.8} available MiniMax H3 · Text to Video
+   spicyapi   minimax/h3/video-extend                                          per_second     {'480p': 2.5, '768p': 3.7, '2k': 5.8} available MiniMax H3 · Video Extend
+   spicyapi   minimax/h3-edit/video-edit                                       per_second     {'480p': 3.0, '540p': 4.5, '768p': 6.6} available MiniMax H3 Edit · Video Edit
+   spicyapi   tripo/h3.1/image-to-3d                                           per_request    {'*': 43.2} available Tripo H3.1 · Image to 3D
+   spicyapi   tripo/h3.1/text-to-3d                                            per_request    {'*': 28.8} available Tripo H3.1 · Text to 3D
+   kie        minimax-h3/text-to-video                                         per_second?    {'*': 4.0}  Video generation & video input — 768P: 8 credits/s ($0.04/s); 2K: 13 credits/s (
+   kie        minimax-h3/image-to-video                                        per_second?    {'*': 4.0}  Video generation & video input — 768P: 8 credits/s ($0.04/s); 2K: 13 credits/s (
+   kie        minimax-h3/reference-to-video                                    per_second?    {'*': 4.0}  Video generation & video input — 768P: 8 credits/s ($0.04/s); 2K: 13 credits/s (
+   kie        minimax-h3/image-edit                                            per_second?    {}  Billed per image by total output pixels: 1.8 credits ($0.009) up to 4.5 MP (1K /
+   kie        minimax-h3/text-to-image                                         per_second?    {}  Billed per image by total output pixels: 1.8 credits ($0.009) up to 4.5 MP (1K /
+   framehush  ME-MiniMax-H3-2K                                                 estimate-only  {}  
+   framehush  MiniMax-H3                                                       estimate-only  {}  
+   framehush  mtapi-minimax-h3                                                 estimate-only  {}  
+   cometapi   minimax-h3                                                       no-price-in-catalog {}  
+   cometapi   minimax-h3-max                                                   no-price-in-catalog {}  
+   eachlabs   minimax-official-h3-max-reference-to-video                       no-price-in-catalog {}  minimax-official-h3-max-reference-to-video
+   eachlabs   minimax-official-h3-max-image-to-video                           no-price-in-catalog {}  minimax-official-h3-max-image-to-video
+   eachlabs   minimax-official-h3-max-text-to-video                            no-price-in-catalog {}  minimax-official-h3-max-text-to-video
+   eachlabs   minimax-h3-image-highspeed-image-to-image                        no-price-in-catalog {}  minimax-h3-highspeed-image-to-image
+   eachlabs   minimax-h3-image-highspeed-text-to-image                         no-price-in-catalog {}  minimax-h3-highspeed-text-to-image
+   eachlabs   minimax-h3-image-image-to-image                                  no-price-in-catalog {}  minimax-h3-image-to-image
+   eachlabs   minimax-h3-image-text-to-image                                   no-price-in-catalog {}  minimax-h3-text-to-image
+   eachlabs   minimax-h3-lite-reference-to-video                               no-price-in-catalog {}  MiniMax H3 Lite | Reference to Video
+   eachlabs   minimax-h3-highspeed-reference-to-video                          no-price-in-catalog {}  MiniMax H3 Highspeed | Reference to Video
+   eachlabs   minimax-h3-lite-image-to-video                                   no-price-in-catalog {}  MiniMax H3 Lite | Image to Video
+   eachlabs   minimax-h3-highspeed-image-to-video                              no-price-in-catalog {}  MiniMax H3 Highspeed | Image to Video
+   eachlabs   minimax-h3-lite-text-to-video                                    no-price-in-catalog {}  MiniMax H3 Lite | Text to Video
+   eachlabs   minimax-h3-highspeed-text-to-video                               no-price-in-catalog {}  MiniMax H3 Highspeed | Text to Video
+   eachlabs   minimax-h3-max-reframe-video                                     no-price-in-catalog {}  Minimax H3 Max Reframe Video
+   eachlabs   minimax-h3-max-recast                                            no-price-in-catalog {}  minimax-h3-max-recast
+   eachlabs   minimax-h3-max-turbo-extend-video                                no-price-in-catalog {}  minimax-h3-max-turbo-extend-video
+   eachlabs   minimax-h3-max-extend-video                                      no-price-in-catalog {}  minimax-h3-max-extend-video
+   eachlabs   minimax-h3-max-lip-sync-image-to-video                           no-price-in-catalog {}  minimax-h3-max-lip-sync-image-to-video
+   eachlabs   minimax-h3-max-turbo-text-to-video                               no-price-in-catalog {}  minimax-h3-max-turbo-text-to-video
+   eachlabs   minimax-h3-max-turbo-image-to-video                              no-price-in-catalog {}  minimax-h3-max-turbo-image-to-video
+   eachlabs   minimax-h3-max-reference-to-video                                no-price-in-catalog {}  minimax-h3-max-reference-to-video
+   eachlabs   minimax-h3-max-text-to-video                                     no-price-in-catalog {}  minimax-h3-max-text-to-video
+   eachlabs   minimax-h3-max-image-to-video                                    no-price-in-catalog {}  minimax-h3-max-image-to-video
+
+### minimax_h3_max  (now vidlab: {'480p': 5.0, '720p': 8.0, '1080p': 16.0} c/s)
+   spicyapi   minimax/h3-max/image-to-video                                    per_second     {'480p': 5.0, '768p': 8.0} available MiniMax H3 Max · Image to Video
+   spicyapi   minimax/h3-max/text-to-video                                     per_second     {'480p': 5.0, '768p': 8.0} available MiniMax H3 Max · Text to Video
+   spicyapi   minimax/h3-max/video-extend                                      per_second     {'480p': 5.0, '768p': 8.0} available MiniMax H3 Max · Video Extend
+   beatapi    minimax-h3-max                                                   per_second     {'*': 5.0, '* (MiniMax H3 Max: 8 sec · 768P)': 8.0, '* (MiniMax H3 Max Turbo: 8 sec · 480P)': 2.5, '* (MiniMax H3 Max Turbo: 8 sec · 768P)': 4.0}  *=MiniMax H3 Max: 8 sec · 480P; * (MiniMax H3 Max: 8 sec · 768P)=MiniMax H3 Max:
+   cometapi   minimax-h3-max                                                   no-price-in-catalog {}  
+   eachlabs   minimax-official-h3-max-reference-to-video                       no-price-in-catalog {}  minimax-official-h3-max-reference-to-video
+   eachlabs   minimax-official-h3-max-image-to-video                           no-price-in-catalog {}  minimax-official-h3-max-image-to-video
+   eachlabs   minimax-official-h3-max-text-to-video                            no-price-in-catalog {}  minimax-official-h3-max-text-to-video
+   eachlabs   minimax-h3-max-reframe-video                                     no-price-in-catalog {}  Minimax H3 Max Reframe Video
+   eachlabs   minimax-h3-max-recast                                            no-price-in-catalog {}  minimax-h3-max-recast
+   eachlabs   minimax-h3-max-turbo-extend-video                                no-price-in-catalog {}  minimax-h3-max-turbo-extend-video
+   eachlabs   minimax-h3-max-extend-video                                      no-price-in-catalog {}  minimax-h3-max-extend-video
+   eachlabs   minimax-h3-max-lip-sync-image-to-video                           no-price-in-catalog {}  minimax-h3-max-lip-sync-image-to-video
+   eachlabs   minimax-h3-max-turbo-text-to-video                               no-price-in-catalog {}  minimax-h3-max-turbo-text-to-video
+   eachlabs   minimax-h3-max-turbo-image-to-video                              no-price-in-catalog {}  minimax-h3-max-turbo-image-to-video
+   eachlabs   minimax-h3-max-reference-to-video                                no-price-in-catalog {}  minimax-h3-max-reference-to-video
+   eachlabs   minimax-h3-max-text-to-video                                     no-price-in-catalog {}  minimax-h3-max-text-to-video
+   eachlabs   minimax-h3-max-image-to-video                                    no-price-in-catalog {}  minimax-h3-max-image-to-video
+
+### grok  (now kie: {'480p': 1.2, '720p': 2.25, '1080p': 4.0} c/s)
+   vidlab     grok-imagine-video-1.5                                           per_second     {'480p': 4.0, '720p': 7.0, '1080p': 13.0} operational routes=2
+   spicyapi   xai/grok-imagine-video-1.5/image-to-video                        per_second     {'480p': 2.8, '720p': 5.05, '1080p': 9.0} available Grok Imagine Video 1.5 · Image to Video
+   spicyapi   xai/grok-imagine-video-1.5/reference-to-video                    per_second     {'480p': 9.6, '720p': 16.8} available Grok Imagine Video 1.5 · Reference to Video
+   spicyapi   xai/grok-imagine-video-1.5/text-to-video                         per_second     {'480p': 2.8, '720p': 5.05, '1080p': 9.0} available Grok Imagine Video 1.5 · Text to Video
+   beatapi    grok-imagine-video-1.5                                           per_second     {'480p': 2.5, '720p': 5.0, '1080p': 9.0}  480p=Grok Imagine Video 1.5: 8 sec · text-to-video · 480p; 720p=Grok Imagine Vid
+   cometapi   grok-imagine-video                                               no-price-in-catalog {}  
+   cometapi   grok-imagine-video-1.5                                           no-price-in-catalog {}  
+   eachlabs   xai-grok-imagine-video-1-5-lite-text-to-video                    no-price-in-catalog {}  Grok Imagine Video 1.5 Lite – Text to Video
+   eachlabs   xai-grok-imagine-video-1-5-lite-image-to-video                   no-price-in-catalog {}  xai-grok-imagine-video-1-5-lite-image-to-video
+
+### grok15  (now kie: {'480p': 1.2, '720p': 2.25, '1080p': 4.0} c/s)
+   vidlab     grok-imagine-video-1.5                                           per_second     {'480p': 4.0, '720p': 7.0, '1080p': 13.0} operational routes=2
+   vidlab     grok-imagine-1.5-edit                                            per_image      {'*': 2.0} operational routes=1
+   spicyapi   xai/grok-imagine-video-1.5/image-to-video                        per_second     {'480p': 2.8, '720p': 5.05, '1080p': 9.0} available Grok Imagine Video 1.5 · Image to Video
+   spicyapi   xai/grok-imagine-video-1.5/reference-to-video                    per_second     {'480p': 9.6, '720p': 16.8} available Grok Imagine Video 1.5 · Reference to Video
+   spicyapi   xai/grok-imagine-video-1.5/text-to-video                         per_second     {'480p': 2.8, '720p': 5.05, '1080p': 9.0} available Grok Imagine Video 1.5 · Text to Video
+   beatapi    grok-imagine-video-1.5                                           per_second     {'480p': 2.5, '720p': 5.0, '1080p': 9.0}  480p=Grok Imagine Video 1.5: 8 sec · text-to-video · 480p; 720p=Grok Imagine Vid
+   cometapi   grok-imagine-video-1.5                                           no-price-in-catalog {}  
+
+### grok15_lite  (now fal: {'480p': 2.0, '720p': 3.0} c/s)
+
+### luma_ray32  (now fal: {'480p': 10.0, '720p': 20.0, '1080p': 40.0} c/s)
+   eachlabs   luma-ray-v3-2-reframe                                            no-price-in-catalog {}  luma-ray-v3-2-reframe
+
+### ltx25  (now fal: {'720p': 12.0, '1080p': 17.0, '4K': 34.0} c/s)
+   spicyapi   lightricks/ltx-2.5-pro/image-to-video                            per_second     {'720p': 9.6, '1080p': 13.6} available LTX 2.5 Pro · LTX 2.5 Pro Image-to-Video
+   spicyapi   lightricks/ltx-2.5-pro/text-to-video                             per_second     {'720p': 9.6, '1080p': 13.6} available LTX 2.5 Pro · LTX 2.5 Pro Text-to-Video
+   spicyapi   lightricks/ltx-2.5/audio-to-video                                per_second     {'720p': 9.0, '1080p': 13.0, '2k': 19.0} available LTX 2.5 · LTX 2.5 Audio-to-Video
+   spicyapi   lightricks/ltx-2.5/image-to-video                                per_second     {'720p': 9.0, '1080p': 13.0, '2k': 19.0, '4k': 30.0} available LTX 2.5 · Image to Video
+   spicyapi   lightricks/ltx-2.5/text-to-video                                 per_second     {'720p': 9.0, '1080p': 13.0, '2k': 19.0, '4k': 30.0} available LTX 2.5 · Text to Video
+
+### ltx25_fast  (now fal: {'720p': 9.0, '1080p': 13.0, '4K': 30.0} c/s)
+
+### happyhorse  (now openrouter: {'720p': 9.88, '1080p': 12.78} c/s)
+   vidlab     happyhorse-1.0                                                   per_second     {'720p': 17.0, '1080p': 29.0} operational routes=1
+   vidlab     happyhorse-1.1                                                   per_second     {'720p': 15.0} operational routes=1
+   spicyapi   alibaba/happyhorse-1.1/image-to-video                            per_second     {'720p': 14.0, '1080p': 18.0} available HappyHorse 1.1 · Image to Video
+   spicyapi   alibaba/happyhorse-1.1/reference-to-video                        per_second     {'720p': 14.0, '1080p': 18.0} available HappyHorse 1.1 · Reference to Video
+   spicyapi   alibaba/happyhorse-1.1/text-to-video                             per_second     {'720p': 14.0, '1080p': 18.0} available HappyHorse 1.1 · Text to Video
+   kie        happyhorse/text-to-video                                         per_second?    {}  28 credits/s ($0.14) for 720 p or 48 credits/s ($0.24) for 1080 p 
+High-tier top
+   kie        happyhorse/image-to-video                                        per_second?    {}  28 credits/s ($0.14) for 720 p or 48 credits/s ($0.24) for 1080 p 
+High-tier top
+   kie        happyhorse/reference-to-video                                    per_second?    {}  28 credits/s ($0.14) for 720 p or 48 credits/s ($0.24) for 1080 p 
+High-tier top
+   kie        happyhorse/video-edit                                            per_second?    {'*': 14.0}  28 credits/s ($0.14/s) for 720p or 48 credits/s ($0.24/s) for 1080p. 
+Total Cost
+   kie        happyhorse-1-1/image-to-video                                    per_second?    {}  22.5 credits/s ($0.1125) for 720 p or 29 credits/s ($0.145) for 1080 p 
+High-tie
+   kie        happyhorse-1-1/text-to-video                                     per_second?    {}  22.5 credits/s ($0.1125) for 720 p or 29 credits/s ($0.145) for 1080 p 
+High-tie
+   kie        happyhorse-1-1/reference-to-video                                per_second?    {}  22.5 credits/s ($0.1125) for 720 p or 29 credits/s ($0.145) for 1080 p 
+High-tie
+   beatapi    happyhorse-1-0                                                   per_second     {'720p': 14.0, '1080p': 24.0}  720p=HappyHorse 1.0: 8 sec · 720p; 1080p=HappyHorse 1.0: 8 sec · 1080p
+   beatapi    happyhorse-1-1                                                   per_second     {'720p': 12.0, '1080p': 15.5}  720p=HappyHorse 1.1: 8 sec · 720p; 1080p=HappyHorse 1.1: 8 sec · 1080p
+   cometapi   happyhorse-1.0                                                   no-price-in-catalog {}  
+   cometapi   happyhorse-1.1                                                   no-price-in-catalog {}  
+
+### pika22  (now fal: {'720p': 4.0, '1080p': 9.0} c/s)
+
+### vidu_q3  (now novita: {'480p': 1.79, '720p': 2.68} c/s)
+   vidlab     vidu-q3                                                          per_second     {'540p': 5.0, '720p': 10.0, '1080p': 13.0} operational routes=1
+   vidlab     vidu-q3-mix                                                      per_second     {'720p': 13.0, '1080p': 15.0} operational routes=1
+   vidlab     vidu-q3-pro                                                      per_second     {'540p': 7.0, '720p': 15.0, '1080p': 16.0} operational routes=1
+   vidlab     vidu-q3-turbo                                                    per_second     {'540p': 4.0, '720p': 6.0, '1080p': 7.0} operational routes=1
+   spicyapi   vidu/q3-turbo/image-to-video                                     per_second     {'540p': 4.2, '720p': 6.6} available Vidu Q3 Turbo · Image to Video
+   spicyapi   vidu/q3-turbo/video-extend                                       per_second     {'540p': 4.2, '720p': 6.6} available Vidu Q3 Turbo · Video Extend
+   spicyapi   vidu/q3-spicy/image-to-video                                     per_second     {'540p': 6.65, '720p': 14.25, '1080p': 15.2} available Vidu Q3 Spicy · Image to Video
+   spicyapi   vidu/q3-spicy/video-extend                                       per_second     {'540p': 6.65, '720p': 14.25, '1080p': 15.2} available Vidu Q3 Spicy · Video Extend
+   spicyapi   vidu/q3/image-to-video                                           per_second     {'540p': 7.0, '720p': 15.0, '1080p': 16.0} available Vidu Q3 · Image to Video
+   spicyapi   vidu/q3-pro/image-to-video                                       per_second     {'540p': 5.4, '720p': 6.5, '1080p': 7.8} available Vidu Q3 Pro · Image to Video
+   cometapi   viduq3-pro                                                       no-price-in-catalog {}  
+   cometapi   viduq3-turbo                                                     no-price-in-catalog {}  
+
+### vidu_q4  (now vidlab: {'480p': 6.0, '720p': 12.0, '1080p': 13.0} c/s)
+   spicyapi   vidu/q4-preview/image-to-video                                   per_second     {'540p': 4.5, '720p': 9.5, '1080p': 12.0, '2k': 19.0, '4k': 39.0} available Vidu Q4 Preview · Image to Video
+   spicyapi   vidu/q4-preview/reference-to-video                               per_second     {'540p': 4.5, '720p': 9.5, '1080p': 12.0, '2k': 19.0, '4k': 39.0} available Vidu Q4 Preview · Reference to Video
+   spicyapi   vidu/q4-preview/video-extend                                     per_second     {'540p': 4.5, '720p': 9.5, '1080p': 12.0, '2k': 19.0, '4k': 39.0} available Vidu Q4 Preview · Video Extend
+   kie        vidu-q4/image-to-video                                           per_second?    {'*': 3.6}  540p: 7.2 credits/s ($0.036/s) | 720p: 15.2 credits/s ($0.076/s) | 1080p: 19.2 c
+   kie        vidu-q4/reference-to-video                                       per_second?    {'*': 3.6}  540p: 7.2 credits/s ($0.036/s) | 720p: 15.2 credits/s ($0.076/s) | 1080p: 19.2 c
+   eachlabs   vidu-q4-preview-reference-to-video                               no-price-in-catalog {}  Vidu Q4 | Preview | Reference to Video
+   eachlabs   vidu-q4-preview-image-to-video                                   no-price-in-catalog {}  Vidu Q4 | Preview | Image to Video
+
+### vidu_q3_pro  (now vidlab: {'480p': 7.0, '720p': 15.0, '1080p': 16.0} c/s)
+
+### vidu_q3_turbo  (now vidlab: {'480p': 4.0, '720p': 6.0, '1080p': 7.0} c/s)
+
+### vidu_q3_mix  (now vidlab: {'720p': 13.0, '1080p': 15.0} c/s)
+
+### runway_gen45  (now runway: {'720p': 12.0, '1080p': 12.0} c/s)
+   cometapi   gen4.5                                                           no-price-in-catalog {}  
+
+### vidra3  (now vidlab: {'480p': 10.0, '720p': 23.0, '1080p': 57.0, '4K': 154.0} c/s)
+
+### seedance25_boost  (now vidlab: {'1080p': 27.0} c/s)
+
+### seedance25_flash  (now vidlab: {'480p': 8.5, '720p': 18.5} c/s)
+   spicyapi   bytedance/seedance-2.5-flash/image-to-video                      per_second     {'480p': 9.2, '720p': 19.14} available Seedance 2.5 Flash · Image to Video
+   spicyapi   bytedance/seedance-2.5-flash/reference-to-video                  per_second     {'resolution=480p;with_video=true': 5.65, 'resolution=480p;with_video=false': 9.2, 'resolution=720p;with_video=true': 11.76, 'resolution=720p;with_video=false': 19.14} available Seedance 2.5 Flash · Reference to Video
+   spicyapi   bytedance/seedance-2.5-flash/text-to-video                       per_second     {'480p': 9.2, '720p': 19.14} available Seedance 2.5 Flash · Text to Video
+   spicyapi   bytedance/seedance-2.5-flash/video-edit                          per_second     {'480p': 18.0, '720p': 36.0} available Seedance 2.5 Flash · Video Edit
+   spicyapi   bytedance/seedance-2.5-flash/video-extend                        per_second     {'480p': 9.2, '720p': 19.14} available Seedance 2.5 Flash · Video Extend
+   kie        bytedance/seedance-2-5-flash                                     per_second?    {'*': 5.75}  480P: 11.5 credits/s ($0.0575/s, with video) | 18.5 credits/s ($0.0925/s, no vid
+   beatapi    seedance-2.5-flash                                               per_second     {'480p': 6.3, '480p (Seedance 2.5 Flash: 8 sec · 480p_v2v · w)': 7.65, '720p': 13.55, '720p (Seedance 2.5 Flash: 8 sec · 720p_v2v · w)': 16.46}  480p=Seedance 2.5 Flash: 8 sec · 480p; 480p (Seedance 2.5 Flash: 8 sec · 480p_v2
+   framehush  doubao-seedance-2-5-flash-261115                                 estimate-only  {}  
+   framehush  sd2.5-flash                                                      estimate-only  {}  
+   eachlabs   bytedance-seedance-2-5-flash-reference-to-video                  no-price-in-catalog {}  bytedance-seedance-2.5-flash-reference-to-video
+   eachlabs   bytedance-seedance-2-5-flash-image-to-video                      no-price-in-catalog {}  bytedance-seedance-2.5-flash-image-to-video
+   eachlabs   bytedance-seedance-2-5-flash-text-to-video                       no-price-in-catalog {}  bytedance-seedance-2.5-flash-text-to-video
+
+### pixverse_v6  (now vidlab: {'720p': 5.0, '1080p': 10.0} c/s)
+   kie        pixverse-v6/text-to-video                                        per_second?    {'*': 2.0}  360P: 4.0 credits/s ($0.020/s, no audio) | 5.6 credits/s ($0.028/s, with audio)
+
+   kie        pixverse-v6/image-to-video                                       per_second?    {'*': 2.0}  360P: 4.0 credits/s ($0.020/s, no audio) | 5.6 credits/s ($0.028/s, with audio)
+
+   kie        pixverse-v6/transition                                           per_second?    {'*': 2.0}  360P: 4.0 credits/s ($0.020/s, no audio) | 5.6 credits/s ($0.028/s, with audio)
+
+   kie        pixverse-v6/extend                                               per_second?    {'*': 2.0}  360P: 4.0 credits/s ($0.020/s, no audio) | 5.6 credits/s ($0.028/s, with audio)
+
+   kie        pixverse-v6/reference-to-video                                   per_second?    {'*': 2.0}  360P: 4.0 credits/s ($0.020/s, no audio) | 5.6 credits/s ($0.028/s, with audio)
+
+   kie        pixverse-v6-max/text-to-video                                    per_second?    {'*': 2.4}  360P: 4.8 credits/s ($0.024/s, no audio) | 7.2 credits/s ($0.036/s, with audio)
+
+   kie        pixverse-v6-max/image-to-video                                   per_second?    {'*': 2.4}  360P: 4.8 credits/s ($0.024/s, no audio) | 7.2 credits/s ($0.036/s, with audio)
+
+   eachlabs   pixverse-v6-max-image-to-video                                   no-price-in-catalog {}  pixverse-v6-max-image-to-video
+   eachlabs   pixverse-v6-max-text-to-video                                    no-price-in-catalog {}  pixverse-v6-max-text-to-video
+
+### pixverse_v6_max  (now vidlab: {'480p': 5.0, '720p': 7.0, '1080p': 13.0} c/s)
+   kie        pixverse-v6-max/text-to-video                                    per_second?    {'*': 2.4}  360P: 4.8 credits/s ($0.024/s, no audio) | 7.2 credits/s ($0.036/s, with audio)
+
+   kie        pixverse-v6-max/image-to-video                                   per_second?    {'*': 2.4}  360P: 4.8 credits/s ($0.024/s, no audio) | 7.2 credits/s ($0.036/s, with audio)
+
+   eachlabs   pixverse-v6-max-image-to-video                                   no-price-in-catalog {}  pixverse-v6-max-image-to-video
+   eachlabs   pixverse-v6-max-text-to-video                                    no-price-in-catalog {}  pixverse-v6-max-text-to-video
+
+### wan25  (now vidlab: {'480p': 5.0, '720p': 8.0, '1080p': 13.0} c/s)
+   spicyapi   alibaba/wan-2.5/image-to-video                                   per_second     {'480p': 4.5, '720p': 9.0, '1080p': 13.5} available Wan 2.5 · Image to Video
+   spicyapi   alibaba/wan-2.5/text-to-video                                    per_second     {'480p': 4.5, '720p': 9.0, '1080p': 13.5} available Wan 2.5 · Text to Video
+   spicyapi   alibaba/wan-2.5/video-extend                                     per_second     {'480p': 4.5, '720p': 9.0, '1080p': 13.5} available Wan 2.5 · Video Extend
+
+### wan26  (now vidlab: {'720p': 7.0, '1080p': 11.0} c/s)
+   spicyapi   alibaba/wan-2.6-flash/image-to-video                             per_second     {'generate_audio=false;resolution=720p': 2.25, 'generate_audio=false;resolution=1080p': 3.38, 'generate_audio=true;resolution=720p': 4.5, 'generate_audio=true;resolution=1080p': 6.75} available Wan 2.6 Flash · Image to Video
+   spicyapi   alibaba/wan-2.6-flash/reference-to-video                         per_second     {'generate_audio=false;resolution=720p': 2.25, 'generate_audio=false;resolution=1080p': 3.38, 'generate_audio=true;resolution=720p': 4.5, 'generate_audio=true;resolution=1080p': 6.75} available Wan 2.6 Flash · Reference to Video
+   spicyapi   alibaba/wan-2.6-spicy/image-to-video                             per_second     {'720p': 9.5, '1080p': 14.25} available Wan 2.6 Spicy · Image to Video
+   spicyapi   alibaba/wan-2.6/image-to-video                                   per_second     {'720p': 9.0, '1080p': 13.5} available Wan 2.6 · Image to Video
+   spicyapi   alibaba/wan-2.6/reference-to-video                               per_second     {'720p': 6.5, '1080p': 9.75} available Wan 2.6 · Reference to Video
+   spicyapi   alibaba/wan-2.6/text-to-video                                    per_second     {'720p': 9.0, '1080p': 13.5} available Wan 2.6 · Text to Video
+   cometapi   wan2.6                                                           no-price-in-catalog {}  
+
+### wan26_flash  (now vidlab: {'720p': 5.0, '1080p': 7.0} c/s)
+   spicyapi   alibaba/wan-2.6-flash/image-to-video                             per_second     {'generate_audio=false;resolution=720p': 2.25, 'generate_audio=false;resolution=1080p': 3.38, 'generate_audio=true;resolution=720p': 4.5, 'generate_audio=true;resolution=1080p': 6.75} available Wan 2.6 Flash · Image to Video
+   spicyapi   alibaba/wan-2.6-flash/reference-to-video                         per_second     {'generate_audio=false;resolution=720p': 2.25, 'generate_audio=false;resolution=1080p': 3.38, 'generate_audio=true;resolution=720p': 4.5, 'generate_audio=true;resolution=1080p': 6.75} available Wan 2.6 Flash · Reference to Video
+
+### wan27  (now vidlab: {'720p': 9.0, '1080p': 14.0} c/s)
+   spicyapi   alibaba/wan-2.7-spicy/image-to-video                             per_second     {'720p': 12.35, '1080p': 19.0} available Wan 2.7 Spicy · Image to Video
+   spicyapi   alibaba/wan-2.7-pro/edit                                         per_image      {'*': 7.5} available Wan 2.7 Pro · Image Editing
+   spicyapi   alibaba/wan-2.7-pro/text-to-image                                per_image      {'*': 7.5} available Wan 2.7 Pro · Text to Image
+   spicyapi   alibaba/wan-2.7-spicy/video-extend                               per_second     {'720p': 12.35, '1080p': 19.0} available Wan 2.7 Spicy · Video Extend
+   spicyapi   alibaba/wan-2.7/edit                                             per_image      {'*': 3.0} available Wan 2.7 · Image Editing
+   spicyapi   alibaba/wan-2.7/text-to-image                                    per_image      {'*': 3.0} available Wan 2.7 · Text to Image
+   cometapi   wan2.7                                                           no-price-in-catalog {}  
+
+### skyreels_v4_fast  (now vidlab: {'480p': 8.0, '720p': 11.0, '1080p': 28.0} c/s)
+
+### skyreels_v4_std  (now vidlab: {'480p': 11.0, '720p': 14.0, '1080p': 35.0} c/s)
+
+### seedance15pro  (now vidlab: {'480p': 3.0, '720p': 6.0, '1080p': 14.0} c/s)
+   spicyapi   bytedance/seedance-1.5-pro-spicy/image-to-video                  per_second     {'generate_audio=false;resolution=480p': 1.2, 'generate_audio=true;resolution=480p': 2.4, 'generate_audio=false;resolution=720p': 2.6, 'generate_audio=false;resolution=1080p': 5.2, 'generate_audio=true;resolution=720p': 5.2, 'generate_audio=true;resolution=1080p': 10.4} available Seedance 1.5 Pro Spicy · Image to Video
+   spicyapi   bytedance/seedance-1.5-pro-spicy/video-extend                    per_second     {'generate_audio=false;resolution=480p': 1.2, 'generate_audio=true;resolution=480p': 2.4, 'generate_audio=false;resolution=720p': 2.6, 'generate_audio=false;resolution=1080p': 5.2, 'generate_audio=true;resolution=720p': 5.2, 'generate_audio=true;resolution=1080p': 10.4} available Seedance 1.5 Pro Spicy · Video Extend
+   spicyapi   bytedance/seedance-1.5-pro/image-to-video                        per_second     {'generate_audio=false;resolution=480p': 1.17, 'generate_audio=true;resolution=480p': 2.33, 'generate_audio=false;resolution=720p': 2.59, 'generate_audio=true;resolution=720p': 5.18, 'generate_audio=false;resolution=1080p': 5.83, 'generate_audio=true;resolution=1080p': 11.66} available Seedance 1.5 Pro · Image to Video
+   spicyapi   bytedance/seedance-1.5-pro/text-to-video                         per_second     {'generate_audio=false;resolution=480p': 1.17, 'generate_audio=true;resolution=480p': 2.33, 'generate_audio=false;resolution=720p': 2.59, 'generate_audio=true;resolution=720p': 5.18, 'generate_audio=false;resolution=1080p': 5.83, 'generate_audio=true;resolution=1080p': 11.66} available Seedance 1.5 Pro · Text to Video
+   spicyapi   bytedance/seedance-1.5-pro/video-extend                          per_second     {'generate_audio=false;resolution=480p': 1.17, 'generate_audio=true;resolution=480p': 2.33, 'generate_audio=false;resolution=720p': 2.59, 'generate_audio=true;resolution=720p': 5.18, 'generate_audio=false;resolution=1080p': 5.83, 'generate_audio=true;resolution=1080p': 11.66} available Seedance 1.5 Pro · Video Extend
+
+### seedance10pro_fast  (now vidlab: {'480p': 1.5, '720p': 3.0, '1080p': 6.0} c/s)
+
+### vidlab15  (now vidlab: {'720p': 2.0} c/s)
+
+### vidlab2  (now vidlab: {'720p': 22.1, '1080p': 37.7} c/s)
+
+### magi2  (now framehush: {'1080p': 6.0} c/s)
+   vidlab     magi-2                                                           per_second     {'1080p': 7.5, '1080p+video_input': 7.5} down routes=1
+   spicyapi   sand-ai/magi-2/image-to-video                                    per_second     {'*': 9.6} available MAGI-2 · Image to Video
+   spicyapi   sand-ai/magi-2/reference-to-video                                per_second     {'*': 9.6} available MAGI-2 · Reference to Video
+   spicyapi   sand-ai/magi-2/text-to-video                                     per_second     {'*': 9.6} available MAGI-2 · Text to Video
+   kie        magi-2/text-to-video                                             per_second?    {'*': 8.8}  MAGI-2 Text to Video: 17.6 credits ($0.088) per second of 1080p video, audio inc
+   kie        magi-2/image-to-video                                            per_second?    {'*': 8.8}  MAGI-2 Image to Video: 17.6 credits ($0.088) per second of 1080p video, audio in
+   kie        magi-2/reference-to-video                                        per_second?    {'*': 8.8}  MAGI-2 Reference to Video: 17.6 credits ($0.088) per second of 1080p video, audi
+   beatapi    magi-2                                                           per_second     {'1080p': 8.8}  1080p=MAGI-2: 8 sec · 1080p

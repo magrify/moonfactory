@@ -1,0 +1,122 @@
+{
+ "lightricks/ltx-2.5/text-to-video": {
+  "status": 404,
+  "pairs": {},
+  "generic_prices": []
+ },
+ "lightricks/ltx-2.5/image-to-video": {
+  "status": 404,
+  "pairs": {},
+  "generic_prices": []
+ },
+ "lightricks/ltx-2.5/text-to-video/fast": {
+  "status": 200,
+  "pairs": {
+   "720p": 0.09,
+   "1080p": 0.13,
+   "4K": 0.3
+  },
+  "generic_prices": [
+   0.13,
+   0.17
+  ]
+ },
+ "fal-ai/luma-dream-machine/ray-3.2/text-to-video": {
+  "status": 404,
+  "pairs": {},
+  "generic_prices": []
+ },
+ "fal-ai/pika/v2.2/text-to-video": {
+  "status": 404,
+  "pairs": {},
+  "generic_prices": []
+ },
+ "fal-ai/wan-motion": {
+  "status": 200,
+  "pairs": {},
+  "generic_prices": []
+ },
+ "fal-ai/vidu/q2/text-to-video": {
+  "status": 200,
+  "pairs": {},
+  "generic_prices": []
+ },
+ "fal-ai/vidu/q3/text-to-video": {
+  "status": 200,
+  "pairs": {},
+  "generic_prices": []
+ },
+ "xai/grok-imagine-video/text-to-video": {
+  "status": 200,
+  "pairs": {},
+  "generic_prices": []
+ },
+ "fal-ai/veo3.1": {
+  "status": 200,
+  "pairs": {},
+  "generic_prices": [
+   0.4
+  ]
+ },
+ "fal-ai/veo3.1/fast": {
+  "status": 200,
+  "pairs": {},
+  "generic_prices": [
+   0.4
+  ]
+ },
+ "fal-ai/kling-video/v3/pro/text-to-video": {
+  "status": 200,
+  "pairs": {},
+  "generic_prices": []
+ },
+ "fal-ai/kling-video/v2.6/pro/text-to-video": {
+  "status": 200,
+  "pairs": {},
+  "generic_prices": [
+   0.07,
+   0.14,
+   0.07,
+   0.14,
+   0.07,
+   0.14
+  ]
+ },
+ "fal-ai/minimax/hailuo-2.3/text-to-video": {
+  "status": 404,
+  "pairs": {},
+  "generic_prices": []
+ },
+ "fal-ai/wan/v2.6/text-to-video": {
+  "status": 404,
+  "pairs": {},
+  "generic_prices": []
+ },
+ "fal-ai/wan-3/text-to-video": {
+  "status": 404,
+  "pairs": {},
+  "generic_prices": []
+ },
+ "bytedance/seedance-2.0/text-to-video": {
+  "status": 200,
+  "pairs": {},
+  "generic_prices": [
+   0.3034,
+   0.2419,
+   0.682,
+   0.3034,
+   0.682,
+   0.2419
+  ]
+ },
+ "bytedance/seedance-2.5/text-to-video": {
+  "status": 200,
+  "pairs": {},
+  "generic_prices": [
+   0.473,
+   0.2205,
+   0.473,
+   0.2205
+  ]
+ }
+}

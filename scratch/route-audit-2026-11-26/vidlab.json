@@ -1,0 +1,6190 @@
+{
+ "status": 200,
+ "bytes": 79053,
+ "data": {
+  "object": "list",
+  "data": [
+   {
+    "id": "ugc-image-1",
+    "name": "VidLab UGC Image 1",
+    "maker": "VidLab",
+    "kind": "image",
+    "unit": "per_image",
+    "description": "Our own model for realistic phone-shot UGC people.",
+    "prices": {
+     "*": 0.09
+    },
+    "params": {
+     "prompt": {
+      "required": true,
+      "max": 2000
+     },
+     "images": {
+      "max": 16,
+      "file": {
+       "types": [
+        "image/jpeg",
+        "image/png",
+        "image/webp"
+       ],
+       "mb": 20
+      }
+     },
+     "extra": {
+      "keys": [
+       "mode",
+       "image_roles"
+      ]
+     },
+     "aspect_ratio": {
+      "values": [
+       "9:16",
+       "16:9",
+       "1:1",
+       "4:3",
+       "3:4",
+       "2:3",
+       "3:2"
+      ]
+     }
+    },
+    "media": {
+     "still": "/open/models/ugc-image-1.webp"
+    },
+    "featured": true,
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "vidlab-video-flash",
+    "name": "VidLab 1.5",
+    "maker": "VidLab",
+    "kind": "video",
+    "unit": "per_second",
+    "description": "Fast video generation from a prompt or start frame. Choose Talking Video for a spoken script and optional voice reference from any playable audio or video. One 10-second video in 16:9 or 9:16.",
+    "prices": {
+     "*": 0.02
+    },
+    "params": {
+     "prompt": {
+      "max": 2000
+     },
+     "images": {
+      "max": 1,
+      "file": {
+       "types": [
+        "image/jpeg",
+        "image/png",
+        "image/webp"
+       ],
+       "mb": 20
+      }
+     },
+     "audio": {
+      "file": {
+       "types": [
+        "audio/mpeg",
+        "audio/wav",
+        "audio/mp4",
+        "audio/aac",
+        "audio/ogg",
+        "audio/opus",
+        "audio/flac",
+        "audio/webm",
+        "audio/aiff",
+        "audio/amr",
+        "audio/3gpp",
+        "audio/x-caf",
+        "video/mp4",
+        "video/quicktime",
+        "video/webm",
+        "video/x-matroska",
+        "video/x-msvideo",
+        "video/3gpp",
+        "video/x-m4v"
+       ],
+       "mb": 200
+      }
+     },
+     "text": {
+      "max": 400
+     },
+     "accent": {
+      "max": 80
+     },
+     "aspect_ratio": {
+      "values": [
+       "9:16",
+       "16:9"
+      ]
+     }
+    },
+    "media": {
+     "still": "/open/models/vidlab-video-flash.webp"
+    },
+    "featured": true,
+    "routes": 1,
+    "status": "operational",
+    "price_note": "$0.20 per clip, up to $0.288 per clip"
+   },
+   {
+    "id": "vidlab-audio-1",
+    "name": "VidLab Audio 1",
+    "maker": "VidLab",
+    "kind": "audio",
+    "unit": "per_second",
+    "description": "Our own speech model. Describe the voice and write the words: it speaks them, with room sound and effects if you ask. Add up to 3 reference sounds to keep a voice, or one picture of the character to give them a voice. You pay per second of the audio it makes.",
+    "prices": {
+     "*": 0.005
+    },
+    "params": {
+     "prompt": {
+      "required": true,
+      "max": 2048,
+      "max_bytes": 2048
+     },
+     "audios": {
+      "max": 3,
+      "file": {
+       "types": [
+        "audio/mpeg",
+        "audio/wav"
+       ],
+       "mb": 10,
+       "seconds": {
+        "max": 30
+       }
+      }
+     },
+     "images": {
+      "max": 1,
+      "file": {
+       "types": [
+        "image/jpeg",
+        "image/png",
+        "image/webp"
+       ],
+       "mb": 10
+      }
+     },
+     "extra": {
+      "keys": [
+       "speed",
+       "pitch",
+       "volume",
+       "output_format"
+      ],
+      "options": {
+       "speed": {
+        "min": -50,
+        "max": 100,
+        "integer": true
+       },
+       "pitch": {
+        "min": -12,
+        "max": 12,
+        "integer": true
+       },
+       "volume": {
+        "min": -50,
+        "max": 100,
+        "integer": true
+       },
+       "output_format": {
+        "values": [
+         "mp3",
+         "wav",
+         "flac",
+         "ogg"
+        ]
+       }
+      }
+     }
+    },
+    "featured": true,
+    "output_seconds": {
+     "min": 1,
+     "max": 300
+    },
+    "limits": [
+     {
+      "when": {
+       "images": {
+        "min": 1
+       }
+      },
+      "then": {
+       "audios": {
+        "max": 0
+       },
+       "audio": [
+        false
+       ]
+      },
+      "message": "Send reference sounds or one reference picture, not both."
+     }
+    ],
+    "routes": 1,
+    "status": "down"
+   },
+   {
+    "id": "minimax-speech-2.8",
+    "name": "MiniMax Speech 2.8",
+    "maker": "MiniMax",
+    "kind": "audio",
+    "unit": "per_1k_chars",
+    "description": "Text to speech you can direct. Pick one of over 300 voices, or send a recording of 10 seconds or more and it speaks in that voice. Set the emotion, speed, pitch and volume; write (laughs) or (sighs) in the words, and <#0.5#> for a pause. A new voice from a recording carries a one-time fee: the same recording sent again pays for its words alone.",
+    "prices": {
+     "hd": 0.15,
+     "turbo": 0.09
+    },
+    "voice_fee_usd": 2.25,
+    "params": {
+     "text": {
+      "required": true,
+      "max": 10000
+     },
+     "quality": {
+      "values": [
+       "hd",
+       "turbo"
+      ]
+     },
+     "voice": {
+      "values": [
+       "English_expressive_narrator",
+       "English_radiant_girl",
+       "English_magnetic_voiced_man",
+       "English_compelling_lady1",
+       "English_Aussie_Bloke",
+       "English_captivating_female1",
+       "English_Upbeat_Woman",
+       "English_Trustworth_Man",
+       "English_CalmWoman",
+       "English_UpsetGirl",
+       "English_Gentle-voiced_man",
+       "English_Whispering_girl",
+       "English_Diligent_Man",
+       "English_Graceful_Lady",
+       "English_ReservedYoungMan",
+       "English_PlayfulGirl",
+       "English_ManWithDeepVoice",
+       "English_MaturePartner",
+       "English_FriendlyPerson",
+       "English_MatureBoss",
+       "English_Debator",
+       "English_LovelyGirl",
+       "English_Steadymentor",
+       "English_Deep-VoicedGentleman",
+       "English_Wiselady",
+       "English_CaptivatingStoryteller",
+       "English_DecentYoungMan",
+       "English_SentimentalLady",
+       "English_ImposingManner",
+       "English_SadTeen",
+       "English_PassionateWarrior",
+       "English_WiseScholar",
+       "English_Soft-spokenGirl",
+       "English_SereneWoman",
+       "English_ConfidentWoman",
+       "English_PatientMan",
+       "English_Comedian",
+       "English_BossyLeader",
+       "English_Strong-WilledBoy",
+       "English_StressedLady",
+       "English_AssertiveQueen",
+       "English_AnimeCharacter",
+       "English_Jovialman",
+       "English_WhimsicalGirl",
+       "English_Kind-heartedGirl",
+       "Chinese (Mandarin)_Reliable_Executive",
+       "Chinese (Mandarin)_News_Anchor",
+       "Chinese (Mandarin)_Unrestrained_Young_Man",
+       "Chinese (Mandarin)_Mature_Woman",
+       "Arrogant_Miss",
+       "Robot_Armor",
+       "Chinese (Mandarin)_Kind-hearted_Antie",
+       "Chinese (Mandarin)_HK_Flight_Attendant",
+       "Chinese (Mandarin)_Humorous_Elder",
+       "Chinese (Mandarin)_Gentleman",
+       "Chinese (Mandarin)_Warm_Bestie",
+       "Chinese (Mandarin)_Stubborn_Friend",
+       "Chinese (Mandarin)_Sweet_Lady",
+       "Chinese (Mandarin)_Southern_Young_Man",
+       "Chinese (Mandarin)_Wise_Women",
+       "Chinese (Mandarin)_Gentle_Youth",
+       "Chinese (Mandarin)_Warm_Girl",
+       "Chinese (Mandarin)_Male_Announcer",
+       "Chinese (Mandarin)_Kind-hearted_Elder",
+       "Chinese (Mandarin)_Cute_Spirit",
+       "Chinese (Mandarin)_Radio_Host",
+       "Chinese (Mandarin)_Lyrical_Voice",
+       "Chinese (Mandarin)_Straightforward_Boy",
+       "Chinese (Mandarin)_Sincere_Adult",
+       "Chinese (Mandarin)_Gentle_Senior",
+       "Chinese (Mandarin)_Crisp_Girl",
+       "Chinese (Mandarin)_Pure-hearted_Boy",
+       "Chinese (Mandarin)_Soft_Girl",
+       "Chinese (Mandarin)_IntellectualGirl",
+       "Chinese (Mandarin)_Warm_HeartedGirl",
+       "Chinese (Mandarin)_Laid_BackGirl",
+       "Chinese (Mandarin)_ExplorativeGirl",
+       "Chinese (Mandarin)_Warm-HeartedAunt",
+       "Chinese (Mandarin)_BashfulGirl",
+       "Japanese_IntellectualSenior",
+       "Japanese_DecisivePrincess",
+       "Japanese_LoyalKnight",
+       "Japanese_DominantMan",
+       "Japanese_SeriousCommander",
+       "Japanese_ColdQueen",
+       "Japanese_DependableWoman",
+       "Japanese_GentleButler",
+       "Japanese_KindLady",
+       "Japanese_CalmLady",
+       "Japanese_OptimisticYouth",
+       "Japanese_GenerousIzakayaOwner",
+       "Japanese_SportyStudent",
+       "Japanese_InnocentBoy",
+       "Japanese_GracefulMaiden",
+       "Cantonese_ProfessionalHost\uff08F)",
+       "Cantonese_GentleLady",
+       "Cantonese_ProfessionalHost\uff08M)",
+       "Cantonese_PlayfulMan",
+       "Cantonese_CuteGirl",
+       "Cantonese_KindWoman",
+       "Korean_AirheadedGirl",
+       "Korean_AthleticGirl",
+       "Korean_AthleticStudent",
+       "Korean_BraveAdventurer",
+       "Korean_BraveFemaleWarrior",
+       "Korean_BraveYouth",
+       "Korean_CalmGentleman",
+       "Korean_CalmLady",
+       "Korean_CaringWoman",
+       "Korean_CharmingElderSister",
+       "Korean_CharmingSister",
+       "Korean_CheerfulBoyfriend",
+       "Korean_CheerfulCoolJunior",
+       "Korean_CheerfulLittleSister",
+       "Korean_ChildhoodFriendGirl",
+       "Korean_CockyGuy",
+       "Korean_ColdGirl",
+       "Korean_ColdYoungMan",
+       "Korean_ConfidentBoss",
+       "Korean_ConsiderateSenior",
+       "Korean_DecisiveQueen",
+       "Korean_DominantMan",
+       "Korean_ElegantPrincess",
+       "Korean_EnchantingSister",
+       "Korean_EnthusiasticTeen",
+       "Korean_FriendlyBigSister",
+       "Korean_GentleBoss",
+       "Korean_GentleWoman",
+       "Korean_HaughtyLady",
+       "Korean_InnocentBoy",
+       "Korean_IntellectualMan",
+       "Korean_IntellectualSenior",
+       "Korean_LonelyWarrior",
+       "Korean_MatureLady",
+       "Korean_MysteriousGirl",
+       "Korean_OptimisticYouth",
+       "Korean_PlayboyCharmer",
+       "Korean_PossessiveMan",
+       "Korean_QuirkyGirl",
+       "Korean_ReliableSister",
+       "Korean_ReliableYouth",
+       "Korean_SassyGirl",
+       "Korean_ShyGirl",
+       "Korean_SoothingLady",
+       "Korean_StrictBoss",
+       "Korean_SweetGirl",
+       "Korean_ThoughtfulWoman",
+       "Korean_WiseElf",
+       "Korean_WiseTeacher",
+       "Spanish_SereneWoman",
+       "Spanish_MaturePartner",
+       "Spanish_CaptivatingStoryteller",
+       "Spanish_Narrator",
+       "Spanish_WiseScholar",
+       "Spanish_Kind-heartedGirl",
+       "Spanish_DeterminedManager",
+       "Spanish_BossyLeader",
+       "Spanish_ReservedYoungMan",
+       "Spanish_ConfidentWoman",
+       "Spanish_ThoughtfulMan",
+       "Spanish_Strong-WilledBoy",
+       "Spanish_SophisticatedLady",
+       "Spanish_RationalMan",
+       "Spanish_AnimeCharacter",
+       "Spanish_Deep-tonedMan",
+       "Spanish_Fussyhostess",
+       "Spanish_SincereTeen",
+       "Spanish_FrankLady",
+       "Spanish_Comedian",
+       "Spanish_Debator",
+       "Spanish_ToughBoss",
+       "Spanish_Wiselady",
+       "Spanish_Steadymentor",
+       "Spanish_Jovialman",
+       "Spanish_SantaClaus",
+       "Spanish_Rudolph",
+       "Spanish_Intonategirl",
+       "Spanish_Arnold",
+       "Spanish_Ghost",
+       "Spanish_HumorousElder",
+       "Spanish_EnergeticBoy",
+       "Spanish_WhimsicalGirl",
+       "Spanish_StrictBoss",
+       "Spanish_ReliableMan",
+       "Spanish_SereneElder",
+       "Spanish_AngryMan",
+       "Spanish_AssertiveQueen",
+       "Spanish_CaringGirlfriend",
+       "Spanish_PowerfulSoldier",
+       "Spanish_PassionateWarrior",
+       "Spanish_ChattyGirl",
+       "Spanish_RomanticHusband",
+       "Spanish_CompellingGirl",
+       "Spanish_PowerfulVeteran",
+       "Spanish_SensibleManager",
+       "Spanish_ThoughtfulLady",
+       "Portuguese_SentimentalLady",
+       "Portuguese_BossyLeader",
+       "Portuguese_Wiselady",
+       "Portuguese_Strong-WilledBoy",
+       "Portuguese_Deep-VoicedGentleman",
+       "Portuguese_UpsetGirl",
+       "Portuguese_PassionateWarrior",
+       "Portuguese_AnimeCharacter",
+       "Portuguese_ConfidentWoman",
+       "Portuguese_AngryMan",
+       "Portuguese_CaptivatingStoryteller",
+       "Portuguese_Godfather",
+       "Portuguese_ReservedYoungMan",
+       "Portuguese_SmartYoungGirl",
+       "Portuguese_Kind-heartedGirl",
+       "Portuguese_Pompouslady",
+       "Portuguese_Grinch",
+       "Portuguese_Debator",
+       "Portuguese_SweetGirl",
+       "Portuguese_AttractiveGirl",
+       "Portuguese_ThoughtfulMan",
+       "Portuguese_PlayfulGirl",
+       "Portuguese_GorgeousLady",
+       "Portuguese_LovelyLady",
+       "Portuguese_SereneWoman",
+       "Portuguese_SadTeen",
+       "Portuguese_MaturePartner",
+       "Portuguese_Comedian",
+       "Portuguese_NaughtySchoolgirl",
+       "Portuguese_Narrator",
+       "Portuguese_ToughBoss",
+       "Portuguese_Fussyhostess",
+       "Portuguese_Dramatist",
+       "Portuguese_Steadymentor",
+       "Portuguese_Jovialman",
+       "Portuguese_CharmingQueen",
+       "Portuguese_SantaClaus",
+       "Portuguese_Rudolph",
+       "Portuguese_Arnold",
+       "Portuguese_CharmingSanta",
+       "Portuguese_CharmingLady",
+       "Portuguese_Ghost",
+       "Portuguese_HumorousElder",
+       "Portuguese_CalmLeader",
+       "Portuguese_GentleTeacher",
+       "Portuguese_EnergeticBoy",
+       "Portuguese_ReliableMan",
+       "Portuguese_SereneElder",
+       "Portuguese_GrimReaper",
+       "Portuguese_AssertiveQueen",
+       "Portuguese_WhimsicalGirl",
+       "Portuguese_StressedLady",
+       "Portuguese_FriendlyNeighbor",
+       "Portuguese_CaringGirlfriend",
+       "Portuguese_PowerfulSoldier",
+       "Portuguese_FascinatingBoy",
+       "Portuguese_RomanticHusband",
+       "Portuguese_StrictBoss",
+       "Portuguese_InspiringLady",
+       "Portuguese_PlayfulSpirit",
+       "Portuguese_ElegantGirl",
+       "Portuguese_CompellingGirl",
+       "Portuguese_PowerfulVeteran",
+       "Portuguese_SensibleManager",
+       "Portuguese_ThoughtfulLady",
+       "Portuguese_TheatricalActor",
+       "Portuguese_FragileBoy",
+       "Portuguese_ChattyGirl",
+       "Portuguese_Conscientiousinstructor",
+       "Portuguese_RationalMan",
+       "Portuguese_WiseScholar",
+       "Portuguese_FrankLady",
+       "Portuguese_DeterminedManager",
+       "French_Male_Speech_New",
+       "French_Female_News Anchor",
+       "French_CasualMan",
+       "French_MovieLeadFemale",
+       "French_FemaleAnchor",
+       "French_MaleNarrator",
+       "Indonesian_SweetGirl",
+       "Indonesian_ReservedYoungMan",
+       "Indonesian_CharmingGirl",
+       "Indonesian_CalmWoman",
+       "Indonesian_ConfidentWoman",
+       "Indonesian_CaringMan",
+       "Indonesian_BossyLeader",
+       "Indonesian_DeterminedBoy",
+       "Indonesian_GentleGirl",
+       "German_FriendlyMan",
+       "German_SweetLady",
+       "German_PlayfulMan",
+       "Russian_HandsomeChildhoodFriend",
+       "Russian_BrightHeroine",
+       "Russian_AmbitiousWoman",
+       "Russian_ReliableMan",
+       "Russian_CrazyQueen",
+       "Russian_PessimisticGirl",
+       "Russian_AttractiveGuy",
+       "Russian_Bad-temperedBoy",
+       "Italian_BraveHeroine",
+       "Italian_Narrator",
+       "Italian_WanderingSorcerer",
+       "Italian_DiligentLeader",
+       "Dutch_kindhearted_girl",
+       "Dutch_bossy_leader",
+       "Vietnamese_kindhearted_girl",
+       "Arabic_CalmWoman",
+       "Arabic_FriendlyGuy",
+       "Turkish_CalmWoman",
+       "Turkish_Trustworthyman",
+       "Ukrainian_CalmWoman",
+       "Ukrainian_WiseScholar",
+       "Thai_male_1_sample8",
+       "Thai_male_2_sample2",
+       "Thai_female_1_sample1",
+       "Thai_female_2_sample2",
+       "Polish_male_1_sample4",
+       "Polish_male_2_sample3",
+       "Polish_female_1_sample1",
+       "Polish_female_2_sample3",
+       "Romanian_male_1_sample2",
+       "Romanian_male_2_sample1",
+       "Romanian_female_1_sample4",
+       "Romanian_female_2_sample1",
+       "greek_male_1a_v1",
+       "Greek_female_1_sample1",
+       "Greek_female_2_sample3",
+       "czech_male_1_v1",
+       "czech_female_5_v7",
+       "czech_female_2_v2",
+       "finnish_male_3_v1",
+       "finnish_male_1_v2",
+       "finnish_female_4_v1",
+       "hindi_male_1_v2",
+       "hindi_female_2_v1",
+       "hindi_female_1_v2"
+      ]
+     },
+     "audio": {
+      "file": {
+       "types": [
+        "audio/mpeg",
+        "audio/wav",
+        "audio/mp4"
+       ],
+       "mb": 20,
+       "seconds": {
+        "min": 10,
+        "max": 300
+       }
+      }
+     },
+     "extra": {
+      "keys": [
+       "emotion",
+       "speed",
+       "pitch",
+       "volume",
+       "output_format",
+       "language"
+      ]
+     }
+    },
+    "featured": false,
+    "routes": 1,
+    "status": "down"
+   },
+   {
+    "id": "seedance-2.5",
+    "name": "Seedance 2.5",
+    "maker": "ByteDance",
+    "kind": "video",
+    "unit": "per_second",
+    "description": "Generates video from a prompt and up to 30 reference images, 10 reference videos and 10 reference sounds \u00b7 480p to 1080p \u00b7 4 to 30 s \u00b7 native audio",
+    "prices": {
+     "480p": 0.09,
+     "720p": 0.21,
+     "1080p": 0.52,
+     "480p+video_input": 0.059,
+     "720p+video_input": 0.15,
+     "1080p+video_input": 0.34
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "480p",
+       "720p",
+       "1080p"
+      ]
+     },
+     "prompt": {
+      "required": true,
+      "max": 20000,
+      "max_bytes": 40000
+     },
+     "images": {
+      "max": 30,
+      "file": {
+       "types": [
+        "image/jpeg",
+        "image/png",
+        "image/webp"
+       ],
+       "mb": 20,
+       "convert": {
+        "image/webp": "image/png"
+       },
+       "ratio": {
+        "min": 0.4,
+        "max": 2.5
+       }
+      }
+     },
+     "image_mode": {
+      "values": [
+       "first_frame",
+       "reference"
+      ]
+     },
+     "end_image": {},
+     "video": {},
+     "videos": {
+      "max": 10,
+      "file": {
+       "types": [
+        "video/mp4",
+        "video/quicktime"
+       ],
+       "mb": 100,
+       "seconds": {
+        "min": 2,
+        "max": 30,
+        "total": 30
+       },
+       "pixels": {
+        "min": 409600,
+        "max": 8295044
+       }
+      }
+     },
+     "audio": {},
+     "audios": {
+      "max": 10,
+      "file": {
+       "types": [
+        "audio/mpeg",
+        "audio/wav"
+       ],
+       "mb": 15,
+       "max_bytes": 15000000,
+       "seconds": {
+        "min": 2,
+        "max": 30,
+        "total": 30
+       }
+      }
+     },
+     "generate_audio": {
+      "values": [
+       true,
+       false
+      ]
+     },
+     "duration": {
+      "min": 4,
+      "max": 30,
+      "integer": true
+     },
+     "aspect_ratio": {
+      "values": [
+       "16:9",
+       "9:16",
+       "1:1",
+       "4:3",
+       "3:4",
+       "21:9",
+       "adaptive"
+      ]
+     },
+     "extra": {
+      "keys": [
+       "video_seconds",
+       "videos",
+       "audios",
+       "image_mode",
+       "images_as",
+       "reference"
+      ]
+     }
+    },
+    "media": {
+     "still": "/open/playground/seedance-2.5.webp",
+     "video": "/open/playground/seedance-2.5.mp4"
+    },
+    "reference_billing": {
+     "min_output_ratio": 1.6666667,
+     "rounding": "floor"
+    },
+    "featured": true,
+    "save_pct": 59,
+    "offer": {
+     "variant": "480p",
+     "price_usd": 0.09,
+     "market_usd": 0.2205,
+     "pct": 59,
+     "checked": "2026-11-01"
+    },
+    "routes": 2,
+    "status": "operational"
+   },
+   {
+    "id": "seedance-2.5-boost",
+    "name": "Seedance 2.5 Boost",
+    "maker": "VidLab",
+    "kind": "video",
+    "unit": "per_second",
+    "description": "Seedance 2.5, rendered and enhanced to 1080p by VidLab, at about half the price of native 1080p.",
+    "prices": {
+     "1080p": 0.27,
+     "1080p+video_input": 0.16
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "1080p"
+      ]
+     },
+     "prompt": {
+      "required": true,
+      "max": 20000,
+      "max_bytes": 40000
+     },
+     "images": {
+      "max": 30,
+      "file": {
+       "types": [
+        "image/jpeg",
+        "image/png",
+        "image/webp"
+       ],
+       "mb": 20,
+       "convert": {
+        "image/webp": "image/png"
+       }
+      }
+     },
+     "image_mode": {
+      "values": [
+       "first_frame",
+       "reference"
+      ]
+     },
+     "end_image": {},
+     "video": {},
+     "videos": {
+      "max": 10,
+      "file": {
+       "types": [
+        "video/mp4",
+        "video/quicktime"
+       ],
+       "mb": 100,
+       "seconds": {
+        "min": 2,
+        "max": 30,
+        "total": 30
+       },
+       "pixels": {
+        "min": 409600,
+        "max": 8295044
+       }
+      }
+     },
+     "audio": {},
+     "audios": {
+      "max": 10,
+      "file": {
+       "types": [
+        "audio/mpeg",
+        "audio/wav"
+       ],
+       "mb": 15,
+       "max_bytes": 15000000,
+       "seconds": {
+        "min": 2,
+        "max": 30,
+        "total": 30
+       }
+      }
+     },
+     "generate_audio": {
+      "values": [
+       true,
+       false
+      ]
+     },
+     "duration": {
+      "required": true,
+      "min": 4,
+      "max": 30,
+      "integer": true
+     },
+     "aspect_ratio": {
+      "values": [
+       "16:9",
+       "9:16",
+       "1:1",
+       "4:3",
+       "3:4",
+       "adaptive"
+      ]
+     },
+     "extra": {
+      "keys": [
+       "video_seconds",
+       "videos",
+       "audios",
+       "image_mode",
+       "images_as",
+       "reference"
+      ]
+     }
+    },
+    "media": {
+     "still": "/open/playground/seedance-2.5.webp",
+     "video": "/open/playground/seedance-2.5.mp4"
+    },
+    "reference_billing": {
+     "min_output_ratio": 1.6666667,
+     "rounding": "floor"
+    },
+    "featured": true,
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "seedance-2.5-flash",
+    "name": "Seedance 2.5 Flash",
+    "maker": "ByteDance",
+    "kind": "video",
+    "unit": "per_second",
+    "description": "Generates video from a prompt and up to 10 reference images, 5 reference videos and 5 reference sounds \u00b7 480p or 720p \u00b7 4 to 30 s \u00b7 native audio",
+    "prices": {
+     "480p": 0.085,
+     "720p": 0.185,
+     "480p+video_input": 0.053,
+     "720p+video_input": 0.109
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "480p",
+       "720p"
+      ]
+     },
+     "prompt": {
+      "required": true,
+      "max": 20000,
+      "max_bytes": 40000
+     },
+     "images": {
+      "max": 10,
+      "file": {
+       "types": [
+        "image/jpeg",
+        "image/png",
+        "image/webp"
+       ],
+       "mb": 20,
+       "convert": {
+        "image/webp": "image/png"
+       },
+       "ratio": {
+        "min": 0.4,
+        "max": 2.5
+       }
+      }
+     },
+     "image_mode": {
+      "values": [
+       "first_frame",
+       "reference"
+      ]
+     },
+     "end_image": {},
+     "video": {},
+     "videos": {
+      "max": 5,
+      "file": {
+       "types": [
+        "video/mp4",
+        "video/quicktime"
+       ],
+       "mb": 100,
+       "seconds": {
+        "min": 2,
+        "max": 30,
+        "total": 30
+       },
+       "pixels": {
+        "min": 409600,
+        "max": 8295044
+       }
+      }
+     },
+     "audio": {},
+     "audios": {
+      "max": 5,
+      "file": {
+       "types": [
+        "audio/mpeg",
+        "audio/wav"
+       ],
+       "mb": 15,
+       "max_bytes": 15000000,
+       "seconds": {
+        "min": 2,
+        "max": 30,
+        "total": 30
+       }
+      }
+     },
+     "generate_audio": {
+      "values": [
+       true,
+       false
+      ]
+     },
+     "duration": {
+      "min": 4,
+      "max": 30,
+      "integer": true
+     },
+     "aspect_ratio": {
+      "values": [
+       "16:9",
+       "9:16",
+       "1:1",
+       "4:3",
+       "3:4",
+       "21:9",
+       "adaptive"
+      ]
+     },
+     "extra": {
+      "keys": [
+       "video_seconds",
+       "videos",
+       "audios",
+       "image_mode",
+       "images_as",
+       "reference"
+      ]
+     }
+    },
+    "media": {
+     "still": "/open/playground/seedance-2.5.webp",
+     "video": "/open/playground/seedance-2.5.mp4"
+    },
+    "reference_billing": {
+     "min_output_ratio": 1.6666667,
+     "rounding": "floor"
+    },
+    "featured": false,
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "magi-2",
+    "name": "MAGI-2",
+    "maker": "Sand AI",
+    "kind": "video",
+    "unit": "per_second",
+    "description": "Generates 1080p video from a prompt, alone or with up to 10 reference images, 5 reference videos and 5 reference sounds \u00b7 4 to 30 s \u00b7 native audio",
+    "prices": {
+     "1080p": 0.075,
+     "1080p+video_input": 0.075
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "1080p"
+      ]
+     },
+     "prompt": {
+      "required": true,
+      "max": 15000
+     },
+     "images": {
+      "max": 10,
+      "file": {
+       "types": [
+        "image/jpeg",
+        "image/png",
+        "image/webp"
+       ],
+       "mb": 20,
+       "convert": {
+        "image/webp": "image/png"
+       }
+      }
+     },
+     "video": {},
+     "videos": {
+      "max": 5,
+      "file": {
+       "types": [
+        "video/mp4",
+        "video/quicktime"
+       ],
+       "mb": 100,
+       "seconds": {
+        "min": 2,
+        "max": 30,
+        "total": 30
+       }
+      }
+     },
+     "audio": {},
+     "audios": {
+      "max": 5,
+      "file": {
+       "types": [
+        "audio/mpeg",
+        "audio/wav"
+       ],
+       "mb": 15,
+       "max_bytes": 15000000,
+       "seconds": {
+        "min": 2,
+        "max": 30,
+        "total": 30
+       }
+      }
+     },
+     "generate_audio": {
+      "values": [
+       true,
+       false
+      ]
+     },
+     "duration": {
+      "min": 4,
+      "max": 30,
+      "integer": true
+     },
+     "aspect_ratio": {
+      "values": [
+       "16:9",
+       "9:16",
+       "1:1",
+       "4:3",
+       "3:4",
+       "21:9"
+      ]
+     },
+     "extra": {
+      "keys": [
+       "video_seconds",
+       "videos",
+       "audios"
+      ]
+     }
+    },
+    "reference_billing": {
+     "rounding": "floor"
+    },
+    "featured": true,
+    "routes": 1,
+    "status": "down"
+   },
+   {
+    "id": "vidra-3.0",
+    "name": "Vidra 3.0",
+    "maker": "VidLab",
+    "kind": "video",
+    "unit": "per_second",
+    "description": "Our own video model: a prompt with up to 30 reference images, 10 reference videos and 10 reference sounds, or a first and last frame \u00b7 480p to 4K \u00b7 4 to 30 s \u00b7 native audio",
+    "prices": {
+     "480p": 0.1,
+     "720p": 0.23,
+     "1080p": 0.57,
+     "2k": 1.4,
+     "4k": 1.54,
+     "480p+video_input": 0.07,
+     "720p+video_input": 0.14,
+     "1080p+video_input": 0.34,
+     "2k+video_input": 0.82,
+     "4k+video_input": 0.91
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "480p",
+       "720p",
+       "1080p",
+       "2k",
+       "4k"
+      ]
+     },
+     "prompt": {
+      "required": true,
+      "max": 20000
+     },
+     "images": {
+      "max": 30,
+      "file": {
+       "types": [
+        "image/jpeg",
+        "image/png",
+        "image/webp"
+       ],
+       "mb": 20
+      }
+     },
+     "image_mode": {
+      "values": [
+       "first_frame",
+       "reference"
+      ]
+     },
+     "end_image": {},
+     "video": {},
+     "videos": {
+      "max": 10,
+      "file": {
+       "types": [
+        "video/mp4",
+        "video/quicktime"
+       ],
+       "mb": 100,
+       "seconds": {
+        "min": 2,
+        "max": 15,
+        "total": 30
+       },
+       "pixels": {
+        "min": 409600,
+        "max": 8295044
+       }
+      }
+     },
+     "audio": {},
+     "audios": {
+      "max": 10,
+      "file": {
+       "types": [
+        "audio/mpeg",
+        "audio/wav"
+       ],
+       "mb": 15,
+       "max_bytes": 15000000,
+       "seconds": {
+        "min": 2,
+        "max": 15,
+        "total": 30
+       }
+      }
+     },
+     "generate_audio": {
+      "values": [
+       true,
+       false
+      ]
+     },
+     "seed": {},
+     "duration": {
+      "min": 4,
+      "max": 30,
+      "integer": true
+     },
+     "aspect_ratio": {
+      "values": [
+       "16:9",
+       "9:16",
+       "1:1",
+       "4:3",
+       "3:4",
+       "21:9",
+       "adaptive"
+      ]
+     },
+     "extra": {
+      "keys": [
+       "video_seconds"
+      ]
+     }
+    },
+    "media": {
+     "still": "/open/playground/vidra-3.0.webp"
+    },
+    "reference_billing": {
+     "min_output_ratio": 1.6666667,
+     "rounding": "floor"
+    },
+    "featured": true,
+    "limits": [
+     {
+      "when": {
+       "audio": [
+        true
+       ],
+       "images": {
+        "max": 0
+       },
+       "video": [
+        false
+       ],
+       "videos": {
+        "max": 0
+       }
+      },
+      "then": {
+       "audio": [
+        false
+       ]
+      },
+      "message": "A reference sound needs a reference image or video with it."
+     },
+     {
+      "when": {
+       "audios": {
+        "min": 1
+       },
+       "images": {
+        "max": 0
+       },
+       "video": [
+        false
+       ],
+       "videos": {
+        "max": 0
+       }
+      },
+      "then": {
+       "audios": {
+        "max": 0
+       }
+      },
+      "message": "A reference sound needs a reference image or video with it."
+     }
+    ],
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "vidlab-video-2",
+    "name": "VidLab 2",
+    "maker": "VidLab",
+    "kind": "video",
+    "unit": "per_second",
+    "description": "Our own fast video model: a prompt, or a start picture with an optional last frame \u00b7 720p or 1080p \u00b7 5 to 15 s \u00b7 native audio",
+    "prices": {
+     "720p": 0.221,
+     "1080p": 0.377
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "720p",
+       "1080p"
+      ]
+     },
+     "prompt": {
+      "required": true,
+      "max": 20000
+     },
+     "images": {
+      "max": 1,
+      "file": {
+       "types": [
+        "image/jpeg",
+        "image/png",
+        "image/webp"
+       ],
+       "mb": 20
+      }
+     },
+     "end_image": {},
+     "generate_audio": {
+      "values": [
+       true,
+       false
+      ]
+     },
+     "duration": {
+      "values": [
+       5,
+       6,
+       7,
+       8,
+       9,
+       10,
+       11,
+       12,
+       13,
+       14,
+       15
+      ]
+     },
+     "aspect_ratio": {
+      "values": [
+       "16:9",
+       "9:16",
+       "1:1",
+       "4:3",
+       "3:4",
+       "21:9",
+       "adaptive"
+      ]
+     },
+     "seed": {},
+     "extra": {
+      "keys": []
+     }
+    },
+    "media": {
+     "still": "/open/models/vidlab-video-2.webp"
+    },
+    "featured": false,
+    "limits": [
+     {
+      "when": {
+       "end_image": [
+        true
+       ]
+      },
+      "then": {
+       "images": {
+        "min": 1
+       }
+      },
+      "message": "An end frame needs a start frame: send the first frame in `images`."
+     }
+    ],
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "seedream-5.5",
+    "name": "Seedream 5.5",
+    "maker": "ByteDance",
+    "kind": "image",
+    "unit": "per_image",
+    "description": "ByteDance's Seedream 5.5: cartoons, animation and 3D-animated characters, and editing a picture you send, with up to 10 input pictures, up to 2K.",
+    "prices": {
+     "1k": 0.0192,
+     "1.5k": 0.0192,
+     "2k": 0.0336
+    },
+    "picture_prices": {
+     "1k": 0.0077,
+     "1.5k": 0.0077,
+     "2k": 0.0077
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "1k",
+       "1.5k",
+       "2k"
+      ]
+     },
+     "prompt": {
+      "required": true
+     },
+     "images": {
+      "max": 10
+     },
+     "aspect_ratio": {
+      "values": [
+       "1:1",
+       "4:3",
+       "3:4",
+       "16:9",
+       "9:16",
+       "3:2",
+       "2:3",
+       "21:9",
+       "2:1",
+       "1:2"
+      ]
+     },
+     "n": {
+      "min": 1,
+      "max": 1
+     }
+    },
+    "featured": false,
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "kling-4.0",
+    "name": "Kling 4.0",
+    "maker": "Kuaishou",
+    "kind": "video",
+    "unit": "per_second",
+    "description": "Generates video from text, an image \u00b7 720p to 1080p \u00b7 3 to 30 s \u00b7 native audio",
+    "prices": {
+     "720p": 0.135,
+     "720p+video_input": 0.08,
+     "1080p": 0.2,
+     "1080p+video_input": 0.12
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "720p",
+       "1080p"
+      ]
+     },
+     "prompt": {
+      "required": true
+     },
+     "images": {
+      "max": 1,
+      "file": {
+       "ratio": {
+        "min": 0.4,
+        "max": 2.5
+       }
+      }
+     },
+     "video": {},
+     "duration": {
+      "min": 3,
+      "max": 30
+     },
+     "aspect_ratio": {
+      "values": [
+       "16:9",
+       "9:16",
+       "1:1"
+      ]
+     }
+    },
+    "media": {
+     "still": "/open/playground/kling-4.webp",
+     "video": "/open/playground/kling-4.mp4"
+    },
+    "reference_billing": {
+     "min_output_ratio": 2
+    },
+    "featured": true,
+    "offer": {
+     "variant": "720p",
+     "price_usd": 0.135,
+     "market_usd": 0.1963,
+     "pct": 31
+    },
+    "video_sets_length": {
+     "extra": "task_type",
+     "is": [
+      "edit"
+     ]
+    },
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "nano-banana-pro",
+    "name": "Nano Banana Pro",
+    "maker": "Google",
+    "kind": "image",
+    "unit": "per_image",
+    "description": "Generates and edits images \u00b7 up to 4K \u00b7 up to 4 per request",
+    "prices": {
+     "1k": 0.04,
+     "2k": 0.04,
+     "4k": 0.08
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "1k",
+       "2k",
+       "4k"
+      ]
+     },
+     "prompt": {
+      "required": true
+     },
+     "images": {
+      "max": 14
+     },
+     "aspect_ratio": {
+      "values": [
+       "1:1",
+       "16:9",
+       "9:16",
+       "4:3",
+       "3:4",
+       "3:2",
+       "2:3"
+      ]
+     },
+     "n": {
+      "min": 1,
+      "max": 4
+     }
+    },
+    "media": {
+     "still": "/open/playground/nano-banana-pro.webp"
+    },
+    "featured": true,
+    "save_pct": 73,
+    "offer": {
+     "variant": "1k",
+     "price_usd": 0.04,
+     "market_usd": 0.15,
+     "pct": 73,
+     "checked": "2026-11-01"
+    },
+    "routes": 2,
+    "status": "operational"
+   },
+   {
+    "id": "wan-3.0",
+    "name": "Wan 3.0",
+    "maker": "Alibaba",
+    "kind": "video",
+    "unit": "per_second",
+    "description": "Generates video from text, an image, references \u00b7 480p to 1080p \u00b7 3 to 15 s \u00b7 native audio & camera control",
+    "prices": {
+     "480p": 0.04,
+     "720p": 0.07,
+     "1080p": 0.14
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "480p",
+       "720p",
+       "1080p"
+      ]
+     },
+     "prompt": {
+      "required": true
+     },
+     "images": {
+      "max": 4
+     },
+     "seed": {},
+     "duration": {
+      "min": 2,
+      "max": 30
+     },
+     "aspect_ratio": {
+      "values": [
+       "16:9",
+       "9:16",
+       "1:1"
+      ]
+     }
+    },
+    "media": {
+     "still": "/open/playground/wan-3.0.webp",
+     "video": "/open/playground/wan-3.0.mp4"
+    },
+    "featured": false,
+    "save_pct": 60,
+    "offer": {
+     "variant": "480p",
+     "price_usd": 0.04,
+     "market_usd": 0.1,
+     "pct": 60,
+     "checked": "2026-11-02"
+    },
+    "routes": 2,
+    "status": "operational"
+   },
+   {
+    "id": "wan-3.0-prime",
+    "name": "Wan 3.0 Prime",
+    "maker": "Alibaba",
+    "kind": "video",
+    "unit": "per_second",
+    "description": "Alibaba's Wan 3.0 Prime: text to video, image to video, first and last frames and reference to video, up to 1080p, with sound.",
+    "prices": {
+     "480p": 0.07,
+     "720p": 0.13,
+     "1080p": 0.26
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "480p",
+       "720p",
+       "1080p"
+      ]
+     },
+     "prompt": {
+      "required": true
+     },
+     "images": {
+      "max": 4
+     },
+     "end_image": {},
+     "seed": {},
+     "duration": {
+      "min": 4,
+      "max": 30
+     },
+     "aspect_ratio": {
+      "values": [
+       "16:9",
+       "9:16",
+       "1:1"
+      ]
+     }
+    },
+    "media": {
+     "still": "/open/playground/minimax-h3.webp",
+     "video": "/open/playground/minimax-h3.mp4"
+    },
+    "featured": false,
+    "offer": {
+     "variant": "480p",
+     "price_usd": 0.07,
+     "market_usd": 0.147,
+     "pct": 52
+    },
+    "routes": 2,
+    "status": "operational"
+   },
+   {
+    "id": "veo-3.1-fast",
+    "name": "Veo 3.1 Fast",
+    "maker": "Google",
+    "kind": "video",
+    "unit": "per_second",
+    "description": "The quicker, cheaper tier of Veo 3.1. Cinematic motion with synchronized sound, built for iterating on shots before you commit to a final render.",
+    "prices": {
+     "720p": 0.08,
+     "720p+audio": 0.1,
+     "1080p": 0.1,
+     "1080p+audio": 0.11,
+     "4k": 0.25,
+     "4k+audio": 0.29
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "720p",
+       "1080p",
+       "4k"
+      ]
+     },
+     "prompt": {
+      "required": true
+     },
+     "images": {
+      "max": 1
+     },
+     "generate_audio": {
+      "values": [
+       true
+      ]
+     },
+     "duration": {
+      "values": [
+       8
+      ]
+     },
+     "aspect_ratio": {
+      "values": [
+       "16:9",
+       "9:16"
+      ]
+     }
+    },
+    "media": {
+     "still": "/open/models/sync-lipsync-3.webp",
+     "video": "/open/models/sync-lipsync-3.mp4"
+    },
+    "featured": false,
+    "offer": {
+     "variant": "720p",
+     "price_usd": 0.08,
+     "market_usd": 0.196,
+     "pct": 59
+    },
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "veo-3.1",
+    "name": "Veo 3.1",
+    "maker": "Google",
+    "kind": "video",
+    "unit": "per_second",
+    "description": "Google's flagship video model. Strong prompt adherence, realistic physics and native dialogue, ambience and music in the same pass.",
+    "prices": {
+     "720p": 0.2,
+     "720p+audio": 0.4,
+     "1080p": 0.2,
+     "1080p+audio": 0.4,
+     "4k": 0.4,
+     "4k+audio": 0.58
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "720p",
+       "1080p",
+       "4k"
+      ]
+     },
+     "prompt": {
+      "required": true
+     },
+     "images": {
+      "max": 1
+     },
+     "generate_audio": {
+      "values": [
+       true
+      ]
+     },
+     "duration": {
+      "values": [
+       8
+      ]
+     },
+     "aspect_ratio": {
+      "values": [
+       "16:9",
+       "9:16"
+      ]
+     }
+    },
+    "media": {
+     "still": "/open/playground/veo-3.1.webp",
+     "video": "/open/playground/veo-3.1.mp4"
+    },
+    "featured": false,
+    "offer": {
+     "variant": "720p",
+     "price_usd": 0.2,
+     "market_usd": 0.49,
+     "pct": 59
+    },
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "kling-3.0",
+    "name": "Kling 3.0",
+    "maker": "Kuaishou",
+    "kind": "video",
+    "unit": "per_second",
+    "description": "Kuaishou's Kling 3.0: text to video, image to video and first and last frames, up to 4K, with sound.",
+    "prices": {
+     "720p": 0.09,
+     "720p+audio": 0.13,
+     "1080p": 0.12,
+     "1080p+audio": 0.17,
+     "4k": 0.42,
+     "4k+audio": 0.42
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "720p",
+       "1080p",
+       "4k"
+      ]
+     },
+     "prompt": {
+      "required": true,
+      "max": 2500
+     },
+     "images": {
+      "max": 1
+     },
+     "end_image": {},
+     "negative_prompt": {},
+     "generate_audio": {
+      "values": [
+       true,
+       false
+      ]
+     },
+     "duration": {
+      "min": 3,
+      "max": 15
+     },
+     "aspect_ratio": {
+      "values": [
+       "16:9",
+       "9:16",
+       "1:1"
+      ]
+     }
+    },
+    "media": {
+     "still": "/open/playground/kling-4.webp",
+     "video": "/open/playground/kling-4.mp4"
+    },
+    "featured": false,
+    "offer": {
+     "variant": "720p",
+     "price_usd": 0.09,
+     "market_usd": 0.098,
+     "pct": 8
+    },
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "seedance-2.0",
+    "name": "Seedance 2.0",
+    "maker": "ByteDance",
+    "kind": "video",
+    "unit": "per_second",
+    "description": "ByteDance's multi-shot video model. Holds characters and style across cuts, follows first and last frames, and accepts reference images.",
+    "prices": {
+     "480p": 0.08,
+     "720p": 0.15,
+     "1080p": 0.4,
+     "4k": 0.83
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "480p",
+       "720p",
+       "1080p",
+       "4k"
+      ]
+     },
+     "prompt": {
+      "required": true
+     },
+     "images": {
+      "max": 9
+     },
+     "end_image": {},
+     "seed": {},
+     "duration": {
+      "min": 4,
+      "max": 15
+     },
+     "aspect_ratio": {
+      "values": [
+       "16:9",
+       "9:16",
+       "1:1"
+      ]
+     }
+    },
+    "media": {
+     "still": "/open/playground/seedance-2.5.webp",
+     "video": "/open/playground/seedance-2.5.mp4"
+    },
+    "featured": false,
+    "save_pct": 15,
+    "offer": {
+     "variant": "480p",
+     "price_usd": 0.08,
+     "market_usd": 0.095,
+     "pct": 15,
+     "checked": "2026-11-02"
+    },
+    "routes": 2,
+    "status": "operational"
+   },
+   {
+    "id": "wan-2.6",
+    "name": "Wan 2.6",
+    "maker": "Alibaba",
+    "kind": "video",
+    "unit": "per_second",
+    "description": "Alibaba's video family. Solid motion at a low price, with optional audio and multi-shot prompts.",
+    "prices": {
+     "720p": 0.07,
+     "1080p": 0.11
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "720p",
+       "1080p"
+      ]
+     },
+     "prompt": {
+      "required": true
+     },
+     "images": {
+      "max": 1
+     },
+     "negative_prompt": {},
+     "seed": {},
+     "duration": {
+      "values": [
+       5,
+       10,
+       15
+      ]
+     },
+     "aspect_ratio": {
+      "values": [
+       "16:9",
+       "9:16",
+       "1:1"
+      ]
+     }
+    },
+    "media": {
+     "still": "/open/models/omnihuman-2.webp",
+     "video": "/open/models/omnihuman-2.mp4"
+    },
+    "featured": false,
+    "offer": {
+     "variant": "720p",
+     "price_usd": 0.07,
+     "market_usd": 0.0735,
+     "pct": 4
+    },
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "hailuo-2.3",
+    "name": "Hailuo 2.3",
+    "maker": "MiniMax",
+    "kind": "video",
+    "unit": "per_second",
+    "description": "MiniMax's video model, known for dynamic action, dance and physical motion.",
+    "prices": {
+     "768p": 0.06,
+     "1080p": 0.09
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "768p",
+       "1080p"
+      ]
+     },
+     "prompt": {
+      "required": true,
+      "max": 2000
+     },
+     "images": {
+      "max": 1
+     },
+     "duration": {
+      "values": [
+       6,
+       10
+      ]
+     }
+    },
+    "media": {
+     "still": "/open/playground/wan-3.0.webp",
+     "video": "/open/playground/wan-3.0.mp4"
+    },
+    "featured": false,
+    "limits": [
+     {
+      "when": {
+       "resolution": [
+        "1080p"
+       ]
+      },
+      "then": {
+       "duration": [
+        6
+       ]
+      },
+      "message": "At 1080p this model makes 6-second clips only. For 10 seconds, use 768p."
+     }
+    ],
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "happyhorse-1.0",
+    "name": "HappyHorse 1.0",
+    "maker": "Alibaba",
+    "kind": "video",
+    "unit": "per_second",
+    "description": "Alibaba's HappyHorse 1.0: text to video, image to video, reference to video and video to video, up to 1080p.",
+    "prices": {
+     "720p": 0.17,
+     "1080p": 0.29
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "720p",
+       "1080p"
+      ]
+     },
+     "prompt": {
+      "required": true,
+      "max": 2500
+     },
+     "images": {
+      "max": 4
+     },
+     "seed": {},
+     "duration": {
+      "min": 3,
+      "max": 15
+     },
+     "aspect_ratio": {
+      "values": [
+       "16:9",
+       "9:16",
+       "1:1"
+      ]
+     }
+    },
+    "media": {
+     "still": "/open/playground/veo-3.1.webp",
+     "video": "/open/playground/veo-3.1.mp4"
+    },
+    "featured": false,
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "happyhorse-1.1",
+    "name": "HappyHorse 1.1",
+    "maker": "Alibaba",
+    "kind": "video",
+    "unit": "per_second",
+    "description": "Alibaba's HappyHorse 1.1: text to video, image to video and reference to video, at 720p.",
+    "prices": {
+     "720p": 0.15
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "720p"
+      ]
+     },
+     "prompt": {
+      "required": true,
+      "max": 2500
+     },
+     "images": {
+      "max": 4
+     },
+     "seed": {},
+     "duration": {
+      "min": 3,
+      "max": 15
+     },
+     "aspect_ratio": {
+      "values": [
+       "16:9",
+       "9:16",
+       "1:1"
+      ]
+     }
+    },
+    "media": {
+     "still": "/open/playground/veo-3.1.webp",
+     "video": "/open/playground/veo-3.1.mp4"
+    },
+    "featured": false,
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "wan-2.5",
+    "name": "Wan 2.5",
+    "maker": "Alibaba",
+    "kind": "video",
+    "unit": "per_second",
+    "description": "Alibaba's Wan 2.5: text to video and image to video, up to 1080p, with sound.",
+    "prices": {
+     "480p": 0.05,
+     "720p": 0.08,
+     "1080p": 0.13
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "480p",
+       "720p",
+       "1080p"
+      ]
+     },
+     "prompt": {
+      "required": true
+     },
+     "images": {
+      "max": 1
+     },
+     "negative_prompt": {},
+     "seed": {},
+     "duration": {
+      "values": [
+       5,
+       10
+      ]
+     },
+     "aspect_ratio": {
+      "values": [
+       "16:9",
+       "9:16",
+       "1:1"
+      ]
+     }
+    },
+    "media": {
+     "still": "/open/models/sync-lipsync-3.webp",
+     "video": "/open/models/sync-lipsync-3.mp4"
+    },
+    "featured": false,
+    "offer": {
+     "variant": "480p",
+     "price_usd": 0.05,
+     "market_usd": 0.15,
+     "pct": 66
+    },
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "wan-2.6-flash",
+    "name": "Wan 2.6 Flash",
+    "maker": "Alibaba",
+    "kind": "video",
+    "unit": "per_second",
+    "description": "Alibaba's Wan 2.6 Flash: image to video, up to 1080p, with sound.",
+    "prices": {
+     "720p": 0.03,
+     "720p+audio": 0.05,
+     "1080p": 0.04,
+     "1080p+audio": 0.07
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "720p",
+       "1080p"
+      ]
+     },
+     "prompt": {
+      "required": true
+     },
+     "images": {
+      "required": true,
+      "max": 1
+     },
+     "negative_prompt": {},
+     "seed": {},
+     "generate_audio": {
+      "values": [
+       true,
+       false
+      ]
+     },
+     "duration": {
+      "values": [
+       5,
+       10,
+       15
+      ]
+     }
+    },
+    "media": {
+     "still": "/open/playground/wan-3.0.webp",
+     "video": "/open/playground/wan-3.0.mp4"
+    },
+    "featured": false,
+    "offer": {
+     "variant": "720p",
+     "price_usd": 0.03,
+     "market_usd": 0.075,
+     "pct": 60
+    },
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "wan-2.6-i2v",
+    "name": "Wan 2.6 I2V",
+    "maker": "Alibaba",
+    "kind": "video",
+    "unit": "per_second",
+    "description": "Alibaba's Wan 2.6 I2V: image to video, up to 1080p.",
+    "prices": {
+     "720p": 0.09,
+     "1080p": 0.14
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "720p",
+       "1080p"
+      ]
+     },
+     "prompt": {
+      "required": true,
+      "max": 5000
+     },
+     "images": {
+      "required": true,
+      "max": 1
+     },
+     "duration": {
+      "values": [
+       5,
+       10,
+       15
+      ]
+     }
+    },
+    "media": {
+     "still": "/open/playground/veo-3.1.webp",
+     "video": "/open/playground/veo-3.1.mp4"
+    },
+    "featured": false,
+    "offer": {
+     "variant": "720p",
+     "price_usd": 0.09,
+     "market_usd": 0.15,
+     "pct": 40
+    },
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "wan-2.6-i2v-flash",
+    "name": "Wan 2.6 I2V Flash",
+    "maker": "Alibaba",
+    "kind": "video",
+    "unit": "per_second",
+    "description": "Alibaba's Wan 2.6 I2V Flash: image to video, up to 1080p, with sound.",
+    "prices": {
+     "720p": 0.03,
+     "720p+audio": 0.05,
+     "1080p": 0.04,
+     "1080p+audio": 0.07
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "720p",
+       "1080p"
+      ]
+     },
+     "prompt": {
+      "required": true
+     },
+     "images": {
+      "required": true,
+      "max": 1
+     },
+     "negative_prompt": {},
+     "seed": {},
+     "generate_audio": {
+      "values": [
+       true,
+       false
+      ]
+     },
+     "duration": {
+      "values": [
+       5,
+       10,
+       15
+      ]
+     }
+    },
+    "media": {
+     "still": "/open/playground/kling-4.webp",
+     "video": "/open/playground/kling-4.mp4"
+    },
+    "featured": false,
+    "offer": {
+     "variant": "720p",
+     "price_usd": 0.03,
+     "market_usd": 0.075,
+     "pct": 60
+    },
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "wan-2.7",
+    "name": "Wan 2.7",
+    "maker": "Alibaba",
+    "kind": "video",
+    "unit": "per_second",
+    "description": "Alibaba's Wan 2.7: text to video, image to video, first and last frames, video to video and reference to video, up to 1080p.",
+    "prices": {
+     "720p": 0.09,
+     "1080p": 0.14
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "720p",
+       "1080p"
+      ]
+     },
+     "prompt": {
+      "required": true,
+      "max": 5000
+     },
+     "images": {
+      "max": 1
+     },
+     "end_image": {},
+     "video": {
+      "file": {
+       "seconds": {
+        "shorter_than_duration": true
+       }
+      }
+     },
+     "negative_prompt": {},
+     "seed": {},
+     "duration": {
+      "min": 3,
+      "max": 15
+     },
+     "aspect_ratio": {
+      "values": [
+       "16:9",
+       "9:16",
+       "1:1"
+      ]
+     }
+    },
+    "media": {
+     "still": "/open/playground/wan-3.0.webp",
+     "video": "/open/playground/wan-3.0.mp4"
+    },
+    "featured": false,
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "wan-2.7-r2v",
+    "name": "Wan 2.7 R2V",
+    "maker": "Alibaba",
+    "kind": "video",
+    "unit": "per_second",
+    "description": "Alibaba's Wan 2.7 R2V: reference to video, up to 1080p.",
+    "prices": {
+     "720p": 0.09,
+     "1080p": 0.14
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "720p",
+       "1080p"
+      ]
+     },
+     "prompt": {
+      "required": true,
+      "max": 5000
+     },
+     "images": {
+      "required": true,
+      "max": 4
+     },
+     "negative_prompt": {},
+     "seed": {},
+     "duration": {
+      "min": 3,
+      "max": 15
+     },
+     "aspect_ratio": {
+      "values": [
+       "16:9",
+       "9:16",
+       "1:1"
+      ]
+     }
+    },
+    "media": {
+     "still": "/open/playground/vidlab-remix-motion-transfer.webp",
+     "video": "/open/playground/vidlab-remix-motion-transfer.mp4"
+    },
+    "featured": false,
+    "offer": {
+     "variant": "720p",
+     "price_usd": 0.09,
+     "market_usd": 0.1,
+     "pct": 10
+    },
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "wan-2.7-videoedit",
+    "name": "Wan 2.7 Video Edit",
+    "maker": "Alibaba",
+    "kind": "video",
+    "unit": "per_second",
+    "description": "Alibaba's Wan 2.7 Video Edit: video to video, up to 1080p.",
+    "prices": {
+     "720p": 0.09,
+     "720p+video_input": 0.09,
+     "1080p": 0.14,
+     "1080p+video_input": 0.14
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "720p",
+       "1080p"
+      ]
+     },
+     "video": {
+      "required": true,
+      "file": {
+       "types": [
+        "video/mp4",
+        "video/quicktime"
+       ],
+       "mb": 100,
+       "seconds": {
+        "min": 2,
+        "max": 10
+       }
+      }
+     },
+     "prompt": {
+      "max": 5000
+     },
+     "duration": {
+      "required": true,
+      "min": 3,
+      "max": 10
+     }
+    },
+    "media": {
+     "still": "/open/playground/kling-4.webp",
+     "video": "/open/playground/kling-4.mp4"
+    },
+    "featured": false,
+    "offer": {
+     "variant": "720p",
+     "price_usd": 0.09,
+     "market_usd": 0.15,
+     "pct": 40
+    },
+    "duration_must_cover": [
+     "video"
+    ],
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "flux-3-video",
+    "name": "Flux 3 Video",
+    "maker": "Black Forest Labs",
+    "kind": "video",
+    "unit": "per_second",
+    "description": "Black Forest Labs's Flux 3 Video: text to video and image to video, up to fhd, with sound.",
+    "prices": {
+     "draft": 0.06,
+     "fhd": 0.29,
+     "hd": 0.17,
+     "draft+video_input": 0.12,
+     "fhd+video_input": 0.53,
+     "hd+video_input": 0.41
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "draft",
+       "fhd",
+       "hd"
+      ]
+     },
+     "prompt": {
+      "required": true
+     },
+     "images": {
+      "max": 1
+     },
+     "video": {},
+     "duration": {
+      "min": 5,
+      "max": 15
+     },
+     "aspect_ratio": {
+      "values": [
+       "16:9",
+       "9:16",
+       "1:1"
+      ]
+     }
+    },
+    "media": {
+     "still": "/open/playground/kling-4.webp",
+     "video": "/open/playground/kling-4.mp4"
+    },
+    "featured": false,
+    "offer": {
+     "variant": "draft",
+     "price_usd": 0.06,
+     "market_usd": 0.294,
+     "pct": 79
+    },
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "seedance-2.0-face",
+    "name": "Seedance 2.0 Face",
+    "maker": "ByteDance",
+    "kind": "video",
+    "unit": "per_second",
+    "description": "ByteDance's Seedance 2.0 Face: text to video, image to video, first and last frames and reference to video, up to 1080p, with sound.",
+    "prices": {
+     "480p": 0.13,
+     "720p": 0.27,
+     "1080p": 0.63
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "480p",
+       "720p",
+       "1080p"
+      ]
+     },
+     "prompt": {
+      "required": true,
+      "max": 4000
+     },
+     "images": {
+      "max": 4
+     },
+     "end_image": {},
+     "seed": {},
+     "duration": {
+      "min": 4,
+      "max": 15
+     },
+     "aspect_ratio": {
+      "values": [
+       "16:9",
+       "9:16",
+       "1:1"
+      ]
+     }
+    },
+    "media": {
+     "still": "/open/playground/seedance-2.5.webp",
+     "video": "/open/playground/seedance-2.5.mp4"
+    },
+    "featured": false,
+    "offer": {
+     "variant": "480p",
+     "price_usd": 0.13,
+     "market_usd": 0.2205,
+     "pct": 41
+    },
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "seedance-2.0-fast",
+    "name": "Seedance 2.0 Fast",
+    "maker": "ByteDance",
+    "kind": "video",
+    "unit": "per_second",
+    "description": "ByteDance's Seedance 2.0 Fast: text to video, image to video, first and last frames and reference to video, up to 720p, with sound.",
+    "prices": {
+     "480p": 0.05,
+     "720p": 0.11
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "480p",
+       "720p"
+      ]
+     },
+     "prompt": {
+      "required": true
+     },
+     "images": {
+      "max": 9
+     },
+     "end_image": {},
+     "seed": {},
+     "duration": {
+      "min": 4,
+      "max": 15
+     },
+     "aspect_ratio": {
+      "values": [
+       "16:9",
+       "9:16",
+       "1:1"
+      ]
+     }
+    },
+    "media": {
+     "still": "/open/models/seedance-2-mini.webp",
+     "video": "/open/models/seedance-2-mini.mp4"
+    },
+    "featured": false,
+    "save_pct": 14,
+    "offer": {
+     "variant": "480p",
+     "price_usd": 0.05,
+     "market_usd": 0.0585,
+     "pct": 14,
+     "checked": "2026-11-02"
+    },
+    "routes": 2,
+    "status": "operational"
+   },
+   {
+    "id": "seedance-2.0-fast-face",
+    "name": "Seedance 2.0 Fast Face",
+    "maker": "ByteDance",
+    "kind": "video",
+    "unit": "per_second",
+    "description": "ByteDance's Seedance 2.0 Fast Face: text to video, image to video, first and last frames and reference to video, up to 720p, with sound.",
+    "prices": {
+     "480p": 0.1,
+     "720p": 0.22
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "480p",
+       "720p"
+      ]
+     },
+     "prompt": {
+      "required": true,
+      "max": 4000
+     },
+     "images": {
+      "max": 4
+     },
+     "end_image": {},
+     "seed": {},
+     "duration": {
+      "min": 4,
+      "max": 15
+     },
+     "aspect_ratio": {
+      "values": [
+       "16:9",
+       "9:16",
+       "1:1"
+      ]
+     }
+    },
+    "media": {
+     "still": "/open/playground/veo-3.1.webp",
+     "video": "/open/playground/veo-3.1.mp4"
+    },
+    "featured": false,
+    "offer": {
+     "variant": "480p",
+     "price_usd": 0.1,
+     "market_usd": 0.1225,
+     "pct": 18
+    },
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "seedance-2.0-mini",
+    "name": "Seedance 2.0 Mini",
+    "maker": "ByteDance",
+    "kind": "video",
+    "unit": "per_second",
+    "description": "ByteDance's Seedance 2.0 Mini: text to video, image to video, first and last frames and reference to video, up to 720p, with sound.",
+    "prices": {
+     "480p": 0.03,
+     "720p": 0.05
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "480p",
+       "720p"
+      ]
+     },
+     "prompt": {
+      "required": true
+     },
+     "images": {
+      "max": 9
+     },
+     "end_image": {},
+     "seed": {},
+     "duration": {
+      "min": 4,
+      "max": 15
+     },
+     "aspect_ratio": {
+      "values": [
+       "16:9",
+       "9:16",
+       "1:1"
+      ]
+     }
+    },
+    "media": {
+     "still": "/open/playground/kling-4.webp",
+     "video": "/open/playground/kling-4.mp4"
+    },
+    "featured": false,
+    "save_pct": 58,
+    "offer": {
+     "variant": "480p",
+     "price_usd": 0.03,
+     "market_usd": 0.0721,
+     "pct": 58,
+     "checked": "2026-11-02"
+    },
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "gemini-omni-1.1-flash",
+    "name": "Gemini Omni 1.1 Flash",
+    "maker": "Google",
+    "kind": "video",
+    "unit": "per_second",
+    "description": "Google's Gemini Omni 1.1 Flash: text to video, image to video, first and last frames and reference to video, up to 1080p, with sound.",
+    "prices": {
+     "360p": 0.043,
+     "720p": 0.071,
+     "1080p": 0.071
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "360p",
+       "720p",
+       "1080p"
+      ]
+     },
+     "prompt": {
+      "required": true
+     },
+     "images": {
+      "max": 1
+     },
+     "duration": {
+      "values": [
+       4,
+       6,
+       8,
+       10
+      ]
+     },
+     "aspect_ratio": {
+      "values": [
+       "16:9",
+       "9:16"
+      ]
+     }
+    },
+    "media": {
+     "still": "/open/models/omnihuman-2.webp",
+     "video": "/open/models/omnihuman-2.mp4"
+    },
+    "featured": false,
+    "save_pct": 12,
+    "offer": {
+     "variant": "360p",
+     "price_usd": 0.043,
+     "market_usd": 0.049,
+     "pct": 12,
+     "checked": "2026-11-01"
+    },
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "gemini-omni-1.2-flash",
+    "name": "Gemini Omni 1.2 Flash",
+    "maker": "Google",
+    "kind": "video",
+    "unit": "per_second",
+    "description": "Google's Gemini Omni 1.2 Flash: text to video, image to video, first and last frames and up to 10 reference images, 360p to 4K, 3 to 15 seconds, with native sound.",
+    "prices": {
+     "360p": 0.019,
+     "720p": 0.044,
+     "1080p": 0.049,
+     "4k": 0.1
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "360p",
+       "720p",
+       "1080p",
+       "4k"
+      ]
+     },
+     "prompt": {
+      "required": true,
+      "max": 5000
+     },
+     "images": {
+      "max": 10,
+      "file": {
+       "types": [
+        "image/jpeg",
+        "image/png",
+        "image/webp"
+       ],
+       "mb": 20,
+       "convert": {
+        "image/webp": "image/png"
+       }
+      }
+     },
+     "image_mode": {
+      "values": [
+       "first_frame",
+       "reference"
+      ]
+     },
+     "end_image": {},
+     "duration": {
+      "min": 3,
+      "max": 15,
+      "integer": true
+     },
+     "aspect_ratio": {
+      "values": [
+       "16:9",
+       "9:16"
+      ]
+     }
+    },
+    "media": {
+     "still": "/open/models/omnihuman-2.webp",
+     "video": "/open/models/omnihuman-2.mp4"
+    },
+    "featured": true,
+    "limits": [
+     {
+      "when": {
+       "end_image": [
+        true
+       ]
+      },
+      "then": {
+       "images": {
+        "min": 1,
+        "max": 1
+       }
+      },
+      "message": "An end frame needs exactly one start image."
+     },
+     {
+      "when": {
+       "resolution": [
+        "360p",
+        "1080p",
+        "4k"
+       ],
+       "end_image": [
+        true
+       ]
+      },
+      "then": {
+       "duration": {
+        "min": 3,
+        "max": 10
+       }
+      },
+      "message": "First and last frame generation at 360p, 1080p and 4K supports 3 to 10 seconds."
+     }
+    ],
+    "routes": 2,
+    "status": "operational"
+   },
+   {
+    "id": "gemini-omni-flash-preview",
+    "name": "Gemini Omni Flash Preview",
+    "maker": "Google",
+    "kind": "video",
+    "unit": "per_second",
+    "description": "Google's Gemini Omni Flash Preview: text to video, image to video and reference to video, up to 720p. The model picks each clip's length (3 to 10 seconds); you pay per second of the clip it makes.",
+    "prices": {
+     "*": 0.11
+    },
+    "params": {
+     "prompt": {
+      "required": true
+     },
+     "images": {
+      "max": 4
+     },
+     "aspect_ratio": {
+      "values": [
+       "16:9",
+       "9:16"
+      ]
+     }
+    },
+    "media": {
+     "still": "/open/models/seedance-2-mini.webp",
+     "video": "/open/models/seedance-2-mini.mp4"
+    },
+    "featured": false,
+    "offer": {
+     "variant": "*",
+     "price_usd": 0.11,
+     "market_usd": 0.125,
+     "pct": 12
+    },
+    "output_seconds": {
+     "min": 3,
+     "max": 10
+    },
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "veo-3.1-lite",
+    "name": "Veo 3.1 Lite",
+    "maker": "Google",
+    "kind": "video",
+    "unit": "per_second",
+    "description": "Google's Veo 3.1 Lite: text to video, image to video, first and last frames and reference to video, up to 4K, with sound.",
+    "prices": {
+     "720p": 0.05,
+     "1080p": 0.06,
+     "4k": 0.24
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "720p",
+       "1080p",
+       "4k"
+      ]
+     },
+     "prompt": {
+      "required": true
+     },
+     "duration": {
+      "values": [
+       8
+      ]
+     },
+     "aspect_ratio": {
+      "values": [
+       "16:9",
+       "9:16"
+      ]
+     }
+    },
+    "media": {
+     "still": "/open/playground/kling-4.webp",
+     "video": "/open/playground/kling-4.mp4"
+    },
+    "featured": false,
+    "offer": {
+     "variant": "720p",
+     "price_usd": 0.05,
+     "market_usd": 0.0735,
+     "pct": 31
+    },
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "kling-2.6-motion-control",
+    "name": "Kling 2.6 Motion Control",
+    "maker": "Kuaishou",
+    "kind": "video",
+    "unit": "per_second",
+    "description": "Kuaishou's Kling 2.6 Motion Control: video to video, up to 1080p.",
+    "prices": {
+     "720p": 0.07,
+     "1080p": 0.12
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "720p",
+       "1080p"
+      ]
+     },
+     "video": {
+      "required": true
+     },
+     "prompt": {},
+     "images": {
+      "required": true,
+      "max": 1
+     },
+     "duration": {
+      "required": true,
+      "min": 3,
+      "max": 15
+     }
+    },
+    "media": {
+     "still": "/open/playground/vidlab-remix-motion-transfer.webp",
+     "video": "/open/playground/vidlab-remix-motion-transfer.mp4"
+    },
+    "featured": false,
+    "duration_must_cover": [
+     "video"
+    ],
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "kling-2.6-std",
+    "name": "Kling 2.6 Standard",
+    "maker": "Kuaishou",
+    "kind": "video",
+    "unit": "per_second",
+    "description": "Kuaishou's Kling 2.6 Standard: text to video and image to video, up to 720p.",
+    "prices": {
+     "*": 0.05
+    },
+    "params": {
+     "prompt": {
+      "required": true,
+      "max": 2500
+     },
+     "images": {
+      "max": 1
+     },
+     "negative_prompt": {},
+     "duration": {
+      "values": [
+       5,
+       10
+      ]
+     },
+     "aspect_ratio": {
+      "values": [
+       "16:9",
+       "9:16",
+       "1:1"
+      ]
+     }
+    },
+    "media": {
+     "still": "/open/models/kling-4-omni.webp",
+     "video": "/open/models/kling-4-omni.mp4"
+    },
+    "featured": false,
+    "offer": {
+     "variant": "*",
+     "price_usd": 0.05,
+     "market_usd": 0.098,
+     "pct": 48
+    },
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "kling-3.0-motion-control",
+    "name": "Kling 3.0 Motion Control",
+    "maker": "Kuaishou",
+    "kind": "video",
+    "unit": "per_second",
+    "description": "Kuaishou's Kling 3.0 Motion Control: video to video, up to 1080p.",
+    "prices": {
+     "720p": 0.13,
+     "1080p": 0.17
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "720p",
+       "1080p"
+      ]
+     },
+     "video": {
+      "required": true
+     },
+     "prompt": {},
+     "images": {
+      "required": true,
+      "max": 1
+     },
+     "duration": {
+      "required": true,
+      "min": 3,
+      "max": 15
+     }
+    },
+    "media": {
+     "still": "/open/models/sync-lipsync-3.webp",
+     "video": "/open/models/sync-lipsync-3.mp4"
+    },
+    "featured": false,
+    "duration_must_cover": [
+     "video"
+    ],
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "kling-3.0-omni",
+    "name": "Kling 3.0 Omni",
+    "maker": "Kuaishou",
+    "kind": "video",
+    "unit": "per_second",
+    "description": "Kuaishou's Kling 3.0 Omni: text to video, image to video, first and last frames, reference to video and video to video, up to 1080p, with sound.",
+    "prices": {
+     "720p": 0.09,
+     "720p+audio": 0.12,
+     "720p+video_input": 0.13,
+     "1080p": 0.12,
+     "1080p+audio": 0.14,
+     "1080p+video_input": 0.17
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "720p",
+       "1080p"
+      ]
+     },
+     "prompt": {
+      "required": true,
+      "max": 3072
+     },
+     "images": {
+      "max": 4
+     },
+     "end_image": {},
+     "video": {},
+     "negative_prompt": {},
+     "generate_audio": {
+      "values": [
+       true,
+       false
+      ]
+     },
+     "duration": {
+      "min": 3,
+      "max": 15
+     },
+     "aspect_ratio": {
+      "values": [
+       "16:9",
+       "9:16",
+       "1:1"
+      ]
+     }
+    },
+    "media": {
+     "still": "/open/models/kling-4-omni.webp",
+     "video": "/open/models/kling-4-omni.mp4"
+    },
+    "featured": false,
+    "video_sets_length": {
+     "extra": "video_refer_type",
+     "is": [
+      "base"
+     ],
+     "absent": true
+    },
+    "limits": [
+     {
+      "when": {
+       "video": [
+        true
+       ]
+      },
+      "then": {
+       "images": {
+        "min": 1
+       }
+      },
+      "message": "A reference video needs at least one reference image with it: a video alone makes a clip as long as the video, not the duration you ask for."
+     },
+     {
+      "when": {
+       "video": [
+        true
+       ]
+      },
+      "then": {
+       "generate_audio": [
+        false
+       ]
+      },
+      "message": "With a reference video this model makes no sound. Set generate_audio to false."
+     }
+    ],
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "kling-o1",
+    "name": "Kling O1",
+    "maker": "Kuaishou",
+    "kind": "video",
+    "unit": "per_second",
+    "description": "Kuaishou's Kling O1: text to video, image to video and reference to video.",
+    "prices": {
+     "720p": 0.09,
+     "1080p": 0.12
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "720p",
+       "1080p"
+      ]
+     },
+     "prompt": {
+      "required": true,
+      "max": 2500
+     },
+     "images": {
+      "max": 4
+     },
+     "duration": {
+      "values": [
+       5,
+       10
+      ]
+     },
+     "aspect_ratio": {
+      "values": [
+       "16:9",
+       "9:16",
+       "1:1"
+      ]
+     }
+    },
+    "media": {
+     "still": "/open/playground/wan-3.0.webp",
+     "video": "/open/playground/wan-3.0.mp4"
+    },
+    "featured": false,
+    "offer": {
+     "variant": "720p",
+     "price_usd": 0.09,
+     "market_usd": 0.112,
+     "pct": 19
+    },
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "hailuo-2.3-fast",
+    "name": "Hailuo 2.3 Fast",
+    "maker": "MiniMax",
+    "kind": "video",
+    "unit": "per_second",
+    "description": "MiniMax's Hailuo 2.3 Fast: image to video, up to 1080p.",
+    "prices": {
+     "768p": 0.04,
+     "1080p": 0.06
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "768p",
+       "1080p"
+      ]
+     },
+     "prompt": {
+      "required": true,
+      "max": 2000
+     },
+     "images": {
+      "required": true,
+      "max": 1
+     },
+     "duration": {
+      "values": [
+       6,
+       10
+      ]
+     }
+    },
+    "media": {
+     "still": "/open/playground/seedance-2.5.webp",
+     "video": "/open/playground/seedance-2.5.mp4"
+    },
+    "featured": false,
+    "limits": [
+     {
+      "when": {
+       "resolution": [
+        "1080p"
+       ]
+      },
+      "then": {
+       "duration": [
+        6
+       ]
+      },
+      "message": "At 1080p this model makes 6-second clips only. For 10 seconds, use 768p."
+     }
+    ],
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "minimax-h3",
+    "name": "MiniMax H3",
+    "maker": "MiniMax",
+    "kind": "video",
+    "unit": "per_second",
+    "description": "MiniMax's MiniMax H3: text to video, image to video, first and last frames and reference to video, up to 2K, with sound.",
+    "prices": {
+     "768p": 0.045,
+     "768p+video_input": 0.05,
+     "2k": 0.08,
+     "2k+video_input": 0.08
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "768p",
+       "2k"
+      ]
+     },
+     "prompt": {
+      "required": true,
+      "max": 7000
+     },
+     "images": {
+      "max": 9
+     },
+     "end_image": {},
+     "video": {
+      "file": {
+       "types": [
+        "video/mp4",
+        "video/quicktime"
+       ],
+       "mb": 50,
+       "seconds": {
+        "min": 2,
+        "max": 15,
+        "total": 15
+       }
+      }
+     },
+     "duration": {
+      "min": 4,
+      "max": 15
+     },
+     "aspect_ratio": {
+      "values": [
+       "16:9",
+       "9:16",
+       "1:1"
+      ]
+     }
+    },
+    "media": {
+     "still": "/open/playground/minimax-h3.webp",
+     "video": "/open/playground/minimax-h3.mp4"
+    },
+    "featured": false,
+    "offer": {
+     "variant": "768p",
+     "price_usd": 0.045,
+     "market_usd": 0.098,
+     "pct": 54
+    },
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "minimax-h3-max",
+    "name": "MiniMax H3 Max",
+    "maker": "MiniMax",
+    "kind": "video",
+    "unit": "per_second",
+    "description": "MiniMax's MiniMax H3 Max: text to video, image to video and reference to video, up to 1080p.",
+    "prices": {
+     "480p": 0.05,
+     "768p": 0.08,
+     "1080p": 0.16
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "480p",
+       "768p",
+       "1080p"
+      ]
+     },
+     "prompt": {
+      "required": true,
+      "max": 7000
+     },
+     "images": {
+      "max": 4
+     },
+     "duration": {
+      "min": 5,
+      "max": 15
+     },
+     "aspect_ratio": {
+      "values": [
+       "16:9",
+       "9:16",
+       "1:1"
+      ]
+     }
+    },
+    "media": {
+     "still": "/open/models/sync-lipsync-3.webp",
+     "video": "/open/models/sync-lipsync-3.mp4"
+    },
+    "featured": false,
+    "offer": {
+     "variant": "480p",
+     "price_usd": 0.05,
+     "market_usd": 0.1225,
+     "pct": 59
+    },
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "pixverse-v6",
+    "name": "PixVerse V6",
+    "maker": "PixVerse",
+    "kind": "video",
+    "unit": "per_second",
+    "description": "PixVerse's PixVerse V6: text to video, image to video and first and last frames, up to 1080p, with sound.",
+    "prices": {
+     "360p": 0.02,
+     "360p+audio": 0.03,
+     "540p": 0.03,
+     "540p+audio": 0.04,
+     "720p": 0.04,
+     "720p+audio": 0.05,
+     "1080p": 0.08,
+     "1080p+audio": 0.1
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "360p",
+       "540p",
+       "720p",
+       "1080p"
+      ]
+     },
+     "prompt": {
+      "required": true,
+      "max": 5000
+     },
+     "images": {
+      "max": 1
+     },
+     "end_image": {},
+     "negative_prompt": {},
+     "seed": {},
+     "generate_audio": {
+      "values": [
+       true,
+       false
+      ]
+     },
+     "duration": {
+      "values": [
+       5,
+       8,
+       10
+      ]
+     },
+     "aspect_ratio": {
+      "values": [
+       "16:9",
+       "9:16",
+       "1:1"
+      ]
+     }
+    },
+    "media": {
+     "still": "/open/playground/seedance-2.5.webp",
+     "video": "/open/playground/seedance-2.5.mp4"
+    },
+    "featured": false,
+    "offer": {
+     "variant": "360p",
+     "price_usd": 0.02,
+     "market_usd": 0.045,
+     "pct": 55
+    },
+    "limits": [
+     {
+      "when": {
+       "end_image": [
+        true
+       ]
+      },
+      "then": {
+       "duration": [
+        5,
+        8
+       ]
+      },
+      "message": "With a last frame this model makes 5- or 8-second clips."
+     }
+    ],
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "pixverse-v6-max",
+    "name": "PixVerse V6 Max",
+    "maker": "PixVerse",
+    "kind": "video",
+    "unit": "per_second",
+    "description": "PixVerse's PixVerse V6 Max: text to video and image to video, up to 1080p, with sound.",
+    "prices": {
+     "360p": 0.03,
+     "360p+audio": 0.04,
+     "540p": 0.04,
+     "540p+audio": 0.05,
+     "720p": 0.05,
+     "720p+audio": 0.07,
+     "1080p": 0.1,
+     "1080p+audio": 0.13
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "360p",
+       "540p",
+       "720p",
+       "1080p"
+      ]
+     },
+     "prompt": {
+      "required": true,
+      "max": 5000
+     },
+     "images": {
+      "max": 1
+     },
+     "seed": {},
+     "generate_audio": {
+      "values": [
+       true,
+       false
+      ]
+     },
+     "duration": {
+      "values": [
+       5,
+       8,
+       10
+      ]
+     },
+     "aspect_ratio": {
+      "values": [
+       "16:9",
+       "9:16",
+       "1:1"
+      ]
+     }
+    },
+    "media": {
+     "still": "/open/playground/wan-3.0.webp",
+     "video": "/open/playground/wan-3.0.mp4"
+    },
+    "featured": false,
+    "offer": {
+     "variant": "360p",
+     "price_usd": 0.03,
+     "market_usd": 0.11,
+     "pct": 72
+    },
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "vidu-q3",
+    "name": "Vidu Q3",
+    "maker": "Shengshu",
+    "kind": "video",
+    "unit": "per_second",
+    "description": "Shengshu's Vidu Q3: reference to video, up to 1080p.",
+    "prices": {
+     "540p": 0.05,
+     "720p": 0.1,
+     "1080p": 0.13
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "540p",
+       "720p",
+       "1080p"
+      ]
+     },
+     "prompt": {
+      "required": true,
+      "max": 5000
+     },
+     "images": {
+      "required": true,
+      "max": 4
+     },
+     "seed": {},
+     "duration": {
+      "min": 3,
+      "max": 15
+     },
+     "aspect_ratio": {
+      "values": [
+       "16:9",
+       "9:16",
+       "1:1"
+      ]
+     }
+    },
+    "media": {
+     "still": "/open/playground/grok-imagine-video-1.5.webp",
+     "video": "/open/playground/grok-imagine-video-1.5.mp4"
+    },
+    "featured": false,
+    "offer": {
+     "variant": "540p",
+     "price_usd": 0.05,
+     "market_usd": 0.06,
+     "pct": 16
+    },
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "vidu-q3-mix",
+    "name": "Vidu Q3 Mix",
+    "maker": "Shengshu",
+    "kind": "video",
+    "unit": "per_second",
+    "description": "Shengshu's Vidu Q3 Mix: reference to video, up to 1080p.",
+    "prices": {
+     "720p": 0.13,
+     "1080p": 0.15
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "720p",
+       "1080p"
+      ]
+     },
+     "prompt": {
+      "required": true,
+      "max": 5000
+     },
+     "images": {
+      "required": true,
+      "max": 4
+     },
+     "seed": {},
+     "duration": {
+      "min": 3,
+      "max": 15
+     },
+     "aspect_ratio": {
+      "values": [
+       "16:9",
+       "9:16",
+       "1:1"
+      ]
+     }
+    },
+    "media": {
+     "still": "/open/playground/vidlab-remix-motion-transfer.webp",
+     "video": "/open/playground/vidlab-remix-motion-transfer.mp4"
+    },
+    "featured": false,
+    "offer": {
+     "variant": "720p",
+     "price_usd": 0.13,
+     "market_usd": 0.154,
+     "pct": 15
+    },
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "vidu-q3-pro",
+    "name": "Vidu Q3 Pro",
+    "maker": "Shengshu",
+    "kind": "video",
+    "unit": "per_second",
+    "description": "Shengshu's Vidu Q3 Pro: text to video, image to video and first and last frames, up to 1080p, with sound.",
+    "prices": {
+     "540p": 0.07,
+     "720p": 0.15,
+     "1080p": 0.16
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "540p",
+       "720p",
+       "1080p"
+      ]
+     },
+     "prompt": {
+      "required": true,
+      "max": 2000
+     },
+     "images": {
+      "max": 1
+     },
+     "end_image": {},
+     "seed": {},
+     "duration": {
+      "min": 3,
+      "max": 15
+     },
+     "aspect_ratio": {
+      "values": [
+       "16:9",
+       "9:16",
+       "1:1"
+      ]
+     }
+    },
+    "media": {
+     "still": "/open/playground/minimax-h3.webp",
+     "video": "/open/playground/minimax-h3.mp4"
+    },
+    "featured": false,
+    "offer": {
+     "variant": "540p",
+     "price_usd": 0.07,
+     "market_usd": 0.154,
+     "pct": 54
+    },
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "vidu-q3-turbo",
+    "name": "Vidu Q3 Turbo",
+    "maker": "Shengshu",
+    "kind": "video",
+    "unit": "per_second",
+    "description": "Shengshu's Vidu Q3 Turbo: text to video, image to video and first and last frames, up to 1080p, with sound.",
+    "prices": {
+     "540p": 0.04,
+     "720p": 0.06,
+     "1080p": 0.07
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "540p",
+       "720p",
+       "1080p"
+      ]
+     },
+     "prompt": {
+      "required": true,
+      "max": 2000
+     },
+     "images": {
+      "max": 1
+     },
+     "end_image": {},
+     "seed": {},
+     "duration": {
+      "min": 3,
+      "max": 15
+     },
+     "aspect_ratio": {
+      "values": [
+       "16:9",
+       "9:16",
+       "1:1"
+      ]
+     }
+    },
+    "media": {
+     "still": "/open/models/seedance-2-mini.webp",
+     "video": "/open/models/seedance-2-mini.mp4"
+    },
+    "featured": false,
+    "offer": {
+     "variant": "540p",
+     "price_usd": 0.04,
+     "market_usd": 0.077,
+     "pct": 48
+    },
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "vidu-q4-preview",
+    "name": "Vidu Q4 Preview",
+    "maker": "Shengshu",
+    "kind": "video",
+    "unit": "per_second",
+    "description": "Shengshu's Vidu Q4 Preview: image to video and reference to video, up to 4K, with sound.",
+    "prices": {
+     "540p": 0.06,
+     "720p": 0.12,
+     "1080p": 0.13,
+     "2k": 0.21,
+     "4k": 0.42
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "540p",
+       "720p",
+       "1080p",
+       "2k",
+       "4k"
+      ]
+     },
+     "prompt": {
+      "required": true
+     },
+     "images": {
+      "required": true,
+      "min": 1,
+      "max": 4
+     },
+     "seed": {},
+     "duration": {
+      "min": 3,
+      "max": 15
+     },
+     "aspect_ratio": {
+      "values": [
+       "16:9",
+       "9:16",
+       "1:1"
+      ]
+     }
+    },
+    "media": {
+     "still": "/open/models/omnihuman-2.webp",
+     "video": "/open/models/omnihuman-2.mp4"
+    },
+    "featured": false,
+    "offer": {
+     "variant": "540p",
+     "price_usd": 0.06,
+     "market_usd": 0.095,
+     "pct": 36
+    },
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "skyreels-v4-fast",
+    "name": "SkyReels V4 Fast",
+    "maker": "Skywork",
+    "kind": "video",
+    "unit": "per_second",
+    "description": "Skywork's SkyReels V4 Fast: text to video, image to video and first and last frames, up to 1080p.",
+    "prices": {
+     "480p": 0.08,
+     "720p": 0.11,
+     "1080p": 0.28
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "480p",
+       "720p",
+       "1080p"
+      ]
+     },
+     "prompt": {
+      "required": true
+     },
+     "images": {
+      "max": 1
+     },
+     "end_image": {},
+     "duration": {
+      "min": 3,
+      "max": 15
+     },
+     "aspect_ratio": {
+      "values": [
+       "16:9",
+       "9:16",
+       "1:1"
+      ]
+     }
+    },
+    "media": {
+     "still": "/open/playground/kling-4.webp",
+     "video": "/open/playground/kling-4.mp4"
+    },
+    "featured": false,
+    "offer": {
+     "variant": "480p",
+     "price_usd": 0.08,
+     "market_usd": 0.11,
+     "pct": 27
+    },
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "skyreels-v4-std",
+    "name": "SkyReels V4 Standard",
+    "maker": "Skywork",
+    "kind": "video",
+    "unit": "per_second",
+    "description": "Skywork's SkyReels V4 Standard: text to video, image to video and first and last frames, up to 1080p.",
+    "prices": {
+     "480p": 0.11,
+     "720p": 0.14,
+     "1080p": 0.35
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "480p",
+       "720p",
+       "1080p"
+      ]
+     },
+     "prompt": {
+      "required": true
+     },
+     "images": {
+      "max": 1
+     },
+     "end_image": {},
+     "duration": {
+      "min": 3,
+      "max": 15
+     },
+     "aspect_ratio": {
+      "values": [
+       "16:9",
+       "9:16",
+       "1:1"
+      ]
+     }
+    },
+    "media": {
+     "still": "/open/playground/minimax-h3.webp",
+     "video": "/open/playground/minimax-h3.mp4"
+    },
+    "featured": false,
+    "offer": {
+     "variant": "480p",
+     "price_usd": 0.11,
+     "market_usd": 0.14,
+     "pct": 21
+    },
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "grok-imagine-video-1.5",
+    "name": "Grok Imagine Video 1.5",
+    "maker": "xAI",
+    "kind": "video",
+    "unit": "per_second",
+    "description": "xAI's Grok Imagine Video 1.5: text to video, image to video, first and last frames and reference to video, up to 1080p, with sound.",
+    "prices": {
+     "480p": 0.04,
+     "720p": 0.07,
+     "1080p": 0.13
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "480p",
+       "720p",
+       "1080p"
+      ]
+     },
+     "prompt": {
+      "required": true
+     },
+     "images": {
+      "max": 4
+     },
+     "end_image": {},
+     "duration": {
+      "min": 1,
+      "max": 15
+     },
+     "aspect_ratio": {
+      "values": [
+       "16:9",
+       "9:16",
+       "1:1"
+      ]
+     }
+    },
+    "media": {
+     "still": "/open/playground/grok-imagine-video-1.5.webp",
+     "video": "/open/playground/grok-imagine-video-1.5.mp4"
+    },
+    "featured": false,
+    "save_pct": 67,
+    "offer": {
+     "variant": "480p",
+     "price_usd": 0.04,
+     "market_usd": 0.1225,
+     "pct": 67,
+     "checked": "2026-11-01"
+    },
+    "limits": [
+     {
+      "when": {
+       "images": {
+        "min": 2
+       }
+      },
+      "then": {
+       "resolution": [
+        "480p",
+        "720p"
+       ]
+      },
+      "message": "At 1080p this model starts from text or one first frame only. With more images, use 720p or 480p."
+     },
+     {
+      "when": {
+       "end_image": [
+        true
+       ]
+      },
+      "then": {
+       "resolution": [
+        "480p",
+        "720p"
+       ]
+      },
+      "message": "At 1080p this model takes no last frame. Use 720p or 480p for a first and last frame."
+     }
+    ],
+    "routes": 2,
+    "status": "operational"
+   },
+   {
+    "id": "nano-banana-2",
+    "name": "Nano Banana 2",
+    "maker": "Google",
+    "kind": "image",
+    "unit": "per_image",
+    "description": "Google's Nano Banana 2: text to image and image editing, up to 4K.",
+    "prices": {
+     "0.5k": 0.07,
+     "1k": 0.03,
+     "2k": 0.03,
+     "4k": 0.04
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "0.5k",
+       "1k",
+       "2k",
+       "4k"
+      ]
+     },
+     "prompt": {
+      "required": true
+     },
+     "images": {
+      "max": 14
+     },
+     "aspect_ratio": {
+      "values": [
+       "1:1",
+       "16:9",
+       "9:16",
+       "4:3",
+       "3:4",
+       "3:2",
+       "2:3"
+      ]
+     },
+     "n": {
+      "min": 1,
+      "max": 4
+     }
+    },
+    "media": {
+     "still": "/open/playground/seedance-2.5.webp"
+    },
+    "featured": false,
+    "offer": {
+     "variant": "1k",
+     "price_usd": 0.03,
+     "market_usd": 0.08,
+     "pct": 62,
+     "checked": "2026-11-01"
+    },
+    "limits": [
+     {
+      "when": {
+       "n": {
+        "min": 2
+       }
+      },
+      "then": {
+       "resolution": [
+        "1k",
+        "2k",
+        "4k"
+       ]
+      },
+      "message": "More than one image per call needs resolution 1k, 2k, 4k. At 0.5k, send n = 1."
+     }
+    ],
+    "routes": 2,
+    "status": "operational"
+   },
+   {
+    "id": "gpt-image-2",
+    "name": "GPT Image 2",
+    "maker": "OpenAI",
+    "kind": "image",
+    "unit": "per_image",
+    "description": "OpenAI's GPT Image 2: text to image and image editing, up to 4K.",
+    "prices": {
+     "1k": 0.03,
+     "2k": 0.03,
+     "4k": 0.03
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "1k",
+       "2k",
+       "4k"
+      ]
+     },
+     "prompt": {
+      "required": true
+     },
+     "images": {
+      "max": 16
+     },
+     "aspect_ratio": {
+      "values": [
+       "1:1",
+       "16:9",
+       "9:16",
+       "4:3",
+       "3:4",
+       "3:2",
+       "2:3"
+      ]
+     },
+     "n": {
+      "min": 1,
+      "max": 4
+     }
+    },
+    "media": {
+     "still": "/open/playground/kling-4.webp"
+    },
+    "featured": false,
+    "offer": {
+     "variant": "1k",
+     "price_usd": 0.03,
+     "market_usd": 0.145,
+     "pct": 79
+    },
+    "routes": 2,
+    "status": "operational"
+   },
+   {
+    "id": "nano-banana",
+    "name": "Nano Banana",
+    "maker": "Google",
+    "kind": "image",
+    "unit": "per_image",
+    "description": "Fast, low-cost image generation and conversational editing. Keeps a subject consistent across a series of edits.",
+    "prices": {
+     "*": 0.03
+    },
+    "params": {
+     "prompt": {
+      "required": true,
+      "max": 1000
+     },
+     "images": {
+      "max": 4
+     },
+     "aspect_ratio": {
+      "values": [
+       "1:1",
+       "16:9",
+       "9:16",
+       "4:3",
+       "3:4",
+       "3:2",
+       "2:3"
+      ]
+     },
+     "n": {
+      "min": 1,
+      "max": 1
+     }
+    },
+    "media": {
+     "still": "/open/playground/nano-banana-pro.webp"
+    },
+    "featured": false,
+    "save_pct": 25,
+    "offer": {
+     "variant": "*",
+     "price_usd": 0.03,
+     "market_usd": 0.04,
+     "pct": 25,
+     "checked": "2026-11-02"
+    },
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "seedream-4.5",
+    "name": "Seedream 4.5",
+    "maker": "ByteDance",
+    "kind": "image",
+    "unit": "per_image",
+    "description": "ByteDance's image model. Sharp 2K and 4K output, strong typography and reference-guided edits.",
+    "prices": {
+     "*": 0.04
+    },
+    "params": {
+     "prompt": {
+      "required": true,
+      "max": 3000
+     },
+     "images": {
+      "max": 4
+     },
+     "aspect_ratio": {
+      "values": [
+       "1:1",
+       "16:9",
+       "9:16",
+       "4:3",
+       "3:4",
+       "3:2",
+       "2:3"
+      ]
+     },
+     "n": {
+      "min": 1,
+      "max": 1
+     }
+    },
+    "media": {
+     "still": "/open/models/flux-kontext-max.webp"
+    },
+    "featured": false,
+    "offer": {
+     "variant": "*",
+     "price_usd": 0.04,
+     "market_usd": 0.049,
+     "pct": 18
+    },
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "seedream-5.0-pro",
+    "name": "Seedream 5.0 Pro",
+    "maker": "ByteDance",
+    "kind": "image",
+    "unit": "per_image",
+    "description": "ByteDance's Seedream 5.0 Pro: text to image and image editing, up to 2K.",
+    "prices": {
+     "1k": 0.04,
+     "1.5k": 0.04,
+     "2k": 0.04
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "1k",
+       "1.5k",
+       "2k"
+      ]
+     },
+     "prompt": {
+      "required": true
+     },
+     "images": {
+      "max": 8
+     },
+     "aspect_ratio": {
+      "values": [
+       "1:1",
+       "16:9",
+       "9:16",
+       "4:3",
+       "3:4",
+       "3:2",
+       "2:3"
+      ]
+     },
+     "n": {
+      "min": 1,
+      "max": 1
+     }
+    },
+    "media": {
+     "still": "/open/models/portrait-1.webp"
+    },
+    "featured": false,
+    "save_pct": 40,
+    "offer": {
+     "variant": "1k",
+     "price_usd": 0.04,
+     "market_usd": 0.0675,
+     "pct": 40,
+     "checked": "2026-11-02"
+    },
+    "routes": 2,
+    "status": "operational"
+   },
+   {
+    "id": "flux-2-pro",
+    "name": "Flux 2 Pro",
+    "maker": "Black Forest Labs",
+    "kind": "image",
+    "unit": "per_image",
+    "description": "Black Forest Labs' production model. Photoreal detail, reliable hands and faces, and multi-reference editing.",
+    "prices": {
+     "1mp": 0.03,
+     "2mp": 0.05,
+     "3mp": 0.06,
+     "4mp": 0.08
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "1mp",
+       "2mp",
+       "3mp",
+       "4mp"
+      ]
+     },
+     "prompt": {
+      "required": true
+     },
+     "images": {
+      "max": 4
+     },
+     "aspect_ratio": {
+      "values": [
+       "1:1",
+       "16:9",
+       "9:16",
+       "4:3",
+       "3:4",
+       "3:2",
+       "2:3"
+      ]
+     },
+     "n": {
+      "min": 1,
+      "max": 1
+     },
+     "seed": {}
+    },
+    "media": {
+     "still": "/open/playground/seedance-2.5.webp"
+    },
+    "featured": false,
+    "offer": {
+     "variant": "1mp",
+     "price_usd": 0.03,
+     "market_usd": 0.049,
+     "pct": 38
+    },
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "midjourney-v7",
+    "name": "Midjourney V7",
+    "maker": "Midjourney",
+    "kind": "image",
+    "unit": "per_image",
+    "description": "Midjourney's distinctive aesthetic, from a prompt or a reference image.",
+    "prices": {
+     "fast": 0.07,
+     "relax": 0.06,
+     "turbo": 0.13
+    },
+    "params": {
+     "quality": {
+      "values": [
+       "fast",
+       "relax",
+       "turbo"
+      ]
+     },
+     "prompt": {
+      "required": true
+     },
+     "images": {
+      "max": 4
+     },
+     "aspect_ratio": {
+      "values": [
+       "1:1",
+       "16:9",
+       "9:16",
+       "4:3",
+       "3:4",
+       "3:2",
+       "2:3"
+      ]
+     },
+     "seed": {}
+    },
+    "media": {
+     "still": "/open/playground/kling-4.webp"
+    },
+    "featured": false,
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "qwen-image-2.0",
+    "name": "Qwen Image 2.0",
+    "maker": "Alibaba",
+    "kind": "image",
+    "unit": "per_image",
+    "description": "Alibaba's Qwen Image 2.0: text to image and image editing, up to 2K.",
+    "prices": {
+     "*": 0.03
+    },
+    "params": {
+     "prompt": {
+      "required": true,
+      "max": 800
+     },
+     "images": {
+      "max": 3
+     },
+     "aspect_ratio": {
+      "values": [
+       "1:1",
+       "16:9",
+       "9:16",
+       "4:3",
+       "3:4",
+       "3:2",
+       "2:3"
+      ]
+     },
+     "n": {
+      "min": 1,
+      "max": 4
+     }
+    },
+    "media": {
+     "still": "/open/models/flux-kontext-max.webp"
+    },
+    "featured": false,
+    "offer": {
+     "variant": "*",
+     "price_usd": 0.03,
+     "market_usd": 0.035,
+     "pct": 14
+    },
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "qwen-image-2.0-pro",
+    "name": "Qwen Image 2.0 Pro",
+    "maker": "Alibaba",
+    "kind": "image",
+    "unit": "per_image",
+    "description": "Alibaba's Qwen Image 2.0 Pro: text to image and image editing, up to 2K.",
+    "prices": {
+     "*": 0.07
+    },
+    "params": {
+     "prompt": {
+      "required": true,
+      "max": 800
+     },
+     "images": {
+      "max": 3
+     },
+     "aspect_ratio": {
+      "values": [
+       "1:1",
+       "16:9",
+       "9:16",
+       "4:3",
+       "3:4",
+       "3:2",
+       "2:3"
+      ]
+     },
+     "n": {
+      "min": 1,
+      "max": 4
+     }
+    },
+    "media": {
+     "still": "/open/models/portrait-1.webp"
+    },
+    "featured": false,
+    "offer": {
+     "variant": "*",
+     "price_usd": 0.07,
+     "market_usd": 0.075,
+     "pct": 6
+    },
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "qwen-image-3.0",
+    "name": "Qwen Image 3.0",
+    "maker": "Alibaba",
+    "kind": "image",
+    "unit": "per_image",
+    "description": "Alibaba's Qwen Image 3.0: text to image and image editing, up to 2K.",
+    "prices": {
+     "1k": 0.03,
+     "2k": 0.03
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "1k",
+       "2k"
+      ]
+     },
+     "prompt": {
+      "required": true
+     },
+     "images": {
+      "max": 3
+     },
+     "aspect_ratio": {
+      "values": [
+       "1:1",
+       "16:9",
+       "9:16",
+       "4:3",
+       "3:4",
+       "3:2",
+       "2:3"
+      ]
+     },
+     "n": {
+      "min": 1,
+      "max": 4
+     }
+    },
+    "media": {
+     "still": "/open/playground/kling-4.webp"
+    },
+    "featured": false,
+    "offer": {
+     "variant": "1k",
+     "price_usd": 0.03,
+     "market_usd": 0.04,
+     "pct": 25
+    },
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "qwen-image-3.0-pro",
+    "name": "Qwen Image 3.0 Pro",
+    "maker": "Alibaba",
+    "kind": "image",
+    "unit": "per_image",
+    "description": "Alibaba's Qwen Image 3.0 Pro: text to image and image editing, up to 2K.",
+    "prices": {
+     "1k": 0.04,
+     "2k": 0.08
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "1k",
+       "2k"
+      ]
+     },
+     "prompt": {
+      "required": true
+     },
+     "images": {
+      "max": 3
+     },
+     "aspect_ratio": {
+      "values": [
+       "1:1",
+       "16:9",
+       "9:16",
+       "4:3",
+       "3:4",
+       "3:2",
+       "2:3"
+      ]
+     },
+     "n": {
+      "min": 1,
+      "max": 4
+     }
+    },
+    "media": {
+     "still": "/open/playground/nano-banana-pro.webp"
+    },
+    "featured": false,
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "wan-2.7-image",
+    "name": "Wan 2.7 Image",
+    "maker": "Alibaba",
+    "kind": "image",
+    "unit": "per_image",
+    "description": "Alibaba's Wan 2.7 Image: text to image and image editing.",
+    "prices": {
+     "*": 0.03
+    },
+    "params": {
+     "prompt": {
+      "required": true,
+      "max": 5000
+     },
+     "images": {
+      "max": 4
+     },
+     "aspect_ratio": {
+      "values": [
+       "1:1",
+       "16:9",
+       "9:16",
+       "4:3",
+       "3:4",
+       "3:2",
+       "2:3"
+      ]
+     },
+     "n": {
+      "min": 1,
+      "max": 4
+     },
+     "seed": {}
+    },
+    "media": {
+     "still": "/open/models/flux-kontext-max.webp"
+    },
+    "featured": false,
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "wan-2.7-image-pro",
+    "name": "Wan 2.7 Image Pro",
+    "maker": "Alibaba",
+    "kind": "image",
+    "unit": "per_image",
+    "description": "Alibaba's Wan 2.7 Image Pro: text to image and image editing, up to 4K.",
+    "prices": {
+     "*": 0.07
+    },
+    "params": {
+     "prompt": {
+      "required": true,
+      "max": 5000
+     },
+     "images": {
+      "max": 4
+     },
+     "aspect_ratio": {
+      "values": [
+       "1:1",
+       "16:9",
+       "9:16",
+       "4:3",
+       "3:4",
+       "3:2",
+       "2:3"
+      ]
+     },
+     "n": {
+      "min": 1,
+      "max": 4
+     },
+     "seed": {}
+    },
+    "media": {
+     "still": "/open/models/portrait-1.webp"
+    },
+    "featured": false,
+    "offer": {
+     "variant": "*",
+     "price_usd": 0.07,
+     "market_usd": 0.075,
+     "pct": 6
+    },
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "z-image-turbo",
+    "name": "Z Image Turbo",
+    "maker": "Alibaba",
+    "kind": "image",
+    "unit": "per_image",
+    "description": "Alibaba's Z Image Turbo: text to image, up to 2K.",
+    "prices": {
+     "*": 0.02
+    },
+    "params": {
+     "prompt": {
+      "required": true,
+      "max": 800
+     },
+     "aspect_ratio": {
+      "values": [
+       "1:1",
+       "16:9",
+       "9:16",
+       "4:3",
+       "3:4",
+       "3:2",
+       "2:3"
+      ]
+     },
+     "n": {
+      "min": 1,
+      "max": 1
+     }
+    },
+    "media": {
+     "still": "/open/playground/kling-4.webp"
+    },
+    "featured": false,
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "flux-2-flex",
+    "name": "Flux 2 Flex",
+    "maker": "Black Forest Labs",
+    "kind": "image",
+    "unit": "per_image",
+    "description": "Black Forest Labs's Flux 2 Flex: text to image and image editing, up to 4MP.",
+    "prices": {
+     "1mp": 0.05,
+     "2mp": 0.1,
+     "3mp": 0.15,
+     "4mp": 0.2
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "1mp",
+       "2mp",
+       "3mp",
+       "4mp"
+      ]
+     },
+     "prompt": {
+      "required": true
+     },
+     "images": {
+      "max": 4
+     },
+     "aspect_ratio": {
+      "values": [
+       "1:1",
+       "16:9",
+       "9:16",
+       "4:3",
+       "3:4",
+       "3:2",
+       "2:3"
+      ]
+     },
+     "n": {
+      "min": 1,
+      "max": 1
+     },
+     "seed": {}
+    },
+    "media": {
+     "still": "/open/playground/nano-banana-pro.webp"
+    },
+    "featured": false,
+    "offer": {
+     "variant": "1mp",
+     "price_usd": 0.05,
+     "market_usd": 0.147,
+     "pct": 65
+    },
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "flux-2-max",
+    "name": "Flux 2 Max",
+    "maker": "Black Forest Labs",
+    "kind": "image",
+    "unit": "per_image",
+    "description": "Black Forest Labs's Flux 2 Max: text to image and image editing, up to 4MP.",
+    "prices": {
+     "1mp": 0.07,
+     "2mp": 0.1,
+     "3mp": 0.13,
+     "4mp": 0.16
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "1mp",
+       "2mp",
+       "3mp",
+       "4mp"
+      ]
+     },
+     "prompt": {
+      "required": true
+     },
+     "images": {
+      "max": 4
+     },
+     "aspect_ratio": {
+      "values": [
+       "1:1",
+       "16:9",
+       "9:16",
+       "4:3",
+       "3:4",
+       "3:2",
+       "2:3"
+      ]
+     },
+     "n": {
+      "min": 1,
+      "max": 1
+     },
+     "seed": {}
+    },
+    "media": {
+     "still": "/open/playground/gpt-image-2.5.webp"
+    },
+    "featured": false,
+    "offer": {
+     "variant": "1mp",
+     "price_usd": 0.07,
+     "market_usd": 0.196,
+     "pct": 64
+    },
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "flux-3",
+    "name": "Flux 3",
+    "maker": "Black Forest Labs",
+    "kind": "image",
+    "unit": "per_image",
+    "description": "Black Forest Labs's Flux 3: text to image and image editing, up to 4K.",
+    "prices": {
+     "768sq": 0.05,
+     "1k": 0.05,
+     "1.5k": 0.07,
+     "2k": 0.1,
+     "4k": 0.61
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "768sq",
+       "1k",
+       "1.5k",
+       "2k",
+       "4k"
+      ]
+     },
+     "prompt": {
+      "required": true
+     },
+     "images": {
+      "max": 4
+     },
+     "aspect_ratio": {
+      "values": [
+       "1:1",
+       "16:9",
+       "9:16",
+       "4:3",
+       "3:4",
+       "3:2",
+       "2:3"
+      ]
+     },
+     "n": {
+      "min": 1,
+      "max": 1
+     }
+    },
+    "media": {
+     "still": "/open/models/flux-kontext-max.webp"
+    },
+    "featured": false,
+    "offer": {
+     "variant": "768sq",
+     "price_usd": 0.05,
+     "market_usd": 0.098,
+     "pct": 48
+    },
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "flux-3-klein",
+    "name": "Flux 3 Klein",
+    "maker": "Black Forest Labs",
+    "kind": "image",
+    "unit": "per_image",
+    "description": "Black Forest Labs's Flux 3 Klein: text to image and image editing, up to 4K.",
+    "prices": {
+     "768sq": 0.01,
+     "1k": 0.01,
+     "1.5k": 0.02,
+     "2k": 0.02,
+     "4k": 0.04
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "768sq",
+       "1k",
+       "1.5k",
+       "2k",
+       "4k"
+      ]
+     },
+     "prompt": {
+      "required": true
+     },
+     "images": {
+      "max": 4
+     },
+     "aspect_ratio": {
+      "values": [
+       "1:1",
+       "16:9",
+       "9:16",
+       "4:3",
+       "3:4",
+       "3:2",
+       "2:3"
+      ]
+     },
+     "n": {
+      "min": 1,
+      "max": 1
+     },
+     "seed": {}
+    },
+    "media": {
+     "still": "/open/models/portrait-1.webp"
+    },
+    "featured": false,
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "flux-kontext-pro",
+    "name": "Flux Kontext Pro",
+    "maker": "Black Forest Labs",
+    "kind": "image",
+    "unit": "per_image",
+    "description": "Black Forest Labs's Flux Kontext Pro: text to image and image editing.",
+    "prices": {
+     "*": 0.04
+    },
+    "params": {
+     "prompt": {
+      "required": true
+     },
+     "images": {
+      "max": 4
+     },
+     "aspect_ratio": {
+      "values": [
+       "1:1",
+       "16:9",
+       "9:16",
+       "4:3",
+       "3:4",
+       "3:2",
+       "2:3"
+      ]
+     },
+     "n": {
+      "min": 1,
+      "max": 1
+     },
+     "seed": {}
+    },
+    "media": {
+     "still": "/open/playground/kling-4.webp"
+    },
+    "featured": false,
+    "offer": {
+     "variant": "*",
+     "price_usd": 0.04,
+     "market_usd": 0.0735,
+     "pct": 45
+    },
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "seedream-4.0",
+    "name": "Seedream 4.0",
+    "maker": "ByteDance",
+    "kind": "image",
+    "unit": "per_image",
+    "description": "ByteDance's Seedream 4.0: text to image and image editing, up to 4K.",
+    "prices": {
+     "*": 0.029
+    },
+    "params": {
+     "prompt": {
+      "required": true,
+      "max": 1000
+     },
+     "images": {
+      "max": 4
+     },
+     "aspect_ratio": {
+      "values": [
+       "1:1",
+       "16:9",
+       "9:16",
+       "4:3",
+       "3:4",
+       "3:2",
+       "2:3"
+      ]
+     },
+     "n": {
+      "min": 1,
+      "max": 1
+     }
+    },
+    "media": {
+     "still": "/open/playground/gpt-image-2.5.webp"
+    },
+    "featured": false,
+    "offer": {
+     "variant": "*",
+     "price_usd": 0.029,
+     "market_usd": 0.03,
+     "pct": 3
+    },
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "seedream-5.0-flash",
+    "name": "Seedream 5.0 Flash",
+    "maker": "ByteDance",
+    "kind": "image",
+    "unit": "per_image",
+    "description": "ByteDance's Seedream 5.0 Flash: text to image and image editing, up to 2K.",
+    "prices": {
+     "*": 0.02
+    },
+    "params": {
+     "prompt": {
+      "required": true
+     },
+     "images": {
+      "max": 4
+     },
+     "aspect_ratio": {
+      "values": [
+       "1:1",
+       "16:9",
+       "9:16",
+       "4:3",
+       "3:4",
+       "3:2",
+       "2:3"
+      ]
+     },
+     "n": {
+      "min": 1,
+      "max": 1
+     }
+    },
+    "media": {
+     "still": "/open/models/flux-kontext-max.webp"
+    },
+    "featured": false,
+    "offer": {
+     "variant": "*",
+     "price_usd": 0.02,
+     "market_usd": 0.027,
+     "pct": 25
+    },
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "seedream-5.0-lite",
+    "name": "Seedream 5.0 Lite",
+    "maker": "ByteDance",
+    "kind": "image",
+    "unit": "per_image",
+    "description": "ByteDance's Seedream 5.0 Lite: text to image and image editing, at 4K.",
+    "prices": {
+     "4k": 0.04
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "4k"
+      ]
+     },
+     "prompt": {
+      "required": true,
+      "max": 2995
+     },
+     "images": {
+      "max": 4
+     },
+     "aspect_ratio": {
+      "values": [
+       "1:1",
+       "16:9",
+       "9:16",
+       "4:3",
+       "3:4",
+       "3:2",
+       "2:3"
+      ]
+     },
+     "n": {
+      "min": 1,
+      "max": 4
+     }
+    },
+    "media": {
+     "still": "/open/models/portrait-1.webp"
+    },
+    "featured": false,
+    "offer": {
+     "variant": "4k",
+     "price_usd": 0.04,
+     "market_usd": 0.049,
+     "pct": 18
+    },
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "nano-banana-2-lite",
+    "name": "Nano Banana 2 Lite",
+    "maker": "Google",
+    "kind": "image",
+    "unit": "per_image",
+    "description": "Google's Nano Banana 2 Lite: text to image and image editing, up to 1K.",
+    "prices": {
+     "1k": 0.02
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "1k"
+      ]
+     },
+     "prompt": {
+      "required": true
+     },
+     "images": {
+      "max": 14
+     },
+     "aspect_ratio": {
+      "values": [
+       "1:1",
+       "16:9",
+       "9:16",
+       "4:3",
+       "3:4",
+       "3:2",
+       "2:3"
+      ]
+     },
+     "n": {
+      "min": 1,
+      "max": 4
+     }
+    },
+    "media": {
+     "still": "/open/playground/gpt-image-2.5.webp"
+    },
+    "featured": false,
+    "offer": {
+     "variant": "1k",
+     "price_usd": 0.02,
+     "market_usd": 0.049,
+     "pct": 59
+    },
+    "routes": 2,
+    "status": "operational"
+   },
+   {
+    "id": "nano-banana-2.1",
+    "name": "Nano Banana 2.1",
+    "maker": "Google",
+    "kind": "image",
+    "unit": "per_image",
+    "description": "Google's Nano Banana 2.1: text to image and image editing, up to 4K.",
+    "prices": {
+     "1k": 0.03,
+     "2k": 0.03,
+     "4k": 0.04
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "1k",
+       "2k",
+       "4k"
+      ]
+     },
+     "prompt": {
+      "required": true
+     },
+     "images": {
+      "max": 14
+     },
+     "aspect_ratio": {
+      "values": [
+       "1:1",
+       "16:9",
+       "9:16",
+       "4:3",
+       "3:4",
+       "3:2",
+       "2:3"
+      ]
+     },
+     "n": {
+      "min": 1,
+      "max": 4
+     }
+    },
+    "media": {
+     "still": "/open/models/flux-kontext-max.webp"
+    },
+    "featured": false,
+    "save_pct": 25,
+    "offer": {
+     "variant": "1k",
+     "price_usd": 0.03,
+     "market_usd": 0.04,
+     "pct": 25,
+     "checked": "2026-11-02"
+    },
+    "routes": 2,
+    "status": "operational"
+   },
+   {
+    "id": "mai-image-2.6",
+    "name": "MAI Image 2.6",
+    "maker": "Microsoft",
+    "kind": "image",
+    "unit": "per_image",
+    "description": "Microsoft's MAI Image 2.6: text to image and image editing, up to 2K.",
+    "prices": {
+     "1k": 0.04,
+     "2k": 0.09
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "1k",
+       "2k"
+      ]
+     },
+     "prompt": {
+      "required": true
+     },
+     "images": {
+      "max": 4
+     },
+     "aspect_ratio": {
+      "values": [
+       "1:1",
+       "16:9",
+       "9:16",
+       "4:3",
+       "3:4",
+       "3:2",
+       "2:3"
+      ]
+     },
+     "n": {
+      "min": 1,
+      "max": 1
+     }
+    },
+    "media": {
+     "still": "/open/playground/seedance-2.5.webp"
+    },
+    "featured": false,
+    "limits": [
+     {
+      "when": {
+       "images": {
+        "min": 1
+       }
+      },
+      "then": {
+       "resolution": [
+        "1k"
+       ]
+      },
+      "message": "With reference images this model makes 1K pictures only. For 2K, send no images."
+     }
+    ],
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "mai-image-2.6-flash",
+    "name": "MAI Image 2.6 Flash",
+    "maker": "Microsoft",
+    "kind": "image",
+    "unit": "per_image",
+    "description": "Microsoft's MAI Image 2.6 Flash: text to image and image editing, up to 2K.",
+    "prices": {
+     "1k": 0.02,
+     "2k": 0.05
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "1k",
+       "2k"
+      ]
+     },
+     "prompt": {
+      "required": true
+     },
+     "images": {
+      "max": 4
+     },
+     "aspect_ratio": {
+      "values": [
+       "1:1",
+       "16:9",
+       "9:16",
+       "4:3",
+       "3:4",
+       "3:2",
+       "2:3"
+      ]
+     },
+     "n": {
+      "min": 1,
+      "max": 1
+     }
+    },
+    "media": {
+     "still": "/open/playground/kling-4.webp"
+    },
+    "featured": false,
+    "limits": [
+     {
+      "when": {
+       "images": {
+        "min": 1
+       }
+      },
+      "then": {
+       "resolution": [
+        "1k"
+       ]
+      },
+      "message": "With reference images this model makes 1K pictures only. For 2K, send no images."
+     }
+    ],
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "gpt-image-1",
+    "name": "GPT Image 1",
+    "maker": "OpenAI",
+    "kind": "image",
+    "unit": "per_image",
+    "description": "OpenAI's GPT Image 1: text to image and image editing.",
+    "prices": {
+     "low": 0.02,
+     "medium": 0.06,
+     "high": 0.2
+    },
+    "params": {
+     "quality": {
+      "values": [
+       "low",
+       "medium",
+       "high"
+      ]
+     },
+     "prompt": {
+      "required": true
+     },
+     "images": {
+      "max": 4
+     },
+     "aspect_ratio": {
+      "values": [
+       "1:1",
+       "2:3",
+       "3:2"
+      ]
+     },
+     "n": {
+      "min": 1,
+      "max": 4
+     }
+    },
+    "media": {
+     "still": "/open/playground/gpt-image-2.5.webp"
+    },
+    "featured": false,
+    "offer": {
+     "variant": "low",
+     "price_usd": 0.02,
+     "market_usd": 0.042,
+     "pct": 52
+    },
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "gpt-image-2.5-flare",
+    "name": "GPT Image 2.5 Flare",
+    "maker": "OpenAI",
+    "kind": "image",
+    "unit": "per_image",
+    "description": "OpenAI's GPT Image 2.5 Flare, the fast everyday variant: text to image and image editing with up to 16 reference images, at 1K, 2K or 4K in seven aspect ratios.",
+    "prices": {
+     "1k": 0.02,
+     "2k": 0.02,
+     "4k": 0.03
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "1k",
+       "2k",
+       "4k"
+      ]
+     },
+     "prompt": {
+      "required": true
+     },
+     "images": {
+      "max": 16
+     },
+     "aspect_ratio": {
+      "values": [
+       "1:1",
+       "16:9",
+       "9:16",
+       "4:3",
+       "3:4",
+       "3:2",
+       "2:3"
+      ]
+     },
+     "n": {
+      "min": 1,
+      "max": 4
+     }
+    },
+    "media": {
+     "still": "/open/models/flux-kontext-max.webp"
+    },
+    "featured": false,
+    "save_pct": 90,
+    "offer": {
+     "variant": "1k",
+     "price_usd": 0.02,
+     "market_usd": 0.21072,
+     "pct": 90,
+     "checked": "2026-11-02"
+    },
+    "routes": 2,
+    "status": "operational"
+   },
+   {
+    "id": "gpt-image-2.5-sunburst",
+    "name": "GPT Image 2.5 Sunburst",
+    "maker": "OpenAI",
+    "kind": "image",
+    "unit": "per_image",
+    "description": "OpenAI's GPT Image 2.5 Sunburst, the detail-first variant: text to image and image editing with up to 16 reference images, at 1K, 2K or 4K in seven aspect ratios.",
+    "prices": {
+     "1k": 0.02,
+     "2k": 0.02,
+     "4k": 0.03
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "1k",
+       "2k",
+       "4k"
+      ]
+     },
+     "prompt": {
+      "required": true
+     },
+     "images": {
+      "max": 16
+     },
+     "aspect_ratio": {
+      "values": [
+       "1:1",
+       "16:9",
+       "9:16",
+       "4:3",
+       "3:4",
+       "3:2",
+       "2:3"
+      ]
+     },
+     "n": {
+      "min": 1,
+      "max": 4
+     }
+    },
+    "media": {
+     "still": "/open/models/portrait-1.webp"
+    },
+    "featured": false,
+    "save_pct": 90,
+    "offer": {
+     "variant": "1k",
+     "price_usd": 0.02,
+     "market_usd": 0.21072,
+     "pct": 90,
+     "checked": "2026-11-02"
+    },
+    "routes": 2,
+    "status": "operational"
+   },
+   {
+    "id": "hunyuan-image-3.5-preview",
+    "name": "Hunyuan Image 3.5 Preview",
+    "maker": "Tencent",
+    "kind": "image",
+    "unit": "per_image",
+    "description": "Tencent's Hunyuan Image 3.5 Preview: text to image and image editing, up to 4K.",
+    "prices": {
+     "1k": 0.03,
+     "2k": 0.03,
+     "4k": 0.04
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "1k",
+       "2k",
+       "4k"
+      ]
+     },
+     "prompt": {
+      "required": true
+     },
+     "images": {
+      "max": 4
+     },
+     "aspect_ratio": {
+      "values": [
+       "1:1",
+       "16:9",
+       "9:16",
+       "4:3",
+       "3:4",
+       "3:2",
+       "2:3"
+      ]
+     },
+     "n": {
+      "min": 1,
+      "max": 1
+     },
+     "seed": {}
+    },
+    "media": {
+     "still": "/open/playground/kling-4.webp"
+    },
+    "featured": false,
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "grok-imagine-image",
+    "name": "Grok Imagine Image",
+    "maker": "xAI",
+    "kind": "image",
+    "unit": "per_image",
+    "description": "xAI's Grok Imagine Image: text to image and image editing, up to 2K.",
+    "prices": {
+     "1k": 0.02,
+     "2k": 0.02
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "1k",
+       "2k"
+      ]
+     },
+     "prompt": {
+      "required": true,
+      "max": 8000
+     },
+     "images": {
+      "max": 4
+     },
+     "aspect_ratio": {
+      "values": [
+       "1:1",
+       "16:9",
+       "9:16",
+       "4:3",
+       "3:4",
+       "3:2",
+       "2:3"
+      ]
+     },
+     "n": {
+      "min": 1,
+      "max": 4
+     }
+    },
+    "media": {
+     "still": "/open/playground/nano-banana-pro.webp"
+    },
+    "featured": false,
+    "offer": {
+     "variant": "1k",
+     "price_usd": 0.02,
+     "market_usd": 0.049,
+     "pct": 59
+    },
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "grok-imagine-image-2.0",
+    "name": "Grok Imagine Image 2.0",
+    "maker": "xAI",
+    "kind": "image",
+    "unit": "per_image",
+    "description": "xAI's Grok Imagine Image 2.0: text to image and image editing, up to 2K.",
+    "prices": {
+     "1k": 0.02,
+     "1.5k": 0.02,
+     "2k": 0.02
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "1k",
+       "1.5k",
+       "2k"
+      ]
+     },
+     "prompt": {
+      "required": true
+     },
+     "images": {
+      "max": 3
+     },
+     "aspect_ratio": {
+      "values": [
+       "1:1",
+       "16:9",
+       "9:16",
+       "4:3",
+       "3:4",
+       "3:2",
+       "2:3"
+      ]
+     },
+     "n": {
+      "min": 1,
+      "max": 4
+     }
+    },
+    "media": {
+     "still": "/open/playground/gpt-image-2.5.webp"
+    },
+    "featured": false,
+    "offer": {
+     "variant": "1k",
+     "price_usd": 0.02,
+     "market_usd": 0.06125,
+     "pct": 67,
+     "checked": "2026-11-01"
+    },
+    "routes": 2,
+    "status": "operational"
+   },
+   {
+    "id": "grok-imagine-image-2.0-quality",
+    "name": "Grok Imagine Image 2.0 Quality",
+    "maker": "xAI",
+    "kind": "image",
+    "unit": "per_image",
+    "description": "xAI's Grok Imagine Image Quality: text to image and image editing, up to 2K.",
+    "prices": {
+     "1k": 0.05,
+     "2k": 0.07
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "1k",
+       "2k"
+      ]
+     },
+     "prompt": {
+      "required": true,
+      "max": 8000
+     },
+     "images": {
+      "max": 3
+     },
+     "aspect_ratio": {
+      "values": [
+       "1:1",
+       "16:9",
+       "9:16",
+       "4:3",
+       "3:4",
+       "3:2",
+       "2:3"
+      ]
+     },
+     "n": {
+      "min": 1,
+      "max": 4
+     }
+    },
+    "media": {
+     "still": "/open/models/flux-kontext-max.webp"
+    },
+    "featured": false,
+    "offer": {
+     "variant": "1k",
+     "price_usd": 0.05,
+     "market_usd": 0.098,
+     "pct": 48
+    },
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "suno-v6",
+    "name": "Suno V6",
+    "maker": "Suno",
+    "kind": "audio",
+    "unit": "per_job",
+    "description": "Suno's newest music model: a full song with vocals, or an instrumental, from an idea, your lyrics or a style.",
+    "prices": {
+     "*": 0.08
+    },
+    "params": {
+     "prompt": {
+      "required": true,
+      "max": 3000
+     },
+     "text": {
+      "max": 5000
+     }
+    },
+    "media": {
+     "still": "/open/models/kling-4-omni.webp",
+     "video": "/open/models/kling-4-omni.mp4"
+    },
+    "featured": false,
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "grok-imagine-1.5-edit",
+    "name": "Grok Imagine 1.5 Edit",
+    "maker": "xAI",
+    "kind": "image",
+    "unit": "per_image",
+    "description": "xAI's Grok Imagine 1.5 Edit: instruction-based image editing.",
+    "prices": {
+     "*": 0.02
+    },
+    "params": {
+     "prompt": {
+      "required": true
+     },
+     "images": {
+      "required": true,
+      "max": 4
+     },
+     "aspect_ratio": {
+      "values": [
+       "1:1",
+       "16:9",
+       "9:16",
+       "3:2",
+       "2:3"
+      ]
+     },
+     "n": {
+      "min": 1,
+      "max": 1
+     }
+    },
+    "media": {
+     "still": "/open/playground/minimax-h3.webp",
+     "video": "/open/playground/minimax-h3.mp4"
+    },
+    "featured": false,
+    "offer": {
+     "variant": "*",
+     "price_usd": 0.02,
+     "market_usd": 0.022,
+     "pct": 9
+    },
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "seedance-1.5-pro",
+    "name": "Seedance 1.5 Pro",
+    "maker": "ByteDance",
+    "kind": "video",
+    "unit": "per_second",
+    "description": "High-motion cinematic video generation with synchronized sound effects and dialogue \u00b7 480p to 1080p",
+    "prices": {
+     "480p": 0.03,
+     "720p": 0.06,
+     "1080p": 0.14
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "480p",
+       "720p",
+       "1080p"
+      ]
+     },
+     "prompt": {
+      "required": true
+     },
+     "images": {
+      "max": 1
+     },
+     "seed": {},
+     "duration": {
+      "min": 4,
+      "max": 12
+     },
+     "aspect_ratio": {
+      "values": [
+       "16:9",
+       "9:16",
+       "1:1"
+      ]
+     }
+    },
+    "media": {
+     "still": "/open/models/sync-lipsync-3.webp",
+     "video": "/open/models/sync-lipsync-3.mp4"
+    },
+    "featured": false,
+    "offer": {
+     "variant": "480p",
+     "price_usd": 0.03,
+     "market_usd": 0.0588,
+     "pct": 48
+    },
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "seedance-1.0-pro-fast",
+    "name": "Seedance 1.0 Pro Fast",
+    "maker": "ByteDance",
+    "kind": "video",
+    "unit": "per_second",
+    "description": "Rapid storyboard and ad-hook video generation at high frame consistency \u00b7 480p to 1080p",
+    "prices": {
+     "480p": 0.015,
+     "720p": 0.03,
+     "1080p": 0.06
+    },
+    "params": {
+     "resolution": {
+      "values": [
+       "480p",
+       "720p",
+       "1080p"
+      ]
+     },
+     "prompt": {
+      "required": true
+     },
+     "images": {
+      "max": 1
+     },
+     "seed": {},
+     "duration": {
+      "min": 2,
+      "max": 12
+     },
+     "aspect_ratio": {
+      "values": [
+       "16:9",
+       "9:16",
+       "1:1"
+      ]
+     }
+    },
+    "media": {
+     "still": "/open/playground/wan-3.0.webp",
+     "video": "/open/playground/wan-3.0.mp4"
+    },
+    "featured": false,
+    "offer": {
+     "variant": "480p",
+     "price_usd": 0.015,
+     "market_usd": 0.0486,
+     "pct": 69
+    },
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "claude-opus-5.5",
+    "name": "Claude Opus 5.5",
+    "maker": "Anthropic",
+    "kind": "text",
+    "unit": "per_1m_tokens",
+    "description": "A reasoning model for coding, agents and long documents. Text and images in, text out.",
+    "prices": {
+     "input": 4,
+     "output": 20,
+     "cache_read": 0.2,
+     "cache_write": 5
+    },
+    "endpoint": "/v1/chat/completions",
+    "context_window": 1000000,
+    "max_output_tokens": 64000,
+    "default_max_tokens": 8192,
+    "reasoning_efforts": [
+     "low",
+     "medium",
+     "high",
+     "xhigh",
+     "max"
+    ],
+    "input_modalities": [
+     "text",
+     "image"
+    ],
+    "output_modalities": [
+     "text"
+    ],
+    "accepts": {
+     "streaming": true,
+     "tools": true,
+     "tool_choice": [
+      "auto",
+      "none"
+     ],
+     "response_format": [
+      "text",
+      "json_object",
+      "json_schema"
+     ],
+     "stop": true,
+     "sampling": false,
+     "cache_control": true
+    },
+    "cache_write_billing": "replaces",
+    "params": {},
+    "featured": true,
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "claude-fable-5.2",
+    "name": "Claude Fable 5.2",
+    "maker": "Anthropic",
+    "kind": "text",
+    "unit": "per_1m_tokens",
+    "description": "A reasoning model for the hardest writing, coding and analysis. Text and images in, text out.",
+    "prices": {
+     "input": 8,
+     "output": 40,
+     "cache_read": 0.2,
+     "cache_write": 10
+    },
+    "endpoint": "/v1/chat/completions",
+    "context_window": 1000000,
+    "max_output_tokens": 64000,
+    "default_max_tokens": 8192,
+    "reasoning_efforts": [
+     "low",
+     "medium",
+     "high",
+     "xhigh",
+     "max"
+    ],
+    "input_modalities": [
+     "text",
+     "image"
+    ],
+    "output_modalities": [
+     "text"
+    ],
+    "accepts": {
+     "streaming": true,
+     "tools": true,
+     "tool_choice": [
+      "auto",
+      "none"
+     ],
+     "response_format": [
+      "text",
+      "json_object",
+      "json_schema"
+     ],
+     "stop": true,
+     "sampling": false,
+     "cache_control": true
+    },
+    "cache_write_billing": "replaces",
+    "params": {},
+    "featured": true,
+    "routes": 1,
+    "status": "operational"
+   },
+   {
+    "id": "gemini-4-neon",
+    "name": "Gemini 4 Neon",
+    "maker": "Google",
+    "kind": "text",
+    "unit": "per_1m_tokens",
+    "description": "A reasoning model that reads very long inputs. Text and images in, text out.",
+    "prices": {
+     "input": 3,
+     "output": 15,
+     "cache_read": 0.15,
+     "cache_write": 0.083334
+    },
+    "endpoint": "/v1/chat/completions",
+    "context_window": 1048576,
+    "max_output_tokens": 64000,
+    "default_max_tokens": 8192,
+    "reasoning_efforts": [
+     "low",
+     "medium",
+     "high",
+     "xhigh"
+    ],
+    "input_modalities": [
+     "text",
+     "image"
+    ],
+    "output_modalities": [
+     "text"
+    ],
+    "accepts": {
+     "streaming": true,
+     "tools": true,
+     "tool_choice": [
+      "auto",
+      "none",
+      "required",
+      "function"
+     ],
+     "response_format": [
+      "text",
+      "json_object",
+      "json_schema"
+     ],
+     "stop": true,
+     "sampling": true,
+     "cache_control": false
+    },
+    "cache_write_billing": "added",
+    "params": {},
+    "featured": true,
+    "routes": 1,
+    "status": "operational"
+   }
+  ]
+ }
+}

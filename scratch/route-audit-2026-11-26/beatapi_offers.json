@@ -1,0 +1,708 @@
+{
+ "magi-2": {
+  "status": 200,
+  "offers": [
+   {
+    "name": "MAGI-2: 8 sec \u00b7 1080p",
+    "price8s": 0.704,
+    "per_second": 0.088
+   }
+  ],
+  "from_per_second": []
+ },
+ "seedance-2.5-flash": {
+  "status": 200,
+  "offers": [
+   {
+    "name": "Seedance 2.5 Flash: 8 sec \u00b7 480p",
+    "price8s": 0.504239,
+    "per_second": 0.06303
+   },
+   {
+    "name": "Seedance 2.5 Flash: 8 sec \u00b7 480p_v2v \u00b7 with video input \u00b7 8 sec reference",
+    "price8s": 0.612266,
+    "per_second": 0.07653
+   },
+   {
+    "name": "Seedance 2.5 Flash: 8 sec \u00b7 720p",
+    "price8s": 1.084384,
+    "per_second": 0.13555
+   },
+   {
+    "name": "Seedance 2.5 Flash: 8 sec \u00b7 720p_v2v \u00b7 with video input \u00b7 8 sec reference",
+    "price8s": 1.3167,
+    "per_second": 0.16459
+   }
+  ],
+  "from_per_second": []
+ },
+ "minimax-h3": {
+  "status": 200,
+  "offers": [
+   {
+    "name": "MiniMax H3: 8 sec \u00b7 480p",
+    "price8s": 0.16,
+    "per_second": 0.02
+   },
+   {
+    "name": "MiniMax H3: 8 sec \u00b7 768P",
+    "price8s": 0.24,
+    "per_second": 0.03
+   },
+   {
+    "name": "MiniMax H3: 8 sec \u00b7 1080p",
+    "price8s": 0.376,
+    "per_second": 0.047
+   },
+   {
+    "name": "MiniMax H3: 8 sec \u00b7 2K",
+    "price8s": 0.4,
+    "per_second": 0.05
+   },
+   {
+    "name": "MiniMax H3 Fast: 8 sec \u00b7 480p",
+    "price8s": 0.32,
+    "per_second": 0.04
+   },
+   {
+    "name": "MiniMax H3 Fast: 8 sec \u00b7 768P",
+    "price8s": 0.48,
+    "per_second": 0.06
+   },
+   {
+    "name": "MiniMax H3 Fast: 8 sec \u00b7 1080p",
+    "price8s": 0.752,
+    "per_second": 0.094
+   },
+   {
+    "name": "MiniMax H3 Fast: 8 sec \u00b7 2K",
+    "price8s": 0.8,
+    "per_second": 0.1
+   },
+   {
+    "name": "MiniMax H3 Normal: 8 sec \u00b7 480p",
+    "price8s": 0.14,
+    "per_second": 0.0175
+   },
+   {
+    "name": "MiniMax H3 Normal: 8 sec \u00b7 768p",
+    "price8s": 0.16,
+    "per_second": 0.02
+   },
+   {
+    "name": "MiniMax H3 Normal: 8 sec \u00b7 1080p",
+    "price8s": 0.2,
+    "per_second": 0.025
+   }
+  ],
+  "from_per_second": []
+ },
+ "minimax-h3-max": {
+  "status": 200,
+  "offers": [
+   {
+    "name": "MiniMax H3 Max: 8 sec \u00b7 480P",
+    "price8s": 0.4,
+    "per_second": 0.05
+   },
+   {
+    "name": "MiniMax H3 Max: 8 sec \u00b7 768P",
+    "price8s": 0.64,
+    "per_second": 0.08
+   },
+   {
+    "name": "MiniMax H3 Max Turbo: 8 sec \u00b7 480P",
+    "price8s": 0.2,
+    "per_second": 0.025
+   },
+   {
+    "name": "MiniMax H3 Max Turbo: 8 sec \u00b7 768P",
+    "price8s": 0.32,
+    "per_second": 0.04
+   }
+  ],
+  "from_per_second": []
+ },
+ "minimax-h3-image": {
+  "status": 200,
+  "offers": [
+   {
+    "name": "MiniMax H3 Image: Text input \u00b7 per 1M tokens",
+    "price8s": 1.61,
+    "per_second": 0.20125
+   },
+   {
+    "name": "MiniMax H3 Image: Image input \u00b7 per 1M tokens",
+    "price8s": 1.05,
+    "per_second": 0.13125
+   },
+   {
+    "name": "MiniMax H3 Image: Image output \u00b7 per 1M tokens",
+    "price8s": 2.66,
+    "per_second": 0.3325
+   },
+   {
+    "name": "MiniMax H3 Image Highspeed: Text input \u00b7 per 1M tokens",
+    "price8s": 1.61,
+    "per_second": 0.20125
+   },
+   {
+    "name": "MiniMax H3 Image Highspeed: Image input \u00b7 per 1M tokens",
+    "price8s": 2.1,
+    "per_second": 0.2625
+   },
+   {
+    "name": "MiniMax H3 Image Highspeed: Image output \u00b7 per 1M tokens",
+    "price8s": 5.32,
+    "per_second": 0.665
+   }
+  ],
+  "from_per_second": []
+ },
+ "grok-imagine-video-1.5": {
+  "status": 200,
+  "offers": [
+   {
+    "name": "Grok Imagine Video 1.5: 8 sec \u00b7 text-to-video \u00b7 480p",
+    "price8s": 0.2,
+    "per_second": 0.025
+   },
+   {
+    "name": "Grok Imagine Video 1.5: 8 sec \u00b7 text-to-video \u00b7 720p",
+    "price8s": 0.4,
+    "per_second": 0.05
+   },
+   {
+    "name": "Grok Imagine Video 1.5: 8 sec \u00b7 text-to-video \u00b7 1080p",
+    "price8s": 0.72,
+    "per_second": 0.09
+   }
+  ],
+  "from_per_second": []
+ },
+ "seedance-2": {
+  "status": 200,
+  "offers": [
+   {
+    "name": "Seedance 2.0: 8 sec \u00b7 480p \u00b7 no video input",
+    "price8s": 0.508965,
+    "per_second": 0.06362
+   },
+   {
+    "name": "Seedance 2.0: 8 sec \u00b7 480p \u00b7 with video input",
+    "price8s": 0.618004,
+    "per_second": 0.07725
+   },
+   {
+    "name": "Seedance 2.0: 8 sec \u00b7 720p \u00b7 no video input",
+    "price8s": 1.027311,
+    "per_second": 0.12841
+   },
+   {
+    "name": "Seedance 2.0: 8 sec \u00b7 720p \u00b7 with video input",
+    "price8s": 1.2474,
+    "per_second": 0.15593
+   },
+   {
+    "name": "Seedance 2.0: 8 sec \u00b7 1080p \u00b7 no video input",
+    "price8s": 2.562695,
+    "per_second": 0.32034
+   },
+   {
+    "name": "Seedance 2.0: 8 sec \u00b7 1080p \u00b7 with video input",
+    "price8s": 3.107363,
+    "per_second": 0.38842
+   },
+   {
+    "name": "Seedance 2.0: 8 sec \u00b7 4K \u00b7 no video input",
+    "price8s": 5.225889,
+    "per_second": 0.65324
+   },
+   {
+    "name": "Seedance 2.0: 8 sec \u00b7 4K \u00b7 with video input",
+    "price8s": 6.4152,
+    "per_second": 0.8019
+   },
+   {
+    "name": "Seedance 2.0 Fast: 8 sec \u00b7 480p \u00b7 no video input",
+    "price8s": 0.409385,
+    "per_second": 0.05117
+   },
+   {
+    "name": "Seedance 2.0 Fast: 8 sec \u00b7 480p \u00b7 with video input",
+    "price8s": 0.485575,
+    "per_second": 0.0607
+   },
+   {
+    "name": "Seedance 2.0 Fast: 8 sec \u00b7 720p \u00b7 no video input",
+    "price8s": 0.826316,
+    "per_second": 0.10329
+   },
+   {
+    "name": "Seedance 2.0 Fast: 8 sec \u00b7 720p \u00b7 with video input",
+    "price8s": 0.9801,
+    "per_second": 0.12251
+   }
+  ],
+  "from_per_second": []
+ },
+ "seedance-2-mini": {
+  "status": 200,
+  "offers": [
+   {
+    "name": "Seedance 2.0 Mini: 8 sec \u00b7 480p \u00b7 no video input",
+    "price8s": 0.135995,
+    "per_second": 0.017
+   },
+   {
+    "name": "Seedance 2.0 Mini: 8 sec \u00b7 480p \u00b7 with video input",
+    "price8s": 0.171991,
+    "per_second": 0.0215
+   },
+   {
+    "name": "Seedance 2.0 Mini: 8 sec \u00b7 720p \u00b7 no video input",
+    "price8s": 0.28799,
+    "per_second": 0.036
+   },
+   {
+    "name": "Seedance 2.0 Mini: 8 sec \u00b7 720p \u00b7 with video input",
+    "price8s": 0.360013,
+    "per_second": 0.045
+   }
+  ],
+  "from_per_second": []
+ },
+ "wan-3-0": {
+  "status": 200,
+  "offers": [
+   {
+    "name": "Wan 3.0: 8 sec \u00b7 480p",
+    "price8s": 0.284,
+    "per_second": 0.0355
+   },
+   {
+    "name": "Wan 3.0: 8 sec \u00b7 720p",
+    "price8s": 0.568,
+    "per_second": 0.071
+   },
+   {
+    "name": "Wan 3.0: 8 sec \u00b7 1080p",
+    "price8s": 1.088,
+    "per_second": 0.136
+   }
+  ],
+  "from_per_second": []
+ },
+ "wan-3-0-prime": {
+  "status": 200,
+  "offers": [
+   {
+    "name": "Wan 3.0 Prime: 8 sec \u00b7 480p",
+    "price8s": 0.416,
+    "per_second": 0.052
+   },
+   {
+    "name": "Wan 3.0 Prime: 8 sec \u00b7 720p",
+    "price8s": 0.84,
+    "per_second": 0.105
+   },
+   {
+    "name": "Wan 3.0 Prime: 8 sec \u00b7 1080p",
+    "price8s": 1.68,
+    "per_second": 0.21
+   }
+  ],
+  "from_per_second": []
+ },
+ "happyhorse-1-0": {
+  "status": 200,
+  "offers": [
+   {
+    "name": "HappyHorse 1.0: 8 sec \u00b7 720p",
+    "price8s": 1.12,
+    "per_second": 0.14
+   },
+   {
+    "name": "HappyHorse 1.0: 8 sec \u00b7 1080p",
+    "price8s": 1.92,
+    "per_second": 0.24
+   }
+  ],
+  "from_per_second": []
+ },
+ "happyhorse-1-1": {
+  "status": 200,
+  "offers": [
+   {
+    "name": "HappyHorse 1.1: 8 sec \u00b7 720p",
+    "price8s": 0.96,
+    "per_second": 0.12
+   },
+   {
+    "name": "HappyHorse 1.1: 8 sec \u00b7 1080p",
+    "price8s": 1.24,
+    "per_second": 0.155
+   }
+  ],
+  "from_per_second": []
+ },
+ "gemini-omni-1-2-flash": {
+  "status": 200,
+  "offers": [
+   {
+    "name": "Gemini Omni 1.2 Flash: 8 sec \u00b7 720p",
+    "price8s": 0.392,
+    "per_second": 0.049
+   },
+   {
+    "name": "Gemini Omni 1.2 Flash: 8 sec \u00b7 1080p",
+    "price8s": 0.5824,
+    "per_second": 0.0728
+   },
+   {
+    "name": "Gemini Omni 1.2 Flash: 8 sec \u00b7 4K",
+    "price8s": 1.1704,
+    "per_second": 0.1463
+   }
+  ],
+  "from_per_second": []
+ },
+ "gemini-omni-1-1-flash": {
+  "status": 200,
+  "offers": [
+   {
+    "name": "Gemini Omni 1.1 Flash: 8 sec \u00b7 720p",
+    "price8s": 0.48,
+    "per_second": 0.06
+   },
+   {
+    "name": "Gemini Omni 1.1 Flash: 8 sec \u00b7 1080p",
+    "price8s": 0.72,
+    "per_second": 0.09
+   },
+   {
+    "name": "Gemini Omni 1.1 Flash: 8 sec \u00b7 4K",
+    "price8s": 1.44,
+    "per_second": 0.18
+   }
+  ],
+  "from_per_second": []
+ },
+ "veo-3.1": {
+  "status": 200,
+  "offers": [
+   {
+    "name": "Veo 3.1: 8 sec \u00b7 Lite \u00b7 720p \u00b7 audio",
+    "price8s": 0.15,
+    "per_second": 0.01875
+   },
+   {
+    "name": "Veo 3.1: 8 sec \u00b7 Lite \u00b7 1080p \u00b7 audio",
+    "price8s": 0.25,
+    "per_second": 0.03125
+   },
+   {
+    "name": "Veo 3.1: 8 sec \u00b7 Lite \u00b7 4K \u00b7 audio",
+    "price8s": 0.75,
+    "per_second": 0.09375
+   },
+   {
+    "name": "Veo 3.1: 8 sec \u00b7 Fast \u00b7 720p \u00b7 audio",
+    "price8s": 0.3,
+    "per_second": 0.0375
+   },
+   {
+    "name": "Veo 3.1: 8 sec \u00b7 Fast \u00b7 1080p \u00b7 audio",
+    "price8s": 0.4,
+    "per_second": 0.05
+   },
+   {
+    "name": "Veo 3.1: 8 sec \u00b7 Fast \u00b7 4K \u00b7 audio",
+    "price8s": 0.9,
+    "per_second": 0.1125
+   },
+   {
+    "name": "Veo 3.1: 8 sec \u00b7 Quality \u00b7 720p \u00b7 audio",
+    "price8s": 1.85,
+    "per_second": 0.23125
+   },
+   {
+    "name": "Veo 3.1: 8 sec \u00b7 Quality \u00b7 1080p \u00b7 audio",
+    "price8s": 1.9,
+    "per_second": 0.2375
+   },
+   {
+    "name": "Veo 3.1: 8 sec \u00b7 Quality \u00b7 4K \u00b7 audio",
+    "price8s": 2.5,
+    "per_second": 0.3125
+   }
+  ],
+  "from_per_second": []
+ },
+ "seedance-2.5": {
+  "status": 200,
+  "offers": [
+   {
+    "name": "Seedance 2.5: 8 sec \u00b7 480p \u00b7 no video input",
+    "price8s": 0.774512,
+    "per_second": 0.09681
+   },
+   {
+    "name": "Seedance 2.5: 8 sec \u00b7 480p \u00b7 with video input",
+    "price8s": 0.927006,
+    "per_second": 0.11588
+   },
+   {
+    "name": "Seedance 2.5: 8 sec \u00b7 720p \u00b7 no video input",
+    "price8s": 1.5633,
+    "per_second": 0.19541
+   },
+   {
+    "name": "Seedance 2.5: 8 sec \u00b7 720p \u00b7 with video input",
+    "price8s": 1.8711,
+    "per_second": 0.23389
+   },
+   {
+    "name": "Seedance 2.5: 8 sec \u00b7 1080p \u00b7 no video input",
+    "price8s": 3.869168,
+    "per_second": 0.48365
+   },
+   {
+    "name": "Seedance 2.5: 8 sec \u00b7 1080p \u00b7 with video input",
+    "price8s": 4.610925,
+    "per_second": 0.57637
+   }
+  ],
+  "from_per_second": []
+ },
+ "kling-v4": {
+  "status": 200,
+  "offers": [
+   {
+    "name": "Kling V4: 8 sec \u00b7 720p",
+    "price8s": 1.2,
+    "per_second": 0.15
+   },
+   {
+    "name": "Kling V4: 8 sec \u00b7 720p \u00b7 with video input \u00b7 8 sec reference",
+    "price8s": 1.44,
+    "per_second": 0.18
+   },
+   {
+    "name": "Kling V4: 8 sec \u00b7 1080p",
+    "price8s": 1.84,
+    "per_second": 0.23
+   },
+   {
+    "name": "Kling V4: 8 sec \u00b7 1080p \u00b7 with video input \u00b7 8 sec reference",
+    "price8s": 2.24,
+    "per_second": 0.28
+   }
+  ],
+  "from_per_second": []
+ },
+ "kling-3": {
+  "status": 200,
+  "offers": [
+   {
+    "name": "Kling 3.0: 8 sec \u00b7 720p Standard \u00b7 no audio",
+    "price8s": 0.88,
+    "per_second": 0.11
+   },
+   {
+    "name": "Kling 3.0: 8 sec \u00b7 1080p Pro \u00b7 no audio",
+    "price8s": 1.04,
+    "per_second": 0.13
+   }
+  ],
+  "from_per_second": []
+ },
+ "nano-banana": {
+  "status": 200,
+  "offers": [
+   {
+    "name": "Nano Banana: 1 image",
+    "price8s": 0.015,
+    "per_second": 0.00187
+   }
+  ],
+  "from_per_second": []
+ },
+ "nano-banana-2": {
+  "status": 200,
+  "offers": [
+   {
+    "name": "Nano Banana 2: 1 image \u00b7 1K",
+    "price8s": 0.02,
+    "per_second": 0.0025
+   },
+   {
+    "name": "Nano Banana 2: 1 image \u00b7 2K",
+    "price8s": 0.035,
+    "per_second": 0.00438
+   },
+   {
+    "name": "Nano Banana 2: 1 image \u00b7 4K",
+    "price8s": 0.04,
+    "per_second": 0.005
+   }
+  ],
+  "from_per_second": []
+ },
+ "nano-banana-2-1": {
+  "status": 200,
+  "offers": [
+   {
+    "name": "Nano Banana 2.1: 1 image \u00b7 1K",
+    "price8s": 0.016,
+    "per_second": 0.002
+   },
+   {
+    "name": "Nano Banana 2.1: 1 image \u00b7 2K",
+    "price8s": 0.018,
+    "per_second": 0.00225
+   },
+   {
+    "name": "Nano Banana 2.1: 1 image \u00b7 4K",
+    "price8s": 0.035,
+    "per_second": 0.00438
+   }
+  ],
+  "from_per_second": []
+ },
+ "seedream-5-5": {
+  "status": 200,
+  "offers": [
+   {
+    "name": "Seedream 5.5: 1 image \u00b7 1K",
+    "price8s": 0.014,
+    "per_second": 0.00175
+   },
+   {
+    "name": "Seedream 5.5: 1 image \u00b7 1.5K",
+    "price8s": 0.014,
+    "per_second": 0.00175
+   },
+   {
+    "name": "Seedream 5.5: 1 image \u00b7 2K",
+    "price8s": 0.024,
+    "per_second": 0.003
+   }
+  ],
+  "from_per_second": []
+ },
+ "gpt-image-2-6": {
+  "status": 200,
+  "offers": [
+   {
+    "name": "GPT Image 2.6 Flare: Input \u00b7 per 1M tokens",
+    "price8s": 4.5,
+    "per_second": 0.5625
+   },
+   {
+    "name": "GPT Image 2.6 Flare: Image input \u00b7 per 1M tokens",
+    "price8s": 7.2,
+    "per_second": 0.9
+   },
+   {
+    "name": "GPT Image 2.6 Flare Beta: 1 image \u00b7 1K",
+    "price8s": 0.013,
+    "per_second": 0.00162
+   },
+   {
+    "name": "GPT Image 2.6 Flare Beta: 1 image \u00b7 2K",
+    "price8s": 0.022,
+    "per_second": 0.00275
+   },
+   {
+    "name": "GPT Image 2.6 Flare Beta: 1 image \u00b7 4K",
+    "price8s": 0.03,
+    "per_second": 0.00375
+   },
+   {
+    "name": "GPT Image 2.6 Flare Beta: 1 image \u00b7 GIF",
+    "price8s": 0.04,
+    "per_second": 0.005
+   },
+   {
+    "name": "GPT Image 2.6 Sunburst: Input \u00b7 per 1M tokens",
+    "price8s": 4.5,
+    "per_second": 0.5625
+   },
+   {
+    "name": "GPT Image 2.6 Sunburst: Image input \u00b7 per 1M tokens",
+    "price8s": 7.2,
+    "per_second": 0.9
+   },
+   {
+    "name": "GPT Image 2.6 Sunburst Beta: 1 image \u00b7 1K",
+    "price8s": 0.015,
+    "per_second": 0.00187
+   },
+   {
+    "name": "GPT Image 2.6 Sunburst Beta: 1 image \u00b7 2K",
+    "price8s": 0.025,
+    "per_second": 0.00313
+   },
+   {
+    "name": "GPT Image 2.6 Sunburst Beta: 1 image \u00b7 4K",
+    "price8s": 0.035,
+    "per_second": 0.00438
+   },
+   {
+    "name": "GPT Image 2.6 Sunburst Beta: 1 image \u00b7 GIF",
+    "price8s": 0.04,
+    "per_second": 0.005
+   }
+  ],
+  "from_per_second": []
+ },
+ "qwen-image-2-1": {
+  "status": 200,
+  "offers": [
+   {
+    "name": "Qwen Image 2.1: 1 image \u00b7 1K",
+    "price8s": 0.01,
+    "per_second": 0.00125
+   },
+   {
+    "name": "Qwen Image 2.1: 1 image \u00b7 2K",
+    "price8s": 0.048,
+    "per_second": 0.006
+   }
+  ],
+  "from_per_second": []
+ },
+ "kling-2.6-motion-control": {
+  "status": 200,
+  "offers": [
+   {
+    "name": "Kling 2.6 Motion Control: 8 sec \u00b7 720p",
+    "price8s": 0.48,
+    "per_second": 0.06
+   },
+   {
+    "name": "Kling 2.6 Motion Control: 8 sec \u00b7 1080p",
+    "price8s": 0.8,
+    "per_second": 0.1
+   }
+  ],
+  "from_per_second": []
+ },
+ "kling-3-motion-control": {
+  "status": 200,
+  "offers": [
+   {
+    "name": "Kling 3.0 Motion Control: 8 sec \u00b7 720p",
+    "price8s": 0.88,
+    "per_second": 0.11
+   },
+   {
+    "name": "Kling 3.0 Motion Control: 8 sec \u00b7 1080p",
+    "price8s": 1.12,
+    "per_second": 0.14
+   }
+  ],
+  "from_per_second": []
+ }
+}
