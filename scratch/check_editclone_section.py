@@ -283,6 +283,9 @@ check("grab_frames" in worker,
       "the character step does not grab frames from the source")
 check("stamp_content_hash" in worker and "classify_job_output" in worker,
       "finished Clone files skip the hash or the classifier")
+check("data_volume.reload" in func_src("_editclone_source_job"),
+      "the source check does not refresh the volume before "
+      "calling a freshly landed file gone")
 check("_validate_image_b64" in worker,
       "character frames skip the image validation")
 check('"gallery_public": False' in func_src("_editclone_new_job"),

@@ -19314,6 +19314,16 @@ document.getElementById('go').onclick = async () => {{
             raise HTTPException(
                 status_code=409, detail="that video is not ready yet")
         if not (FILES_DIR / f"{job['id']}.mp4").exists():
+            # A worker may have landed the file after this web
+            # container last refreshed the volume (hit by the
+            # 2026-11-27 link ingest proof, cloning a source
+            # ingested minutes earlier): refresh once before
+            # calling the file gone.
+            try:
+                data_volume.reload()
+            except Exception:
+                pass
+        if not (FILES_DIR / f"{job['id']}.mp4").exists():
             raise HTTPException(
                 status_code=422,
                 detail="that video's file is not in your library anymore")
