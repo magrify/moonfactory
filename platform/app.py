@@ -5278,7 +5278,7 @@ def _wake_audio_kernel() -> None:
         if _now() - float(meta.get("audio:last_trigger") or 0) \
                 < AUDIO_TRIGGER_MIN_INTERVAL_SECONDS:
             return
-        token = _kaggle_token()
+        token = os.environ.get("KAGGLE_API_TOKEN") or ""
         if not token:
             return
         script_text = AUDIO_WORKER_SCRIPT_PATH.read_text()

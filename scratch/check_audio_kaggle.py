@@ -129,6 +129,21 @@ wake = fn_source(PTREE, "_wake_audio_kernel")
 check("kaggle_push" in wake and "AUDIO_KERNEL_SLUG" in wake
       and "AUDIO_KEY_DATASET" in wake and "gpu=True" in wake,
       "the audio wake does not ride kaggle_push like the other workers")
+# The wake reads its Kaggle token from the environment,
+# like every other worker wake (fix, 2026-11-27): it
+# called a _kaggle_token() helper that exists nowhere in
+# the platform package, so every wake raised NameError
+# into its own blanket except and no audio session was
+# ever started by a wake; stages only ran when a session
+# happened to be alive for another reason, and a word
+# check child queued behind a clone-voiced short sat
+# unclaimed until its wait ran out.
+check('os.environ.get("KAGGLE_API_TOKEN")' in wake,
+      "the audio wake does not read its Kaggle token from "
+      "the environment like the other wakes")
+check("_kaggle_token(" not in PLATFORM,
+      "the platform still calls the undefined _kaggle_token "
+      "helper")
 check('meta.get("audio:heartbeat")' in PLATFORM
       and 'meta["audio:heartbeat"]' in PLATFORM,
       "the audio heartbeat meta keys are missing")
