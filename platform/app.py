@@ -2012,11 +2012,11 @@ def _short_word_check(job: dict, out_path: Path):
     inside api()), duplicated at top level the way the clip
     helpers mirror their api() counterparts. The delivered audio
     is transcribed and aligned against the spoken script, and a
-    same-voice repair is spliced in when the audio app returns
-    one. The short was voiced by the platform's own Kokoro
-    stage, so the fix pass is always eligible. Outcomes land on
-    the job record in the same fields; a stage failure flags
-    "unavailable" and never blocks the delivery."""
+    same-voice repair is spliced in when the audio worker
+    returns one. The short was voiced by the platform's own
+    Kokoro stage, so the fix pass is always eligible. Outcomes
+    land on the job record in the same fields; a stage failure
+    flags "unavailable" and never blocks the delivery."""
     script = (job.get("speech_script") or "").strip()
     if not script or job.get("word_check_status"):
         return
@@ -2035,10 +2035,8 @@ def _short_word_check(job: dict, out_path: Path):
         if job.get("voiceover_status") == "ready" \
                 and job.get("speech_voice") != CLONE_VOICE_ID:
             voice = job.get("speech_voice") or DEFAULT_SPEECH_VOICE
-        word_check = modal.Function.from_name(
-            "sinclip-audio", "word_check")
-        result = word_check.remote(
-            audio_path.read_bytes(), script, voice)
+        result = _word_check_via_kaggle(
+            audio_path.read_bytes(), script, voice, job)
         fixed = result.pop("audio", None)
         if fixed:
             fixed_path.write_bytes(fixed)
@@ -2740,6 +2738,26 @@ MAX_IMAGE_BYTES = 10 * 1024 * 1024
 # Start-image generation (Pass 3): the image prompt is a frame
 # description, sized like the other per-job prompt fields.
 IMAGE_PROMPT_MAX_CHARS = 1000
+# Video prompt caps (2026-11-26): every video lane takes a
+# prompt of up to 2000 characters, except MAGI-2, whose own
+# documented prompt budget runs to 15,000 characters and
+# whose working users write long structured prompts (owner
+# relayed feedback, 2026-11-26). The cap is per model here so
+# the create validation, the served config, and the studio
+# counter can never disagree.
+PROMPT_MAX_CHARS = 2000
+MAGI2_PROMPT_MAX_CHARS = 15000
+# One reference instruction on the MAGI-2 flow: a short line
+# saying what that reference is for, sized like the other
+# per-reference text fields.
+MAGI2_REF_NOTE_MAX_CHARS = 300
+
+
+def prompt_max_chars(model: str) -> int:
+    """The prompt length cap for one video model: MAGI-2's
+    own 15,000, every other model's 2000."""
+    return MAGI2_PROMPT_MAX_CHARS if model == "magi2" \
+        else PROMPT_MAX_CHARS
 
 
 def _validate_image_b64(value, field: str):
@@ -4633,11 +4651,22 @@ def _audio_key(stage: str, payload: dict) -> str:
     """The cache key a stage's inputs hash to: the bed
     stage's (caption, seed) pair and the voiceover stage's
     (voice, text) pair, the same keys the Modal audio app
-    cached its Volume files by."""
+    cached its Volume files by. The word check stages
+    (2026-11-26, moved off the Modal audio app onto this
+    same worker) key on the audio itself: its content hash,
+    plus the script and voice for the check."""
     if stage == "bed":
         return hashlib.sha256(
             f"{payload['caption']}|{payload['seed']}".encode()
         ).hexdigest()[:16]
+    if stage == "wordcheck":
+        return hashlib.sha256(
+            f"{payload['audio_sha']}|{payload['script']}"
+            f"|{payload['voice']}".encode()
+        ).hexdigest()[:16]
+    if stage == "transcribe":
+        return hashlib.sha256(
+            f"{payload['audio_sha']}".encode()).hexdigest()[:16]
     return hashlib.sha256(
         f"{payload['voice']}|{payload['text']}".encode()
     ).hexdigest()[:16]
@@ -4649,6 +4678,17 @@ def _audio_child_id(stage: str, key: str) -> str:
 
 def _audio_child_path(child_id: str) -> Path:
     return FILES_DIR / "audio_worker" / f"{child_id}.wav"
+
+
+def _audio_source_path(child_id: str) -> Path:
+    """The source wav a word check stage works on: the
+    waiting caller writes the job's final audio here before
+    queueing, and the kernel downloads it through the
+    worker source endpoint. The child's own .wav path
+    above stays the result file (a word fix, when one is
+    spliced), exactly as the bed and voiceover children
+    use it."""
+    return FILES_DIR / "audio_worker" / f"{child_id}.source.wav"
 
 
 def _queue_audio_child(stage: str, payload: dict, parent):
@@ -4741,6 +4781,115 @@ def _audio_bytes(stage: str, payload: dict, parent,
         child["internal_error"] = "the audio wait ended first"
         jobs[child_id] = child
     raise RuntimeError("the audio wait ended first")
+
+
+WORDCHECK_WAIT_SECONDS = 1500
+
+
+def _wordcheck_result(stage: str, payload: dict, parent,
+                      audio_bytes: bytes) -> dict:
+    """Run one word check stage (wordcheck or transcribe)
+    on the Kaggle audio worker and return its result in
+    the shape the Modal audio app's callables returned:
+    the check's outcome fields and heard words, plus the
+    repaired audio under "audio" when a fix was spliced
+    (wordcheck only). The routed twin of those callables
+    since the 2026-11-26 move off Modal: the child carries
+    the result on its record (the worker posts it to the
+    result endpoint), the repaired wav arrives through
+    the file endpoint like every audio child's file, and
+    the source wav the kernel works on is served through
+    the source endpoint from the audio_worker folder.
+    A failed child raises with its recorded error and a
+    wait that runs out closes the child and raises,
+    exactly _audio_bytes' discipline: every caller
+    fallback that caught the Modal callable's failures
+    (the finishing stages flag "unavailable" and deliver
+    untouched) catches these the same way."""
+    key = _audio_key(stage, payload)
+    child_id = _audio_child_id(stage, key)
+
+    def assemble(child: dict) -> dict:
+        result = dict(child.get("wc_result") or {})
+        if stage == "wordcheck":
+            result.setdefault("status", None)
+            result.setdefault("wrong", [])
+            result.setdefault("listen_at", [])
+            result["audio"] = None
+            if child.get("wc_fixed"):
+                try:
+                    data_volume.reload()
+                except Exception:
+                    pass
+                path = _audio_child_path(child_id)
+                if path.exists():
+                    result["audio"] = path.read_bytes()
+        else:
+            result = {"words": result.get("words") or []}
+        return result
+
+    child = jobs.get(child_id) or {}
+    if child.get("status") == "done" \
+            and child.get("wc_result") is not None:
+        return assemble(child)
+    if child.get("status") not in ("queued", "running"):
+        source = _audio_source_path(child_id)
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_bytes(audio_bytes)
+        try:
+            data_volume.commit()
+        except Exception:
+            pass
+    _queue_audio_child(stage, payload, parent)
+    deadline = time.time() + WORDCHECK_WAIT_SECONDS
+    while time.time() < deadline:
+        child = jobs.get(child_id) or {}
+        if child.get("status") == "done":
+            if child.get("wc_result") is None:
+                raise RuntimeError(
+                    "the word check finished without its result")
+            return assemble(child)
+        if child.get("status") == "error":
+            raise RuntimeError(
+                child.get("internal_error")
+                or "the word check stage failed")
+        time.sleep(10)
+    child = jobs.get(child_id) or {}
+    if child.get("status") in ("queued", "running"):
+        child["status"] = "error"
+        child["error"] = "the word check wait ended first"
+        child["internal_error"] = "the word check wait ended first"
+        jobs[child_id] = child
+    raise RuntimeError("the word check wait ended first")
+
+
+def _word_check_via_kaggle(audio_bytes: bytes, script: str,
+                           voice: str, parent) -> dict:
+    """The word check itself, on the Kaggle audio worker
+    since 2026-11-26 (it ran as a Modal callable in the
+    sinclip-audio app before): transcribe the final audio,
+    align it against the script, and splice a same-voice
+    repair when the platform voiced the job (voice set)."""
+    payload = {
+        "audio_sha": hashlib.sha256(audio_bytes).hexdigest(),
+        "script": script,
+        "voice": voice or "",
+    }
+    return _wordcheck_result("wordcheck", payload, parent,
+                             audio_bytes)
+
+
+def _transcribe_via_kaggle(audio_bytes: bytes, parent) -> dict:
+    """The captions stage's transcription, on the Kaggle
+    audio worker since 2026-11-26 (the sinclip-audio
+    transcribe callable before): the same faster-whisper
+    pass the word check runs, returning the heard words
+    with their timings and nothing else."""
+    payload = {
+        "audio_sha": hashlib.sha256(audio_bytes).hexdigest(),
+    }
+    return _wordcheck_result("transcribe", payload, parent,
+                             audio_bytes)
 
 
 def _bed_payload_for_job(job: dict):
@@ -4916,13 +5065,32 @@ HF_TEMPLATES = {
         "duration": None,  # the voiceover sets it at claim time
         "fields": ("script",),
     },
+    # Two more entries (2026-11-26, the motion skills pass):
+    # the product showcase is a sixth forge3d scene, the
+    # user's own product photo assembling from separated
+    # parts on a stand (the anatomy-reveal shape, original
+    # code); its photo crosses the standard input gate at
+    # create, with no presenter-style exemption. The logo
+    # draw-in is a composition-only entry in the hairline
+    # spirit: the Play Hollow mark drawn as animated line
+    # art, no scene bundle, no upload.
+    "showcase3d": {
+        "name": "Product showcase 3D",
+        "duration": 8.0,
+        "fields": ("headline", "subline"),
+    },
+    "logodraw": {
+        "name": "Logo draw-in",
+        "duration": 4.0,
+        "fields": ("headline",),
+    },
 }
 
 # The templates whose compositions are three.js scenes the
 # worker stages a bundle for: the five 3D scenes share the
 # forge3d bundle, the presenter has its own.
 FORGE3D_TEMPLATES = ("turntable3d", "globe3d", "citypin3d",
-                     "house3d", "bars3d")
+                     "house3d", "bars3d", "showcase3d")
 
 _HF_FIELD_LIMITS = {
     "headline": 90,
@@ -4990,6 +5158,8 @@ def hf_clean_fields(template_id: str, body: dict) -> dict:
         "house3d": ("headline",),
         "bars3d": ("title", "data"),
         "presenter": ("script",),
+        "showcase3d": ("headline",),
+        "logodraw": ("headline",),
     }[template_id]
     for field in required:
         if not out.get(field):
@@ -5458,6 +5628,8 @@ def build_hf_composition(template_id: str, fields: dict,
         parts.append("      </div>")
         return _hf_page(9.0, accent, "\n".join(parts),
                         "\n".join(timeline))
+    if template_id == "logodraw":
+        return _hf_logodraw_page(fields)
     if template_id in FORGE3D_TEMPLATES:
         return _hf_forge3d_page(template_id, fields)
     if template_id == "presenter":
@@ -5598,6 +5770,64 @@ def _hf_story_page(fields: dict) -> str:
 """
 
 
+def _hf_logodraw_page(fields: dict) -> str:
+    """The logo draw-in's composition (2026-11-26, the
+    hairline spirit): the Play Hollow mark, the indigo
+    crescent cradling the warm yellow play triangle, drawn
+    as animated line art. The strokes draw themselves in
+    (pathLength normalized, dash offset on an expo-out), the
+    fills settle in behind them, and the headline arrives
+    last as the follow-through layer. No scene bundle, no
+    upload: the page is the whole template, an intro segment
+    a longer video can open with."""
+    import html as _html
+
+    esc = _html.escape
+    headline = fields.get("headline") or ""
+    duration = float(HF_TEMPLATES["logodraw"]["duration"])
+    return f"""<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <script src="gsap.min.js"></script>
+    <style>
+      * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+      html, body {{ margin: 0; width: 1080px; height: 1920px; overflow: hidden; background: #0c0c0f; }}
+      #root {{ position: relative; width: 1080px; height: 1920px; background: #0c0c0f;
+        font-family: sans-serif; color: #f4f4f1; overflow: hidden; }}
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0"
+      data-duration="{duration:g}" data-width="1080" data-height="1920" data-fps="24">
+      <div id="logodraw-wrap" class="clip" data-start="0" data-duration="{duration:g}" data-track-index="0" style="position:absolute;left:0;top:0;width:1080px;height:1920px;">
+        <svg width="660" height="594" viewBox="0 0 400 360" style="position:absolute;left:210px;top:480px;">
+          <path id="ld-crescent" pathLength="1" fill="#818cf8" fill-opacity="0" stroke="#818cf8" stroke-width="7" stroke-linecap="round" fill-rule="evenodd" style="stroke-dasharray:1;stroke-dashoffset:1;"
+            d="M70,180 A120,120 0 1,1 310,180 A120,120 0 1,1 70,180 Z M138,158 A100,100 0 1,1 338,158 A100,100 0 1,1 138,158 Z" />
+          <path id="ld-tri" pathLength="1" fill="#f5d67a" fill-opacity="0" stroke="#f5d67a" stroke-width="7" stroke-linejoin="round" style="stroke-dasharray:1;stroke-dashoffset:1;"
+            d="M168,118 L168,242 L258,180 Z" />
+        </svg>
+        <h1 id="ld-head" style="position:absolute;left:70px;top:1180px;width:940px;text-align:center;font-size:84px;font-weight:800;line-height:1.12;letter-spacing:-0.01em;opacity:0;">{esc(headline)}</h1>
+      </div>
+      <div id="logodraw-fade" style="position:absolute;left:0;top:0;width:1080px;height:1920px;background:#000000;opacity:0;"></div>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {{}};
+      const tl = gsap.timeline({{ paused: true }});
+      tl.to("#ld-crescent", {{ strokeDashoffset: 0, duration: 1.1, ease: "expo.out" }}, 0.25);
+      tl.to("#ld-tri", {{ strokeDashoffset: 0, duration: 0.8, ease: "expo.out" }}, 0.85);
+      tl.to("#ld-crescent", {{ fillOpacity: 1, duration: 0.5, ease: "power2.out" }}, 1.5);
+      tl.to("#ld-tri", {{ fillOpacity: 1, duration: 0.5, ease: "power2.out" }}, 1.7);
+      tl.fromTo("#ld-head", {{ opacity: 0, y: 30 }}, {{ opacity: 1, y: 0, duration: 0.55, ease: "expo.out" }}, 1.95);
+      tl.to("#logodraw-fade", {{ opacity: 1, duration: 0.45, ease: "power1.in" }}, {duration - 0.45:g});
+      window.__timelines["main"] = tl;
+    </script>
+  </body>
+</html>
+"""
+
+
 def _hf_forge3d_page(template_id: str, fields: dict) -> str:
     """A 3D motion template's composition: the forge3d scene
     bundle draws the scene on the canvas from the props, and
@@ -5615,6 +5845,8 @@ def _hf_forge3d_page(template_id: str, fields: dict) -> str:
              "duration": duration}
     if template_id == "bars3d":
         props["points"] = fields.get("points") or []
+    if template_id == "showcase3d":
+        props["photo"] = fields.get("photo") or "photo.jpg"
     props_js = _json.dumps(props).replace("</", "<\\/")
     headline = fields.get("headline") or fields.get("title") or ""
     subline = fields.get("subline") or ""
@@ -6769,6 +7001,100 @@ def validate_camera_selection(body: dict):
     return ids, look
 
 
+def _magi2_ref_notes(raw, count: int) -> list:
+    """One reference kind's instruction lines from a create
+    body, aligned to that kind's reference list: strings only,
+    whitespace folded (a note is one line), capped at
+    MAGI2_REF_NOTE_MAX_CHARS, padded with empty strings so
+    index i always speaks for reference i. Anything malformed
+    reads as no note, never as a failed job."""
+    notes = []
+    if isinstance(raw, list):
+        for item in raw[:count]:
+            if isinstance(item, str):
+                notes.append(
+                    " ".join(item.split())
+                    [:MAGI2_REF_NOTE_MAX_CHARS])
+            else:
+                notes.append("")
+    while len(notes) < count:
+        notes.append("")
+    return notes
+
+
+def compose_magi2_reference_prompt(
+        prompt: str, images, videos, audios, notes,
+        character_name: str = "", character_images: int = 0,
+        sheet_video_index=None) -> str:
+    """The prompt a MAGI-2 job actually sends when its
+    references carry instructions (2026-11-26, from working
+    MAGI-2 users' practice): one line per reference, in the
+    fixed order the references are sent, each line naming the
+    reference the way the prompt itself names it (Image 1,
+    Video 1, Audio 1) and saying what it is for, ahead of the
+    user's own prompt. The saved character's images ride at
+    the head of the image list (create_job prepends them), so
+    their lines name the character; a video marked as the
+    character sheet gets the sheet line, because the sheet
+    shows how the character moves and acts, not just how they
+    look. With nothing to say (no notes, no sheet, no
+    character images) the prompt goes out exactly as written.
+    The lines are composed at create time on the existing
+    create path: no new charge, no new gate, and the composed
+    text is what the prompt gates in create_api_job judge."""
+    images = list(images or [])
+    videos = list(videos or [])
+    audios = list(audios or [])
+    notes = notes if isinstance(notes, dict) else {}
+    try:
+        sheet = int(sheet_video_index)
+    except (TypeError, ValueError):
+        sheet = -1
+    if not 0 <= sheet < len(videos):
+        sheet = -1
+    char_images = max(0, min(int(character_images or 0),
+                             len(images)))
+    # The body's notes align to the user's own references;
+    # the character's images sit ahead of them in the final
+    # image list, so the image notes align to what is left
+    # after the character's share.
+    image_notes = _magi2_ref_notes(
+        notes.get("images"), len(images) - char_images)
+    video_notes = _magi2_ref_notes(notes.get("videos"),
+                                   len(videos))
+    audio_notes = _magi2_ref_notes(notes.get("audios"),
+                                   len(audios))
+    has_notes = any(image_notes + video_notes + audio_notes)
+    if not has_notes and sheet < 0 and not char_images:
+        return prompt
+    lines = []
+    for i in range(len(images)):
+        if i < char_images:
+            note = (f"the character {character_name}"
+                    if character_name else "the character")
+        else:
+            note = image_notes[i - char_images] \
+                or "a reference image"
+        lines.append(f"Image {i + 1}, {note}")
+    for i in range(len(videos)):
+        if i == sheet:
+            note = "the character sheet, it shows how the " \
+                "character moves and acts"
+            if character_name:
+                note = f"the character sheet for " \
+                    f"{character_name}, it shows how the " \
+                    f"character moves and acts"
+            if video_notes[i]:
+                note += f", {video_notes[i]}"
+        else:
+            note = video_notes[i] or "a reference video"
+        lines.append(f"Video {i + 1}, {note}")
+    for i in range(len(audios)):
+        note = audio_notes[i] or "a reference audio"
+        lines.append(f"Audio {i + 1}, {note}")
+    return "\n".join(lines) + "\n\n" + prompt
+
+
 def compose_camera_prompt(scene: str, preset_ids, look: dict) -> str:
     """Compose the final prompt in the library's grammar:
 
@@ -7695,6 +8021,11 @@ def api():
                 "ref_caps": dict(zip(
                     ("images", "videos", "audios"),
                     ref_caps_for(m["id"]))),
+                # The model's prompt length cap, so the studio
+                # counter reads the same figure the create
+                # validation enforces (MAGI-2's 15,000 against
+                # every other model's 2000, 2026-11-26).
+                "prompt_max_chars": prompt_max_chars(m["id"]),
                 "ref_video_seconds_cap": MODEL_REF_VIDEO_SECONDS_CAP.get(
                     m["id"], 15.0),
                 # How a Clone section clone would feed this
@@ -7979,6 +8310,68 @@ def api():
                     missing.append(PENDING_FILE_FIELDS[key])
                 continue
             clean[key] = val
+        if clean.get("model") == "magi2":
+            # MAGI-2 references (2026-11-26): a reference file
+            # rides as a data URL, which no pending record can
+            # hold (the size cap above would refuse the whole
+            # creation), so attached files are dropped from the
+            # parked body and named as missing instead, the
+            # same treatment every other file field gets.
+            # Hosted references (https URLs) park as they are.
+            # The instruction notes are rebuilt in step, so a
+            # note never points at a reference that is gone.
+            for arr_key, note_key in (
+                    ("reference_image_urls", "images"),
+                    ("reference_video_urls", "videos"),
+                    ("reference_audio_urls", "audios")):
+                arr = clean.get(arr_key)
+                if not isinstance(arr, list):
+                    continue
+                notes_in = None
+                all_notes = clean.get("reference_notes")
+                if isinstance(all_notes, dict) and isinstance(
+                        all_notes.get(note_key), list):
+                    notes_in = all_notes[note_key]
+                kept, kept_notes = [], []
+                for i, item in enumerate(arr):
+                    if isinstance(item, str) and \
+                            item.startswith("data:"):
+                        continue
+                    kept.append(item)
+                    kept_notes.append(
+                        notes_in[i] if notes_in is not None
+                        and i < len(notes_in) else "")
+                if len(kept) != len(arr):
+                    if "your reference files" not in missing:
+                        missing.append("your reference files")
+                    clean[arr_key] = kept
+                    if isinstance(all_notes, dict):
+                        all_notes[note_key] = kept_notes
+                    sheet = clean.get("character_sheet_video")
+                    if sheet is not None and arr_key == \
+                            "reference_video_urls":
+                        # The sheet flag counts into the
+                        # original video order; a dropped file
+                        # ahead of it shifts it, and a dropped
+                        # sheet clears it.
+                        try:
+                            sheet = int(sheet)
+                            dropped_before = sum(
+                                1 for item in arr[:sheet + 1]
+                                if isinstance(item, str)
+                                and item.startswith("data:"))
+                            if sheet < len(arr) and isinstance(
+                                    arr[sheet], str) and \
+                                    arr[sheet].startswith(
+                                        "data:"):
+                                clean[
+                                    "character_sheet_video"] = None
+                            else:
+                                clean[
+                                    "character_sheet_video"] = \
+                                    sheet - dropped_before
+                        except (TypeError, ValueError):
+                            clean["character_sheet_video"] = None
         for name in value.get("file_missing") or []:
             if name in PENDING_FILE_FIELDS.values() and name not in missing:
                 missing.append(name)
@@ -13622,8 +14015,9 @@ def api():
         # pick's provider or worker call consumes the prompt as
         # a primary input, so it stays required there (audit,
         # 2026-11-19).
-        if len(prompt) > 2000 or (not prompt and model != "wan_motion"):
-            raise HTTPException(status_code=422, detail="a prompt of up to 2000 characters is required")
+        prompt_cap = prompt_max_chars(model)
+        if len(prompt) > prompt_cap or (not prompt and model != "wan_motion"):
+            raise HTTPException(status_code=422, detail=f"a prompt of up to {prompt_cap} characters is required")
         # Custom audio is a paid feature (Jack, 2026-11-16;
         # Amendment 3: any paying customer, subscription or
         # pay-per-video), enforced here on the server: an account
@@ -13777,6 +14171,12 @@ def api():
             start_image = base64.b64encode(
                 ensure_image_file(image_job).read_bytes()).decode()
             body["start_image_png_b64"] = start_image
+        # The MAGI-2 reference composition below reads how many
+        # of the final image references are the picked
+        # character's, and the character's name, so its prompt
+        # lines can name them.
+        magi2_char_images = 0
+        magi2_char_name = ""
         if body.get("character_id"):
             # Character reuse (2026-11-17): the saved character's
             # first image becomes the start image when the job has
@@ -13805,6 +14205,9 @@ def api():
                                           "wan_motion"):
                     existing = body.get("reference_image_urls") or []
                     body["reference_image_urls"] = hosted + list(existing)
+                    magi2_char_images = len(hosted)
+                    magi2_char_name = str(
+                        character.get("name") or "").strip()
         try:
             _validate_image_b64(start_image, "start image")
             _validate_image_b64(end_image, "end image")
@@ -14028,6 +14431,28 @@ def api():
                 raise HTTPException(
                     status_code=403, detail="model switching is a paid feature"
                 )
+            if model == "magi2":
+                # MAGI-2 reference instructions (2026-11-26):
+                # the references ride in the body's own arrays,
+                # in the order they are sent, and their
+                # instruction lines compose into the prompt
+                # ahead of the user's words, here on the
+                # existing create path. The composed text is
+                # what create_api_job gates and sends; the job
+                # record keeps the user's own words in
+                # camera["user_prompt"], set above. No new
+                # charge and no new gate: composition only
+                # happens when there is something to say.
+                prompt = compose_magi2_reference_prompt(
+                    prompt,
+                    body.get("reference_image_urls"),
+                    body.get("reference_video_urls"),
+                    body.get("reference_audio_urls"),
+                    body.get("reference_notes"),
+                    character_name=magi2_char_name,
+                    character_images=magi2_char_images,
+                    sheet_video_index=body.get(
+                        "character_sheet_video"))
             return create_api_job(
                 user, body, model, base_url(request), prompt, music_prompt,
                 camera=camera, speech_script=speech_script,
@@ -15402,7 +15827,9 @@ def api():
         Studio word fix idea rebuilt for Moonfactory): once the
         delivered file exists, its final audio is transcribed word
         by word and aligned against the job's speech_script by the
-        word_check callable in the sinclip-audio app. Running
+        word check stage on the Kaggle audio worker (the
+        sinclip-audio app's word_check callable until the
+        2026-11-26 move). Running
         against the final audio means the check sees what the
         customer hears, after lip sync, native generation and the
         voiceover mix alike. Jobs the platform voiced itself carry
@@ -15439,10 +15866,8 @@ def api():
             if job.get("voiceover_status") == "ready" \
                     and job.get("speech_voice") != CLONE_VOICE_ID:
                 voice = job.get("speech_voice") or "af_heart"
-            word_check = modal.Function.from_name(
-                "sinclip-audio", "word_check")
-            result = word_check.remote(
-                audio_path.read_bytes(), script, voice)
+            result = _word_check_via_kaggle(
+                audio_path.read_bytes(), script, voice, job)
             fixed = result.pop("audio", None)
             heard_words = result.pop("words", None)
             if heard_words:
@@ -15486,8 +15911,8 @@ def api():
         are the faster-whisper transcription of the final audio:
         the one the word check stage just produced when it ran
         (it waits in _CAPTION_TRANSCRIPTS), or a fresh run of the
-        same transcription through the sinclip-audio transcribe
-        callable when the job has none. The choice exists only
+        same transcription through the audio worker's transcribe
+        stage when the job has none. The choice exists only
         at generation time; existing gallery videos are never
         captioned after the fact, and an unchecked job takes
         exactly the path it always took. Outcomes land on the
@@ -15533,9 +15958,8 @@ def api():
                         capture_output=True, text=True, timeout=600)
                     if proc.returncode != 0 or not audio_path.exists():
                         raise RuntimeError("final audio extraction failed")
-                    transcribe = modal.Function.from_name(
-                        "sinclip-audio", "transcribe")
-                    result = transcribe.remote(audio_path.read_bytes())
+                    result = _transcribe_via_kaggle(
+                        audio_path.read_bytes(), job)
                     words = result.get("words") or []
                 words = [w for w in words
                          if str(w.get("word", "")).strip()]
@@ -17048,6 +17472,30 @@ def api():
                 raise HTTPException(status_code=422, detail="upload your clip first, then make it")
             upload_path = rec["path"]
             source_duration = float(rec["duration"])
+        showcase_verdict = None
+        if template_id == "showcase3d":
+            rec = meta.get(f"templateupload:{body.get('upload_id') or ''}")
+            if (not rec or rec.get("user_id") != user["id"]
+                    or rec.get("kind") != "image"):
+                raise HTTPException(status_code=422, detail="upload your product photo first, then make it")
+            upload_path = rec["path"]
+            # The showcase's photo crosses the STANDARD input
+            # gate (2026-11-26): the presenter's own-photo
+            # exemption does not extend here, so a flagged
+            # photo refuses and an unjudged one refuses,
+            # exactly like every regular lane, and the verdict
+            # stamps the job so a flagged showcase never
+            # reaches the gallery.
+            import base64 as _b64_showcase
+            showcase_photo_b64 = _b64_showcase.b64encode(
+                Path(upload_path).read_bytes()).decode()
+            showcase_verdict = classify_input_images(
+                b64_images=[showcase_photo_b64])
+            refusal = input_gate_refusal(
+                {"model": "hyperframes", "lane": "template"},
+                showcase_verdict)
+            if refusal:
+                raise HTTPException(status_code=400, detail=refusal)
         presenter_verdict = None
         if template_id == "presenter":
             rec = meta.get(f"templateupload:{body.get('upload_id') or ''}")
@@ -17144,6 +17592,9 @@ def api():
         }
         jobs[job["id"]] = job
         _index_job(job)
+        if template_id == "showcase3d":
+            stamp_input_verdict(job, showcase_verdict)
+            jobs[job["id"]] = job
         if template_id == "presenter":
             # The voiceover rides the audio child seam the
             # faceless shorts use (Kokoro on the Kaggle audio
@@ -17252,6 +17703,18 @@ def api():
             # The worker stages the 3D scene bundle beside the
             # composition and renders on the motion bound.
             payload["forge3d"] = True
+        if job["template"] == "showcase3d":
+            # The product photo stages beside the composition
+            # under its own name through the generic source
+            # download (has_source above), and the composition
+            # is rebuilt with that name in its props so the
+            # scene loads the staged file.
+            fields = dict(job.get("hf_fields") or {})
+            fields["photo"] = Path(job["upload_path"]).name
+            payload["fields"] = fields
+            payload["html"] = build_hf_composition(
+                "showcase3d", fields, 0.0)
+            payload["source_name"] = Path(job["upload_path"]).name
         if job["template"] == "presenter":
             # The voiceover is ready (the selection above
             # guaranteed it): measure it, rebuild the
@@ -17498,6 +17961,14 @@ def api():
     # from a text and voice); the file it uploads is the wav,
     # collected by the waiting caller from the audio_worker
     # folder on the data Volume.
+    #
+    # The word check and transcribe stages joined the same
+    # worker on 2026-11-26 (the last live calls on the Modal
+    # audio app): the kernel downloads the job's final audio
+    # through the source endpoint, uploads any repaired wav
+    # through the file endpoint (which holds the child open
+    # for these stages), and posts the check's outcome
+    # through the result endpoint, which marks it done.
 
     def _audio_worker_ok(x_api_key: str = Header(default="")):
         return _hf_worker_ok(x_api_key)
@@ -17551,6 +18022,7 @@ def api():
             "seed": job.get("seed") or 0,
             "text": job.get("text") or "",
             "voice": job.get("voice") or "",
+            "script": job.get("script") or "",
         }}
 
     @web.post("/api/worker/audio/jobs/{job_id}/file")
@@ -17573,9 +18045,61 @@ def api():
         out_path.write_bytes(data)
         data_volume.commit()
         job["bytes"] = len(data)
+        if job.get("audio_stage") == "wordcheck":
+            # A word check's file is only half its answer:
+            # the repaired wav lands here, and the check's
+            # outcome fields follow through the result
+            # endpoint, which is what marks the child done.
+            job["wc_fixed"] = True
+            jobs[job["id"]] = job
+            return {"ok": True, "bytes": len(data),
+                    "deferred": True}
         job["status"] = "done"
         jobs[job["id"]] = job
         return {"ok": True, "bytes": len(data)}
+
+    @web.get("/api/worker/audio/jobs/{job_id}/source")
+    def audio_job_source(job_id: str,
+                         x_api_key: str = Header(default="")):
+        if not _audio_worker_ok(x_api_key):
+            raise HTTPException(status_code=401, detail="bad worker key")
+        job = jobs.get(job_id)
+        if not job or job.get("kind") != "audio_stage":
+            raise HTTPException(status_code=404, detail="unknown job")
+        try:
+            data_volume.reload()
+        except Exception:
+            pass
+        source = FILES_DIR / "audio_worker" / f"{job_id}.source.wav"
+        if not source.exists():
+            raise HTTPException(
+                status_code=404, detail="no source for this job")
+        return Response(content=source.read_bytes(),
+                        media_type="audio/wav")
+
+    @web.post("/api/worker/audio/jobs/{job_id}/result")
+    async def audio_job_result(job_id: str, request: Request,
+                               x_api_key: str = Header(default="")):
+        if not _audio_worker_ok(x_api_key):
+            raise HTTPException(status_code=401, detail="bad worker key")
+        job = jobs.get(job_id)
+        if not job or job.get("kind") != "audio_stage":
+            raise HTTPException(status_code=404, detail="unknown job")
+        if job["status"] != "running":
+            raise HTTPException(
+                status_code=409, detail=f"job status is {job['status']}")
+        body = await request.json()
+        if not isinstance(body, dict):
+            raise HTTPException(status_code=400, detail="bad result")
+        # The word check stages answer in two parts: any
+        # repaired wav through the file endpoint, and the
+        # outcome itself (status, wrong words, heard words)
+        # here, stored on the child record where the
+        # waiting caller reads it.
+        job["wc_result"] = body
+        job["status"] = "done"
+        jobs[job["id"]] = job
+        return {"ok": True}
 
     @web.post("/api/worker/audio/jobs/{job_id}/fail")
     async def audio_job_fail(job_id: str, request: Request,
@@ -17905,19 +18429,30 @@ x_api_key: str = Header(default="")):
             raise HTTPException(status_code=403, detail="verify your email before creating")
         body = await request.json()
         kind = body.get("kind")
-        kind = kind if kind in ("image", "script") else "video"
+        kind = kind if kind in ("image", "script", "magi2") \
+            else "video"
         text = (body.get("text") or "").strip()
         # The script kind (the shorts form's Improve my script
         # pick) improves a whole pasted script, so its cap is
-        # the script box's own cap, not the prompt cap.
-        text_cap = shorts.SHORTS_MAX_SCRIPT_CHARS \
-            if kind == "script" else 1000
+        # the script box's own cap, not the prompt cap. The
+        # magi2 kind (2026-11-26) rewrites a MAGI-2 prompt into
+        # the model's structure, so its cap is the lane's own
+        # prompt cap; the Chinese toggle rides the language
+        # field, anything but "zh" reading as English.
+        language = "zh" if body.get("language") == "zh" \
+            else "en"
+        if kind == "script":
+            text_cap = shorts.SHORTS_MAX_SCRIPT_CHARS
+        elif kind == "magi2":
+            text_cap = MAGI2_PROMPT_MAX_CHARS
+        else:
+            text_cap = 1000
         if not text or len(text) > text_cap:
             raise HTTPException(
                 status_code=422,
                 detail=(f"write a script of up to {text_cap} "
                         "characters first" if kind == "script"
-                        else "write a prompt of up to 1000 "
+                        else f"write a prompt of up to {text_cap} "
                         "characters first"))
         raw_draft_model = (body.get("draft_model") or "").strip()
         if raw_draft_model and \
@@ -17928,7 +18463,8 @@ x_api_key: str = Header(default="")):
         draft_model = llm_providers.normalize_draft_model(
             raw_draft_model)
         try:
-            improved = shorts.improve_prompt(text, draft_model, kind)
+            improved = shorts.improve_prompt(
+                text, draft_model, kind, language)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc))
         except llm_providers.DraftModelUnavailable as exc:
@@ -22290,6 +22826,7 @@ APP_HTML = (
 
     <label class="flabel" for="prompt" style="margin-top:6px">Prompt</label>
     <textarea id="prompt" rows="4" class="composer-prompt" placeholder="Describe what happens… e.g. a red hot air balloon rising over green hills, gentle forward camera movement, bright daylight"></textarea>
+    <p class="muted" id="prompt-count"></p>
     <div id="prompt-help-wrap">
       <label class="flabel" for="prompt-draft-model">Improve my prompt</label>
       <select id="prompt-draft-model">
@@ -22352,7 +22889,38 @@ APP_HTML = (
         </optgroup>
       </select>
       <p><button class="btn secondary" id="prompt-help-btn" type="button">Improve my prompt</button></p>
+      <div id="magi2-help-opts" style="display:none">
+        <p class="muted">While MAGI-2 is picked, Improve my prompt rewrites with the MAGI-2 structure.</p>
+        <label class="muted"><input type="checkbox" id="prompt-help-zh"> Write the improved prompt in Chinese</label>
+      </div>
       <p id="prompt-help-msg"></p>
+    </div>
+
+    <div id="magi2-tools" style="display:none">
+      <p class="muted" id="magi2-tips">MAGI-2 does its best work with a video character sheet for each character, a structured prompt written in Chinese, actions timed to a tenth of a second, every frame filled with the camera always moving, and references in a fixed order with a line saying what each one is for.</p>
+      <p><button class="btn secondary" id="magi2-structure-btn" type="button">Use the MAGI-2 prompt structure</button></p>
+    </div>
+
+    <div id="magi2-refs" style="display:none">
+      <label class="flabel">References for MAGI-2</label>
+      <p class="muted">Add references in the order the model should use them. Write a short line for each one saying what it is for. The lines ride at the top of your prompt in this order.</p>
+      <div id="magi2-ref-list"></div>
+      <p>
+        <button class="btn secondary" id="magi2-add-image" type="button">Add an image</button>
+        <button class="btn secondary" id="magi2-add-video" type="button">Add a video</button>
+        <button class="btn secondary" id="magi2-add-audio" type="button">Add an audio clip</button>
+      </p>
+      <div class="row">
+        <div class="grow"><input id="magi2-ref-url" type="text" placeholder="or paste a reference link"></div>
+        <select id="magi2-ref-url-kind">
+          <option value="image">Image</option>
+          <option value="video">Video</option>
+          <option value="audio">Audio</option>
+        </select>
+        <button class="btn secondary" id="magi2-add-url" type="button">Add the link</button>
+      </div>
+      <p class="muted" id="magi2-ref-msg"></p>
+      <input id="magi2-ref-file" type="file" style="display:none">
     </div>
 
     <div id="image-opts" style="display:none">
@@ -22657,6 +23225,21 @@ APP_HTML = (
         <label>Mouth down the photo, percent</label>
         <input id="mf-presenter-mouth-y" type="number" min="5" max="95" step="1" value="68">
         <p class="muted">Where the mouth sits on your photo. Fifty across is the middle. Sixty eight down suits most head and shoulders photos, nudge it until the mouth lands right.</p>
+      </div>
+      <div id="motion-fields-showcase3d" style="display:none">
+        <label>Your product photo</label>
+        <input id="mf-showcase3d-photo" type="file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp">
+        <p class="muted">Pick a clear photo of the product. Your photo is checked the same way every picture on Moonfactory is checked.</p>
+        <label>Headline</label>
+        <input id="mf-showcase3d-headline" maxlength="90" placeholder="The words that land over it">
+        <label>Smaller line under it</label>
+        <input id="mf-showcase3d-subline" maxlength="120" placeholder="One short line">
+        <p class="muted">Your product assembles itself on a stand in 3D, piece by piece, while your words land over it.</p>
+      </div>
+      <div id="motion-fields-logodraw" style="display:none">
+        <label>Headline</label>
+        <input id="mf-logodraw-headline" maxlength="90" placeholder="The words that land under the mark">
+        <p class="muted">The Moonfactory mark draws itself in line art over a few seconds, ready to open a longer video.</p>
       </div>
       <label>Accent color</label>
       <input id="mf-color" type="color" value="#6366f1" style="width:90px;height:44px;padding:2px">
@@ -24137,6 +24720,11 @@ async function fireCreate(d) {
       if (!presenterUploadId) throw new Error('the photo upload did not finish');
       d.body.upload_id = presenterUploadId;
     }
+    if (d.needsShowcaseUpload) {
+      await uploadShowcasePhoto();
+      if (!showcaseUploadId) throw new Error('the photo upload did not finish');
+      d.body.upload_id = showcaseUploadId;
+    }
     const bot = await botFields(d.botId);
     await api(d.endpoint, { method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ ...d.body, ...bot }) });
@@ -24295,6 +24883,8 @@ function restoreCreateForm(d) {
   // video
   $('model').value = b.model || 'wan2.2'; updateModelUI();
   $('prompt').value = b.prompt || '';
+  syncPromptCount();
+  if (b.model === 'magi2') restoreMagi2Refs(b);
   if (b.lane) $('lane').value = b.lane;
   if (b.aspect_ratio) $('aspect').value = b.aspect_ratio;
   if (b.segments) { $('segments').value = String(b.segments); buildSegmentsSeg(); }
@@ -24522,6 +25112,7 @@ async function fetchQuote() {
     want.reference_video_seconds = Number($('motion-seconds').value) || want.duration_seconds;
     want.start_image_png_b64 = startImageB64;
   }
+  if (want.model === 'magi2') Object.assign(want, magi2QuoteFields());
   // The old price comes off the button immediately: while the
   // new quote is in flight the button never shows a price that
   // belongs to another model, length, or resolution.
@@ -24731,7 +25322,9 @@ const MOTION_TEMPLATES = [
   { id: 'citypin3d', name: 'City pin 3D' },
   { id: 'house3d', name: 'House build 3D' },
   { id: 'bars3d', name: 'Bars 3D' },
-  { id: 'presenter', name: 'Photo presenter' }
+  { id: 'presenter', name: 'Photo presenter' },
+  { id: 'showcase3d', name: 'Product showcase 3D' },
+  { id: 'logodraw', name: 'Logo draw-in' }
 ];
 // Which field block each motion pick shows in the composer.
 const MOTION_BLOCKS = {
@@ -24746,7 +25339,9 @@ const MOTION_BLOCKS = {
   citypin3d: 'motion-fields-citypin3d',
   house3d: 'motion-fields-house3d',
   bars3d: 'motion-fields-bars3d',
-  presenter: 'motion-fields-presenter'
+  presenter: 'motion-fields-presenter',
+  showcase3d: 'motion-fields-showcase3d',
+  logodraw: 'motion-fields-logodraw'
 };
 const MOTION_NOTES = {
   story: 'A little animated town tells your story, with music made for it. It renders free, so it can take a while to start.',
@@ -24763,7 +25358,9 @@ const MOTION_NOTES = {
   citypin3d: 'A map pin drops onto a little city and rings walk out from it. It renders free, so it can take a while to start.',
   house3d: 'A house builds itself from the slab up while your words land over it. It renders free, so it can take a while to start.',
   bars3d: 'Your numbers become bars that rise in 3D. It renders free, so it can take a while to start.',
-  presenter: 'Your photo talks. It speaks your script out loud and its mouth follows the words. It renders free, so it can take a while to start.'
+  presenter: 'Your photo talks. It speaks your script out loud and its mouth follows the words. It renders free, so it can take a while to start.',
+  showcase3d: 'Your product photo assembles itself on a stand in 3D, piece by piece, under your words. It renders free, so it can take a while to start.',
+  logodraw: 'The Moonfactory mark draws itself in line art over a few seconds, ready to open a longer video. It renders free, so it can take a while to start.'
 };
 function isMotionTemplate(id) { return MOTION_TEMPLATES.some(t => t.id === id); }
 function moneyC(c) { return '$' + (c / 100).toFixed(2); }
@@ -24951,7 +25548,7 @@ function applyMotionUI() {
   const motion = isMotionTemplate(m) ? m : null;
   $('motion-fields').style.display = motion ? '' : 'none';
   const bits = [$('dropzone'),
-    document.querySelector('label[for="prompt"]'), $('prompt'), $('prompt-help-wrap'),
+    document.querySelector('label[for="prompt"]'), $('prompt'), $('prompt-count'), $('prompt-help-wrap'), $('magi2-tools'), $('magi2-refs'),
     $('more-opts'), $('segments-note')];
   for (const el of bits) if (el) el.style.display = motion ? 'none' : '';
   if (motion) {
@@ -24978,7 +25575,7 @@ function showTitleCardForm() {
   $('drama-fields').style.display = 'none';
   $('motion-fields').style.display = 'none';
   const hide = [$('dropzone'),
-    document.querySelector('label[for="prompt"]'), $('prompt'), $('prompt-help-wrap'),
+    document.querySelector('label[for="prompt"]'), $('prompt'), $('prompt-count'), $('prompt-help-wrap'), $('magi2-tools'), $('magi2-refs'),
     $('length-house'), $('length-api'), $('resolution-wrap'), $('aspect-wrap'),
     document.querySelector('details.more'),
     $('api-opts'), $('house-price'), $('botcheck2')];
@@ -24998,7 +25595,7 @@ function showShortsForm() {
   $('drama-fields').style.display = 'none';
   $('motion-fields').style.display = 'none';
   const hide = [$('dropzone'),
-    document.querySelector('label[for="prompt"]'), $('prompt'), $('prompt-help-wrap'),
+    document.querySelector('label[for="prompt"]'), $('prompt'), $('prompt-count'), $('prompt-help-wrap'), $('magi2-tools'), $('magi2-refs'),
     $('length-house'), $('length-api'), $('resolution-wrap'), $('aspect-wrap'),
     document.querySelector('details.more'),
     $('api-opts'), $('house-price'), $('botcheck2')];
@@ -25021,7 +25618,7 @@ function showDramaForm() {
   $('shorts-fields').style.display = 'none';
   $('motion-fields').style.display = 'none';
   const hide = [$('dropzone'),
-    document.querySelector('label[for="prompt"]'), $('prompt'), $('prompt-help-wrap'),
+    document.querySelector('label[for="prompt"]'), $('prompt'), $('prompt-count'), $('prompt-help-wrap'), $('magi2-tools'), $('magi2-refs'),
     $('length-house'), $('length-api'), $('resolution-wrap'), $('aspect-wrap'),
     document.querySelector('details.more'),
     $('api-opts'), $('house-price'), $('botcheck2')];
@@ -25046,7 +25643,7 @@ function updateModelUI() {
     // Restore the video fields the title card form hid. The
     // length and price blocks are managed by the body below.
     for (const el of [$('dropzone'),
-      document.querySelector('label[for="prompt"]'), $('prompt'), $('prompt-help-wrap'),
+      document.querySelector('label[for="prompt"]'), $('prompt'), $('prompt-count'), $('prompt-help-wrap'), $('magi2-tools'), $('magi2-refs'),
       document.querySelector('details.more'), $('house-price'), $('botcheck2')]) if (el) el.style.display = '';
   }
   const motion = applyMotionUI();
@@ -25116,6 +25713,8 @@ function updateModelUI() {
     : 'Moonfactory speaks your line with the voice you pick.';
   applyModelGates();
   updateHousePrice();
+  syncMagi2UI();
+  updateCharacterUI();
 }
 $('model').addEventListener('change', updateModelUI);
 // The data video's CSV load: the file's text becomes the
@@ -25323,6 +25922,18 @@ function buildCreate() {
       if (presenterUploadId) payload.upload_id = presenterUploadId;
       else built.needsPresenterUpload = true;
       return built;
+    } else if (model === 'showcase3d') {
+      // The product photo rides the same template upload
+      // route and park-for-fire-time flow as the presenter's.
+      payload.headline = $('mf-showcase3d-headline').value;
+      payload.subline = $('mf-showcase3d-subline').value;
+      const built = { kind: 'motion', endpoint: '/api/templates',
+        botId: 'botcheck2', msgId: 'job-msg', body: payload };
+      if (showcaseUploadId) payload.upload_id = showcaseUploadId;
+      else built.needsShowcaseUpload = true;
+      return built;
+    } else if (model === 'logodraw') {
+      payload.headline = $('mf-logodraw-headline').value;
     } else if (['turntable3d', 'globe3d', 'citypin3d', 'house3d'].includes(model)) {
       payload.headline = $('mf-' + model + '-headline').value;
       payload.subline = $('mf-' + model + '-subline').value;
@@ -25354,6 +25965,12 @@ function buildCreate() {
       && $('speech-voice').value === 'clone' && cloneRefB64)
     ? { clone_reference_audio_b64: cloneRefB64,
         clone_reference_text: $('clone-ref-text').value.trim() } : {};
+  const magi2Fields = model === 'magi2' ? magi2CreateFields() : {};
+  if (model === 'magi2' && magi2Fields.reference_video_urls
+      && !(magi2Fields.reference_video_seconds > 0)) {
+    msg('job-msg', 'Add the length in seconds for each video reference.', 'err');
+    return null;
+  }
   const jobBody = isHouseModel(model)
     ? { model: model, lane: selectedEffect ? 'effects' : $('lane').value, prompt: $('prompt').value,
         music_prompt: $('music').disabled ? '' : $('music').value,
@@ -25377,7 +25994,7 @@ function buildCreate() {
         lower_third_sub: $('lower-third-sub').value.trim(),
         aspect_ratio: $('aspect').value,
         duration_seconds: Number($('duration').value), resolution: $('resolution').value,
-        ...startFields, ...camera, ...detailFields, ...motionFields, ...charFields, ...cloneFields };
+        ...startFields, ...camera, ...detailFields, ...motionFields, ...charFields, ...cloneFields, ...magi2Fields };
   return { kind: 'video', endpoint: '/api/jobs', botId: 'botcheck2',
     msgId: 'job-msg', body: jobBody };
 }
@@ -26214,6 +26831,274 @@ $('ec-clone').onclick = async () => {
 // answer replaces the field text so the user reads it over
 // before anything is made. Improving rides with the
 // generation it supports and never counts on its own.
+// ---- MAGI-2 Create flow (2026-11-26) ----
+// When MAGI-2 is the picked model, Create gains the pieces
+// its working users rely on (owner relayed feedback): a
+// 15,000 character prompt with a counter, a one tap prompt
+// structure, references in a fixed order with a short
+// instruction line each (composed into the prompt on the
+// server at create time), a video character sheet, and a
+// structured Improve mode with a Chinese toggle. Everything
+// in this block shows only for that pick; every other model
+// keeps the flow it has always had.
+const MAGI2_REF_CAPS = { image: 10, video: 5, audio: 5 };
+const MAGI2_REF_KIND_LABEL = { image: 'Image', video: 'Video', audio: 'Audio' };
+let magi2Refs = [];
+let magi2FileKind = 'image';
+const MAGI2_PROMPT_STRUCTURE = [
+  'Character',
+  'Who is on screen, how they look, and how they move and act',
+  '',
+  'Scene',
+  'The place, the light, and what fills the frame',
+  '',
+  'Timeline',
+  '0.0s the opening frame and the first move',
+  '2.5s what happens next',
+  '5.0s what happens next',
+  '7.5s how the clip lands',
+  '',
+  'Camera',
+  'How the camera moves from the first frame to the last, moving the whole time',
+  '',
+  'References',
+  'Image 1 what it is for',
+  'Video 1 what it is for',
+  'Audio 1 what it is for',
+].join('\\n');
+function currentPromptCap() {
+  const entry = ((catalogCfg && catalogCfg.models) || []).find(x => x.id === $('model').value);
+  return (entry && entry.prompt_max_chars) || 2000;
+}
+function syncPromptCount() {
+  const ta = $('prompt');
+  const cap = currentPromptCap();
+  ta.maxLength = cap;
+  $('prompt-count').textContent = ta.value.length + ' of ' + cap + ' characters';
+}
+function syncMagi2UI() {
+  const on = !imageMode && $('model').value === 'magi2';
+  $('magi2-tools').style.display = on ? '' : 'none';
+  $('magi2-refs').style.display = on ? '' : 'none';
+  $('magi2-help-opts').style.display = on ? '' : 'none';
+  syncPromptCount();
+}
+function magi2CharacterSheetLine(note) {
+  if (!imageMode && $('model').value === 'magi2') {
+    note.textContent += ' On MAGI-2, a short video of this character can be its character sheet. Add it under References for MAGI-2 and mark it as the character sheet, and the model copies how they move and act.';
+  }
+}
+$('prompt').addEventListener('input', syncPromptCount);
+$('magi2-structure-btn').onclick = () => {
+  const ta = $('prompt');
+  const cur = ta.value.replace(/\s+$/, '');
+  ta.value = cur ? cur + '\\n\\n' + MAGI2_PROMPT_STRUCTURE : MAGI2_PROMPT_STRUCTURE;
+  syncPromptCount();
+  ta.focus();
+};
+function magi2RefMsg(text) { $('magi2-ref-msg').textContent = text || ''; }
+function magi2KindRefs(kind) { return magi2Refs.filter(r => r.kind === kind); }
+function renderMagi2Refs() {
+  const list = $('magi2-ref-list');
+  list.innerHTML = '';
+  const seen = { image: 0, video: 0, audio: 0 };
+  magi2Refs.forEach((r, idx) => {
+    seen[r.kind] += 1;
+    const row = document.createElement('div');
+    row.className = 'row';
+    const kindEl = document.createElement('span');
+    kindEl.textContent = MAGI2_REF_KIND_LABEL[r.kind] + ' ' + seen[r.kind];
+    row.appendChild(kindEl);
+    const nameEl = document.createElement('span');
+    nameEl.className = 'muted';
+    nameEl.textContent = r.name;
+    row.appendChild(nameEl);
+    const note = document.createElement('input');
+    note.type = 'text';
+    note.maxLength = 300;
+    note.placeholder = 'what this one is for';
+    note.value = r.note || '';
+    note.oninput = () => { r.note = note.value; };
+    row.appendChild(note);
+    if (r.kind === 'video') {
+      const secs = document.createElement('input');
+      secs.type = 'number';
+      secs.min = '0';
+      secs.step = '0.1';
+      secs.placeholder = 'seconds';
+      secs.value = r.seconds === '' || r.seconds === undefined ? '' : String(r.seconds);
+      secs.oninput = () => { r.seconds = secs.value; fetchQuote(); };
+      row.appendChild(secs);
+      const sheetLabel = document.createElement('label');
+      sheetLabel.className = 'muted';
+      const sheet = document.createElement('input');
+      sheet.type = 'checkbox';
+      sheet.checked = !!r.sheet;
+      sheet.onchange = () => {
+        if (sheet.checked) for (const o of magi2Refs) if (o !== r) o.sheet = false;
+        r.sheet = sheet.checked;
+        renderMagi2Refs();
+      };
+      sheetLabel.appendChild(sheet);
+      sheetLabel.appendChild(document.createTextNode(' Use as the character sheet'));
+      row.appendChild(sheetLabel);
+    }
+    const prev = idx > 0 && magi2Refs[idx - 1].kind === r.kind ? idx - 1 : -1;
+    const next = idx < magi2Refs.length - 1 && magi2Refs[idx + 1].kind === r.kind ? idx + 1 : -1;
+    const up = document.createElement('button');
+    up.type = 'button';
+    up.className = 'btn secondary';
+    up.textContent = 'Move up';
+    up.disabled = prev < 0;
+    up.onclick = () => { const t = magi2Refs[prev]; magi2Refs[prev] = r; magi2Refs[idx] = t; renderMagi2Refs(); };
+    row.appendChild(up);
+    const down = document.createElement('button');
+    down.type = 'button';
+    down.className = 'btn secondary';
+    down.textContent = 'Move down';
+    down.disabled = next < 0;
+    down.onclick = () => { const t = magi2Refs[next]; magi2Refs[next] = r; magi2Refs[idx] = t; renderMagi2Refs(); };
+    row.appendChild(down);
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'btn secondary';
+    del.textContent = 'Remove';
+    del.onclick = () => { magi2Refs.splice(idx, 1); renderMagi2Refs(); fetchQuote(); };
+    row.appendChild(del);
+    list.appendChild(row);
+  });
+}
+function addMagi2Ref(kind, value, name, seconds) {
+  if (magi2KindRefs(kind).length >= MAGI2_REF_CAPS[kind]) {
+    magi2RefMsg('MAGI-2 takes up to ' + MAGI2_REF_CAPS[kind] + ' ' + kind + ' references.');
+    return false;
+  }
+  const order = { image: 0, video: 1, audio: 2 };
+  let at = magi2Refs.length;
+  for (let i = 0; i < magi2Refs.length; i++) {
+    if (order[magi2Refs[i].kind] > order[kind]) { at = i; break; }
+  }
+  magi2Refs.splice(at, 0, { kind, value, name, note: '', seconds: seconds || '', sheet: false });
+  magi2RefMsg('');
+  renderMagi2Refs();
+  fetchQuote();
+  return true;
+}
+function magi2VideoSeconds(dataUrl) {
+  return new Promise((res) => {
+    const v = document.createElement('video');
+    v.preload = 'metadata';
+    v.onloadedmetadata = () => res(v.duration && isFinite(v.duration) ? Math.round(v.duration * 10) / 10 : '');
+    v.onerror = () => res('');
+    v.src = dataUrl;
+  });
+}
+function pickMagi2RefFile(kind) {
+  magi2FileKind = kind;
+  const input = $('magi2-ref-file');
+  input.accept = kind === 'image' ? 'image/png,image/jpeg,image/webp'
+    : kind === 'video' ? 'video/mp4,video/webm,video/quicktime'
+    : 'audio/mpeg,audio/wav,audio/x-wav,audio/mp4,audio/ogg';
+  input.value = '';
+  input.click();
+}
+$('magi2-add-image').onclick = () => pickMagi2RefFile('image');
+$('magi2-add-video').onclick = () => pickMagi2RefFile('video');
+$('magi2-add-audio').onclick = () => pickMagi2RefFile('audio');
+$('magi2-ref-file').addEventListener('change', async () => {
+  const f = $('magi2-ref-file').files[0];
+  if (!f) return;
+  const kind = magi2FileKind;
+  const cap = kind === 'video' ? 25 * 1024 * 1024 : 10 * 1024 * 1024;
+  if (f.size > cap) { magi2RefMsg('That file is too large for a reference.'); return; }
+  const dataUrl = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(f); });
+  let seconds = '';
+  if (kind === 'video') seconds = await magi2VideoSeconds(dataUrl);
+  addMagi2Ref(kind, String(dataUrl), f.name, seconds);
+});
+$('magi2-add-url').onclick = () => {
+  const url = $('magi2-ref-url').value.trim();
+  if (!url) { magi2RefMsg('Paste a reference link first.'); return; }
+  if (!/^https:\/\//i.test(url)) { magi2RefMsg('Reference links start with https.'); return; }
+  if (addMagi2Ref($('magi2-ref-url-kind').value, url, url.split('/').pop() || url)) $('magi2-ref-url').value = '';
+};
+function magi2CreateFields() {
+  const images = magi2KindRefs('image');
+  const videos = magi2KindRefs('video');
+  const audios = magi2KindRefs('audio');
+  const fields = {};
+  if (images.length) fields.reference_image_urls = images.map(r => r.value);
+  if (videos.length) {
+    fields.reference_video_urls = videos.map(r => r.value);
+    fields.reference_video_seconds = videos.reduce((sum, r) => sum + (Number(r.seconds) || 0), 0);
+  }
+  if (audios.length) fields.reference_audio_urls = audios.map(r => r.value);
+  if (magi2Refs.length) {
+    fields.reference_notes = {
+      images: images.map(r => (r.note || '').trim()),
+      videos: videos.map(r => (r.note || '').trim()),
+      audios: audios.map(r => (r.note || '').trim()),
+    };
+    const sheetAt = videos.findIndex(r => r.sheet);
+    if (sheetAt >= 0) fields.character_sheet_video = sheetAt;
+  }
+  return fields;
+}
+function magi2QuoteFields() {
+  // The quote validates the same reference shape the create
+  // sends. A file reference rides as a short stand in string:
+  // the quote uploads nothing, it only checks the caps and
+  // the price, and references price by count and video
+  // seconds alone. While a video reference still has no
+  // length, the quote runs without the references: the
+  // server needs the total seconds to price them, and the
+  // Create button asks for the lengths plainly instead.
+  const fields = magi2CreateFields();
+  if (fields.reference_video_urls && !(fields.reference_video_seconds > 0)) return {};
+  for (const key of ['reference_image_urls', 'reference_video_urls', 'reference_audio_urls']) {
+    if (fields[key]) fields[key] = fields[key].map(v => v.startsWith('data:') ? 'data:attached' : v);
+  }
+  return fields;
+}
+function restoreMagi2Refs(b) {
+  magi2Refs = [];
+  const notes = b.reference_notes || {};
+  const push = (kind, arr, kindNotes) => {
+    (arr || []).forEach((value, i) => {
+      const text = String(value);
+      magi2Refs.push({ kind, value,
+        name: text.startsWith('data:') ? 'attached file' : (text.split('/').pop() || text),
+        note: (kindNotes || [])[i] || '', seconds: '', sheet: false });
+    });
+  };
+  push('image', b.reference_image_urls, notes.images);
+  push('video', b.reference_video_urls, notes.videos);
+  push('audio', b.reference_audio_urls, notes.audios);
+  const videos = magi2KindRefs('video');
+  if (typeof b.character_sheet_video === 'number' && videos[b.character_sheet_video]) videos[b.character_sheet_video].sheet = true;
+  if (videos.length && b.reference_video_seconds) videos[0].seconds = String(b.reference_video_seconds);
+  renderMagi2Refs();
+}
+async function promptHelpMagi2(btn) {
+  const ta = $('prompt');
+  const text = ta.value.trim();
+  if (!text) { msg('prompt-help-msg', 'Write a prompt first, then ask for help with it.', 'err'); return; }
+  if (!currentUser) { msg('prompt-help-msg', 'Sign in to use prompt help.', 'err'); return; }
+  btnBusy(btn, 'Writing...');
+  try {
+    const r = await api('/api/prompt-help', { method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ text, kind: 'magi2', language: $('prompt-help-zh').checked ? 'zh' : 'en', draft_model: $('prompt-draft-model').value }) });
+    if (r.unchanged) {
+      msg('prompt-help-msg', 'That model sent your prompt back unchanged. Try another model or add more to your prompt first.');
+      return;
+    }
+    ta.value = r.text;
+    syncPromptCount();
+    msg('prompt-help-msg', 'Your prompt is updated. Read it over and change anything you like.', 'ok');
+  } catch (e) { msg('prompt-help-msg', e.message, 'err'); }
+  finally { btnDone(btn); }
+}
+
 async function promptHelp(textId, modelId, kind, msgId, btn, noun) {
   const what = noun || 'prompt';
   const ta = $(textId);
@@ -26236,7 +27121,12 @@ async function promptHelp(textId, modelId, kind, msgId, btn, noun) {
   } catch (e) { msg(msgId, e.message, 'err'); }
   finally { btnDone(btn); }
 }
-$('prompt-help-btn').onclick = (e) => promptHelp('prompt', 'prompt-draft-model', 'video', 'prompt-help-msg', e.target);
+$('prompt-help-btn').onclick = (e) => {
+  // MAGI-2 picked: Improve runs in the MAGI-2 mode, the
+  // structured rewrite with the Chinese toggle (2026-11-26).
+  if (!imageMode && $('model').value === 'magi2') { promptHelpMagi2(e.target); return; }
+  promptHelp('prompt', 'prompt-draft-model', 'video', 'prompt-help-msg', e.target);
+};
 $('image-help-btn').onclick = (e) => promptHelp('image-gen-prompt', 'image-draft-model', 'image', 'image-help-msg', e.target);
 $('image-edit-help-btn').onclick = (e) => promptHelp('image-edit-prompt', 'image-edit-draft-model', 'image', 'image-edit-help-msg', e.target);
 $('short-help-btn').onclick = async (e) => {
@@ -26573,6 +27463,35 @@ async function uploadPresenterPhoto() {
   } catch (e) { msg('job-msg', e.message, 'err'); }
   finally { $('mf-presenter-photo').disabled = false; }
 }
+// The product showcase's photo rides the same route and
+// the same park-for-fire-time flow.
+let showcaseUploadId = null;
+let showcasePhotoFile = null;
+$('mf-showcase3d-photo').addEventListener('change', async () => {
+  const f = $('mf-showcase3d-photo').files[0];
+  showcasePhotoFile = f || null;
+  if (!f) { showcaseUploadId = null; return; }
+  if (!currentUser) {
+    msg('job-msg', 'Photo picked. It uploads when you sign in, and your showcase starts right after.', 'ok');
+    return;
+  }
+  await uploadShowcasePhoto();
+});
+async function uploadShowcasePhoto() {
+  const f = showcasePhotoFile || $('mf-showcase3d-photo').files[0];
+  if (!f) return;
+  $('mf-showcase3d-photo').disabled = true;
+  try {
+    spinMsg('job-msg', 'Uploading your photo...');
+    const fd = new FormData(); fd.append('file', f);
+    const r = await fetch('/api/templates/upload', { method: 'POST', body: fd });
+    const q = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(q.detail || ('HTTP ' + r.status));
+    showcaseUploadId = q.upload_id;
+    msg('job-msg', 'Photo ready. Write your headline and press Create.', 'ok');
+  } catch (e) { msg('job-msg', e.message, 'err'); }
+  finally { $('mf-showcase3d-photo').disabled = false; }
+}
 function buildTitleCard() {
   const t = $('tpl-template').value;
   const payload = { template: t, color: $('tpl-color').value };
@@ -26755,13 +27674,14 @@ function updateCharacterUI() {
   const note = $('character-note');
   const train = $('character-train');
   train.style.display = 'none';
-  if (!c) { note.textContent = 'Pick a saved character and it appears in this video. Its first image becomes the start image, and its images ride as references on models that take them.'; return; }
+  if (!c) { note.textContent = 'Pick a saved character and it appears in this video. Its first image becomes the start image, and its images ride as references on models that take them.'; magi2CharacterSheetLine(note); return; }
   if (c.train_status === 'training') note.textContent = c.name + ' is training. Training takes a while. The trained identity appears here when it is ready.';
   else if (c.train_status === 'ready' || c.has_lora) note.textContent = c.name + ' is trained. Its identity is locked in and reused on every job.';
   else if (c.train_status === 'failed') note.textContent = 'Training did not finish for ' + c.name + ' and the charge was refunded. You can train again.';
   else note.textContent = c.name + ' is saved and ready to use.';
   if (c.image_count >= 10 && c.train_status !== 'training' && !c.has_lora) train.style.display = '';
   else if (c.image_count < 10 && !c.has_lora) note.textContent += ' Add ' + (10 - c.image_count) + ' more images (10 total) to unlock training, which locks the identity in much harder.';
+  magi2CharacterSheetLine(note);
 }
 async function loadCharacters() {
   try { const r = await api('/api/characters'); characterData = r.characters || []; renderCharacters(); }
@@ -26947,7 +27867,7 @@ function setImageMode(on) {
   // form.
   if (on) $('image-gen-prompt').placeholder = 'Describe the image… e.g. a lighthouse at dusk, waves crashing, dramatic sky';
   else $('prompt').placeholder = 'Describe what happens… e.g. a red hot air balloon rising over green hills, gentle forward camera movement, bright daylight';
-  if (on) { buildImageModels(); }
+  if (on) { buildImageModels(); syncMagi2UI(); }
   else { $('create').textContent = 'Create video'; updateModelUI(); }
 }
 $('mode-video').onclick = () => setImageMode(false);

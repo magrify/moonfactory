@@ -32,10 +32,15 @@ hf-seek time, props ride in window.__motion, half scale, no
 post chain.
 
 - `src/forge3d.ts` builds `forge3d-scene.js`, one dispatcher
-  bundle for the five 3D motion templates (product turntable,
-  globe arcs, city pin, house build, 3D bars). The claim
-  payload flags these jobs `forge3d` and the worker stages
-  the bundle beside the composition.
+  bundle for the six 3D motion templates (product turntable,
+  globe arcs, city pin, house build, 3D bars, product
+  showcase). The claim payload flags these jobs `forge3d`
+  and the worker stages the bundle beside the composition.
+  The showcase loads the user's product photo as its card
+  texture and its ready gate waits for the photo like the
+  presenter's does. The logo draw-in template has no scene
+  bundle at all: its composition page draws the Play Hollow
+  mark as SVG line art on the plain GSAP shell.
 - `src/presenter.ts` builds `presenter-scene.js`, the photo
   presenter: the user's photo as a 2.5D puppet whose mouth
   follows the voiceover. `presenter/mouth_curve.py` is the

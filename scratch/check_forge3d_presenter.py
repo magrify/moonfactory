@@ -34,9 +34,11 @@ FORGE3D_TEMPLATES = mod.FORGE3D_TEMPLATES
 build_hf_composition = mod.build_hf_composition
 hf_clean_fields = mod.hf_clean_fields
 
-# The five scenes and the presenter, each under its own name.
+# The six scenes and the presenter, each under its own name
+# (showcase3d joined the family 2026-11-26; its own pins
+# live in check_new_templates.py).
 assert FORGE3D_TEMPLATES == ("turntable3d", "globe3d", "citypin3d",
-                             "house3d", "bars3d")
+                             "house3d", "bars3d", "showcase3d")
 for tid in FORGE3D_TEMPLATES:
     assert HF_TEMPLATES[tid]["duration"] in (6.0, 8.0, 9.0), tid
 assert HF_TEMPLATES["bars3d"]["fields"] == ("title", "data")

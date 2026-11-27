@@ -14,6 +14,7 @@ type ForgeProps = {
   color: string;
   duration: number;
   points?: BarPoint[];
+  photo?: string;
 };
 
 const W = 1080, H = 1920;
@@ -462,12 +463,109 @@ function buildBars(root: THREE.Group) {
 }
 
 // ---------------------------------------------------------------------
+// Product showcase: the user's product photo on a framed card
+// over a pedestal, in the exploded-view spirit (original to
+// this wing): the parts start separated in space, the backing
+// glow, the pedestal, the frame, the photo, the top bar, two
+// accent chips, and assemble in a stagger with the photo card
+// as the hero landing last; then the whole stand sways gently
+// and the trim ring breathes. The photo loads as a texture
+// the way the presenter's does, and the scene's ready gate
+// waits for it (with the same four second fallback) so a
+// render never starts on an empty card.
+let resolvePhotoGate: () => void = () => {};
+const photoGate = new Promise<void>((r) => { resolvePhotoGate = r; });
+let photoGateArmed = false;
+function buildShowcase(root: THREE.Group) {
+  camera.position.set(0, 3.0, 19.5);
+  camera.lookAt(0, 1.0, 0);
+  const shadow = blobShadow(3.3);
+  shadow.position.y = -2.42;
+  root.add(shadow);
+  type Part = { obj: THREE.Object3D; home: THREE.Vector3;
+                off: THREE.Vector3; a: number; b: number;
+                fx: "rigid" | "paper" | "hero" };
+  const parts: Part[] = [];
+  const add = (obj: THREE.Object3D, home: THREE.Vector3,
+               off: THREE.Vector3, a: number, b: number,
+               fx: Part["fx"]) => {
+    obj.position.copy(home).add(off);
+    root.add(obj);
+    parts.push({ obj, home, off, a, b, fx });
+  };
+  const disc = new THREE.Mesh(new THREE.CylinderGeometry(3.4, 3.7, 0.5, 48), mat(SLATE, 0.6));
+  add(disc, new THREE.Vector3(0, -2.2, 0), new THREE.Vector3(0, -1.4, 0), 0.1, 0.55, "rigid");
+  const trim = new THREE.Mesh(new THREE.TorusGeometry(3.4, 0.07, 10, 64), mat(ACCENT, 0.4));
+  trim.rotation.x = Math.PI / 2;
+  add(trim, new THREE.Vector3(0, -1.94, 0), new THREE.Vector3(0, -1.4, 0), 0.1, 0.55, "rigid");
+  const glow = new THREE.Mesh(new THREE.CircleGeometry(3.9, 40),
+    new THREE.MeshBasicMaterial({ color: ACCENT, transparent: true, opacity: 0.15 }));
+  add(glow, new THREE.Vector3(0, 1.0, -1.3), new THREE.Vector3(0, 0, -2.6), 0.2, 0.8, "paper");
+  const frame = new THREE.Mesh(new THREE.BoxGeometry(5.7, 7.1, 0.18), mat(INK, 0.5));
+  add(frame, new THREE.Vector3(0, 1.0, 0), new THREE.Vector3(0, 2.8, 0), 0.35, 0.95, "paper");
+  const card = new THREE.Mesh(new THREE.PlaneGeometry(5.3, 6.7),
+    new THREE.MeshBasicMaterial({ color: 0x23232c }));
+  add(card, new THREE.Vector3(0, 1.0, 0.12), new THREE.Vector3(0, 3.4, 0), 0.55, 1.2, "hero");
+  const bar = new THREE.Mesh(new THREE.BoxGeometry(5.7, 0.5, 0.2), mat(ACCENT, 0.45));
+  add(bar, new THREE.Vector3(0, 4.8, 0), new THREE.Vector3(0, 1.8, 0), 0.7, 1.25, "paper");
+  const chipGeo = new THREE.SphereGeometry(0.32, 14, 12);
+  for (const side of [-1, 1]) {
+    const chip = new THREE.Mesh(chipGeo, mat(ACCENT, 0.4));
+    add(chip, new THREE.Vector3(side * 3.45, 1.0, 0.4),
+        new THREE.Vector3(side * 2.4, 0, 0), 0.85, 1.4, "paper");
+  }
+  if (props.photo) {
+    photoGateArmed = true;
+    new THREE.TextureLoader().load(props.photo, (tex) => {
+      tex.colorSpace = THREE.SRGBColorSpace;
+      const img = tex.image as HTMLImageElement;
+      const target = 5.3 / 6.7;
+      const aspect = img.width / img.height;
+      if (aspect > target) {
+        tex.repeat.set(target / aspect, 1);
+        tex.offset.set((1 - target / aspect) / 2, 0);
+      } else {
+        tex.repeat.set(1, aspect / target);
+        tex.offset.set(0, (1 - aspect / target) / 2);
+      }
+      tex.needsUpdate = true;
+      (card.material as THREE.MeshBasicMaterial).map = tex;
+      (card.material as THREE.MeshBasicMaterial).color.set(0xffffff);
+      (card.material as THREE.MeshBasicMaterial).needsUpdate = true;
+      resolvePhotoGate();
+    }, undefined, () => resolvePhotoGate());
+  }
+  const D = props.duration;
+  return (t: number) => {
+    for (const p of parts) {
+      const u = stage(t, p.a, p.b);
+      const e = p.fx === "rigid" ? easeOut(u)
+        : p.fx === "hero" ? easeOutExpo(u)
+        : easeBackSoft(u);
+      p.obj.position.copy(p.home).addScaledVector(p.off, 1 - clamp01(e));
+      if (p.fx === "hero") {
+        const s = 0.92 + 0.08 * clamp01(e);
+        p.obj.scale.set(s, s, s);
+      }
+    }
+    // Assembled: a slow sway inside a sixth of a turn and
+    // back, and the trim ring breathing at the base.
+    const sway = Math.sin(stage(t, 1.6, D) * Math.PI);
+    root.rotation.y = sway * 0.16;
+    const ring = 1 + breathe(t, 0.25) * 0.03;
+    trim.scale.set(ring, ring, 1);
+    camera.lookAt(0, 1.0, 0);
+  };
+}
+
+// ---------------------------------------------------------------------
 const builders: Record<string, (root: THREE.Group) => (t: number) => void> = {
   turntable3d: buildTurntable,
   globe3d: buildGlobe,
   citypin3d: buildCityPin,
   house3d: buildHouse,
   bars3d: buildBars,
+  showcase3d: buildShowcase,
 };
 const root = new THREE.Group();
 scene.add(root);
@@ -495,4 +593,15 @@ window.addEventListener("hf-seek", (e) => {
 
 renderAt(0);
 renderAt(Math.min(1.2, props.duration / 2));
-resolveReady();
+if (photoGateArmed) {
+  // The showcase waits for its photo the way the presenter
+  // does, with the same four second fallback: a photo that
+  // cannot load opens the gate anyway and the render fails
+  // on an empty card instead of hanging the job.
+  Promise.race([
+    photoGate,
+    new Promise<void>((r) => setTimeout(r, 4000)),
+  ]).then(() => { renderAt(0); resolveReady(); });
+} else {
+  resolveReady();
+}
