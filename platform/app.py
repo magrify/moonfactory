@@ -18701,6 +18701,12 @@ document.getElementById('go').onclick = async () => {{
         name = (body.get("name") or "").strip()[:60]
         if not name:
             raise HTTPException(status_code=422, detail="a character needs a name")
+        # The character name is user text the choke-point
+        # gate call does not see (security fix, 2026-11-27,
+        # suspension-not-enforced-on-all-create-paths): gate
+        # it here, before the job is built.
+        enforce_prompt_gate(
+            user, "editclone", client_ip(request), name)
         if len(user.get("characters") or []) >= MAX_CHARACTERS:
             raise HTTPException(
                 status_code=422,
