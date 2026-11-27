@@ -1116,7 +1116,7 @@ def _flat_clip_picture(model: str, resolution: str,
     basis = frontier_lane(model, resolution, rates)["pricing_basis"]
     if basis == "at_cost_residual":
         sell_total = shelf_raw / (1 - STRIPE_PCT)
-    elif basis == "at_cost_undercut":
+    elif basis == "debit_safe_undercut":
         sell_total = shelf_raw
     return {
         "raw_cost_cents": raw,
@@ -1413,14 +1413,15 @@ def frontier_lane(model: str, resolution: str, rates=None,
     # Amendment 3 target-table figure where one exists, else the
     # policy-table figure. Target-table lanes price toward 0.97x
     # Higgsfield exactly as before; every other lane sells at the
-    # hard minimum. The at-cost cap below then applies to BOTH:
-    # where the resulting sell rate would sit at or above
-    # Higgsfield's figure, the lane sells at raw cost instead —
-    # under Higgsfield where cost allows (pricing_basis
-    # "at_cost_undercut"), or flagged as a residual exception
-    # where even raw cost meets or exceeds Higgsfield's price
-    # ("at_cost_residual"). The cap never raises a price and
-    # never prices below cost.
+    # hard minimum. The cap below then applies to BOTH: where
+    # the resulting sell rate would sit at or above Higgsfield's
+    # figure, the lane drops toward cost to undercut — at the
+    # debit-safe rate where cost allows (pricing_basis
+    # "debit_safe_undercut"; "at_cost_undercut" through
+    # 2026-11-26, when it sold at shelf cost exactly), or
+    # flagged as a residual exception where even raw cost
+    # meets or exceeds Higgsfield's price ("at_cost_residual").
+    # The cap never prices below cost.
     policy = _higgsfield_policy_cents_per_second(model, resolution)
     effective = higgsfield if higgsfield is not None else policy
     if higgsfield is not None:
@@ -1457,8 +1458,35 @@ def frontier_lane(model: str, resolution: str, rates=None,
             sell = _ceil3(shelf_cost / (1 - STRIPE_PCT))
             basis = "at_cost_residual"
         else:
-            sell = shelf_cost
-            basis = "at_cost_undercut"
+            # Debit-safe undercut (2026-11-27, the owner's
+            # beat-Higgsfield rule: beat Higgsfield at every
+            # price unless that leaves no profit, ideally with
+            # at least 25% profit over cost). The round-2
+            # treatment sold this branch at shelf cost exactly
+            # (basis "at_cost_undercut" through 2026-11-26).
+            # On a lane whose shelf basis is frozen above a
+            # cheaper true route (Wan 3.0 after the 2026-11-26
+            # FrameHush reroute), shelf cost sits only ~20%
+            # over TRUE cost, under the owner's 25% target at
+            # nearly every duration, even though Higgsfield's
+            # figure leaves room above it. The lane now sells
+            # at the highest rate that keeps the ACTUAL
+            # whole-cent debit under Higgsfield's figure at
+            # every billed length: a rate at or below the
+            # largest whole cent strictly under Higgsfield's
+            # per-second figure gives ceil(rate x d) <= that
+            # cent x d < Higgsfield x d at every duration
+            # d >= 1, so the undercut holds at the debit level,
+            # not just on the published rate (the failure the
+            # 2026-11-26 teardown's debit note recorded). The
+            # standard minimum caps the rate from above and
+            # the shelf cost floors it, so the rate never
+            # drops below the old at-cost figure.
+            import math
+
+            debit_safe_cap = float(math.ceil(effective) - 1)
+            sell = max(shelf_cost, min(minimum, debit_safe_cap))
+            basis = "debit_safe_undercut"
         can_undercut = sell < effective
     elif effective is not None and can_undercut is None:
         can_undercut = sell < effective

@@ -173,13 +173,17 @@ body = func_src("attempt_auto_reload")
 check("amount not in pricing.RELOAD_AMOUNTS_CENTS" in body,
       "auto reload lost its amount validation")
 
-# Pricing rule pins (Jack's restatement, 2026-11-19): the owner
-# pays raw cost on every per-second lane with no markup floor;
-# no customer sells below raw cost; a lane whose raw cost meets
+# Pricing rule pins (Jack's restatement, 2026-11-19, with the
+# 2026-11-27 beat-Higgsfield amendment): the owner pays raw
+# cost on every per-second lane with no markup floor; no
+# customer sells below raw cost; a lane whose raw cost meets
 # or exceeds Higgsfield's price (at_cost_residual) sells at the
 # cheapest non-losing figure, raw cost grossed up by the Stripe
-# percentage fee only; a lane dropped to cost to undercut
-# (at_cost_undercut) sells at exactly raw cost.
+# percentage fee only; a lane dropped toward cost to undercut
+# (debit_safe_undercut; at_cost_undercut through 2026-11-26)
+# sells at the highest rate whose whole-cent debit stays under
+# Higgsfield's figure at every duration, capped by the
+# standard minimum and floored at shelf cost.
 for _model, _tiers in pricing.PROVIDER_RATES_CENTS_PER_SECOND.items():
     for _res in _tiers:
         _f = pricing.frontier_lane(_model, _res)
@@ -210,12 +214,20 @@ for _model, _tiers in pricing.PROVIDER_RATES_CENTS_PER_SECOND.items():
                   >= _f["cost_cents_per_second"] - 0.0011,
                   f"residual sell loses money after fees on "
                   f"{_model} {_res}")
-        if _f["pricing_basis"] == "at_cost_undercut":
-            check(abs(_f["sell_cents_per_second"]
-                      - pricing.per_second_shelf_cost_cents(
-                          _model, _res)) < 0.0011,
-                  f"undercut lane not at shelf cost on "
-                  f"{_model} {_res}")
+        if _f["pricing_basis"] == "debit_safe_undercut":
+            import math as _math
+
+            _cap = float(_math.ceil(_hf) - 1)
+            _want = pricing._ceil3(max(
+                pricing.per_second_shelf_cost_cents(_model, _res),
+                min(_f["minimum_cents_per_second"], _cap)))
+            check(abs(_f["sell_cents_per_second"] - _want) < 0.0011,
+                  f"debit-safe undercut sell off its rule on "
+                  f"{_model} {_res}: {_f['sell_cents_per_second']} "
+                  f"vs {_want}")
+            check(_f["sell_cents_per_second"] < _hf,
+                  f"debit-safe undercut lane not under Higgsfield "
+                  f"on {_model} {_res}")
 
 if failures:
     print("FAILURES:")
