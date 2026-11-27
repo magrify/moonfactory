@@ -22189,6 +22189,7 @@ APP_HTML = (
       <h2 id="composer-heading">Create</h2>
     </div>
     <p class="muted" id="composer-note">Build your video first. When you hit Create, you sign in or make a free account, and your video starts right away, exactly as you built it.</p>
+    <p class="muted" id="value-strip">Five free clips to start, and no watermark. Your balance never expires, and your finished videos stay in your library.</p>
 
     <div class="mode-toggle">
       <button class="btn" id="mode-video" type="button">Video</button>
@@ -24462,6 +24463,25 @@ async function fetchQuote() {
       q.textContent = 'The exact price is $' + ((p.charge_cents || 0) / 100).toFixed(2) +
         '. Your included budget is used up and your balance is $' + ((p.balance_cents || 0) / 100).toFixed(2) + ', so top up to run this.';
       genLabel(p.charge_cents || null);
+    }
+    // Where this lane undercuts Higgsfield, say so at the
+    // moment of decision, from the same effective figures
+    // /api/pricing publishes per lane (competitive pass,
+    // 2026-11-26). The line appears only when the published
+    // Higgsfield figure for this exact model and resolution
+    // is above our sell figure. Flat per clip lanes are
+    // skipped: their per second figures are a worst case
+    // ceiling, not a per clip comparison.
+    const lane = pricingData && pricingData.api_lanes && pricingData.api_lanes[want.model];
+    const fr = pricingData && pricingData.frontier_lanes && pricingData.frontier_lanes[want.model]
+      && pricingData.frontier_lanes[want.model][want.resolution];
+    const hfRate = lane && lane.higgsfield_effective_cents_per_second
+      ? lane.higgsfield_effective_cents_per_second[want.resolution] : null;
+    const sellRate = lane && lane.sell_cents_per_second
+      ? lane.sell_cents_per_second[want.resolution] : null;
+    if (hfRate && sellRate && hfRate > sellRate && !(fr && fr.cost_basis === 'flat_per_clip')) {
+      q.textContent += ' Higgsfield would charge about $' +
+        ((hfRate * want.duration_seconds) / 100).toFixed(2) + ' for this clip.';
     }
   } catch (e) {
     if (seq !== quoteSeq) return;
