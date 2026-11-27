@@ -8405,6 +8405,7 @@ def api():
             "gallery_opt_out": bool(user.get("gallery_opt_out")),
             "past_due": user.get("past_due", False),
             "balance_cents": user.get("balance_cents", 0),
+            "has_password": bool(user.get("pw")),
             "has_saved_card": bool(user.get("stripe_customer_id")
                                    and user.get("stripe_payment_method_id")),
             "auto_reload_enabled": bool((user.get("auto_reload") or {}).get("enabled")),
@@ -9115,6 +9116,16 @@ def api():
         user = users.get(f"email:{email}")
         if not user or not _check_password(body.get("password") or "", user["pw"]):
             raise HTTPException(status_code=401, detail="email or password is wrong")
+        if user.get("verified") is False:
+            # Security fix (2026-11-27, pre-account-takeover):
+            # a password proves nothing until the mailbox has
+            # been verified once; before that, anyone could
+            # have registered it. The reset flow below is the
+            # way back in: its link goes to the mailbox and
+            # verifies the account as it sets the password.
+            raise HTTPException(
+                status_code=403,
+                detail="verify your email first. Use the link from sign up, or reset your password to get a fresh one")
         resp = JSONResponse({"status": "ok", "user": public_user(user)})
         resp.set_cookie(
             "mf_session", _make_session(user["id"],
@@ -9164,9 +9175,66 @@ def api():
         if not pending:
             raise HTTPException(status_code=422, detail="that creation cannot be saved")
         park_id = pysecrets.token_urlsafe(18)
+        # Security fix (2026-11-27, oauth-park-unbound): the
+        # park is bound to the browser that parked it. A
+        # nonce cookie is set here and only its hash is
+        # stored; the OAuth callback lands the creation only
+        # when the returning browser presents the same nonce,
+        # so a park id leaked or planted in another browser's
+        # sign-in flow claims nothing.
+        bind = pysecrets.token_urlsafe(24)
         meta[f"oauth-park:{park_id}"] = {
-            "pending_create": pending, "expires": _now() + 30 * 60}
-        return {"park": park_id}
+            "pending_create": pending, "expires": _now() + 30 * 60,
+            "bind_hash": hashlib.sha256(bind.encode()).hexdigest()}
+        resp = JSONResponse({"park": park_id})
+        resp.set_cookie("mf_park_bind", bind, max_age=30 * 60,
+                        httponly=True, samesite="lax", path="/")
+        return resp
+
+    def _oauth_bind_ok(request: Request, record) -> bool:
+        """The OAuth state is bound to the browser that
+        started the flow (security fix, 2026-11-27,
+        oauth-state-not-browser-bound): the start route sets
+        a nonce cookie and stores only its hash in the state
+        record; the callback requires the same browser back,
+        so a callback URL captured or planted in another
+        browser signs nobody in (login CSRF)."""
+        want = (record or {}).get("bind_hash") or ""
+        got = request.cookies.get("mf_oauth_bind") or ""
+        if not want or not got:
+            return False
+        digest = hashlib.sha256(got.encode()).hexdigest()
+        return hmac.compare_digest(digest, want)
+
+    def _land_parked_create(user: dict, record, request: Request):
+        """Land a parked creation on a freshly signed in
+        account, under the park rules (security fix,
+        2026-11-27, oauth-park-unbound-pending-create):
+        only for the browser that parked it, never over a
+        creation the account already holds from its own
+        session, and always flagged needs_confirm so the
+        studio shows it for an explicit start instead of
+        firing it on sign-in."""
+        park_id = (record or {}).get("park") or ""
+        if not park_id:
+            return
+        parked = meta.get(f"oauth-park:{park_id}")
+        if not parked or parked.get("expires", 0) <= _now() \
+                or not parked.get("pending_create"):
+            return
+        bind = request.cookies.get("mf_park_bind") or ""
+        want = parked.get("bind_hash") or ""
+        if not bind or not want or not hmac.compare_digest(
+                hashlib.sha256(bind.encode()).hexdigest(), want):
+            return
+        meta[f"oauth-park:{park_id}"] = {
+            "pending_create": None, "expires": 0}
+        if user.get("pending_create"):
+            return
+        pending = dict(parked["pending_create"])
+        pending["needs_confirm"] = True
+        user["pending_create"] = pending
+        save_user(user)
 
     @web.get("/api/auth/google/start")
     def google_oauth_start(request: Request, park: str = ""):
@@ -9180,8 +9248,10 @@ def api():
             if record and record.get("expires", 0) > _now():
                 park_id = park
         state = pysecrets.token_urlsafe(24)
+        bind = pysecrets.token_urlsafe(24)
         meta[f"oauth-state:{state}"] = {
-            "park": park_id, "expires": _now() + 10 * 60}
+            "park": park_id, "expires": _now() + 10 * 60,
+            "bind_hash": hashlib.sha256(bind.encode()).hexdigest()}
         query = urllib.parse.urlencode({
             "client_id": os.environ["GOOGLE_OAUTH_CLIENT_ID"],
             "redirect_uri": f"{base_url(request)}/api/auth/google/callback",
@@ -9189,9 +9259,12 @@ def api():
             "scope": "openid email profile",
             "state": state,
         })
-        return RedirectResponse(
+        resp = RedirectResponse(
             url=f"https://accounts.google.com/o/oauth2/v2/auth?{query}",
             status_code=303)
+        resp.set_cookie("mf_oauth_bind", bind, max_age=10 * 60,
+                        httponly=True, samesite="lax", path="/api/auth")
+        return resp
 
     @web.get("/api/auth/google/callback")
     def google_oauth_callback(request: Request, code: str = "",
@@ -9205,6 +9278,8 @@ def api():
             return fail()
         record = meta.get(f"oauth-state:{state}")
         if not record or record.get("expires", 0) < _now():
+            return fail()
+        if not _oauth_bind_ok(request, record):
             return fail()
         # One time: the state is spent whatever happens next.
         meta[f"oauth-state:{state}"] = {"park": "", "expires": 0}
@@ -9274,18 +9349,19 @@ def api():
         elif not user.get("verified"):
             # Google proved this mailbox, so an account still
             # waiting on its verification link is verified by
-            # this sign-in, and anything parked on it can fire.
+            # this sign-in. Security fix (2026-11-27,
+            # pre-account-takeover): a password set before
+            # this moment was registered by whoever held the
+            # address first, and the mailbox owner may never
+            # have chosen it, so it does not survive the
+            # merge. The owner sets a new one through the
+            # verified reset flow or the account panel.
             user["verified"] = True
+            if user.get("pw"):
+                user["pw"] = ""
+                user["pw_cleared_by_social_merge"] = True
             save_user(user)
-        park_id = record.get("park") or ""
-        if park_id:
-            parked = meta.get(f"oauth-park:{park_id}")
-            if parked and parked.get("expires", 0) > _now() \
-                    and parked.get("pending_create"):
-                user["pending_create"] = parked["pending_create"]
-                save_user(user)
-                meta[f"oauth-park:{park_id}"] = {
-                    "pending_create": None, "expires": 0}
+        _land_parked_create(user, record, request)
         resp = RedirectResponse(url="/app", status_code=303)
         resp.set_cookie(
             "mf_session", _make_session(user["id"],
@@ -9389,20 +9465,13 @@ def api():
                           legal_version=LEGAL_VERSION)
         return user
 
-    def _social_signin_redirect(user: dict, record) -> RedirectResponse:
+    def _social_signin_redirect(user: dict, record,
+                                request: Request) -> RedirectResponse:
         """The shared tail of a redirect social sign-in: land
         the parked creation on the account and issue the login
         session cookie, the same landing the Google callback
         performs."""
-        park_id = (record or {}).get("park") or ""
-        if park_id:
-            parked = meta.get(f"oauth-park:{park_id}")
-            if parked and parked.get("expires", 0) > _now() \
-                    and parked.get("pending_create"):
-                user["pending_create"] = parked["pending_create"]
-                save_user(user)
-                meta[f"oauth-park:{park_id}"] = {
-                    "pending_create": None, "expires": 0}
+        _land_parked_create(user, record, request)
         resp = RedirectResponse(url="/app", status_code=303)
         resp.set_cookie(
             "mf_session", _make_session(user["id"],
@@ -9431,9 +9500,11 @@ def api():
             hashlib.sha256(verifier.encode()).digest()
         ).decode().rstrip("=")
         state = pysecrets.token_urlsafe(24)
+        bind = pysecrets.token_urlsafe(24)
         meta[f"oauth-state:x:{state}"] = {
             "park": park_id, "verifier": verifier,
-            "expires": _now() + 10 * 60}
+            "expires": _now() + 10 * 60,
+            "bind_hash": hashlib.sha256(bind.encode()).hexdigest()}
         query = urllib.parse.urlencode({
             "client_id": os.environ["X_CLIENT_ID"],
             "redirect_uri": f"{base_url(request)}/api/auth/x/callback",
@@ -9443,9 +9514,12 @@ def api():
             "code_challenge": challenge,
             "code_challenge_method": "S256",
         })
-        return RedirectResponse(
+        resp = RedirectResponse(
             url=f"https://twitter.com/i/oauth2/authorize?{query}",
             status_code=303)
+        resp.set_cookie("mf_oauth_bind", bind, max_age=10 * 60,
+                        httponly=True, samesite="lax", path="/api/auth")
+        return resp
 
     @web.get("/api/auth/x/callback")
     def x_oauth_callback(request: Request, code: str = "",
@@ -9460,6 +9534,8 @@ def api():
         record = meta.get(f"oauth-state:x:{state}")
         if not record or record.get("expires", 0) < _now() \
                 or not record.get("verifier"):
+            return fail()
+        if not _oauth_bind_ok(request, record):
             return fail()
         # One time: the state (and its PKCE verifier) is spent
         # whatever happens next.
@@ -9499,7 +9575,7 @@ def api():
         if not display_name and info.get("username"):
             display_name = "@" + str(info["username"]).strip()
         user = _provider_account("x", x_id, display_name)
-        return _social_signin_redirect(user, record)
+        return _social_signin_redirect(user, record, request)
 
     @web.post("/api/auth/telegram/login")
     async def telegram_login(request: Request):
@@ -9596,17 +9672,199 @@ def api():
         save_user(user)
         return {"stored": True}
 
+    def _pending_gate_texts(pending) -> str:
+        """Every user authored string in a pending creation,
+        joined for the illegal content gate."""
+        parts = []
+
+        def walk(value, depth=0):
+            if depth > 4:
+                return
+            if isinstance(value, str):
+                parts.append(value)
+            elif isinstance(value, dict):
+                for item in value.values():
+                    walk(item, depth + 1)
+            elif isinstance(value, list):
+                for item in value[:50]:
+                    walk(item, depth + 1)
+
+        walk((pending or {}).get("body") or {})
+        return "\n".join(parts)[:20000]
+
     @web.post("/api/me/pending-create/claim")
-    def claim_pending_create(request: Request,
-                             mf_session: str = Cookie(default="")):
+    async def claim_pending_create(request: Request,
+                                   mf_session: str = Cookie(default="")):
         """Hand the account's pending creation to the signed in
         studio and clear it in the same step, so a creation can
-        be restored and fired at most once, from any browser."""
+        be restored and fired at most once, from any browser.
+
+        A creation that arrived through the OAuth park (not
+        authored in this session) is flagged needs_confirm:
+        the first claim only shows it, and it is handed over
+        for firing only when the account owner confirms
+        (security fix, 2026-11-27). A confirmed claim whose
+        payload is illegal is dropped silently at this point,
+        without recording a refusal against the account: the
+        owner never authored it in session, so the refusal
+        ladder must not run against them for it."""
         user = require_user(request, mf_session)
-        pending = user.pop("pending_create", None)
-        if pending:
+        pending = user.get("pending_create")
+        if not pending:
+            return {"pending_create": None}
+        body = {}
+        try:
+            body = await request.json()
+        except Exception:  # noqa: BLE001
+            body = {}
+        if pending.get("needs_confirm") and not body.get("confirm"):
+            return {"pending_create": pending, "needs_confirm": True}
+        if pending.get("needs_confirm") \
+                and prompt_is_illegal(_pending_gate_texts(pending)):
+            user.pop("pending_create", None)
             save_user(user)
+            return {"pending_create": None}
+        user.pop("pending_create", None)
+        save_user(user)
+        pending = dict(pending)
+        pending.pop("needs_confirm", None)
         return {"pending_create": pending}
+
+    @web.post("/api/me/password")
+    async def set_my_password(request: Request,
+                              mf_session: str = Cookie(default="")):
+        """Set or change the signed in account's password
+        (security fix, 2026-11-27: the eviction path the
+        pre-account-takeover fix needs). An account that has
+        a password must prove the current one; a social
+        account setting its first password is already
+        authenticated by its session. Either way the session
+        epoch rotates, so every other session dies here."""
+        user = require_user(request, mf_session)
+        body = await request.json()
+        new_password = body.get("new_password") or ""
+        if len(new_password) < 8:
+            raise HTTPException(
+                status_code=422,
+                detail="password must be at least 8 characters")
+        if user.get("pw"):
+            if not _check_password(body.get("current_password") or "",
+                                   user["pw"]):
+                raise HTTPException(
+                    status_code=401, detail="current password is wrong")
+        user["pw"] = _hash_password(new_password)
+        user.pop("pw_cleared_by_social_merge", None)
+        user["session_epoch"] = uuid.uuid4().hex
+        save_user(user)
+        resp = JSONResponse({"status": "ok"})
+        resp.set_cookie(
+            "mf_session", _make_session(user["id"],
+                                        user.get("session_epoch", "")),
+            max_age=7 * 24 * 3600, httponly=True, samesite="lax")
+        return resp
+
+    @web.post("/api/auth/password-reset/request")
+    async def password_reset_request(request: Request):
+        """Email a password reset link (security fix,
+        2026-11-27). The answer is the same whether or not
+        the address has an account, so the endpoint cannot
+        be used to enumerate accounts. The link verifies
+        the account as it sets the new password: it is the
+        recovery path for an unverified account and for an
+        owner whose pre-registered password was cleared at
+        a social merge."""
+        ip = client_ip(request)
+        if _rate_limited("pwreset", ip, 5):
+            raise HTTPException(status_code=429,
+                                detail="too many attempts, slow down")
+        body = await request.json()
+        email = (body.get("email") or "").strip().lower()
+        user = users.get(f"email:{email}") if "@" in email else None
+        if user:
+            token = pysecrets.token_urlsafe(32)
+            token_hash = hashlib.sha256(token.encode()).hexdigest()
+            meta[f"pwreset:{token_hash}"] = {
+                "user_id": user["id"], "expires": _now() + 3600}
+            link = (f"{base_url(request)}/api/auth/password-reset"
+                    f"?token={token}")
+            _send_email(
+                email,
+                "Reset your Moonfactory password",
+                "Open the link below to set a new password.\n"
+                f"{link}\n\n"
+                "The link works for one hour. If you did not ask "
+                "for this, ignore this email and your password "
+                "stays as it is.\n")
+        return {"status": "ok"}
+
+    @web.get("/api/auth/password-reset")
+    def password_reset_page(token: str = ""):
+        """The reset landing: a small standalone page (the
+        /api/verify pattern) whose form posts the token and
+        the new password to the confirm endpoint."""
+        safe_token = token.replace('"', "").replace("<", "")
+        html = f"""<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<title>Reset your password · Moonfactory</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>body{{background:#0b0b10;color:#e8e8ef;font-family:system-ui,sans-serif;
+display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}}
+main{{max-width:360px;width:90%}}input,button{{width:100%;padding:12px;margin:8px 0;
+border-radius:10px;border:1px solid #33333f;background:#15151d;color:#e8e8ef}}
+button{{background:#635bff;border:none;font-weight:600;cursor:pointer}}
+p{{color:#9a9aad}}</style></head>
+<body><main><h1>Set a new password</h1>
+<p>Pick a new password for your Moonfactory account.</p>
+<input type="hidden" id="token" value="{safe_token}">
+<input type="password" id="pw1" placeholder="New password (8+ characters)" autocomplete="new-password">
+<input type="password" id="pw2" placeholder="Repeat it" autocomplete="new-password">
+<button id="go">Set password</button>
+<p id="note"></p>
+<script>
+document.getElementById('go').onclick = async () => {{
+  const note = document.getElementById('note');
+  const pw = document.getElementById('pw1').value;
+  if (pw !== document.getElementById('pw2').value) {{ note.textContent = 'The two passwords do not match.'; return; }}
+  const r = await fetch('/api/auth/password-reset/confirm', {{method:'POST',
+    headers:{{'Content-Type':'application/json'}},
+    body: JSON.stringify({{token: document.getElementById('token').value, new_password: pw}})}});
+  if (r.ok) {{ note.textContent = 'Your password is set. You can sign in now.'; }}
+  else {{ const d = await r.json().catch(() => ({{}})); note.textContent = d.detail || 'That link is invalid or expired.'; }}
+}};
+</script></main></body></html>"""
+        return HTMLResponse(html)
+
+    @web.post("/api/auth/password-reset/confirm")
+    async def password_reset_confirm(request: Request):
+        """Spend a reset token: set the password, verify the
+        account (the mailbox proved itself by receiving the
+        link), and rotate the session epoch so every existing
+        session dies, including any a pre-registered password
+        was ever used from."""
+        body = await request.json()
+        token = body.get("token") or ""
+        new_password = body.get("new_password") or ""
+        if len(new_password) < 8:
+            raise HTTPException(
+                status_code=422,
+                detail="password must be at least 8 characters")
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        record = meta.get(f"pwreset:{token_hash}")
+        if not record or record.get("expires", 0) < _now():
+            raise HTTPException(
+                status_code=400,
+                detail="this reset link is invalid or expired")
+        user = users.get(f"id:{record['user_id']}")
+        if not user:
+            raise HTTPException(status_code=400, detail="account not found")
+        meta[f"pwreset:{token_hash}"] = {
+            "user_id": record["user_id"], "expires": 0}
+        user["pw"] = _hash_password(new_password)
+        user["verified"] = True
+        user.pop("pw_cleared_by_social_merge", None)
+        user["session_epoch"] = uuid.uuid4().hex
+        save_user(user)
+        return {"status": "ok"}
 
     @web.post("/api/me/adult-confirm")
     async def adult_confirm(request: Request,
@@ -23906,6 +24164,7 @@ APP_HTML = (
   <p id="auth-accept-row"><label for="accept-terms"><input type="checkbox" id="accept-terms" style="width:auto;margin:0 6px 0 0">I agree to the <a href="/terms" target="_blank" rel="noopener">Terms of Service</a>, <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a> and <a href="/acceptable-use" target="_blank" rel="noopener">Acceptable Use Policy</a> and I confirm I am at least 13 years old.</label></p>
   <p class="auth-actions">
     <button class="btn" id="login" style="width:100%;display:none">Sign in</button>
+    <button class="btn secondary" id="forgot-password" type="button" style="width:100%">Forgot password</button>
     <button class="btn" id="signup" style="width:100%">Create account</button>
     <button class="btn secondary" id="auth-back" type="button" style="width:100%">Back to your video</button>
   </p>
@@ -25007,6 +25266,17 @@ APP_HTML = (
       </div>
       <p class="muted" id="account-note" style="display:none;margin:0 0 14px"></p>
       <p class="err" id="account-alert" style="display:none;margin:0 0 14px"></p>
+      <p class="group-label">Password</p>
+      <div id="pw-current-row">
+        <label for="pw-current">Current password</label>
+        <input id="pw-current" type="password" autocomplete="current-password">
+      </div>
+      <label for="pw-new">New password (8+ characters)</label>
+      <input id="pw-new" type="password" autocomplete="new-password">
+      <div class="handle-row">
+        <button class="btn secondary" id="save-password" type="button">Save password</button>
+      </div>
+      <p class="muted" id="pw-note" style="margin:6px 0 10px"></p>
       <label for="handle">Public handle</label>
       <p class="muted" style="margin:0 0 6px">The only name the gallery ever shows.</p>
       <div class="handle-row">
@@ -25588,6 +25858,15 @@ $('signup').onclick = async () => {
   } catch (e) { msg('auth-msg', e.message, 'err'); }
   finally { btnDone(btn); $('login').disabled = false; }
 };
+$('forgot-password').onclick = async () => {
+  const email = $('email').value.trim();
+  if (!email) { msg('auth-msg', 'Type your email above first, then tap Forgot password.', 'err'); return; }
+  try {
+    await api('/api/auth/password-reset/request', { method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ email }) });
+    msg('auth-msg', 'If that email has an account, a reset link is on its way. It works for one hour.', 'ok');
+  } catch (e) { msg('auth-msg', 'Could not send the reset email. Try again in a moment.', 'err'); }
+};
 $('login').onclick = async () => {
   const btn = $('login');
   btnBusy(btn, 'Signing in...');
@@ -25928,6 +26207,17 @@ async function claimAndRestore() {
   Object.assign(d, PENDING_ROUTES[d.kind]);
   d.fileMissing = d.file_missing || [];
   restoredPending = d;
+  if (r.needs_confirm) {
+    // A creation that arrived through a social sign-in park
+    // was not built in this session: it fills the form for
+    // review and starts only when the account owner says so,
+    // never on its own at sign-in.
+    d.needsConfirm = true;
+    restoreCreateForm(d);
+    msg('job-msg', 'Welcome back. A creation you started before signing in is back in the form. Check it over, then start it when you are ready.', 'ok');
+    showRestoreConfirm();
+    return;
+  }
   if (d.kind === 'drama') {
     // A restored drama is a story coming back, not a creation
     // firing: the form fills, the draft runs, and the user
@@ -25949,8 +26239,43 @@ async function claimAndRestore() {
     fireRestoredIfReady();
   }
 }
+function showRestoreConfirm() {
+  const old = $('restore-confirm-bar');
+  if (old) old.remove();
+  const bar = document.createElement('div');
+  bar.id = 'restore-confirm-bar';
+  bar.style.margin = '10px 0';
+  const btn = document.createElement('button');
+  btn.className = 'btn';
+  btn.type = 'button';
+  btn.textContent = 'Start this creation';
+  btn.onclick = async () => {
+    btn.disabled = true;
+    try {
+      const r2 = await api('/api/me/pending-create/claim', { method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ confirm: true }) });
+      bar.remove();
+      if (!r2.pending_create) {
+        // The server dropped the payload at the gate: it
+        // never fires and nothing was recorded.
+        restoredPending = null;
+        msg('job-msg', 'That saved creation could not be started. Build it again from the form whenever you are ready.', 'err');
+        return;
+      }
+      if (restoredPending) restoredPending.needsConfirm = false;
+      msg('job-msg', 'Your video is starting, exactly as you built it.', 'ok');
+      fireRestoredIfReady();
+    } catch (e) {
+      btn.disabled = false;
+      msg('job-msg', 'That start did not go through. Try once more.', 'err');
+    }
+  };
+  bar.appendChild(btn);
+  $('job-msg').after(bar);
+}
 async function fireRestoredIfReady() {
   if (!restoredPending || restoredPending.fileMissing.length) return;
+  if (restoredPending.needsConfirm) return;
   const d = restoredPending;
   restoredPending = null;
   await fireCreate(d);
@@ -26188,6 +26513,8 @@ function showStudio(u) {
     note.style.display = ''; note.textContent = 'The free plan never refills.';
   }
   $('stat-balance').textContent = '$' + (u.balance_cents / 100).toFixed(2);
+  $('pw-current-row').style.display = u.has_password ? '' : 'none';
+  $('pw-note').textContent = u.has_password ? '' : 'You sign in with a provider, so this account has no password yet. Set one here to also sign in with your email.';
   const alert = $('account-alert');
   if (u.verified) { alert.style.display = 'none'; alert.textContent = ''; }
   else { alert.style.display = ''; alert.textContent = 'Your email is not verified yet, so creating is off.'; }
@@ -26961,6 +27288,18 @@ $('photo-remove').onclick = async () => {
     renderAvatar(currentUser);
     msg('profile-msg', 'Your photo is removed.', 'ok');
   } catch (e) { msg('profile-msg', e.message, 'err'); }
+};
+$('save-password').onclick = async () => {
+  const body = { new_password: $('pw-new').value };
+  if (currentUser && currentUser.has_password) body.current_password = $('pw-current').value;
+  try {
+    await api('/api/me/password', { method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body) });
+    $('pw-current').value = ''; $('pw-new').value = '';
+    if (currentUser) currentUser.has_password = true;
+    $('pw-current-row').style.display = '';
+    $('pw-note').textContent = 'Password saved. Other sessions were signed out.';
+  } catch (e) { $('pw-note').textContent = e.message; }
 };
 $('save-handle').onclick = async () => {
   try {
