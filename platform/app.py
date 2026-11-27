@@ -3904,7 +3904,7 @@ MODEL_PROVIDER = {
     # same way ($0.05 / $0.11 vs Kie's $0.059 / $0.124); the
     # VidLab route takes no reference video or audio, so the
     # lane is image-references-only (IMAGE_REFS_ONLY_MODELS).
-    "seedance2_fast": "vidlab",
+    "seedance2_fast": "spicyapi",
     "seedance2_mini": "kie",
     "omni12": "kie",
     "omni11": "beatapi",
@@ -6412,10 +6412,6 @@ VIDLAB_BASE = "https://vidlab.ai"
 VIDLAB_VIDEO_MODELS = {
     "kling4": {"slug": "kling-4.0", "video_input": "video",
                "rate_variants": {"720p": "720p", "1080p": "1080p"}},
-    "seedance2_fast": {"slug": "seedance-2.0-fast",
-                       "end_image": True, "seed": True,
-                       "rate_variants": {"480p": "480p",
-                                         "720p": "720p"}},
     "seedance25_flash": {"slug": "seedance-2.5-flash",
                          "audio": True, "end_image": True,
                          "video_input": "videos",
@@ -12667,6 +12663,15 @@ def api():
         # catalog prices ($0.09 / $0.13 / $0.30 per second).
         "ltx25": {"text": "lightricks/ltx-2.5/text-to-video",
                   "image": "lightricks/ltx-2.5/image-to-video"},
+        # Seedance 2.0 Fast (route audit, 2026-11-26): the
+        # regular build on the same per-mode endpoints as its
+        # spicy sibling, at the catalog prices pricing.py
+        # records (audio does not change its price).
+        "seedance2_fast": {
+            "text": "bytedance/seedance-2.0-fast/text-to-video",
+            "image": "bytedance/seedance-2.0-fast/image-to-video",
+            "reference":
+                "bytedance/seedance-2.0-fast/reference-to-video"},
     }
     # SpicyAPI lanes whose published schema carries a
     # generate_audio field (selected on: the platform ships
@@ -12679,6 +12684,10 @@ def api():
         "wan3_unc", "wan3prime_unc", "wan27_unc", "seedance25_unc",
         "seedance2_unc", "seedance2fast_unc", "seedance2mini_unc",
         "seedance15pro_unc", "vidu_q3_unc",
+        # The regular Seedance 2.0 Fast build (route audit,
+        # 2026-11-26) carries the same field as its spicy
+        # sibling; its price does not change with the flag.
+        "seedance2_fast",
     )
     # SpicyAPI lanes whose schema carries aspect_ratio: the
     # two Wan 3.0 builds and the Seedance 2.0/1.5 builds
@@ -12687,6 +12696,7 @@ def api():
     SPICYAPI_ASPECT_MODELS = (
         "wan3_unc", "wan3prime_unc", "seedance2_unc",
         "seedance2fast_unc", "seedance2mini_unc", "seedance15pro_unc",
+        "seedance2_fast",
     )
     # SpicyAPI lanes whose schema carries a closing-frame
     # field (last_image_url). Vidu Q3, Wan 2.6, Wan 2.7 and
@@ -12695,7 +12705,7 @@ def api():
     SPICYAPI_END_FRAME_MODELS = (
         "wan22_unc", "wan3_unc", "wan3prime_unc", "seedance25_unc",
         "seedance2_unc", "seedance2fast_unc", "seedance2mini_unc",
-        "seedance15pro_unc",
+        "seedance15pro_unc", "seedance2_fast",
     )
 
     def submit_spicyapi_job(job: dict, body: dict, params: dict,

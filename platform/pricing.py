@@ -366,14 +366,19 @@ PROVIDER_RATES_CENTS_PER_SECOND = {
     # is seeded at the no-video rates. Reference mode WITH a
     # video bills the with-video rate over input+output seconds;
     # that shape is not separately seeded (flagged, audit doc).
-    # Seedance 2.0 Fast via VidLab (rerouted 2026-11-23):
-    # VidLab's catalog prices seedance-2.0-fast at $0.05/s at
-    # 480p and $0.11/s at 720p, below Kie's no-video rates
-    # ($0.059 / $0.124, in DISPLACED_RATES below as
-    # seedance2_fast_kie). The VidLab route takes start/end
-    # images and reference images only (no reference video or
-    # audio), so the lane is image-references-only in app.py.
-    "seedance2_fast": {"480p": 5.0, "720p": 11.0},
+    # Seedance 2.0 Fast via SpicyAPI (route audit,
+    # 2026-11-26): its catalog prices seedance-2.0-fast at
+    # $0.04499712/s at 480p and $0.096768/s at 720p (the
+    # generate_audio flag does not change the price), carried
+    # as 4.5 / 9.68, under VidLab's $0.05 / $0.11 (recorded in
+    # DISPLACED_RATES below as seedance2_fast_vidlab) and
+    # Kie's no-video rates ($0.059 / $0.124, in DISPLACED_RATES
+    # as seedance2_fast). The lane stays image-references-only
+    # in app.py (IMAGE_REFS_ONLY_MODELS), which is also the
+    # basis these prices were read on. The customer shelf
+    # stays frozen on the VidLab-built rates
+    # (SHELF_PROVIDER_RATES below).
+    "seedance2_fast": {"480p": 4.5, "720p": 9.68},
     # Seedance 2.0 Mini via Kie (follow-up pass, 2026-11-16):
     # from $0.012/s, carried flat on the same basis. Silent model
     # on every route. BeatAPI's with-input rates are in
@@ -793,6 +798,9 @@ DISPLACED_RATES_CENTS_PER_SECOND = {
     "kling4": {"720p": 18.0, "1080p": 28.0},
     "seedance": {"720p": 19.4},
     "seedance2_fast": {"480p": 6.072, "720p": 12.251},
+    # VidLab rates displaced by the 2026-11-26 route audit's
+    # SpicyAPI move for Seedance 2.0 Fast.
+    "seedance2_fast_vidlab": {"480p": 5.0, "720p": 11.0},
     "seedance2_mini": {"480p": 3.283, "720p": 7.363},
     "omni12": {"720p": 4.9, "1080p": 7.28},
     "grok": {"480p": 2.5, "720p": 5.0, "1080p": 9.0},
@@ -1153,6 +1161,9 @@ SHELF_PROVIDER_RATES_CENTS_PER_SECOND = {
     # LTX-2.5's shelf was built on fal's Pro rates; the lane
     # now runs on SpicyAPI at the lower true rates above.
     "ltx25": {"720p": 12.0, "1080p": 17.0, "4K": 34.0},
+    # Seedance 2.0 Fast's shelf was built on VidLab's rates;
+    # the lane now runs on SpicyAPI at the lower true rates.
+    "seedance2_fast": {"480p": 5.0, "720p": 11.0},
 }
 
 # Built-in lip sync (Jack's product rule, 2026-11-17): every video
