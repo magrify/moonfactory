@@ -12,6 +12,13 @@ import re
 import sys
 
 sys.path.insert(0, "platform")
+
+# _session_secret fails closed when SESSION_SECRET is
+# unconfigured (security hardening, 2026-11-27); the harness
+# supplies a check-only value so the token round-trip can run.
+import os
+
+os.environ.setdefault("SESSION_SECRET", "check-only-secret")
 SRC = open("platform/app.py").read()
 
 fails = []
