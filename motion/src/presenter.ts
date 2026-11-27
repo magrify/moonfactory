@@ -116,18 +116,39 @@ function mouthAt(t: number) {
   return curve[i];
 }
 
+// The principles pass (2026-11-26): the puppet used to simply
+// be there at frame zero. Now it enters like everything else
+// on the wing: an entrance decelerates, so it rises and
+// settles on an expo-out curve over the first second, and the
+// backdrop breathes almost still when no one is talking, the
+// ambient layer under the speech primary.
+const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
+const stage = (t: number, a: number, b: number) => clamp01((t - a) / (b - a));
+const easeOutExpo = (v: number) => {
+  const u = clamp01(v);
+  return u >= 1 ? 1 : 1 - Math.pow(2, -10 * u);
+};
+
 function renderAt(t: number) {
   const talk = mouthAt(t);
+  const enter = easeOutExpo(stage(t, 0, 0.9));
   // Mouth: opens with the curve, a resting slit between words.
   const open = 0.22 + talk * 1.15;
   mouth.scale.set(1 - talk * 0.18, open, 1);
   (mouth.material as THREE.MeshBasicMaterial).opacity = 0.55 + talk * 0.4;
   // Puppet sway: a slow idle drift plus a nod that follows the
-  // speech energy, so phrases move and pauses settle.
+  // speech energy, so phrases move and pauses settle. The
+  // entrance multiplies through it: the puppet rises from
+  // below and grows into its framing as the sway fades in.
   puppet.rotation.z = Math.sin(t * 0.7) * 0.008 + Math.sin(t * 2.1) * 0.006 * talk;
   puppet.rotation.y = Math.sin(t * 0.45) * 0.05;
-  puppet.position.y = Math.sin(t * 1.7) * 0.05 * talk + Math.sin(t * 0.9) * 0.03;
-  backdrop.material.opacity = 0.13 + talk * 0.07;
+  puppet.position.y = Math.sin(t * 1.7) * 0.05 * talk + Math.sin(t * 0.9) * 0.03
+    - (1 - enter) * 1.5;
+  const ps = 0.93 + 0.07 * enter;
+  puppet.scale.set(ps, ps, ps);
+  const breathe = (0.5 - 0.5 * Math.cos(t * Math.PI * 2 * 0.14)) * (1 - talk);
+  (backdrop.material as THREE.MeshBasicMaterial).opacity =
+    (0.13 + talk * 0.07 + breathe * 0.02) * (0.3 + 0.7 * enter);
   renderer.render(scene, camera);
 }
 

@@ -48,14 +48,38 @@ scene.add(rim);
 
 // Small deterministic helpers. Every animation below is a
 // closed-form function of the seek time: no clocks, no state.
+//
+// The easing kit follows the motion design principles pass
+// (2026-11-26, the LottieFiles motion-design skill): entrances
+// decelerate (ease-out family, expo for the hero moves), exits
+// and falls accelerate (ease-in family, quad for gravity),
+// on-screen moves smooth both ends, and nothing spatial runs
+// linear. Materials pick their overshoot: rigid things (stone,
+// metal) land dead, paper things overshoot a few percent,
+// light things (icons, windows, dots) may pop 10-15%.
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 const easeOut = (v: number) => 1 - Math.pow(1 - clamp01(v), 3);
+const easeOutExpo = (v: number) => {
+  const u = clamp01(v);
+  return u >= 1 ? 1 : 1 - Math.pow(2, -10 * u);
+};
+const easeInQuad = (v: number) => { const u = clamp01(v); return u * u; };
 const easeInOut = (v: number) =>
   (v < 0.5 ? 4 * v * v * v : 1 - Math.pow(-2 * v + 2, 3) / 2);
 const easeBack = (v: number) => {
   const c = 1.70158, u = clamp01(v);
   return 1 + (c + 1) * Math.pow(u - 1, 3) + c * Math.pow(u - 1, 2);
 };
+// Paper-weight follow-through: the same back curve with a
+// small constant, so a landing overshoots ~4% and settles
+// instead of snapping dead or bouncing like rubber.
+const easeBackSoft = (v: number) => {
+  const c = 0.7, u = clamp01(v);
+  return 1 + (c + 1) * Math.pow(u - 1, 3) + c * Math.pow(u - 1, 2);
+};
+// Ambient loops breathe on a sine: seamless at both ends.
+const breathe = (t: number, speed = 1, phase = 0) =>
+  0.5 - 0.5 * Math.cos((t * speed + phase) * Math.PI * 2);
 const stage = (t: number, a: number, b: number) => clamp01((t - a) / (b - a));
 function mulberry(seed: number) {
   let s = seed >>> 0;
@@ -112,10 +136,26 @@ function buildTurntable(root: THREE.Group) {
   spin.add(product);
   const D = props.duration;
   return (t: number) => {
-    const rise = easeBack(stage(t, 0.1, 0.9));
-    product.position.y = 0.55 - (1 - clamp01(rise)) * 2.2;
+    // Anticipation first: the product crouches a few percent
+    // and dips before it rises, the way anything with weight
+    // gathers itself. The rise is an entrance, so it
+    // decelerates hard (expo out) and lands with a small
+    // follow-through bounce instead of stopping dead.
+    const anti = easeOut(stage(t, 0.02, 0.3));
+    const rise = easeOutExpo(stage(t, 0.3, 1.1));
+    const land = stage(t, 1.1, 1.5);
+    const bounce = land < 1 ? Math.sin(land * Math.PI) * 0.05 : 0;
+    const crouch = anti * (1 - rise);
+    product.position.y = 0.55 - (1 - rise) * 2.2 - crouch * 0.14 + bounce;
+    product.scale.set(1 + crouch * 0.03, 1 - crouch * 0.05 + bounce * 0.5,
+                      1 + crouch * 0.03);
     spin.rotation.y = easeInOut(stage(t, 0.4, D - 0.3)) * Math.PI * 2 + 0.5;
-    camera.position.z = 13.5 - easeInOut(stage(t, 0, D)) * 1.6;
+    // The dolly decelerates into its final framing and arcs
+    // down a little as it comes in, so the path curves the
+    // way a camera move should instead of sliding straight.
+    const dolly = easeOutExpo(stage(t, 0, D));
+    camera.position.z = 13.5 - dolly * 1.6;
+    camera.position.y = 3.4 - dolly * 0.45;
     camera.lookAt(0, 1.6, 0);
   };
 }
@@ -137,7 +177,7 @@ function buildGlobe(root: THREE.Group) {
     new THREE.MeshBasicMaterial({ color: 0x8f96ad, wireframe: true, transparent: true, opacity: 0.4 }));
   globe.add(wire);
   const rand = mulberry(41);
-  const routes: { pts: THREE.Vector3[]; beads: THREE.Mesh[]; pulse: THREE.Mesh }[] = [];
+  const routes: { pts: THREE.Vector3[]; beads: THREE.Mesh[]; pulse: THREE.Mesh; dots: THREE.Mesh[] }[] = [];
   const beadGeo = new THREE.SphereGeometry(0.11, 8, 8);
   for (let r = 0; r < 3; r++) {
     const lat1 = (rand() - 0.5) * 1.6, lon1 = rand() * Math.PI * 2;
@@ -159,15 +199,18 @@ function buildGlobe(root: THREE.Group) {
       globe.add(bead);
       beads.push(bead);
     }
+    const dots: THREE.Mesh[] = [];
     for (const end of [a, b]) {
       const dot = new THREE.Mesh(new THREE.SphereGeometry(0.2, 10, 10), mat(PAPER, 0.4));
       dot.position.copy(end);
+      dot.scale.setScalar(0.001);
       globe.add(dot);
+      dots.push(dot);
     }
     const pulse = new THREE.Mesh(new THREE.SphereGeometry(0.24, 10, 10),
       new THREE.MeshBasicMaterial({ color: ACCENT }));
     globe.add(pulse);
-    routes.push({ pts, beads, pulse });
+    routes.push({ pts, beads, pulse, dots });
   }
   const D = props.duration;
   return (t: number) => {
@@ -176,10 +219,19 @@ function buildGlobe(root: THREE.Group) {
       const draw = stage(t, 0.7 + i * 0.8, 2.3 + i * 0.8);
       const lit = Math.floor(easeOut(draw) * route.beads.length);
       route.beads.forEach((bead, j) => { bead.visible = j < lit; });
+      // The endpoint dots are light elements: they pop in
+      // with a real overshoot as their route starts drawing,
+      // the secondary layer under the bead primary.
+      const pop = Math.max(0.001, easeBack(stage(t, 0.55 + i * 0.8, 1.0 + i * 0.8)));
+      route.dots.forEach((dot) => dot.scale.setScalar(pop));
       const ride = (t * 0.22 + i / 3) % 1;
       const idx = Math.min(route.pts.length - 1, Math.floor(ride * route.pts.length));
       route.pulse.position.copy(route.pts[idx]);
       route.pulse.visible = draw >= 1;
+      // The pulse breathes on a sine while it rides: ambient
+      // life, seamless at the loop.
+      const br = 1 + breathe(t, 0.9, i / 3) * 0.35;
+      route.pulse.scale.setScalar(br);
     });
   };
 }
@@ -232,13 +284,23 @@ function buildCityPin(root: THREE.Group) {
   }
   const D = props.duration;
   return (t: number) => {
-    const drop = easeOut(stage(t, D * 0.16, D * 0.42));
-    pin.position.y = 9 - drop * 9 + Math.abs(Math.sin(stage(t, D * 0.42, D * 0.62) * Math.PI)) * 0.55 * (drop >= 1 ? 1 : 0);
+    // A falling pin accelerates: gravity is an ease-in, not
+    // the ease-out landing the first cut used (that read as
+    // the pin floating down). It lands with a squash, a small
+    // rebound hop, and a settle, and the rings only start
+    // walking once it is down.
+    const fall = easeInQuad(stage(t, D * 0.16, D * 0.40));
+    const land = stage(t, D * 0.40, D * 0.62);
+    const settled = land >= 1;
+    const hop = settled ? 0 : Math.sin(land * Math.PI) * 0.3 * (1 - land);
+    pin.position.y = 9 - fall * 9 + hop;
+    const squash = settled ? 0 : Math.sin(land * Math.PI) * (1 - land * 0.4);
+    pin.scale.set(1 + squash * 0.13, 1 - squash * 0.2, 1 + squash * 0.13);
     pin.rotation.y = t * 0.25;
     rings.forEach((ring, i) => {
-      const ph = ((t * 0.45 + i * 0.5) % 1);
-      const on = t > D * 0.45;
-      const s = 0.6 + ph * 4.6;
+      const ph = (((t - D * 0.40) * 0.45 + i * 0.5) % 1 + 1) % 1;
+      const on = t > D * 0.42;
+      const s = 0.6 + easeOut(ph) * 4.6;
       ring.scale.set(s, s, s);
       (ring.material as THREE.MeshBasicMaterial).opacity = on ? (1 - ph) * 0.65 : 0;
     });
@@ -256,36 +318,43 @@ function buildHouse(root: THREE.Group) {
   const shadow = blobShadow(4.4);
   shadow.position.y = 0.02;
   root.add(shadow);
-  const parts: { obj: THREE.Object3D; a: number; b: number; y: number; drop?: number }[] = [];
-  const add = (obj: THREE.Object3D, a: number, b: number, drop = 0) => {
-    obj.position.y += 0;
+  // Each part animates by its material (the skill's material
+  // table): the slab is stone, so it grows with no overshoot;
+  // the walls and door are paper-weight, a few percent of
+  // follow-through; the windows are light, they may pop; the
+  // roof and chimney fall, so gravity accelerates them and
+  // they settle once they land.
+  type Fx = "rigid" | "paper" | "pop" | "drop";
+  const parts: { obj: THREE.Object3D; a: number; b: number; y: number; drop: number; fx: Fx; base: THREE.Vector3 }[] = [];
+  const add = (obj: THREE.Object3D, a: number, b: number, fx: Fx, drop = 0) => {
     root.add(obj);
-    parts.push({ obj, a, b, y: obj.position.y, drop });
+    parts.push({ obj, a, b, y: obj.position.y, drop, fx,
+                 base: obj.scale.clone() });
   };
   const slab = new THREE.Mesh(new THREE.BoxGeometry(7.4, 0.5, 6.2), mat(SLATE, 0.9));
   slab.position.y = 0.25;
-  add(slab, 0.05, 0.2);
+  add(slab, 0.05, 0.2, "rigid");
   const walls = new THREE.Mesh(new THREE.BoxGeometry(6.2, 3.1, 5.0), mat(PAPER, 0.8));
   walls.position.y = 2.05;
-  add(walls, 0.18, 0.4);
+  add(walls, 0.18, 0.4, "paper");
   const roof = new THREE.Mesh(new THREE.ConeGeometry(5.1, 2.5, 4), mat(ACCENT, 0.6));
   roof.rotation.y = Math.PI / 4;
   roof.scale.z = 0.82;
   roof.position.y = 4.85;
-  add(roof, 0.4, 0.58, 2.6);
+  add(roof, 0.4, 0.58, "drop", 2.6);
   const door = new THREE.Mesh(new THREE.BoxGeometry(1.1, 2.0, 0.12), mat(INK, 0.7));
   door.position.set(0, 1.5, 2.53);
-  add(door, 0.58, 0.7);
+  add(door, 0.58, 0.7, "paper");
   const winMat = new THREE.MeshStandardMaterial({
     color: 0xffca7a, emissive: 0xff9d2e, emissiveIntensity: 1.4, roughness: 0.4 });
   for (const x of [-1.9, 1.9]) {
     const win = new THREE.Mesh(new THREE.BoxGeometry(1.15, 1.15, 0.1), winMat);
     win.position.set(x, 2.3, 2.53);
-    add(win, 0.66, 0.78);
+    add(win, 0.66, 0.78, "pop");
   }
   const chimney = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1.7, 0.9), mat(INK, 0.8));
   chimney.position.set(1.8, 5.6, 0);
-  add(chimney, 0.74, 0.86, 1.8);
+  add(chimney, 0.74, 0.86, "drop", 1.8);
   const sun = new THREE.Mesh(new THREE.SphereGeometry(0.55, 16, 12),
     new THREE.MeshBasicMaterial({ color: 0xffca7a }));
   sun.position.set(-6.4, 6.8, -3);
@@ -293,10 +362,25 @@ function buildHouse(root: THREE.Group) {
   const D = props.duration;
   return (t: number) => {
     for (const p of parts) {
-      const s = easeBack(stage(t, D * p.a, D * p.b));
-      const u = clamp01(s);
-      p.obj.scale.set(Math.max(0.001, u), Math.max(0.001, u), Math.max(0.001, u));
-      p.obj.position.y = p.y + (p.drop || 0) * (1 - u);
+      const u = stage(t, D * p.a, D * p.b);
+      let s: number;
+      if (p.fx === "rigid") s = easeOut(u);
+      else if (p.fx === "paper") s = easeBackSoft(u);
+      else if (p.fx === "pop") s = easeBack(u);
+      else s = easeOut(u);
+      const sc = Math.max(0.001, clamp01(s));
+      p.obj.scale.set(p.base.x * sc, p.base.y * sc, p.base.z * sc);
+      let yoff = 0;
+      if (p.fx === "drop") {
+        // The fall accelerates (ease-in), then the part
+        // settles with one small decaying bounce.
+        yoff = p.drop * (1 - easeInQuad(u));
+        if (u >= 1) {
+          const st = stage(t, D * p.b, D * p.b + 0.45);
+          if (st < 1) yoff += Math.sin(st * Math.PI) * 0.07 * (1 - st);
+        }
+      }
+      p.obj.position.y = p.y + yoff;
     }
     camera.position.x = 8.6 - Math.sin(stage(t, 0, D) * Math.PI) * 1.6;
     camera.lookAt(0, 1.7, 0);
@@ -336,7 +420,7 @@ function buildBars(root: THREE.Group) {
   root.add(grid);
   const n = points.length;
   const slot = Math.min(2.2, 11 / Math.max(1, n));
-  const bars: { mesh: THREE.Mesh; sprite: THREE.Sprite; h: number; i: number }[] = [];
+  const bars: { mesh: THREE.Mesh; sprite: THREE.Sprite; h: number; i: number; hero: boolean }[] = [];
   points.forEach(([label, value], i) => {
     const h = 0.25 + (value / maxv) * 4.6;
     const isMax = value === maxv;
@@ -349,15 +433,27 @@ function buildBars(root: THREE.Group) {
     sprite.position.set(bar.position.x, h + 0.85, 0);
     sprite.material.opacity = 0;
     root.add(sprite);
-    bars.push({ mesh: bar, sprite, h, i });
+    bars.push({ mesh: bar, sprite, h, i, hero: isMax });
   });
   const D = props.duration;
   return (t: number) => {
     for (const b of bars) {
-      const s = easeOut(stage(t, 0.35 + b.i * 0.22, 1.35 + b.i * 0.22));
+      // The hero bar (the biggest, the one staging says the
+      // eye should land on) rises with a soft follow-through;
+      // the rest decelerate dead, the data-viz wave stagger
+      // between them unchanged.
+      const s = b.hero
+        ? easeBackSoft(stage(t, 0.35 + b.i * 0.22, 1.35 + b.i * 0.22))
+        : easeOut(stage(t, 0.35 + b.i * 0.22, 1.35 + b.i * 0.22));
       b.mesh.scale.y = Math.max(0.001, b.h * s);
       b.mesh.position.y = (b.h * s) / 2;
-      b.sprite.material.opacity = stage(t, 1.0 + b.i * 0.22, 1.5 + b.i * 0.22);
+      // The value label is a light element: it fades on an
+      // ease (never a linear fade) and pops the last of its
+      // scale in with a small overshoot as it lands.
+      const popT = stage(t, 1.0 + b.i * 0.22, 1.5 + b.i * 0.22);
+      b.sprite.material.opacity = easeOut(popT);
+      const pop = 0.82 + 0.18 * Math.max(0, easeBack(popT));
+      b.sprite.scale.set(2.3 * pop, 1.15 * pop, 1);
     }
     const orbit = Math.sin(stage(t, 0, D) * Math.PI) * 0.35;
     camera.position.x = 6.8 * Math.cos(orbit) + 11.8 * Math.sin(orbit) * 0.4;
