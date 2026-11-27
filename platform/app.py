@@ -3780,6 +3780,8 @@ MODELS = [
     {"id": "wan3", "label": "Wan 3.0", "paid_only": True},
     {"id": "wan3_prime", "label": "Wan 3.0 Prime", "paid_only": True},
     {"id": "wan_motion", "label": "Wan Motion", "paid_only": True},
+    {"id": "kling26_motion", "label": "Kling 2.6 Motion Control", "paid_only": True},
+    {"id": "kling3_motion", "label": "Kling 3.0 Motion Control", "paid_only": True},
     {"id": "seedance", "label": "Seedance 2.5", "paid_only": True},
     {"id": "veo3", "label": "Veo 3.1", "paid_only": True},
     {"id": "veo3_fast", "label": "Veo 3.1 Fast", "paid_only": True},
@@ -4780,7 +4782,7 @@ PER_SECOND_MODELS = (
     "wan3prime_unc", "wan22_lora_unc", "seedance2_unc",
     "seedance2fast_unc", "seedance2mini_unc", "seedance15pro_unc",
     "ltx23_unc", "ltx23_lora_unc", "grok_unc", "grok15_unc",
-    "wan_motion",
+    "wan_motion", "kling26_motion", "kling3_motion",
     # VidLab lanes (2026-11-23).
     "vidlab15", "vidlab2", "vidra3", "seedance25_boost", "wan25",
     "wan26", "wan26_flash", "wan27", "kling26_std", "kling_o1",
@@ -4802,6 +4804,14 @@ PER_SECOND_MODELS = (
     # rerouted 2026-11-26).
     "magi2",
 )
+# Motion transfer lanes: the subject image performs the
+# motion from exactly one reference video, and the output
+# follows the driving video's own length (2 to 30 seconds).
+# Wan Motion on fal is the original (2026-11-17); Kling 2.6
+# and 3.0 motion control on UnificAlly (2026-11-27) share
+# the input contract. The Kling lanes' documented schema
+# requires the prompt; Wan's treats it as optional steering.
+MOTION_MODELS = ("wan_motion", "kling26_motion", "kling3_motion")
 # Which supplier serves each per-second model. Internal only: the
 # picker, the pricing page, and every error show model names, never
 # suppliers (Amendment 1). Route rule (Jack, 2026-11-16): where a
@@ -4950,6 +4960,11 @@ MODEL_PROVIDER = {
     "ltx23_lora_unc": "spicyapi",
     # Motion transfer (2026-11-17): fal's Wan Motion endpoint.
     "wan_motion": "fal",
+    # Kling motion control (2026-11-27): UnificAlly's motion
+    # transfer models, on the shared motion input contract
+    # (see MOTION_MODELS above).
+    "kling26_motion": "unifically",
+    "kling3_motion": "unifically",
     # MAGI-2 (wired 2026-11-25 on Higgsfield's own API, the
     # only route known at the time; rerouted 2026-11-26):
     # FrameHush's catalog carries the model as magi-2-1080P at
@@ -5090,6 +5105,10 @@ LANE_AUDIO = {
                    "note": "native audio is music/SFX-led; speech is not reliable"},
     "wan_motion": {"native_speech": False, "native_audio": False,
                    "note": "motion transfer: your subject image performs the motion from your reference video; silent, music and voice run in post"},
+    "kling26_motion": {"native_speech": False, "native_audio": True,
+                   "note": "motion transfer: your subject image performs the motion from your reference video; the reference video's own sound carries over"},
+    "kling3_motion": {"native_speech": False, "native_audio": True,
+                   "note": "motion transfer: your subject image performs the motion from your reference video; the reference video's own sound carries over"},
     "seedance": {"native_speech": True, "native_audio": True,
                  "note": "Seedance native audio incl. dialogue on the wired FrameHush route (the model's own endpoint; no audio switch exists to send)"},
     "veo3": {"native_speech": True, "native_audio": True,
@@ -7322,6 +7341,8 @@ def kaggle_push(token: str, script_text: str, slug: str,
 # 3-30; these narrow it to what each model actually accepts).
 MODEL_DURATION_BOUNDS = {
     "wan_motion": (2, 30),
+    "kling26_motion": (2, 30),
+    "kling3_motion": (2, 30),
     "seedance": (4, 30),
     "veo3": (4, 8),
     "veo3_fast": (4, 8),
@@ -7622,6 +7643,8 @@ MODEL_REF_VIDEO_SECONDS_CAP = {
     # Motion transfer's reference video is the product: up to
     # the model's own 30 second driving limit.
     "wan_motion": 30.0,
+    "kling26_motion": 30.0,
+    "kling3_motion": 30.0,
     # MAGI-2 (2026-11-25): Higgsfield's docs cap the total
     # reference video across all clips at 30 seconds.
     "magi2": 30.0,
@@ -7749,7 +7772,7 @@ def duration_plan(model: str, requested: int) -> dict:
     if requested in natives:
         segments = [requested]
     elif requested in UNIVERSAL_LONG_LENGTHS and requested > native_max:
-        if model == "wan_motion":
+        if model in MOTION_MODELS:
             # Motion transfer's output follows the driving
             # video's own length (2 to 30 seconds); the lane
             # has no chained lengths (verification pass,
@@ -8003,7 +8026,7 @@ def editclone_clone_adaptation(model: str) -> str:
       carries the clone."""
     if model in HOUSE_MODEL_PRICING_LANE:
         return "start"
-    if model == "wan_motion":
+    if model in MOTION_MODELS:
         return "motion"
     if model in TEXT_IMAGE_ONLY_MODELS or model == "kling3" \
             or model in START_IMAGE_REQUIRED_MODELS:
@@ -9736,6 +9759,8 @@ def api():
                  "picker_order": lane.get("picker_order"),
                  "edit": bool(lane.get("edit")),
                  "references": bool(lane.get("references")),
+                 "references_required": bool(
+                     lane.get("references_required")),
                  "picker_class": image_picker_class(mid),
                  "price_cents": image_picker_price_cents(mid),
                  "uncensored": bool(lane.get("uncensored"))}
@@ -12332,6 +12357,11 @@ document.getElementById('go').onclick = async () => {{
             #     (the Seedream routes' 1K/2K/4K tiers).
             #   flat:   prompt and aspect only (plus
             #     image_urls on reference lanes).
+            #   kling_refimg: Kling 2.1 Image: reference modes
+            #     only, no resolution tiers; the first
+            #     reference picture rides as the mode's
+            #     singular image_url and the mode is the
+            #     lane's ua_reference_mode.
             # PAYLOAD-UNVERIFIED like the other shelf branches
             # until a funded job proves them.
             _tier, _, aspect = size.partition("-")
@@ -12353,7 +12383,23 @@ document.getElementById('go').onclick = async () => {{
                     image_input["mode"] = lane["ua_mode"]
             elif ua_style == "sized":
                 image_input["resolution"] = _tier
-            if lane.get("references") and reference_images:
+            elif ua_style == "kling_refimg":
+                # Kling 2.1 Image (2026-11-27): the schema's
+                # reference modes take ONE picture as
+                # image_url, never an image_urls array, and
+                # the model has no resolution field. Create
+                # already refused a job with no reference
+                # picture (references_required); a submit that
+                # still arrives without one fails clean here.
+                if not reference_images:
+                    raise RuntimeError(
+                        "this image route needs a reference picture")
+                image_input["reference_mode"] = \
+                    lane["ua_reference_mode"]
+                image_input["image_url"] = _beatapi_media_url(
+                    reference_images[0], "edit-source")
+            if lane.get("references") and reference_images \
+                    and ua_style != "kling_refimg":
                 image_input["image_urls"] = [
                     _beatapi_media_url(ref, "edit-source")
                     for ref in reference_images]
@@ -13115,7 +13161,7 @@ document.getElementById('go').onclick = async () => {{
         # segment's native duration, the only duration a single
         # provider submission ever sees; the plan rides along
         # for pricing and for the chain driver.
-        if model == "wan_motion":
+        if model in MOTION_MODELS:
             # Motion transfer's length comes from the driving
             # video, not the length menu; the real plan is built
             # in the motion branch below.
@@ -13257,7 +13303,7 @@ document.getElementById('go').onclick = async () => {{
                 status_code=422,
                 detail="this model needs a start image",
             )
-        if model == "wan_motion":
+        if model in MOTION_MODELS:
             # Motion transfer (2026-11-17): the subject is the
             # start image and the motion comes from exactly one
             # reference video. The output follows the driving
@@ -14946,6 +14992,9 @@ document.getElementById('go').onclick = async () => {{
     #   kling_omni:  Kling 4.0 / O1: elements reference mode
     #                or start_end_frame mode, mode from the
     #                tier; native_audio on the 4.0 lanes.
+    #   kling_motion: Kling motion control (2.6 / 3.0): the
+    #                subject image and the motion video,
+    #                mode from the tier.
     #   omni:        Gemini Omni Flash: start/end frames and
     #                reference_image_urls.
     #   hailuo:      the MiniMax shared shape: 720p tier
@@ -14979,6 +15028,10 @@ document.getElementById('go').onclick = async () => {{
         "kling25_turbo": ("kuaishou/kling-2.5-turbo-video",
                           "kling_mode"),
         "kling26_std": ("kuaishou/kling-2.6-video", "kling_mode"),
+        "kling26_motion": ("kuaishou/kling-2.6-motion-control",
+                           "kling_motion"),
+        "kling3_motion": ("kuaishou/kling-3.0-motion-control",
+                          "kling_motion"),
         "kling3_turbo": ("kuaishou/kling-3.0-turbo-video",
                          "kling_turbo"),
         "kling4": ("kuaishou/kling-4.0-video", "kling_omni"),
@@ -15134,6 +15187,27 @@ document.getElementById('go').onclick = async () => {{
                               if k in inp]
                     if frames:
                         inp["keyframe_urls"] = frames
+        elif style == "kling_motion":
+            # Kling motion control (2.6 / 3.0): the subject
+            # image performs the reference video's motion.
+            # The documented inputs are the prompt, the
+            # character image and the motion video; mode is
+            # the tier (std 720p / pro 1080p). Character
+            # orientation rides its documented default
+            # ("video": the output follows the driving video,
+            # up to 30 seconds) and keep_audio its default
+            # (the driving video's own sound carries over),
+            # so neither is sent. Create has already enforced
+            # the motion contract: a subject image and exactly
+            # one reference video.
+            inp = {"prompt": prompt,
+                   "mode": kling_mode,
+                   "image_url": _m(params["start_image"],
+                                   "first-frame"),
+                   "video_url": _m(
+                       params["reference_video_urls"][0],
+                       "reference-video"),
+                   "nsfw_check": False}
         elif style == "omni":
             inp = {"prompt": prompt,
                    "duration": params["duration"],
@@ -16950,7 +17024,8 @@ document.getElementById('go').onclick = async () => {{
                                           "seedance15pro_unc", "ltx23_unc",
                                           "ltx23_lora_unc", "wan26_unc",
                                           "wan27_unc",
-                                          "wan_motion"):
+                                          "wan_motion", "kling26_motion",
+                                          "kling3_motion"):
                     existing = body.get("reference_image_urls") or []
                     body["reference_image_urls"] = hosted + list(existing)
                     magi2_char_images = len(hosted)
@@ -18103,6 +18178,17 @@ document.getElementById('go').onclick = async () => {{
                     reference_images.append(
                         f"data:{mime};base64,{raw}")
                 reference_images.extend(extra_refs)
+            if lane.get("references_required") \
+                    and not reference_images:
+                # A reference-mode lane (Kling 2.1 Image,
+                # 2026-11-27) has no text-to-image surface at
+                # all: every documented mode is driven by a
+                # reference picture, so a create without one
+                # refuses here, before the price and the
+                # charge, instead of failing at the provider.
+                raise HTTPException(
+                    status_code=400,
+                    detail="this image model works from a reference picture. Add one first")
             # The input classifier (Jack, 2026-11-24): an edit
             # lane's source picture is judged at creation when
             # the platform holds its bytes (an uploaded data
@@ -27678,6 +27764,12 @@ APP_HTML = (
         <p><button class="btn secondary" id="image-help-btn" type="button">Improve my prompt</button></p>
         <p id="image-help-msg"></p>
       </div>
+      <div id="image-ref-wrap" style="display:none">
+        <label class="flabel" for="image-ref-file">Reference picture (PNG or JPEG)</label>
+        <input id="image-ref-file" type="file" accept="image/png,image/jpeg">
+        <div id="image-ref-preview"></div>
+        <p class="muted">This model works from a picture: your new image is made from the person or subject in your reference picture, following the prompt.</p>
+      </div>
       <div id="image-edit-wrap" style="display:none">
         <label class="flabel" for="image-edit-file">Image to edit (PNG or JPEG)</label>
         <input id="image-edit-file" type="file" accept="image/png,image/jpeg">
@@ -29951,7 +30043,7 @@ async function fetchQuote() {
   // a text mode quote outright, so leaving the image out made
   // their price unreachable and the failure silent (2026-11-19).
   if (startImageB64) want.start_image_png_b64 = startImageB64;
-  if (want.model === 'wan_motion') {
+  if (MOTION_MODELS.includes(want.model)) {
     want.reference_video_urls = [$('motion-url').value.trim()];
     want.reference_video_seconds = Number($('motion-seconds').value) || want.duration_seconds;
     want.start_image_png_b64 = startImageB64;
@@ -30079,8 +30171,15 @@ const MODEL_OPTS = {
   ltx23_lora_unc: { durations: LENGTHS, resolutions: ['480p', '720p', '1080p'] },
   grok_unc: { durations: LENGTHS, resolutions: ['480p', '720p'] },
   grok15_unc: { durations: LENGTHS, resolutions: ['480p', '720p', '1080p'] },
-  wan_motion: { durations: LENGTHS, resolutions: ['720p'] }
+  wan_motion: { durations: LENGTHS, resolutions: ['720p'] },
+  kling26_motion: { durations: LENGTHS, resolutions: ['720p', '1080p'] },
+  kling3_motion: { durations: LENGTHS, resolutions: ['720p', '1080p'] }
 };
+// Motion transfer models (the server's MOTION_MODELS): the
+// subject image performs the motion from one reference
+// video, and the result follows that video's length. They
+// share the motion inputs in More options.
+const MOTION_MODELS = ['wan_motion', 'kling26_motion', 'kling3_motion'];
 // Resolution picker labels (Jack, 2026-11-17): real pixel
 // dimensions, never bare 720p / 1080p / 4K labels ("nobody knows
 // what K means"). Each pair is [long side, short side] at the
@@ -30528,12 +30627,14 @@ function updateModelUI() {
   // form beside Size for all of them (Jack, 2026-11-19).
   $('aspect-wrap').style.display = '';
   $('api-opts').style.display = api ? '' : 'none';
-  $('motion-opts').style.display = m === 'wan_motion' ? '' : 'none';
-  $('length-api').style.display = (api && m !== 'wan_motion') ? '' : 'none';
+  $('motion-opts').style.display = MOTION_MODELS.includes(m) ? '' : 'none';
+  $('length-api').style.display = (api && !MOTION_MODELS.includes(m)) ? '' : 'none';
   if (api) {
     const entry = ((catalogCfg && catalogCfg.models) || []).find(x => x.id === m);
     if (m === 'wan_motion') {
       $('model-note').textContent = 'Motion transfer. Add a subject image above, then paste a motion video link in More options. The result follows the motion video\u2019s length. A prompt is optional here. It only steers the result.';
+    } else if (MOTION_MODELS.includes(m)) {
+      $('model-note').textContent = 'Motion transfer. Add a subject image above, then paste a motion video link in More options. The result follows the motion video\u2019s length and keeps its sound. Describe the scene in the prompt.';
     } else if (entry && entry.ref_caps) {
       const c = entry.ref_caps;
       $('model-note').textContent = 'You can add up to ' + c.images + ' images, ' + c.videos + ' videos, and ' + c.audios + ' audio files as references.';
@@ -31426,7 +31527,7 @@ function buildCreate() {
     ...(neg ? { negative_prompt: neg } : {}),
     ...(seedNum !== null && Number.isInteger(seedNum) ? { seed: seedNum } : {})
   };
-  const motionFields = model === 'wan_motion'
+  const motionFields = MOTION_MODELS.includes(model)
     ? { reference_video_urls: [$('motion-url').value.trim()],
         reference_video_seconds: Number($('motion-seconds').value) || Number($('duration').value) }
     : {};
@@ -33344,6 +33445,7 @@ $('character-train').onclick = async () => {
 // same simplicity: a prompt, a model, a size, one button.
 let imageMode = false;
 let editSourceDataUrl = null;
+let imageRefDataUrl = null;
 function imageLane() {
   return (cfg.image_models || []).find(m => m.id === $('image-model').value);
 }
@@ -33423,6 +33525,11 @@ function buildImageSizes() {
   }
   const isEdit = !!(lane && lane.edit);
   $('image-edit-wrap').style.display = isEdit ? '' : 'none';
+  // A reference-mode lane (Kling 2.1 Image) has no
+  // text-to-image surface: its reference picture input
+  // shows only for it.
+  $('image-ref-wrap').style.display =
+    (lane && lane.references_required) ? '' : 'none';
   // The generation lanes carry their own prompt box in the
   // image form; an edit lane shows its instruction box in
   // the edit wrap instead, never both.
@@ -33469,6 +33576,8 @@ async function refreshImageQuote() {
           : "This model is free. Moonfactory gets about 95 free images a day on it, shared across all users. They reset at midnight UTC.")
         : lane.edit
         ? 'One edit of the image you uploaded, at its own size, charged only when it is delivered. If it fails, the charge comes back in full.'
+        : lane.references_required
+        ? 'One image made from your reference picture, at the shape picked, charged only when it is delivered. If it fails, the charge comes back in full.'
         : 'One image at the size picked, charged only when it is delivered. If it fails, the charge comes back in full.';
   } catch (e) {
     btn.textContent = 'Make image';
@@ -33513,16 +33622,32 @@ $('image-edit-file').addEventListener('change', async () => {
     restoredFileArrived('source_image', editSourceDataUrl);
   } catch (e) { msg('job-msg', 'That image could not be read.', 'err'); }
 });
+$('image-ref-file').addEventListener('change', async () => {
+  const f = $('image-ref-file').files[0];
+  imageRefDataUrl = null;
+  $('image-ref-preview').innerHTML = '';
+  if (!f) return;
+  try {
+    imageRefDataUrl = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(f); });
+    const img = document.createElement('img');
+    img.src = imageRefDataUrl;
+    img.style.maxWidth = '100%'; img.style.borderRadius = '12px';
+    img.alt = 'The reference picture';
+    $('image-ref-preview').appendChild(img);
+  } catch (e) { msg('job-msg', 'That image could not be read.', 'err'); }
+});
 function buildImage() {
   const lane = imageLane();
   if (!lane) { msg('job-msg', 'Pick an image model first.', 'err'); return null; }
   if (lane.edit && !editSourceDataUrl) { msg('job-msg', 'Add the image you want edited first.', 'err'); return null; }
+  if (lane.references_required && !imageRefDataUrl) { msg('job-msg', 'Add the reference picture this model works from first.', 'err'); return null; }
   const promptText = lane.edit
     ? $('image-edit-prompt').value : $('image-gen-prompt').value;
   const body = lane.id === 'house'
     ? { prompt: promptText, aspect_ratio: $('image-size').value }
     : { prompt: promptText, image_model: lane.id, image_size: $('image-size').value };
   if (lane.edit) body.source_image = editSourceDataUrl;
+  if (lane.references_required) body.reference_images = [imageRefDataUrl];
   return { kind: 'image', msgId: 'job-msg', body };
 }
 async function fireImage(d) {

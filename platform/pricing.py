@@ -222,6 +222,17 @@ PROVIDER_RATES_CENTS_PER_SECOND = {
     # read 2026-11-17). The output follows the driving video's
     # length; the rate is per output second.
     "wan_motion": {"720p": 6.0},
+    # Kling motion control via UnificAlly (2026-11-27): the
+    # maker's motion transfer models on the shared motion
+    # input contract (subject image plus one driving video),
+    # priced per output second like Wan Motion. UnificAlly
+    # publishes 2.6 at $0.063/s (std 720p) / $0.1008/s (pro
+    # 1080p) and 3.0 at $0.1134/s (std) / $0.1512/s (pro)
+    # (its model pages, read 2026-11-27). The output follows
+    # the driving video's length; the rate is per output
+    # second.
+    "kling26_motion": {"720p": 6.3, "1080p": 10.08},
+    "kling3_motion": {"720p": 11.34, "1080p": 15.12},
     # Seedance 2.5 via FrameHush (rerouted 2026-11-26, route
     # rule: the cheapest verified route is primary): FrameHush's
     # seedance-2-5 endpoint bills per generated second at
@@ -1153,6 +1164,8 @@ MODEL_RESOLUTIONS = {
     "ltx23_unc": ("480p", "720p", "1080p"),
     "ltx23_lora_unc": ("480p", "720p", "1080p"),
     "wan_motion": ("720p",),
+    "kling26_motion": ("720p", "1080p"),
+    "kling3_motion": ("720p", "1080p"),
     # VidLab lanes (2026-11-23): the tiers each lane sells.
     # vidu_q4 gains its 480p tier here (VidLab publishes the
     # 540p rate the platform tier maps to).
@@ -2892,6 +2905,36 @@ IMAGE_LANES = {
         "raw_cents": {"0.6MP": 1.2, "1MP": 1.2, "2MP": 1.36,
                       "4MP": 1.52},
     },
+    "kling21_image": {
+        # Kling 2.1 Image (2026-11-27): UnificAlly's surface
+        # for this model is reference modes only (restyle /
+        # portrait / character / elements), every mode driven
+        # by reference pictures, with no resolution tiers at
+        # all (its docs page, read 2026-11-27), so the lane
+        # carries one flat size like the other tier-less
+        # lanes. The platform sells the single-picture modes
+        # through its reference pictures: the first reference
+        # rides as the mode's image_url in character mode
+        # (subject-driven generation, the platform
+        # references' own meaning), and a create with no
+        # reference picture refuses (references_required).
+        # Elements mode (2-4 element URLs plus optional
+        # scene and style URLs) is a different input surface
+        # and is not sold on this lane. Price: UnificAlly
+        # publishes the model from $0.0252 per generation
+        # (its pricing page and Kling hub, read 2026-11-27;
+        # Kling's official image-to-image rate $0.028 less
+        # the supplier's 10%), flat per image at the
+        # reference-mode price.
+        "label": "Kling 2.1 Image · $$",
+        "provider": "unifically",
+        "endpoint": "kuaishou/kling-2.1-image",
+        "ua_style": "kling_refimg",
+        "ua_reference_mode": "character",
+        "references": True,
+        "references_required": True,
+        "raw_cents": {"square": 2.52},
+    },
     "kling3_image": {
         "label": "Kling 3.0 Image · $$",
         "provider": "unifically",
@@ -3062,6 +3105,11 @@ IMAGE_SIZE_LABELS = {
                       "1MP": "1 megapixel",
                       "2MP": "2 megapixels",
                       "4MP": "4 megapixels"},
+    "kling21_image": {"square": "Square",
+                      "square-21:9": "21:9", "square-16:9": "16:9",
+                      "square-9:16": "9:16", "square-1:1": "1:1",
+                      "square-4:3": "4:3", "square-3:4": "3:4",
+                      "square-3:2": "3:2", "square-2:3": "2:3"},
     "kling3_image": {"1K": "1024 x 1024", "2K": "2048 x 2048"},
     "kling3_omni_image": {"1K": "1024 x 1024",
                           "2K": "2048 x 2048",
@@ -3165,6 +3213,11 @@ IMAGE_ASPECTS = {
                          "9:16", "9:21"),
     "flux2_klein9b": ("21:9", "16:9", "4:3", "1:1", "3:4",
                       "9:16", "9:21"),
+    # Kling 2.1 Image's documented eight ratios (its docs
+    # page, read 2026-11-27); the plain square key is the
+    # 1:1 shape, the aspect keys carry the rest.
+    "kling21_image": ("21:9", "16:9", "9:16", "1:1", "4:3",
+                      "3:4", "3:2", "2:3"),
     "kling3_image": ("16:9", "9:16", "1:1", "4:3", "3:4",
                      "3:2", "2:3"),
     "kling3_omni_image": ("16:9", "9:16", "1:1", "4:3", "3:4",

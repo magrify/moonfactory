@@ -27,7 +27,15 @@ break it:
 - the image shelf: the seven rerouted lanes carry the
   UnificAlly provider, endpoint and cheaper raw rows, the
   eight new lanes are well formed, and image prices follow
-  the standard x1.25 / owner-at-cost machinery.
+  the standard x1.25 / owner-at-cost machinery;
+- the Kling build that followed the pass (2026-11-27):
+  Kling 2.6 / 3.0 motion control as their own per-second
+  lanes on the shared motion contract (MOTION_MODELS,
+  UnificAlly kling_motion submit shape, published per
+  second basis, x1.25 customer sell, owner at cost), and
+  Kling 2.1 Image as a flat reference-mode image lane
+  (references required, the first reference as the mode's
+  image_url, $0.0252 raw, no size tiers invented).
 
 No Modal calls, no network, no generation.
 
@@ -87,8 +95,8 @@ check('provider == "unifically"' in fn_source("submit_api_job"),
       "submit dispatch lost unifically")
 
 UA_MAP = literal_assign("UNIFICALLY_VIDEO_MODELS")
-check(isinstance(UA_MAP, dict) and len(UA_MAP) == 28,
-      f"UNIFICALLY_VIDEO_MODELS should hold 28 models, "
+check(isinstance(UA_MAP, dict) and len(UA_MAP) == 30,
+      f"UNIFICALLY_VIDEO_MODELS should hold 30 models, "
       f"found {len(UA_MAP or {})}")
 
 EXPECTED_MAP = {
@@ -107,6 +115,10 @@ EXPECTED_MAP = {
                        "kling_mode"),
     "kling25_turbo": ("kuaishou/kling-2.5-turbo-video", "kling_mode"),
     "kling26_std": ("kuaishou/kling-2.6-video", "kling_mode"),
+    "kling26_motion": ("kuaishou/kling-2.6-motion-control",
+                       "kling_motion"),
+    "kling3_motion": ("kuaishou/kling-3.0-motion-control",
+                      "kling_motion"),
     "kling3_turbo": ("kuaishou/kling-3.0-turbo-video", "kling_turbo"),
     "kling4": ("kuaishou/kling-4.0-video", "kling_omni"),
     "kling4_flash": ("kuaishou/kling-4.0-flash-video", "kling_omni"),
@@ -182,6 +194,8 @@ BASIS = {
     "kling26_std": {"720p": 3.78},
     "wan27": {"720p": 9.0, "1080p": 13.5},
     "kling21": {"720p": 5.04, "1080p": 8.82},
+    "kling26_motion": {"720p": 6.3, "1080p": 10.08},
+    "kling3_motion": {"720p": 11.34, "1080p": 15.12},
     "kling21_master": {"1080p": 25.2},
     "kling25_turbo": {"720p": 3.78, "1080p": 6.3},
     "kling3_turbo": {"720p": 10.08, "1080p": 12.6},
@@ -326,6 +340,46 @@ check("kling_o1" not in app.MODEL_DURATION_STEPS
       and app.MODEL_DURATION_BOUNDS.get("kling_o1") == (3, 10),
       "kling_o1 lengths not moved to the (3, 10) range")
 
+# -- Kling motion control lanes (2026-11-27 build) --------------
+
+# Each version is its own lane on the shared motion contract:
+# picker entry, per-second lane, motion set member, audio
+# record, UnificAlly at both tiers, the published per-second
+# basis (in BASIS above), and the standard frontier money:
+# the customer sells at the hard minimum (the shelf basis,
+# provider rate plus the frozen post figure, x 1.25) and the
+# owner at true cost (provider rate plus the measured post
+# figure). No shelf freeze, and no Higgsfield figure on
+# record for motion control.
+for model in ("kling26_motion", "kling3_motion"):
+    check(model in model_ids, f"{model} missing from MODELS")
+    entry = next(m for m in app.MODELS if m["id"] == model)
+    check(entry.get("paid_only") is True, f"{model} not paid_only")
+    check(model in app.PER_SECOND_MODELS,
+          f"{model} missing from PER_SECOND_MODELS")
+    check(model in app.MOTION_MODELS,
+          f"{model} missing from MOTION_MODELS")
+    check(model in app.LANE_AUDIO, f"{model} missing LANE_AUDIO")
+    check(app.native_lengths(model) == list(range(2, 31)),
+          f"{model} native lengths are not the 2-30 motion range")
+    for res, raw in BASIS[model].items():
+        check(app.provider_for(model, res, None) == "unifically",
+              f"{model} {res} does not resolve to unifically")
+        sell = pricing.frontier_lane(model, res)[
+            "sell_cents_per_second"]
+        want_sell = (raw + pricing.SHELF_POST_COST_CENTS_PER_SECOND) \
+            * pricing.FRONTIER_MIN_MARKUP
+        check(abs(sell - want_sell) < 1e-6,
+              f"{model} {res} customer sell {sell} != {want_sell}")
+        owner_sell = pricing.frontier_lane(model, res, owner=True)[
+            "sell_cents_per_second"]
+        want_owner = raw + pricing.POST_COST_CENTS_PER_SECOND
+        check(abs(owner_sell - want_owner) < 1e-6,
+              f"{model} {res} owner sell {owner_sell} != {want_owner}")
+        check(pricing.frontier_lane(model, res)[
+            "higgsfield_effective_cents_per_second"] is None,
+            f"{model} {res} grew a Higgsfield figure")
+
 # -- driven video submits ------------------------------------------
 
 jobs = {}
@@ -437,6 +491,33 @@ check(p["input"]["mode"] == "std"
       == "https://media.example/first-frame.png",
       "kling21 payload")
 
+# Kling motion control: the subject image and the motion
+# video, mode from the tier, no duration (the output
+# follows the driving video's length).
+p = drive("kling26_motion", mode="image", start_image="data:s",
+          reference_video_urls=["data:vid"])
+check(p["model"] == "kuaishou/kling-2.6-motion-control",
+      "kling26_motion submit slug")
+check(p["input"]["mode"] == "std"
+      and p["input"]["image_url"]
+      == "https://media.example/first-frame.png"
+      and p["input"]["video_url"]
+      == "https://media.example/reference-video.png"
+      and "duration" not in p["input"],
+      "kling26_motion payload")
+
+p = drive("kling3_motion", mode="image", resolution="1080p",
+          start_image="data:s",
+          reference_video_urls=["data:vid"])
+check(p["model"] == "kuaishou/kling-3.0-motion-control",
+      "kling3_motion submit slug")
+check(p["input"]["mode"] == "pro"
+      and p["input"]["image_url"]
+      == "https://media.example/first-frame.png"
+      and p["input"]["video_url"]
+      == "https://media.example/reference-video.png",
+      "kling3_motion payload")
+
 p = drive("grok15_lite", mode="text")
 check("video_preset" not in p["input"],
       "grok15_lite must not carry the spicy preset")
@@ -485,7 +566,7 @@ for key, row in IMG_DISPLACED.items():
 
 NEW_IMAGE = ["flux3_klein_base", "flux2_klein9b", "kling3_image",
              "kling3_omni_image", "kling4_image", "kling_o1_image",
-             "wan26_image", "zimage_turbo"]
+             "wan26_image", "zimage_turbo", "kling21_image"]
 for lane_id in NEW_IMAGE:
     lane = pricing.IMAGE_LANES.get(lane_id) or {}
     check(lane.get("provider") == "unifically",
@@ -501,6 +582,28 @@ for lane_id in NEW_IMAGE:
         _r, owner_debit = pricing.image_lane_price(
             lane_id, size, owner=True)
         check(owner_debit == raw, f"{lane_id} {size} owner not raw")
+
+# Kling 2.1 Image (2026-11-27 build): a flat reference-mode
+# lane. The published reference-mode price ($0.0252) is the
+# only rate; no size tiers exist on the model, so the lane
+# carries the one flat "square" size and every documented
+# aspect shape prices at that same flat rate. A reference
+# picture is required (the model's whole surface is
+# reference modes), the submit style is kling_refimg in
+# character mode, and elements mode is not sold.
+lane21 = pricing.IMAGE_LANES["kling21_image"]
+check(lane21.get("ua_style") == "kling_refimg"
+      and lane21.get("ua_reference_mode") == "character"
+      and lane21.get("references") is True
+      and lane21.get("references_required") is True,
+      "kling21_image is not shaped as the required-reference lane")
+check(lane21["raw_cents"].get("square") == 2.52
+      and set(lane21["raw_cents"].values()) == {2.52},
+      "kling21_image must price flat at 2.52c on every size key")
+check({s.split("-", 1)[1] for s in lane21["raw_cents"] if "-" in s}
+      == {"21:9", "16:9", "9:16", "1:1", "4:3", "3:4", "3:2",
+          "2:3"},
+      "kling21_image aspect shapes drifted from the documented eight")
 
 # the 2.0 spicy lane's price basis: the cheapest documented
 # 2.0 cell (low x 1k = $0.02), owner at cost, customer x1.25
@@ -562,6 +665,26 @@ check(p["input"]["resolution"] == "2k"
 p = drive_img("seedream40", "1K-16:9")
 check(p["input"]["resolution"] == "1K",
       "seedream40 sized payload")
+
+# Kling 2.1 Image: the first reference rides as the mode's
+# singular image_url in character mode; no image_urls
+# array, no resolution field; the aspect rides the shape.
+p = drive_img("kling21_image", "square-16:9", refs=["data:ref"])
+check(p["model"] == "kuaishou/kling-2.1-image",
+      "kling21_image submit slug")
+check(p["input"]["reference_mode"] == "character"
+      and p["input"]["image_url"]
+      == "https://media.example/edit-source.png"
+      and p["input"]["aspect_ratio"] == "16:9"
+      and "image_urls" not in p["input"]
+      and "resolution" not in p["input"],
+      "kling21_image payload")
+try:
+    drive_img("kling21_image", "square")
+    check(False, "kling21_image submit without a reference "
+                 "picture must fail")
+except RuntimeError:
+    pass
 
 if failures:
     print(f"FAIL ({len(failures)})")

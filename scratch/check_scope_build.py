@@ -149,8 +149,8 @@ for mid in app.PER_SECOND_MODELS:
         check(res in rates, f"{mid} missing a rate for {res}")
 
 # --- image shelf (item 1) ------------------------------------------
-check(len(pricing.IMAGE_LANES) == 64,
-      "image shelf has 64 lanes (33 VidLab lanes added 2026-11-23, "
+check(len(pricing.IMAGE_LANES) == 65,
+      "image shelf has 65 lanes (33 VidLab lanes added 2026-11-23, "
       "GPT Image 2.6 Sunburst added 2026-11-25, LongCat-Image "
       "added 2026-11-26, MAI Image 2.7 and 2.7 Flash added "
       "2026-11-27, Midjourney V8.2, V8.1, V6.1 and Niji 7 "
@@ -160,7 +160,8 @@ check(len(pricing.IMAGE_LANES) == 64,
       "added 2026-11-27 in the catalog pass (Flux 3 Klein "
       "Base, Flux 2 Klein 9B, Kling 3.0 Image, Kling 3.0 "
       "Omni Image, Kling 4.0 Image, Kling O1 Image, Wan 2.6 "
-      "Image, Z-Image Turbo); superseded "
+      "Image, Z-Image Turbo), Kling 2.1 Image added "
+      "2026-11-27 in the Kling follow-up build; superseded "
       "2026-11-25: "
       "was 48 until "
       "GPT Image 1 was removed the same day, its upstream shut "
