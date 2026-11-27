@@ -1879,6 +1879,56 @@ def write_job_tombstone(job: dict) -> None:
         print(f"tombstone failed for job {job.get('id')}: {exc}")
 
 
+_JOB_FILE_SUFFIXES = (
+    ".mp4", ".web.mp4", ".raw.mp4", ".png", ".jpg",
+    ".gthumb.jpg", ".gthumb.tmp.jpg", ".poster.tmp.jpg",
+    ".gif", ".carry.png")
+
+
+def _job_file_manifest(job_id: str, job: dict = None) -> list:
+    """Every file one job can leave on the data volume
+    (fix, 2026-11-27): the single list the legal hold
+    export's plaintext removal, the job deletion path, and
+    the upload lifecycle all share, so no derivative is
+    left behind by one path and removed by another. The
+    audit found the three lists disagreeing (delete_job
+    missed the poster and the GIF, the hold export missed
+    every thumbnail derivative)."""
+    paths = [FILES_DIR / f"{job_id}{suffix}"
+             for suffix in _JOB_FILE_SUFFIXES]
+    paths += [
+        FILES_DIR / "beds" / f"{job_id}.wav",
+        FILES_DIR / "voice_clone" / f"{job_id}.wav",
+        FILES_DIR / "audio_worker" / f"{job_id}.wav",
+        FILES_DIR / "audio_worker" / f"{job_id}.source.wav",
+    ]
+    if job and job.get("upload_path"):
+        paths.append(Path(job["upload_path"]))
+    return paths
+
+
+def _unlink_job_files(job_id: str, job: dict = None) -> list:
+    """Remove every file on the job's manifest; returns the
+    manifest paths that still exist afterwards (the caller
+    decides what a survivor means)."""
+    for path in _job_file_manifest(job_id, job):
+        try:
+            path.unlink(missing_ok=True)
+        except Exception:
+            pass
+    return [str(p) for p in _job_file_manifest(job_id, job)
+            if p.is_file()]
+
+
+def legal_hold_active(job_id: str) -> bool:
+    """A job is under an active legal hold while a hold
+    record exists for it and has not been released through
+    the admin release flow (security fix, 2026-11-27,
+    admin-restore-resurrects-legal-hold-content)."""
+    hold = legal_holds.get(job_id)
+    return bool(hold) and not hold.get("released")
+
+
 def place_legal_hold(job: dict, trigger: str, note: str = "") -> None:
     """Place a legal hold on a job removed or confirmed-flagged
     for illegal content: the FULL case file is retained, the
@@ -1962,6 +2012,8 @@ def place_legal_hold(job: dict, trigger: str, note: str = "") -> None:
                 bool(existing.get("law_enforcement_hold")),
             "content_destroyed_at":
                 existing.get("content_destroyed_at"),
+            "released": bool(existing.get("released")),
+            "released_at": existing.get("released_at"),
         }
         # The automated vault export: the case material seals
         # itself into the private R2 vault, and on a removal the
@@ -2152,37 +2204,64 @@ def _legal_hold_vault_export(job: dict, remove_plaintext: bool) -> None:
             "record_bytes": record_size,
             "at": _now(),
         })
-        hold["vault"] = {
-            "bucket": LEGAL_HOLD_VAULT_BUCKET,
-            "content_key": content_key,
-            "record_key": record_key,
-            "content_sha256": hold.get("content_sha256"),
-            "encryption": LEGAL_HOLD_ENCRYPTION,
-            "exported_at": _now(),
-        }
+        existing_vault = hold.get("vault") or {}
+        if file_bytes is None and existing_vault.get("content_key"):
+            # A repeat export with the original already gone
+            # (security fix, 2026-11-27,
+            # admin-remove-repeat-erases-vault-content-key):
+            # the records-only pass must never rewrite the
+            # vault record into a null content key and orphan
+            # the sealed content that is already there.
+            hold["vault"] = existing_vault
+        else:
+            hold["vault"] = {
+                "bucket": LEGAL_HOLD_VAULT_BUCKET,
+                "content_key": content_key,
+                "record_key": record_key,
+                "content_sha256": hold.get("content_sha256"),
+                "encryption": LEGAL_HOLD_ENCRYPTION,
+                "exported_at": _now(),
+            }
         hold["actions"] = actions
         legal_holds[job_id] = hold
         if remove_plaintext and file_bytes is not None:
-            for path in (FILES_DIR / f"{job_id}.mp4",
-                         FILES_DIR / f"{job_id}.web.mp4",
-                         FILES_DIR / f"{job_id}.raw.mp4",
-                         FILES_DIR / f"{job_id}.png",
-                         FILES_DIR / f"{job_id}.jpg",
-                         FILES_DIR / "beds" / f"{job_id}.wav"):
-                try:
-                    path.unlink(missing_ok=True)
-                except Exception:
-                    pass
+            # The full derivative set goes, not just the
+            # original (security fix, 2026-11-27,
+            # legal-hold-export-leaves-thumbnail-derivatives):
+            # the shared manifest is the same list delete_job
+            # uses, thumbnails, poster, GIF and child wavs
+            # included, and the removal is verified before
+            # the guarantee is logged.
+            survivors = _unlink_job_files(job_id, job)
             data_volume.commit()
             hold = legal_holds.get(job_id) or hold
             actions = list(hold.get("actions") or [])
-            actions.append({
-                "action": "plaintext removed from the platform "
-                          "volume after verified vault export",
-                "at": _now(),
-            })
+            if survivors:
+                actions.append({
+                    "action": "plaintext removal incomplete",
+                    "survivors": survivors,
+                    "at": _now(),
+                })
+            else:
+                actions.append({
+                    "action": "plaintext removed from the platform "
+                              "volume after verified vault export",
+                    "at": _now(),
+                })
             hold["actions"] = actions
             legal_holds[job_id] = hold
+            # The live record loses its provider references
+            # (security fix, 2026-11-27,
+            # admin-restore-resurrects-legal-hold-content):
+            # nothing on the record may still point at a
+            # provider copy of the held content.
+            live = jobs.get(job_id)
+            if live:
+                for field in ("result_url", "chain_results",
+                              "worker_job_id"):
+                    if field in live:
+                        live[field] = None
+                jobs[job_id] = live
     except Exception as exc:  # noqa: BLE001
         print(f"legal hold vault export failed for job {job_id}: {exc}")
         try:
@@ -17752,14 +17831,8 @@ document.getElementById('go').onclick = async () => {{
                     write_job_tombstone(child)
                     del jobs[cid]
                     _unindex_job(child.get("user_id"), cid)
-                for path in (FILES_DIR / f"{cid}.mp4",
-                             FILES_DIR / f"{cid}.raw.mp4",
-                             FILES_DIR / f"{cid}.jpg",
-                             FILES_DIR / f"{cid}.png"):
-                    try:
-                        path.unlink(missing_ok=True)
-                    except Exception:
-                        pass
+                if not legal_hold_active(cid):
+                    _unlink_job_files(cid, child)
             carry = FILES_DIR / f"{job_id}.carry.png"
             try:
                 carry.unlink(missing_ok=True)
@@ -17781,16 +17854,12 @@ document.getElementById('go').onclick = async () => {{
         del jobs[job_id]
         _unindex_job(user["id"], job_id)
         _gallery_cache_clear(job_id)
-        for path in (FILES_DIR / f"{job_id}.mp4",
-                     FILES_DIR / f"{job_id}.web.mp4",
-                     FILES_DIR / f"{job_id}.raw.mp4",
-                     FILES_DIR / f"{job_id}.png",
-                     FILES_DIR / f"{job_id}.gthumb.jpg",
-                     FILES_DIR / "beds" / f"{job_id}.wav"):
-            try:
-                path.unlink(missing_ok=True)
-            except Exception:
-                pass
+        # Every derivative on the shared manifest goes with
+        # the record (fix, 2026-11-27,
+        # delete-job-leaves-file-derivatives) -- except a
+        # held job's files, which the hold preserves.
+        if not legal_hold_active(job_id):
+            _unlink_job_files(job_id, job)
         data_volume.commit()
         return {"status": "deleted"}
 
@@ -21402,6 +21471,12 @@ document.getElementById('go').onclick = async () => {{
         # the same way a clip is, under the same rules.
         if job.get("status") != "done" or job.get("removed"):
             return False
+        # A job under an active legal hold never lists
+        # (security fix, 2026-11-27): visibility used to be
+        # computed from the record's flags alone, so a held
+        # job whose removed flag was cleared re-listed.
+        if legal_hold_active(job.get("id") or ""):
+            return False
         # A short's AI pictures are scenes inside the short, not
         # work of their own: they never list here or in the
         # owner's library.
@@ -22373,10 +22448,40 @@ document.getElementById('go').onclick = async () => {{
         job = jobs.get(job_id)
         if not job:
             raise HTTPException(status_code=404, detail="unknown job")
+        if legal_hold_active(job_id):
+            # Security fix (2026-11-27,
+            # admin-restore-resurrects-legal-hold-content):
+            # restore used to flip one flag and re-list (and,
+            # through the surviving provider references,
+            # re-serve) content under a legal hold. A held
+            # job comes back only through the release flow.
+            raise HTTPException(
+                status_code=409,
+                detail="this job is under a legal hold; release the hold before restoring it")
         job["removed"] = False
         jobs[job_id] = job
         _gallery_kick()
         return {"status": "restored"}
+
+    @web.post("/api/admin/gallery/{job_id}/release-hold")
+    def admin_gallery_release_hold(job_id: str,
+                                   x_admin_key: str = Header(default="")):
+        """The explicit hold release (security fix,
+        2026-11-27): the only path that makes a held job
+        restorable again. The release is written into the
+        hold's action log; the case file itself is kept."""
+        require_admin(x_admin_key)
+        hold = legal_holds.get(job_id)
+        if not hold:
+            raise HTTPException(status_code=404, detail="no hold on this job")
+        actions = list(hold.get("actions") or [])
+        actions.append({"action": "hold released",
+                        "at": _now()})
+        hold["actions"] = actions
+        hold["released"] = True
+        hold["released_at"] = _now()
+        legal_holds[job_id] = hold
+        return {"status": "released"}
 
     return web
 
