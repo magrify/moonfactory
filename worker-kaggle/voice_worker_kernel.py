@@ -143,7 +143,7 @@ _WHISPER = None
 # install succeeds without ever providing the module (the
 # 2026-11-22 sessions burned all ten heal attempts on it).
 LOAD_MISS_PINS = {"x_transformers": "x-transformers==2.32.4",
-                  "whisper": "openai-whisper==20231117"}
+                  "whisper": "openai-whisper==20250625"}
 
 
 def setup_engine():
@@ -170,7 +170,13 @@ def setup_engine():
                 # OpenAI's package: without it the model load
                 # dies and no clone can ever be made (the
                 # lane's standing failure until 2026-11-27).
-                ["openai-whisper==20231117"],
+                # The 20250625 release, not the era's 20231117:
+                # that sdist no longer builds on Kaggle's
+                # current image (its setup.py needs the
+                # removed pkg_resources at wheel build time,
+                # so every install exits rc=1), while the
+                # newer release ships modern packaging.
+                ["openai-whisper==20250625"],
                 ["matplotlib==3.11.2"],
                 ["networkx==3.1"], ["rich==15.0.0"], ["wget==3.2"],
                 ["protobuf==7.36.2"], ["tensorboard==2.21.0"],

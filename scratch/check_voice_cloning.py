@@ -184,11 +184,13 @@ check("k2-fsa" not in SRC and "k2-fsa" not in KERNEL
 # ever completed. The kernel must install openai-whisper
 # up front, pinned, and the heal loop must map the module
 # to that same pinned package.
-check("openai-whisper==20231117" in KERNEL,
+check("openai-whisper==20250625" in KERNEL,
       "voice kernel does not install openai-whisper up front: "
       "the CosyVoice frontend imports the whisper module at "
-      "load and engine setup fails without it")
-check('"whisper": "openai-whisper==20231117"' in KERNEL,
+      "load and engine setup fails without it (the pin is "
+      "the 20250625 release because the 20231117 sdist no "
+      "longer builds on Kaggle's current image)")
+check('"whisper": "openai-whisper==20250625"' in KERNEL,
       "voice kernel load self-heal does not map the whisper "
       "module to openai-whisper (the bare PyPI name whisper "
       "is an unrelated package)")
