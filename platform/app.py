@@ -869,7 +869,15 @@ def process_clip_job(job_id: str):
         jobs[job_id] = job
         _clip_settle(job)
         data_volume.commit()
+        # The work directory is scratch (security fix,
+        # 2026-11-27, clips-download-no-size-bound): the
+        # download and the audio cut never outlive the job.
+        shutil.rmtree(work, ignore_errors=True)
     except Exception as exc:  # noqa: BLE001
+        # A failed job leaves nothing behind either: failed
+        # downloads used to persist on the shared volume
+        # forever (same fix).
+        shutil.rmtree(work, ignore_errors=True)
         job["status"] = "error"
         job["error"] = "clipping failed, nothing was charged"
         if clipping.LINK_DEAD_MESSAGE.split(". ")[0] in str(exc):
