@@ -231,7 +231,7 @@ check('<input id="ec-file" type="file" accept="video/*" '
       'style="display:none">' in html,
       "a raw browser file widget still shows")
 clone_card = html[html.index('id="clone-pane"'):
-                  html.index("<h2>Make a movie</h2>")]
+                  html.index('<div id="jobs"')]
 check("Or upload a video file" not in clone_card,
       "the old raw upload label still renders")
 check("ecWireDrop('ec-file-drop', 'ec-file', ecRenderFileDrop)"

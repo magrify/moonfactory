@@ -26581,6 +26581,21 @@ _CSS = """
      never a button competing with the step's primary. */
   .librow{display:block;background:none;border:0;padding:4px 0;cursor:pointer;color:var(--gray);font-size:14.5px;font-weight:600;text-align:left}
   .librow:hover{color:var(--ink)}
+  /* Movie step 2's library candidates (fold fix,
+     2026-11-27): a compact strip of small tiles, never
+     the full picker cards: picking a product photo is a
+     glance, not a gallery. Each tile carries an x that
+     takes it out of the list for this visit only; the
+     library item itself is never deleted. The picked
+     photo's preview carries the same x to clear the pick
+     and go back to choosing or uploading. */
+  .mfstrip{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+  .mfstrip .mftile{position:relative;width:72px;height:72px;border-radius:9px;overflow:hidden;background:var(--inset);cursor:pointer;flex:none}
+  .mfstrip .mftile img.thumb,.mfstrip .mftile video.thumb{width:100%;height:100%;object-fit:cover;display:block}
+  .mfstrip .mftile.picked{outline:2px solid var(--accent);outline-offset:2px}
+  .mfx{position:absolute;top:3px;right:3px;width:20px;height:20px;border-radius:50%;border:0;background:rgba(10,10,14,.72);color:#fff;font-size:13px;line-height:1;cursor:pointer;padding:0}
+  .mfpreview{position:relative;display:inline-block;margin-top:10px;line-height:0}
+  .mfpreview img.thumb{border-radius:10px}
   /* Clone steps (2026-11-27 flow redesign): the whole
      journey stands on the page from the first paint as
      numbered steps, each with a one line helper. A step
@@ -28903,15 +28918,12 @@ APP_HTML = (
     <div id="botcheck2"></div>
     <button class="btn gen" id="create">Create video</button>
     <p id="job-msg"></p>
-  </div>
-
-  <div class="card" style="max-width:640px;margin:18px auto 0">
-    <div class="create-head">
-      <h2>Make a movie</h2>
-    </div>
-    <p class="muted">Four steps, in order. Create your AI model, make a start frame with your product in their hand, generate clips on the model you like, then put them together into one movie in your library.</p>
-    <div id="mf1-root"></div>
-    <div id="botcheck-mf1"></div>
+    <details class="more" id="mf1-fold">
+      <summary>Make a movie</summary>
+      <p class="muted">Four steps, in order. Create your AI model, make a start frame with your product in their hand, generate clips on the model you like, then put them together into one movie in your library.</p>
+      <div id="mf1-root"></div>
+      <div id="botcheck-mf1"></div>
+    </details>
   </div>
 
   </div>
@@ -29079,15 +29091,12 @@ APP_HTML = (
       <button class="btn gen" id="ec-clone" type="button">Clone the video</button>
       <p id="ec-clone-msg"></p>
     </div>
-  </div>
-
-  <div class="card" style="max-width:640px;margin:18px auto 0">
-    <div class="create-head">
-      <h2>Make a movie</h2>
-    </div>
-    <p class="muted">Four steps, in order. Create your AI model, make a start frame with your product in their hand, generate clips on the model you like, then put them together into one movie in your library.</p>
-    <div id="mf2-root"></div>
-    <div id="botcheck-mf2"></div>
+    <details class="more" id="mf2-fold">
+      <summary>Make a movie</summary>
+      <p class="muted">Four steps, in order. Create your AI model, make a start frame with your product in their hand, generate clips on the model you like, then put them together into one movie in your library.</p>
+      <div id="mf2-root"></div>
+      <div id="botcheck-mf2"></div>
+    </details>
   </div>
   </div>
 
@@ -31492,6 +31501,10 @@ async function startCryptoPlan() {
 // One implementation in two homes: the same four steps render
 // in the Create tab and in the Clone tab, alongside the Clone
 // tab's own video swap flow, which stays exactly as it was.
+// The steps are not a section of their own (fold fix,
+// 2026-11-27): each home is a "Make a movie" fold inside its
+// pane's own card, at the end of the Create card and after
+// the Clone card's step 4, opening in place.
 // Every step rides the normal creation paths, so every gate on
 // those paths applies unchanged: step 1 makes the person on
 // the Nano Banana Pro image lane and saves them through the
@@ -31503,8 +31516,8 @@ async function startCryptoPlan() {
 // into one movie in the library and charges nothing.
 const MF_IMAGE_LANE = 'nano_banana_pro';
 const mfState = {
-  mf1: { characterId: '', personJobId: '', productDataUrl: '', productJobId: '', frameJobId: '', picks: [] },
-  mf2: { characterId: '', personJobId: '', productDataUrl: '', productJobId: '', frameJobId: '', picks: [] }
+  mf1: { characterId: '', personJobId: '', productDataUrl: '', productJobId: '', productHidden: [], frameJobId: '', picks: [] },
+  mf2: { characterId: '', personJobId: '', productDataUrl: '', productJobId: '', productHidden: [], frameJobId: '', picks: [] }
 };
 let mfJobsCache = [];
 let mfCharactersCache = [];
@@ -31524,9 +31537,14 @@ function mfImageSize() {
   return sizes.find(s => s.endsWith('-9:16')) || sizes[0] || '1K';
 }
 function mfShortLabel(j) {
-  const t = String(j.prompt || 'Video').trim();
-  return (t.length > 64 ? t.slice(0, 64).trimEnd() + '…' : t) +
-    ' (' + (j.duration_seconds || '?') + 's)';
+  // A duration belongs to a video, and only a real one:
+  // an image never carries one, and a video with no
+  // measured length shows its prompt alone, never "(?s)".
+  const t = String(j.prompt || (j.kind === 'image' ? 'Image' : 'Video')).trim();
+  const label = t.length > 64 ? t.slice(0, 64).trimEnd() + '…' : t;
+  if (j.kind === 'image') return label;
+  const d = Number(j.duration_seconds);
+  return d > 0 ? label + ' (' + d + 's)' : label;
 }
 function mfVideoJobs() {
   return mfJobsCache.filter(j => j.kind !== 'image' && j.status === 'done'
@@ -31579,10 +31597,10 @@ function mfRootHtml(p) {
   '<div id="' + p + '-char-preview"></div>' +
   '<p class="group-label">Step 2 of 4</p>' +
   '<h3>Make a start frame</h3>' +
-  '<p class="muted">Your model from step 1, holding your product. Upload a product photo, or pick one of your images.</p>' +
+  '<p class="muted">Your model from step 1, holding your product. Upload a product photo, or pick one of your images. The × on a photo takes it out of this list; it never deletes the photo.</p>' +
   '<label>Product photo</label>' +
   '<input id="' + p + '-product-file" type="file" accept="image/png,image/jpeg">' +
-  '<div id="' + p + '-product-grid" class="libgrid"></div>' +
+  '<div id="' + p + '-product-grid" class="mfstrip"></div>' +
   '<div id="' + p + '-product-preview"></div>' +
   '<label>Describe the frame</label>' +
   '<textarea id="' + p + '-frame-prompt" rows="3">The person is holding the product in one hand, showing it to the camera, smiling, in a bright kitchen.</textarea>' +
@@ -31774,15 +31792,64 @@ function mfLibCard(j, dataAttr) {
   return card;
 }
 function mfRenderProductGrid(p) {
+  // Compact candidate tiles, not library cards (fold fix,
+  // 2026-11-27): a small strip the user scans, each tile
+  // with an x that hides it from this list for the visit
+  // (client side only, the library item is untouched),
+  // and the picked tile outlined like every other pick.
   const grid = $(p + '-product-grid');
   if (!grid) return;
   grid.innerHTML = '';
-  const jobs = mfImageJobs();
+  const hidden = mfState[p].productHidden;
+  const jobs = mfImageJobs().filter(j => !hidden.includes(j.id));
   if (!jobs.length) {
     grid.innerHTML = '<p class="muted">No images in your library yet. Upload a product photo above.</p>';
     return;
   }
-  for (const j of jobs) grid.appendChild(mfLibCard(j, 'mfproduct'));
+  for (const j of jobs) {
+    const tile = document.createElement('span');
+    tile.className = 'mftile'
+      + (mfState[p].productJobId === j.id ? ' picked' : '');
+    tile.dataset.mfproduct = j.id;
+    const img = document.createElement('img');
+    img.className = 'thumb';
+    img.loading = 'lazy';
+    img.decoding = 'async';
+    img.dataset.kind = 'image';
+    img.dataset.fb = j.id;
+    img.addEventListener('error', () => thumbImgFail(img));
+    img.src = '/api/jobs/' + j.id + '/thumb';
+    img.alt = '';
+    tile.appendChild(img);
+    const x = document.createElement('button');
+    x.type = 'button';
+    x.className = 'mfx';
+    x.dataset.mfprodx = j.id;
+    x.setAttribute('aria-label', 'Take this photo out of the list');
+    x.textContent = '×';
+    tile.appendChild(x);
+    grid.appendChild(tile);
+  }
+}
+function mfRenderProductPreview(p) {
+  // The one home of the chosen product photo's preview,
+  // whichever route chose it: the upload field or a
+  // library tile. The preview carries an x that clears
+  // the pick, back to choosing or uploading.
+  const box = $(p + '-product-preview');
+  if (!box) return;
+  const st = mfState[p];
+  if (st.productDataUrl) {
+    box.innerHTML = '<span class="mfpreview">'
+      + '<img class="thumb" src="' + st.productDataUrl + '" alt="" style="max-width:220px">'
+      + '<button type="button" class="mfx" data-mfprod-clear aria-label="Clear this photo">×</button></span>';
+  } else if (st.productJobId) {
+    box.innerHTML = '<span class="mfpreview">'
+      + '<img class="thumb" src="/api/jobs/' + st.productJobId + '/thumb" alt="" style="max-width:220px" data-kind="image" data-fb="' + st.productJobId + '" onerror="thumbImgFail(this)">'
+      + '<button type="button" class="mfx" data-mfprod-clear aria-label="Clear this photo">×</button></span>';
+  } else {
+    box.innerHTML = '';
+  }
 }
 function mfRenderAssembly(p) {
   const grid = $(p + '-assemble-grid');
@@ -31990,18 +32057,38 @@ function mfWireFlow(p) {
     try {
       mfState[p].productDataUrl = await mfFileDataUrl(f);
       mfState[p].productJobId = '';
-      $(p + '-product-preview').innerHTML =
-        '<img class="thumb" src="' + mfState[p].productDataUrl + '" alt="" style="max-width:220px">';
+      mfRenderProductPreview(p);
+      mfRenderProductGrid(p);
     } catch (e) { mfMsg(p, 'That image could not be read.', 'err'); }
   });
+  $(p + '-product-preview').onclick = e => {
+    if (!e.target.closest('[data-mfprod-clear]')) return;
+    mfState[p].productJobId = '';
+    mfState[p].productDataUrl = '';
+    $(p + '-product-file').value = '';
+    mfRenderProductPreview(p);
+    mfRenderProductGrid(p);
+  };
   $(p + '-product-grid').onclick = e => {
     if (libCopyTarget(e)) return;
-    const card = e.target.closest('[data-mfproduct]');
-    if (!card) return;
-    mfState[p].productJobId = card.dataset.mfproduct;
+    const x = e.target.closest('[data-mfprodx]');
+    if (x) {
+      const id = x.dataset.mfprodx;
+      if (!mfState[p].productHidden.includes(id))
+        mfState[p].productHidden.push(id);
+      if (mfState[p].productJobId === id) {
+        mfState[p].productJobId = '';
+        mfRenderProductPreview(p);
+      }
+      mfRenderProductGrid(p);
+      return;
+    }
+    const tile = e.target.closest('[data-mfproduct]');
+    if (!tile) return;
+    mfState[p].productJobId = tile.dataset.mfproduct;
     mfState[p].productDataUrl = '';
-    $(p + '-product-preview').innerHTML =
-      '<img class="thumb" src="/api/jobs/' + mfState[p].productJobId + '/thumb" alt="" style="max-width:220px" data-kind="image" data-fb="' + mfState[p].productJobId + '" onerror="thumbImgFail(this)">';
+    mfRenderProductPreview(p);
+    mfRenderProductGrid(p);
   };
   $(p + '-frame-gen').onclick = () => mfMakeFrame(p);
   $(p + '-model').addEventListener('change', () => mfFillClipOpts(p));
@@ -32603,7 +32690,8 @@ function renderClipResults(jobs) {
   }
   for (const j of clips) {
     const d = document.createElement('div'); d.className = 'card';
-    let h = '<strong>' + (j.hook || 'Clip') + '</strong> · ' + (j.duration_seconds || '') + 's';
+    const cd = Number(j.duration_seconds);
+    let h = '<strong>' + (j.hook || 'Clip') + '</strong>' + (cd > 0 ? ' · ' + cd + 's' : '');
     if (j.score !== null && j.score !== undefined) h += ' · Score ' + j.score;
     h += '<br><span class="vidbox" data-play="' + j.id + '"><img class="thumb" loading="lazy" decoding="async" data-fb="' + j.id + '" onerror="thumbImgFail(this)" src="/api/jobs/' + j.id + '/thumb" alt=""><span class="playbadge">▶</span></span>' +
       '<br>' + saveControlHtml(j.id, 'video');
@@ -32984,9 +33072,10 @@ function ecSetSource(job) {
     $('ec-clone-char-note').style.display = '';
   } else {
     wrap.style.display = '';
+    const dur = Number(job.duration_seconds);
     $('ec-source-line').textContent =
-      (job.source_title || job.prompt || 'Video') + ' · ' +
-      (job.duration_seconds || '?') + 's' +
+      (job.source_title || job.prompt || 'Video') +
+      (dur > 0 ? ' · ' + dur + 's' : '') +
       (job.status !== 'done' ? ' · ' + (job.stage || job.status) : '');
     $('ec-hook').disabled = false;
     $('ec-clone-char').disabled = false;
@@ -33033,9 +33122,12 @@ function ecLibraryJobs() {
   return ecJobsCache.filter(j => j.kind !== 'image' && j.status === 'done');
 }
 function ecShortLabel(j) {
+  // Only a real measured length earns a duration suffix;
+  // a video without one shows its prompt alone, never "(?s)".
   const t = String(j.prompt || 'Video').trim();
-  return (t.length > 64 ? t.slice(0, 64).trimEnd() + '…' : t) +
-    ' (' + (j.duration_seconds || '?') + 's)';
+  const label = t.length > 64 ? t.slice(0, 64).trimEnd() + '…' : t;
+  const d = Number(j.duration_seconds);
+  return d > 0 ? label + ' (' + d + 's)' : label;
 }
 function ecRenderLibrary() {
   const jobs = ecLibraryJobs();

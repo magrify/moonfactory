@@ -17,6 +17,18 @@ Pins:
   mount points), the Clone tab's own video swap flow is
   untouched beside it, and the tab bar stays Create / Clip /
   Clone;
+- the flow is folded into the two flows it augments (fold
+  fix, 2026-11-27): no standalone Make a movie section
+  stands beneath either pane; each pane's own card ends in
+  a Make a movie fold that opens the steps in place, after
+  the Create composer and after the Clone card's step 4;
+- step 2's library candidates are a compact tile strip,
+  never full cards: a tile's x hides it from the list for
+  the visit (client side only, the library item is never
+  deleted), the chosen photo's preview carries an x that
+  clears the pick back to choosing or uploading, and no
+  image label ever carries a duration (a video shows only
+  a real measured one, never "(?s)");
 - steps 1 to 3 ride the normal creation paths (the image
   endpoint on the nano_banana_pro lane, the character
   endpoint, the video endpoint with the start frame attached
@@ -103,8 +115,22 @@ check(html.count('id="tab-') == 3
       and '<button class="btn secondary" id="tab-clip">Clip</button>' in html
       and '<button class="btn secondary" id="tab-clone">Clone</button>' in html,
       "the tab bar is not Create, Clip, Clone")
-check(html.count("<h2>Make a movie</h2>") == 2,
-      "the flow card does not head both tabs")
+check("<h2>Make a movie</h2>" not in html
+      and html.count("<summary>Make a movie</summary>") == 2,
+      "the movie flow still stands as its own section, or "
+      "a pane lost its Make a movie fold")
+check('id="mf1-fold"' in create_block
+      and create_block.index('id="job-msg"')
+      < create_block.index('id="mf1-fold"')
+      < create_block.index('id="mf1-root"'),
+      "the Create fold does not open the flow inside the "
+      "Create card, after the composer")
+check('id="mf2-fold"' in clone_block
+      and clone_block.index('id="ec-clone"')
+      < clone_block.index('id="mf2-fold"')
+      < clone_block.index('id="mf2-root"'),
+      "the Clone fold does not open the flow inside the "
+      "Clone card, after its own step 4")
 
 def js_func_src(name):
     start = html.find(f"function {name}(")
@@ -350,6 +376,49 @@ wire = js_slice("function mfWireFlow")
 check(wire.count("libCopyTarget(e)") >= 2,
       "a movie grid click handler lets a copy tap also pick "
       "the card")
+
+# -- step 2's photos: compact strip, an x out, no image durations --------
+# (fold fix, 2026-11-27): Jack's screenshot of the start
+# frame step showed his library photos dumped under the
+# upload field as giant full width cards labeled with a
+# video duration, "(?s)", and no way to take them out of
+# the list to choose different ones.
+
+check('class="mfstrip"' in template
+      and "mfLibCard(j, 'mfproduct')" not in html,
+      "step 2's candidates are not a compact strip, or "
+      "still render as full library cards")
+check(".mfstrip .mftile{position:relative;width:72px;"
+      "height:72px" in html
+      and ".mfstrip .mftile.picked{outline:2px solid "
+      "var(--accent)" in html,
+      "the candidate tiles are not small fixed tiles with "
+      "a picked state")
+check("productHidden: []" in html,
+      "the panes keep no list of hidden candidates")
+prod = js_slice("function mfRenderProductGrid")
+check("!hidden.includes(j.id)" in prod
+      and "x.dataset.mfprodx = j.id" in prod
+      and "Take this photo out of the list" in prod,
+      "the candidate render does not leave out the hidden "
+      "photos, or a tile carries no x")
+preview = js_slice("function mfRenderProductPreview")
+check("data-mfprod-clear" in preview
+      and "st.productDataUrl" in preview
+      and "st.productJobId" in preview,
+      "the chosen photo's preview has no x to clear it, "
+      "for one of the two routes that choose it")
+check("mfRenderProductPreview(p)" in wire
+      and "[data-mfprod-clear]" in wire
+      and "[data-mfprodx]" in wire
+      and "productHidden.push(id)" in wire,
+      "the upload, pick, hide and clear paths do not run "
+      "through the one preview render and the hide list")
+label = js_slice("function mfShortLabel")
+check("j.kind === 'image'" in label and "d > 0" in label
+      and "(j.duration_seconds || '?')" not in html,
+      "a label can still stamp an image, or a video with "
+      "no real length, with a duration")
 
 if failures:
     print("FAIL check_movie_flow")
