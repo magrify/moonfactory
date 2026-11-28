@@ -124,7 +124,7 @@ for href, name in (("/terms", "Terms of Service"),
                    ("/acceptable-use", "Acceptable Use Policy")):
     check(f'href="{href}" target="_blank"' in label and name in label,
           f"the label links the {name} in a new tab, so nothing is lost")
-check("and I confirm I am at least 13 years old." in label,
+check("and I confirm I am at least 18 years old." in label,
       "the label ends with the age confirmation")
 
 # -- the client stops an unchecked create and sends the box ---

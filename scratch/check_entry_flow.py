@@ -12,6 +12,14 @@ and fires it. File payloads cannot survive the sign-up round
 trip: they become file_missing names, and the restored form
 asks for the file again before firing.
 
+Split (Jack, 2026-11-27): the page SERVED to a request with
+no valid session is no longer the studio page at all. It is
+the sign-in page only (AUTH_HTML, pinned by
+check_auth_page.py): no studio markup in the response. The
+studio page keeps every behavior pinned below for the
+signed in visits that receive it and for the returns that
+land on it; the two route checks now pin the split itself.
+
 Run:  modal-venv python scratch/check_entry_flow.py
 """
 import sys
@@ -42,13 +50,18 @@ check("_LANDING_TOP" not in SRC, "the landing top blocks are gone")
 check("hero-go" not in SRC, "the Try It hero button is gone")
 check("Open Create" not in HTML, "no Open Create interstitial remains")
 landing = SRC.split('def landing(', 1)[1].split('@web.get("/app"', 1)[0]
-check("return _shell_page(request, APP_HTML, APP_ETAG)" in landing,
-      "the root route serves the studio page to everyone")
+check("return _shell_page(request, APP_HTML, APP_ETAG)" in landing
+      and "return _shell_page(request, AUTH_HTML, AUTH_ETAG)" in landing,
+      "the root route serves the studio page to a session and the "
+      "sign-in page to everyone else")
 studio_route = SRC.split('def studio(', 1)[1].split("def terms_page", 1)[0]
-check("return _shell_page(request, APP_HTML, APP_ETAG)" in studio_route,
-      "/app serves the same studio page")
+check("return _shell_page(request, APP_HTML, APP_ETAG)" in studio_route
+      and "return _shell_page(request, AUTH_HTML, AUTH_ETAG)"
+      in studio_route,
+      "/app serves the same split: studio with a session, sign-in "
+      "page without one")
 
-# --- the studio renders signed out; the auth form is a panel -------------
+# --- the studio page's own shape; the auth form is a panel ---------------
 check('<div id="studio">' in HTML,
       "the studio is not hidden behind the sign-in wall")
 check('<div id="studio" style="display:none">' not in HTML,

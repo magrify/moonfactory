@@ -9526,18 +9526,25 @@ def api():
 
     @web.get("/", response_class=HTMLResponse)
     def landing(request: Request, mf_session: str = Cookie(default="")):
-        # Entry flow (Jack, 2026-11-19): the site opens straight
-        # onto the Create studio for every visitor, signed out
-        # included. There is no landing page, no sign-in wall,
-        # and no Open Create interstitial in front of the form:
-        # a visitor builds the whole creation first, and the
-        # sign-in step appears only when they hit a create
-        # button. Root and /app serve the same studio page.
-        return _shell_page(request, APP_HTML, APP_ETAG)
+        # Entry flow (Jack, 2026-11-19; sign-in page split,
+        # 2026-11-27): a signed in visitor opens straight onto
+        # the Create studio, exactly as before. A request with
+        # no valid session gets the sign-in page only
+        # (AUTH_HTML): the studio is not on it, not even hidden
+        # in the markup. Jack: "why is create/clip/clone on the
+        # sign in/create account page? remove it." Signing in
+        # lands back here or on /app with the session cookie
+        # set, and the full studio page is served then. Root
+        # and /app serve the same pair of pages.
+        if current_user(request, mf_session):
+            return _shell_page(request, APP_HTML, APP_ETAG)
+        return _shell_page(request, AUTH_HTML, AUTH_ETAG)
 
     @web.get("/app", response_class=HTMLResponse)
-    def studio(request: Request):
-        return _shell_page(request, APP_HTML, APP_ETAG)
+    def studio(request: Request, mf_session: str = Cookie(default="")):
+        if current_user(request, mf_session):
+            return _shell_page(request, APP_HTML, APP_ETAG)
+        return _shell_page(request, AUTH_HTML, AUTH_ETAG)
 
     @web.get("/terms", response_class=HTMLResponse)
     def terms_page():
@@ -26592,7 +26599,7 @@ or not you personally performed it. Keep your password to yourself
 and tell us promptly if you believe your account has been
 compromised.</li>
 <li>You must be old enough to form a binding contract where you
-live, and in all cases at least 13 years old, to use
+live, and in all cases at least 18 years old, to use
 Moonfactory.</li>
 <li>You must be at least 18 years old to use any model marked
 Uncensored, and by using one you represent that you are 18 or
@@ -27699,7 +27706,7 @@ APP_HTML = (
   <label for="email">Email</label><input id="email" type="email" autocomplete="email">
   <label for="password">Password (8+ characters)</label><input id="password" type="password" autocomplete="current-password">
   <div id="botcheck"></div>
-  <p id="auth-accept-row"><label for="accept-terms"><input type="checkbox" id="accept-terms" style="width:auto;margin:0 6px 0 0">I agree to the <a href="/terms" target="_blank" rel="noopener">Terms of Service</a>, <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a> and <a href="/acceptable-use" target="_blank" rel="noopener">Acceptable Use Policy</a> and I confirm I am at least 13 years old.</label></p>
+  <p id="auth-accept-row"><label for="accept-terms"><input type="checkbox" id="accept-terms" style="width:auto;margin:0 6px 0 0">I agree to the <a href="/terms" target="_blank" rel="noopener">Terms of Service</a>, <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a> and <a href="/acceptable-use" target="_blank" rel="noopener">Acceptable Use Policy</a> and I confirm I am at least 18 years old.</label></p>
   <p class="auth-actions">
     <button class="btn" id="login" style="width:100%;display:none">Sign in</button>
     <button class="btn secondary" id="forgot-password" type="button" style="width:100%">Forgot password</button>
@@ -34610,6 +34617,142 @@ def _library_html() -> str:
 LIBRARY_HTML = _library_html()
 
 
+# The sign-in page (Jack, 2026-11-27): the page a request with
+# no valid session is served, on / and /app alike. It carries
+# the header and logo, the sign-in card, and the footer, and
+# nothing else: no #studio, no tab bar, no panes, no #jobs, no
+# account or billing panels, not even hidden copies in the
+# markup. The card and its script are sliced out of APP_HTML
+# when this module loads, the same way the library page is, so
+# the two surfaces share one source and cannot drift apart:
+# the card is the studio's own card stood up visible (the
+# studio copy starts hidden because the studio opens it in
+# place), and the script is the studio's own auth code (the
+# shared helpers, the button working states, and the sign-in
+# cluster itself: providers, the email form, the dialog
+# modes). Two pieces are this page's own, at the end of the
+# script: afterSignIn reloads into /app, because there is no
+# studio here to hand over to and the server serves the full
+# studio once the session cookie lands; and the boot, which
+# opens the card, applies the provider rows from /api/config,
+# mirrors the studio's verified-return lines, folds away the
+# card's Back to your video button (there is no video here to
+# go back to), and sends a browser that already holds a
+# session on to the studio. The studio header's Sign in link
+# has no counterpart here (the card below is the sign in), so
+# the one studio line that wires that link is guarded in the
+# slice.
+def _auth_html() -> str:
+    S = APP_HTML
+
+    def block(start, end):
+        a = S.index(start)
+        b = S.index(end, a)
+        return S[a:b].rstrip() + "\n"
+
+    logo = (
+        '<svg width="27" height="27" viewBox="0 0 48 48" '
+        'aria-hidden="true"><path fill="#818cf8" '
+        'd="M23.3 8A16 16 0 1 0 32.6 37.5A16.5 16.5 0 0 1 '
+        '23.3 8Z"/><path fill="#f5d67a" stroke="#f5d67a" '
+        'stroke-width="1.6" stroke-linejoin="round" '
+        'd="M24 18.5L24 27.5L31.5 23Z"/></svg>')
+    favicon = (
+        "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' "
+        "viewBox='0 0 48 48'%3E%3Cpath fill='%23818cf8' "
+        "d='M23.3 8A16 16 0 1 0 32.6 37.5A16.5 16.5 0 0 1 23.3 8Z'/%3E"
+        "%3Cpath fill='%23f5d67a' stroke='%23f5d67a' stroke-width='1.6' "
+        "stroke-linejoin='round' "
+        "d='M24 18.5L24 27.5L31.5 23Z'/%3E%3C/svg%3E")
+
+    auth = block('<div id="auth" class="card"',
+                 '\n<div id="adult-gate"')
+    hidden = 'style="display:none;max-width:460px;'
+    assert hidden in auth
+    auth = auth.replace(hidden, 'style="max-width:460px;', 1)
+
+    prelude = block("const $ = id => document.getElementById(id);",
+                    "\n// Working visuals")
+    visuals = block("// Working visuals",
+                    "\n// Start image: one reader path")
+    cluster = block("$('signup').onclick",
+                    "\n// The routes a claimed pending creation")
+    nav_line = "$('nav-signin').onclick"
+    assert nav_line in cluster
+    cluster = cluster.replace(
+        nav_line, "if ($('nav-signin')) $('nav-signin').onclick", 1)
+    script = "\n".join([
+        prelude,
+        visuals,
+        cluster,
+        """// This page's own landing for a finished sign in: the
+// studio is a separate page, and the server serves it in
+// full once the session cookie lands, so sign in reloads
+// into /app. Anything a social sign in parked is claimed
+// by the studio page there, exactly as before.
+async function afterSignIn(u) { window.location.assign('/app'); }
+fetch('/api/config').then(r => r.json()).then(c => { cfg = c; renderBotChecks(); applyOAuthProviders(); });
+openAuthPanel();
+$('auth-back').style.display = 'none';
+if (new URLSearchParams(location.search).get('verified')) {
+  $('auth-intro').textContent = 'Email verified. Sign in and anything you built starts right away.';
+  msg('auth-msg', 'Email verified. You can sign in now.', 'ok');
+}
+// A browser that already holds a session (signed in from
+// another tab after this page was served) belongs in the
+// studio, not on the sign-in page.
+(async () => {
+  try { await api('/api/me'); window.location.replace('/app'); } catch (e) {}
+})();
+""",
+    ])
+    footer = block("<footer>", "</footer>") + "</footer>\n"
+    return (
+        '<!doctype html><html lang="en"><head><meta charset="utf-8">\n'
+        '<meta name="viewport" content="width=device-width, '
+        'initial-scale=1">\n'
+        "<title>Moonfactory sign in</title>\n"
+        '<meta name="description" content="Sign in to '
+        'Moonfactory.">\n'
+        + _CSS
+        + '<link rel="icon" href="' + favicon + '">\n'
+        '<link rel="manifest" href="/manifest.webmanifest">\n'
+        '<meta name="theme-color" content="#0c0c0f">\n'
+        '<meta name="mobile-web-app-capable" content="yes">\n'
+        '<meta name="apple-mobile-web-app-capable" content="yes">\n'
+        '<meta name="apple-mobile-web-app-status-bar-style" '
+        'content="black-translucent">\n'
+        '<meta name="apple-mobile-web-app-title" '
+        'content="Moonfactory">\n'
+        '<link rel="apple-touch-icon" href="/icons/icon-192.png">\n'
+        '<script src="https://challenges.cloudflare.com/turnstile/'
+        'v0/api.js" async defer></script>\n'
+        "</head><body><main>\n"
+        "<header>\n"
+        '  <a class="logo" href="/">' + logo +
+        "<span>Moon<em>factory</em></span></a>\n"
+        "</header>\n"
+        '<div id="live-status" class="sr-only" role="status" '
+        'aria-live="polite"></div>\n'
+        '<div id="live-alert" class="sr-only" role="alert" '
+        'aria-live="assertive"></div>\n'
+        + auth
+        + "</main>\n"
+        + footer
+        + "<script>\n" + script + "</script>\n"
+        "<script>\n"
+        "if ('serviceWorker' in navigator) {\n"
+        "  window.addEventListener('load', () => {\n"
+        "    navigator.serviceWorker.register('/sw.js').catch(() => {});\n"
+        "  });\n"
+        "}\n"
+        "</script>\n"
+        "</body></html>")
+
+
+AUTH_HTML = _auth_html()
+
+
 # Shell page validators (perf pass, Jack, 2026-11-24): the
 # page shells are byte-identical for every visitor, so each
 # carries a strong ETag over its exact bytes. Browsers store
@@ -34627,3 +34770,4 @@ def _page_etag(html_text: str) -> str:
 APP_ETAG = _page_etag(APP_HTML)
 GALLERY_ETAG = _page_etag(GALLERY_HTML)
 LIBRARY_ETAG = _page_etag(LIBRARY_HTML)
+AUTH_ETAG = _page_etag(AUTH_HTML)

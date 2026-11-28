@@ -18,7 +18,8 @@ serves, exactly as Jack decided them:
   (Jack: in);
 - governing law Texas plus applicable United States federal law,
   venue Dallas County;
-- age floors: 13 for the service, 18+ for Uncensored models;
+- age floor: 18 for the service (raised from 13 by Jack,
+  2026-11-27), 18+ for Uncensored models;
 - the liability cap: the greater of what the user paid in the
   3 months before the claim or $100;
 - the Acceptable Use page lives at /acceptable-use, is linked
@@ -91,8 +92,10 @@ check("binding, individual arbitration" in TERMS
 check("greater of what you paid us in the 3 months before the "
       "claim or $100" in TERMS,
       "terms lost the $100 floor liability cap")
-check("at least 13 years old" in TERMS,
-      "terms lost the 13 year service age floor")
+check("at least 18 years old" in TERMS,
+      "terms lost the 18 year service age floor")
+check("at least 13 years old" not in TERMS,
+      "terms still carry the old 13 year service age floor")
 check("at least 18 years old to use any model marked Uncensored"
       in TERMS,
       "terms lost the 18+ Uncensored gate")
