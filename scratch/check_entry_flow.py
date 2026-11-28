@@ -505,9 +505,12 @@ check("if (startImageB64) want.start_image_png_b64 = startImageB64;" in _quote
       "the quote request carries the start image the create will send")
 check("if (isHouseModel($('model').value)) return;" in _quote,
       "fetchQuote leaves house picks to the house price path")
-check("q.textContent = e.message;" in _quote
+check("q.textContent = errText(e);" in _quote
       and "genBlocked('No price for this pick');" in _quote,
-      "a refused quote shows its reason and marks the button")
+      "a refused quote shows its reason and marks the button "
+      "(through errText since 2026-11-28: the server's own "
+      "reason passes through, a raw browser error cannot "
+      "pose as one)")
 check("genBlocked('Model unavailable')" in _quote
       and "function genBlocked(text)" in SRC,
       "a paused lane says so on the button too")

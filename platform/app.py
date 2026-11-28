@@ -9625,6 +9625,20 @@ def api():
             return JSONResponse({"detail": "Not Found"}, status_code=404)
         return HTMLResponse(NOT_FOUND_HTML, status_code=404)
 
+    @web.exception_handler(Exception)
+    async def unhandled_error(request: Request, exc: Exception):
+        # An unhandled error answers in plain words, never the
+        # framework's bare "Internal Server Error" text: the
+        # studio prints the detail it is given, and a raw
+        # server error told the user nothing (2026-11-28,
+        # Jack's site-wide fix). The exception itself still
+        # propagates to the server log after the response, so
+        # the traceback is never lost.
+        return JSONResponse(
+            {"detail": "something went wrong on our side. "
+                       "Try again in a moment."},
+            status_code=500)
+
     # -- helpers -----------------------------------------------------------
 
     def base_url(request: Request) -> str:
@@ -18642,6 +18656,15 @@ document.getElementById('go').onclick = async () => {{
             free_lane = bool(lane.get("free"))
             served_free = False
             klein_on_kaggle = False
+            # Read unconditionally after the submit below (the
+            # free counter step and the failure handler's slot
+            # release), so it is bound here for every lane, not
+            # only inside the free lane branch: a paid lane
+            # whose create reached those reads unbound died
+            # with an UnboundLocalError 500 after the charge
+            # and the submit (2026-11-28, Jack's Make image
+            # HTTP 500 on both Grok Imagine Image 2.0 lanes).
+            free_reserved = False
             if not free_lane and not is_paid(user):
                 raise HTTPException(
                     status_code=402,
@@ -29086,7 +29109,7 @@ document.getElementById('help-contact').addEventListener('submit', async (e) => 
     if (!r.ok) throw new Error(data.detail || 'send failed');
     note.textContent = 'Sent. Support answers the same business day.';
     document.getElementById('hc-message').value = '';
-  } catch (err) { note.textContent = 'Could not send (' + err.message + '). Email support@magrify.com instead.'; }
+  } catch (err) { note.textContent = 'Could not send. Email support@magrify.com instead.'; }
 });
 </script>
 """,
@@ -30716,10 +30739,37 @@ async function botFieldsOnSubmit(containerId) {
   });
 }
 async function api(path, opts) {
-  const r = await fetch(path, opts);
+  let r;
+  try { r = await fetch(path, opts); }
+  catch (e) { throw new Error(ERR_OFFLINE); }
   const body = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(body.detail || ('HTTP ' + r.status));
+  if (!r.ok) throw new Error(httpErrText(r.status, body));
   return body;
+}
+// One error voice for the whole studio (2026-11-28, Jack's
+// site-wide fix): a caught error is never printed raw. The
+// browser's own words (Load failed, Failed to fetch) and a
+// bare HTTP status told the user nothing and read like a
+// diagnosis he had to make; every surface gets a plain
+// sentence instead. The app's own server messages (the
+// detail on a 4xx) pass through untouched: they are plain
+// words the user can act on, written for exactly that.
+const ERR_OFFLINE = 'That did not go through. Check your connection and try again.';
+const ERR_SERVER = 'Something went wrong on our side. Try again in a moment.';
+const ERR_GENERIC = 'That did not go through. Try again.';
+function httpErrText(status, body) {
+  if (status >= 500) return ERR_SERVER;
+  const d = body && body.detail;
+  if (typeof d === 'string' && d) return d;
+  return ERR_GENERIC;
+}
+function errText(e) {
+  const m = (e && e.message) || '';
+  if (!m) return ERR_GENERIC;
+  if (/^(Load failed|Failed to fetch|NetworkError|Network request failed)/.test(m)) return ERR_OFFLINE;
+  if (/^HTTP \d/.test(m)) return ERR_SERVER;
+  if (/^(TypeError|SyntaxError|AbortError|ReferenceError)/.test(m)) return ERR_GENERIC;
+  return m;
 }
 // Screen reader announcements (audit F1, 2026-11-18): every
 // status and error surface in the studio writes through msg(),
@@ -31052,7 +31102,7 @@ $('signup').onclick = async () => {
     } else {
       msg('auth-msg', 'Account created. Open the verification link in your email, then sign in.', 'ok');
     }
-  } catch (e) { msg('auth-msg', e.message, 'err'); }
+  } catch (e) { msg('auth-msg', errText(e), 'err'); }
   finally { btnDone(btn); $('login').disabled = false; }
 };
 $('forgot-password').onclick = async () => {
@@ -31082,7 +31132,7 @@ $('login').onclick = async () => {
       closeAuthPanel();
       await afterSignIn(r.user);
     }
-  } catch (e) { msg('auth-msg', e.message, 'err'); }
+  } catch (e) { msg('auth-msg', errText(e), 'err'); }
   finally { btnDone(btn); $('signup').disabled = false; }
 };
 
@@ -31189,7 +31239,7 @@ window.onTelegramAuth = async tg => {
       closeAuthPanel();
       await afterSignIn(r.user);
     }
-  } catch (e) { msg('auth-msg', e.message, 'err'); }
+  } catch (e) { msg('auth-msg', errText(e), 'err'); }
 };
 // The provider rows, their OR divider, and the passwordless
 // line render only when the deployment carries that
@@ -31314,7 +31364,7 @@ $('adult-continue').onclick = async () => {
       body: JSON.stringify({ adult_confirm: true }) });
     if (r.user) currentUser = r.user;
     settleAdultGate(true);
-  } catch (e) { msg('adult-msg', e.message, 'err'); }
+  } catch (e) { msg('adult-msg', errText(e), 'err'); }
 };
 async function fireCreate(d) {
   // The image flow holds its own button inside its own
@@ -31364,7 +31414,7 @@ async function fireCreate(d) {
       body: JSON.stringify({ ...d.body, ...bot }) });
     msg(d.msgId, d.okText || pendingOkText(d), 'ok');
     loadJobs();
-  } catch (e) { msg(d.msgId, e.message, 'err'); }
+  } catch (e) { msg(d.msgId, errText(e), 'err'); }
   finally { btnDone(btn); }
 }
 // After any sign in: a locally built pending creation fires
@@ -31857,7 +31907,7 @@ async function fetchQuote() {
     // line carries the server's own reason and the button says
     // plainly that this pick has no price (2026-11-19). The
     // next change re-quotes.
-    q.textContent = e.message;
+    q.textContent = errText(e);
     genBlocked('No price for this pick');
   }
 }
@@ -32490,11 +32540,11 @@ $('photo-file').addEventListener('change', async () => {
       throw new Error('That upload did not go through. Check your connection and try again.');
     }
     const q = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(q.detail || ('HTTP ' + r.status));
+    if (!r.ok) throw new Error(httpErrText(r.status, q));
     currentUser.avatar_url = q.avatar_url;
     renderAvatar(currentUser);
     msg('profile-msg', 'Your photo is saved.', 'ok');
-  } catch (e) { msg('profile-msg', e.message, 'err'); }
+  } catch (e) { msg('profile-msg', errText(e), 'err'); }
   finally { $('photo-file').value = ''; }
 });
 $('photo-remove').onclick = async () => {
@@ -32503,7 +32553,7 @@ $('photo-remove').onclick = async () => {
     currentUser.avatar_url = r.avatar_url;
     renderAvatar(currentUser);
     msg('profile-msg', 'Your photo is removed.', 'ok');
-  } catch (e) { msg('profile-msg', e.message, 'err'); }
+  } catch (e) { msg('profile-msg', errText(e), 'err'); }
 };
 $('save-password').onclick = async () => {
   const body = { new_password: $('pw-new').value };
@@ -32515,7 +32565,7 @@ $('save-password').onclick = async () => {
     if (currentUser) currentUser.has_password = true;
     $('pw-current-row').style.display = '';
     $('pw-note').textContent = 'Password saved. Other sessions were signed out.';
-  } catch (e) { $('pw-note').textContent = e.message; }
+  } catch (e) { $('pw-note').textContent = errText(e); }
 };
 $('save-handle').onclick = async () => {
   try {
@@ -32523,7 +32573,7 @@ $('save-handle').onclick = async () => {
       body: JSON.stringify({ handle: $('handle').value }) });
     msg('profile-msg', 'Your handle is saved as ' + r.handle, 'ok');
     $('account-handle').textContent = r.handle;
-  } catch (e) { msg('profile-msg', e.message, 'err'); }
+  } catch (e) { msg('profile-msg', errText(e), 'err'); }
 };
 async function loadApiKeys() {
   const box = $('api-keys-list');
@@ -32554,7 +32604,7 @@ async function loadApiKeys() {
             await api('/api/me/api-keys/' + k.id, { method: 'DELETE' });
             msg('api-key-msg', 'That key is revoked. It stops working at once.', 'ok');
             loadApiKeys();
-          } catch (e) { msg('api-key-msg', e.message, 'err'); }
+          } catch (e) { msg('api-key-msg', errText(e), 'err'); }
         };
         row.appendChild(btn);
       }
@@ -32572,14 +32622,14 @@ $('api-key-create').onclick = async () => {
     $('api-key-name').value = '';
     msg('api-key-msg', '', 'ok');
     loadApiKeys();
-  } catch (e) { msg('api-key-msg', e.message, 'err'); }
+  } catch (e) { msg('api-key-msg', errText(e), 'err'); }
 };
 $('gallery-optout').addEventListener('change', async () => {
   try {
     const r = await api('/api/me/gallery-optout', { method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ opt_out: $('gallery-optout').checked }) });
     msg('profile-msg', r.gallery_opt_out ? 'Your clips are hidden from the gallery.' : 'Your clips show in the gallery.', 'ok');
-  } catch (e) { msg('profile-msg', e.message, 'err'); $('gallery-optout').checked = false; }
+  } catch (e) { msg('profile-msg', errText(e), 'err'); $('gallery-optout').checked = false; }
 });
 async function refreshMe() {
   try { const u = await api('/api/me'); await afterSignIn(u); }
@@ -32685,7 +32735,7 @@ $('pay-continue').onclick = async () => {
     }
     if (billMethod === 'crypto') await startCryptoTopup(cents);
     else await startTopup(cents);
-  } catch (e) { msg('pay-msg', e.message, 'err'); }
+  } catch (e) { msg('pay-msg', errText(e), 'err'); }
 };
 // The plan's own status line (Route E, 2026-11-27): one
 // short line under the Plan row, only for stamp-paid
@@ -32744,12 +32794,12 @@ $('autoreload-toggle').addEventListener('change', async () => {
     msg('pay-msg', on ? 'Auto reload is on.' : 'Auto reload is off.', 'ok');
   } catch (e) {
     $('autoreload-toggle').checked = !on;
-    msg('pay-msg', e.message, 'err');
+    msg('pay-msg', errText(e), 'err');
   }
 });
 $('save-card').onclick = async () => {
   try { const r = await api('/api/billing/setup-card', { method: 'POST' }); location.href = r.url; }
-  catch (e) { msg('pay-msg', e.message, 'err'); }
+  catch (e) { msg('pay-msg', errText(e), 'err'); }
 };
 $('autoreload-save').onclick = async () => {
   try {
@@ -32757,7 +32807,7 @@ $('autoreload-save').onclick = async () => {
       body: JSON.stringify({ enabled: true, amount_cents: Number($('autoreload-amount').value) }) });
     renderAutoReload(r);
     msg('pay-msg', 'Reload amount saved. Auto reload is on.', 'ok');
-  } catch (e) { msg('pay-msg', e.message, 'err'); }
+  } catch (e) { msg('pay-msg', errText(e), 'err'); }
 };
 async function startTopup(cents) {
   const r = await api('/api/checkout/topup', { method: 'POST', headers: {'Content-Type': 'application/json'},
@@ -32865,7 +32915,7 @@ $('crypto-sub-fund').onclick = async () => {
     const r = await api('/api/checkout/crypto/plan/funding', { method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ currency: 'usdttrc20' }) });
     renderCryptoSub(r);
-  } catch (e) { msg('pay-msg', e.message, 'err'); }
+  } catch (e) { msg('pay-msg', errText(e), 'err'); }
 };
 // -- the guided movie flow (Jack, 2026-11-27) ----------------------
 // One implementation in two homes: the same four steps render
@@ -33303,7 +33353,7 @@ async function mfGeneratePerson(p) {
     $(p + '-char-save').style.display = '';
     mfMsg(p, 'Your person is ready. Save them as your model to use them in step 2.', 'ok');
     mfRefresh();
-  } catch (e) { mfMsg(p, e.message, 'err'); }
+  } catch (e) { mfMsg(p, errText(e), 'err'); }
   finally { btnDone(btn); }
 }
 async function mfSavePerson(p) {
@@ -33324,7 +33374,7 @@ async function mfSavePerson(p) {
     mfMsg(p, 'Saved. ' + name + ' is your model for step 2.', 'ok');
     await mfRefresh();
     $(p + '-character').value = c.id;
-  } catch (e) { mfMsg(p, e.message, 'err'); }
+  } catch (e) { mfMsg(p, errText(e), 'err'); }
   finally { btnDone(btn); }
 }
 async function mfMakeFrame(p) {
@@ -33361,7 +33411,7 @@ async function mfMakeFrame(p) {
       '<img class="thumb" src="/api/jobs/' + j.id + '/thumb" alt="" style="max-width:220px" data-kind="image" data-fb="' + j.id + '" onerror="thumbImgFail(this)">';
     mfMsg(p, 'Your start frame is ready. Generate clips from it in step 3.', 'ok');
     mfRefresh();
-  } catch (e) { mfMsg(p, e.message, 'err'); }
+  } catch (e) { mfMsg(p, errText(e), 'err'); }
   finally { btnDone(btn); }
 }
 async function mfGenerateClip(p) {
@@ -33390,7 +33440,7 @@ async function mfGenerateClip(p) {
     mfMsg(p, 'Clip ready. Generate another, or put your clips together in step 4.', 'ok');
     mfRefresh();
     loadJobs();
-  } catch (e) { mfMsg(p, e.message, 'err'); }
+  } catch (e) { mfMsg(p, errText(e), 'err'); }
   finally { btnDone(btn); }
 }
 async function mfAssemble(p) {
@@ -33411,8 +33461,8 @@ async function mfAssemble(p) {
     mfPollJob(r.id).then(() => {
       mfMsg(p, 'Your movie is ready in your library.', 'ok');
       loadJobs();
-    }).catch(e => mfMsg(p, e.message, 'err'));
-  } catch (e) { mfMsg(p, e.message, 'err'); }
+    }).catch(e => mfMsg(p, errText(e), 'err'));
+  } catch (e) { mfMsg(p, errText(e), 'err'); }
   finally { btnDone(btn); }
 }
 function mfWireFlow(p) {
@@ -34147,7 +34197,7 @@ async function jobBoxClick(e) {
           '<br><button class="btn secondary" data-drama-retake="' + fix.dataset.dramaFix + ':' + s.index + '">Remake this shot · ' + moneyC(r.retake_price_cents) + '</button>';
       }
       box.innerHTML = h || '<br><span class="muted">No shots found.</span>';
-    } catch (err) { alert(err.message); }
+    } catch (err) { alert(errText(err)); }
     return;
   }
   const retake = e.target.closest('[data-drama-retake]');
@@ -34159,7 +34209,7 @@ async function jobBoxClick(e) {
       await api('/api/drama/' + jobId + '/shots/' + idx + '/retake', { method: 'POST', headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({ ...bot }) });
       loadJobs();
-    } catch (err) { alert(err.message); }
+    } catch (err) { alert(errText(err)); }
     return;
   }
   const resume = e.target.closest('[data-drama-resume]');
@@ -34167,7 +34217,7 @@ async function jobBoxClick(e) {
     try {
       await api('/api/drama/' + resume.dataset.dramaResume + '/resume', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}' });
       loadJobs();
-    } catch (err) { alert(err.message); }
+    } catch (err) { alert(errText(err)); }
     return;
   }
   const retry = e.target.closest('[data-retry]');
@@ -34186,7 +34236,7 @@ async function jobBoxClick(e) {
         method: 'POST', headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({ ...bot }) });
       loadJobs();
-    } catch (err) { retry.disabled = false; alert(err.message); }
+    } catch (err) { retry.disabled = false; alert(errText(err)); }
     return;
   }
   const b = e.target.closest('[data-del]');
@@ -34201,7 +34251,7 @@ async function jobBoxClick(e) {
     (b.dataset.ingallery === '1' ? ' and from the gallery' : '') + '.';
   if (!confirm(ask)) return;
   try { await api('/api/jobs/' + b.dataset.del, { method: 'DELETE' }); loadJobs(); }
-  catch (err) { alert(err.message); }
+  catch (err) { alert(errText(err)); }
 }
 $('jobs').addEventListener('click', jobBoxClick);
 $('image-jobs').addEventListener('click', jobBoxClick);
@@ -34239,11 +34289,11 @@ $('tab-clone').onclick = () => showTab('clone');
 // longer carries, so they call the starters directly.
 $('upgrade-creator').onclick = async () => {
   try { await startCreatorCard(); }
-  catch (e) { msg('pay-msg', e.message, 'err'); }
+  catch (e) { msg('pay-msg', errText(e), 'err'); }
 };
 $('upgrade-topup').onclick = async () => {
   try { await startTopup(1000); }
-  catch (e) { msg('pay-msg', e.message, 'err'); }
+  catch (e) { msg('pay-msg', errText(e), 'err'); }
 };
 function clipChargeLine(q) {
   if (!q) { $('clip-charge').textContent = ''; return; }
@@ -34265,7 +34315,7 @@ $('clip-url').addEventListener('change', async () => {
       body: JSON.stringify({ url }) });
     clipChargeLine(q);
     msg('clip-msg', q.title ? 'Found it. ' + q.title : '', '');
-  } catch (e) { msg('clip-msg', e.message, 'err'); $('clip-charge').textContent = ''; }
+  } catch (e) { msg('clip-msg', errText(e), 'err'); $('clip-charge').textContent = ''; }
 });
 $('clip-file').addEventListener('change', async () => {
   const f = $('clip-file').files[0];
@@ -34278,11 +34328,11 @@ $('clip-file').addEventListener('change', async () => {
     const fd = new FormData(); fd.append('file', f);
     const r = await fetch('/api/clips/upload', { method: 'POST', body: fd });
     const q = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(q.detail || ('HTTP ' + r.status));
+    if (!r.ok) throw new Error(httpErrText(r.status, q));
     clipUploadId = q.upload_id;
     clipChargeLine(q);
     msg('clip-msg', 'File ready.', 'ok');
-  } catch (e) { msg('clip-msg', e.message, 'err'); }
+  } catch (e) { msg('clip-msg', errText(e), 'err'); }
   finally { $('clip-file').disabled = false; }
 });
 $('make-clips').onclick = async () => {
@@ -34301,7 +34351,7 @@ $('make-clips').onclick = async () => {
       body: JSON.stringify(payload) });
     msg('clip-msg', 'Clipping started. First we get the video, then we listen and transcribe it, pick the moments, and cut your clips.', 'ok');
     loadJobs();
-  } catch (e) { msg('clip-msg', e.message, 'err'); }
+  } catch (e) { msg('clip-msg', errText(e), 'err'); }
   finally { btnDone(btn); }
 };
 
@@ -34679,7 +34729,7 @@ $('ec-add').onclick = async () => {
       const fd = new FormData(); fd.append('file', file);
       const r = await fetch('/api/editclone/upload', { method: 'POST', body: fd });
       const q = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(q.detail || ('HTTP ' + r.status));
+      if (!r.ok) throw new Error(httpErrText(r.status, q));
       msg('ec-msg', 'Working on the bot check...');
       const bot = await botFields('botcheck4');
       const job = await api('/api/editclone/ingest', { method: 'POST', headers: {'Content-Type': 'application/json'},
@@ -34712,7 +34762,7 @@ $('ec-add').onclick = async () => {
     } else {
       msg('ec-msg', 'Pick one first: paste a link, upload a file, or choose a video from your library.', 'err');
     }
-  } catch (e) { msg('ec-msg', e.message, 'err'); }
+  } catch (e) { msg('ec-msg', errText(e), 'err'); }
   finally { btnDone(btn); ecUpdateAdd(); }
 };
 $('ec-hook').onclick = async () => {
@@ -34730,7 +34780,7 @@ $('ec-hook').onclick = async () => {
       loadJobs();
       ecRefresh();
     }, 'ec-hook-msg');
-  } catch (e) { msg('ec-hook-msg', e.message, 'err'); }
+  } catch (e) { msg('ec-hook-msg', errText(e), 'err'); }
   finally { btnDone(btn); }
 };
 $('ec-clone-char').onclick = async () => {
@@ -34750,7 +34800,7 @@ $('ec-clone-char').onclick = async () => {
       ecUpdateSteps();
       ecQuoteClone();
     }, 'ec-char-msg');
-  } catch (e) { msg('ec-char-msg', e.message, 'err'); }
+  } catch (e) { msg('ec-char-msg', errText(e), 'err'); }
   finally { btnDone(btn); }
 };
 $('ec-make-char').onclick = async () => {
@@ -34773,7 +34823,7 @@ $('ec-make-char').onclick = async () => {
     msg('ec-char-msg', 'Your character ' + c.name + ' is saved and picked for you.', 'ok');
     ecUpdateSteps();
     ecQuoteClone();
-  } catch (e) { msg('ec-char-msg', e.message, 'err'); }
+  } catch (e) { msg('ec-char-msg', errText(e), 'err'); }
   finally { btnDone(btn); }
 };
 // The Clone button carries its price the way Create's
@@ -34846,7 +34896,7 @@ $('ec-clone').onclick = async () => {
       body: JSON.stringify({ source_job_id: ecSource.id, character_id: characterId, prompt: $('ec-prompt').value, model: $('ec-model').value, ...bot }) });
     msg('ec-clone-msg', 'Your clone is being made. It shows in Your videos below when it is ready.', 'ok');
     loadJobs();
-  } catch (e) { msg('ec-clone-msg', e.message, 'err'); }
+  } catch (e) { msg('ec-clone-msg', errText(e), 'err'); }
   finally { btnDone(btn); }
 };
 
@@ -35123,7 +35173,7 @@ async function promptHelpMagi2(btn) {
     ta.value = r.text;
     syncPromptCount();
     msg('prompt-help-msg', 'Your prompt is updated. Read it over and change anything you like.', 'ok');
-  } catch (e) { msg('prompt-help-msg', e.message, 'err'); }
+  } catch (e) { msg('prompt-help-msg', errText(e), 'err'); }
   finally { btnDone(btn); }
 }
 
@@ -35146,7 +35196,7 @@ async function promptHelp(textId, modelId, kind, msgId, btn, noun) {
     }
     ta.value = r.text;
     msg(msgId, 'Your ' + what + ' is updated. Read it over and change anything you like.', 'ok');
-  } catch (e) { msg(msgId, e.message, 'err'); }
+  } catch (e) { msg(msgId, errText(e), 'err'); }
   finally { btnDone(btn); }
 }
 $('prompt-help-btn').onclick = (e) => {
@@ -35206,7 +35256,7 @@ async function dramaDraft() {
       people: r.entities.people, place: r.entities.place, shots: r.shots };
     dramaRenderBoard();
     msg('drama-msg', 'Your episode is drafted. Check each person and the place, fix anything, and mark what looks right.', 'ok');
-  } catch (e) { msg('drama-msg', e.message, 'err'); }
+  } catch (e) { msg('drama-msg', errText(e), 'err'); }
   finally { btnDone(btn); }
 }
 $('drama-draft-btn').onclick = dramaDraft;
@@ -35453,11 +35503,11 @@ async function uploadTplClip() {
     const fd = new FormData(); fd.append('file', f);
     const r = await fetch('/api/templates/upload', { method: 'POST', body: fd });
     const q = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(q.detail || ('HTTP ' + r.status));
+    if (!r.ok) throw new Error(httpErrText(r.status, q));
     tplUploadId = q.upload_id;
     msg('tpl-msg', 'Clip ready. It runs ' + q.duration_seconds + ' seconds.', 'ok');
     restoredFileArrived('upload_id', tplUploadId);
-  } catch (e) { msg('tpl-msg', e.message, 'err'); }
+  } catch (e) { msg('tpl-msg', errText(e), 'err'); }
   finally { $('tpl-clip-file').disabled = false; }
 }
 // The photo presenter's photo uploads on pick for a signed in
@@ -35485,10 +35535,10 @@ async function uploadPresenterPhoto() {
     const fd = new FormData(); fd.append('file', f);
     const r = await fetch('/api/templates/upload', { method: 'POST', body: fd });
     const q = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(q.detail || ('HTTP ' + r.status));
+    if (!r.ok) throw new Error(httpErrText(r.status, q));
     presenterUploadId = q.upload_id;
     msg('job-msg', 'Photo ready. Write the script and press Create.', 'ok');
-  } catch (e) { msg('job-msg', e.message, 'err'); }
+  } catch (e) { msg('job-msg', errText(e), 'err'); }
   finally { $('mf-presenter-photo').disabled = false; }
 }
 // The product showcase's photo rides the same route and
@@ -35514,10 +35564,10 @@ async function uploadShowcasePhoto() {
     const fd = new FormData(); fd.append('file', f);
     const r = await fetch('/api/templates/upload', { method: 'POST', body: fd });
     const q = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(q.detail || ('HTTP ' + r.status));
+    if (!r.ok) throw new Error(httpErrText(r.status, q));
     showcaseUploadId = q.upload_id;
     msg('job-msg', 'Photo ready. Write your headline and press Create.', 'ok');
-  } catch (e) { msg('job-msg', e.message, 'err'); }
+  } catch (e) { msg('job-msg', errText(e), 'err'); }
   finally { $('mf-showcase3d-photo').disabled = false; }
 }
 function buildTitleCard() {
@@ -35735,14 +35785,14 @@ $('character-save').onclick = async () => {
     $('character-new').style.display = 'none';
     await loadCharacters();
     $('character').value = c.id; updateCharacterUI();
-  } catch (e) { msg('job-msg', e.message, 'err'); }
+  } catch (e) { msg('job-msg', errText(e), 'err'); }
 };
 $('character-train').onclick = async () => {
   try {
     const c = await api('/api/characters/' + $('character').value + '/train', { method: 'POST' });
     msg('job-msg', 'Training started for ' + c.name + '. It runs in the background.', 'ok');
     loadCharacters();
-  } catch (e) { msg('job-msg', e.message, 'err'); }
+  } catch (e) { msg('job-msg', errText(e), 'err'); }
 };
 // Image mode: a small curated shelf alongside video, with the
 // same simplicity: a prompt, a model, a size, one button.
@@ -35884,7 +35934,7 @@ async function refreshImageQuote() {
         : 'One image at the size picked, charged only when it is delivered. If it fails, the charge comes back in full.';
   } catch (e) {
     btn.textContent = 'Make image';
-    $('image-shelf-note').textContent = e.message;
+    $('image-shelf-note').textContent = errText(e);
   }
 }
 function setImageMode(on) {
@@ -35971,7 +36021,7 @@ async function fireImage(d) {
     const body = { ...d.body, ...bot };
     r = await api('/api/images', { method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(body) });
-  } catch (e) { msg('job-msg', e.message, 'err'); return; }
+  } catch (e) { msg('job-msg', errText(e), 'err'); return; }
   finally { btnDone(btn); }
   msg('job-msg', 'Making your image...', 'ok');
   $('image-result-wrap').style.display = 'none';
