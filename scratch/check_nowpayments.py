@@ -404,20 +404,28 @@ check("an unknown order is acknowledged without credit",
 # -- the renewal settler, for real -------------------------------
 # Round 2: a stamp-paid Creator month renews on its own.
 # Route E (same night): the money order is the balance
-# first, then auto reload's saved card; when neither can
-# pay, the plan gets three grace days from the paid-through
-# date (one email, the money order re-run on every settle
-# inside grace) and lapses only after them; a rail error
-# never lapses and retries after a day. The fake charge
-# step below models the real one's contract: the balance
-# pays in full or not at all, the card is pulled only when
-# card_ok, and the card's answer is scripted.
+# first, then auto reload's saved card. Grace removal
+# (Jack, 2026-11-28): when neither can pay, the plan
+# lapses on that settle, at the paid-through date. There
+# is no grace period, no grace email, no mid-grace rescue
+# and no forgiven days: a late success extends from the
+# original stamp. A rail error never lapses and retries
+# after a day, and while it waits the account is frozen
+# (past_due). The fake charge step below models the real
+# one's contract: the balance pays in full or not at all,
+# the card is pulled only when card_ok, and the card's
+# answer is scripted.
 MONTH = pricing.CREATOR_MONTH_SECONDS
 DAY = 24 * 3600
-NOW_BOX = {"t": FAKE_NOW + MONTH + 60}
+# The settler runs a minute after the FAKE_NOW stamp
+# passes, the way the account's own traffic runs it in
+# production; with the original-stamp anchor, a clock a
+# full month late would settle the next period too, one
+# claim per period, which is the catch-up the anchor
+# means (the clock never stops).
+NOW_BOX = {"t": FAKE_NOW + 60}
 settle_meta = {}
 scalls = {"charges": [], "net_paid": [], "draws": []}
-grace_emails = []
 charge_script = {"result": ("ok", None, "card")}
 
 
@@ -437,8 +445,6 @@ settle_ns = {
     "pricing": pricing, "meta": settle_meta,
     "_now": lambda: NOW_BOX["t"],
     "_plan_renewal_charge": fake_charge,
-    "_plan_grace_email": lambda u, g: grace_emails.append(
-        (u["id"], g)),
     "add_net_paid": lambda u, g: scalls["net_paid"].append(
         (u["id"], g)),
     "_record_stripe_credit": lambda *a, **k: None,
@@ -467,9 +473,10 @@ check("a due stamp renews through the charge step, once, "
       "at the Creator price",
       scalls["charges"] == [("u-ren",
                              pricing.CREATOR_PRICE_CENTS)])
-check("the renewal keeps Creator and advances the stamp",
+check("the renewal keeps Creator and advances the stamp "
+      "one month from the original stamp",
       user["plan"] == "creator"
-      and user["plan_paid_through"] == NOW_BOX["t"] + MONTH)
+      and user["plan_paid_through"] == FAKE_NOW + MONTH)
 check("the stamp records the renewal month was paid by card",
       user["plan_paid_via"] == "card")
 check("the renewal resets the included budget and counts "
@@ -496,7 +503,7 @@ check("a due stamp renews from the balance first",
       and user["balance_cents"] == 3000
       and user["plan"] == "creator"
       and user["plan_paid_via"] == "balance"
-      and user["plan_paid_through"] == NOW_BOX["t"] + MONTH)
+      and user["plan_paid_through"] == FAKE_NOW + MONTH)
 check("a balance renewal counts no money twice and pulls "
       "no card",
       len(scalls["net_paid"]) == 1
@@ -523,46 +530,33 @@ user = crypto_user(id="u-ren-off",
                                 "explicit": True,
                                 "amount_cents": 1000})
 settle(user)
-check("auto reload off and no balance opens the grace "
-      "days instead of lapsing",
-      user["plan"] == "creator"
-      and user["plan_grace_until"]
-      == NOW_BOX["t"] - 60 + 3 * DAY
-      and user["plan_paid_via"] == "crypto"
-      and len(scalls["charges"]) == 2
-      and grace_emails == [("u-ren-off",
-                            NOW_BOX["t"] - 60 + 3 * DAY)])
-settle(user)
-check("grace sends one email and charges nothing",
-      len(grace_emails) == 1 and len(scalls["charges"]) == 2)
+check("auto reload off and no balance lapses at once",
+      user["plan"] == "free"
+      and user["plan_paid_through"] is None
+      and user["plan_paid_via"] is None
+      and "plan_grace_until" not in user
+      and len(scalls["charges"]) == 2)
 user["balance_cents"] = 2000
 settle(user)
-check("a top up inside grace renews from the balance",
-      user["plan"] == "creator"
-      and user["plan_paid_via"] == "balance"
-      and user["balance_cents"] == 0
-      and user["plan_grace_until"] is None
-      and scalls["draws"][-1] == ("u-ren-off",
-                                  pricing.CREATOR_PRICE_CENTS)
+check("a top up after the lapse buys nothing back",
+      user["plan"] == "free"
+      and user["balance_cents"] == 2000
+      and len(scalls["draws"]) == 1
       and len(scalls["net_paid"]) == 2)
 
 user = crypto_user(id="u-ren-nocard",
                    plan_paid_through=NOW_BOX["t"] - 60,
                    stripe_payment_method_id=None)
 settle(user)
-check("no saved card opens grace instead of lapsing",
-      user["plan"] == "creator"
-      and user["plan_grace_until"]
-      == NOW_BOX["t"] - 60 + 3 * DAY
-      and len(scalls["charges"]) == 2)
-NOW_BOX["t"] = user["plan_grace_until"] + 60
-settle(user)
-check("grace over and still unpaid lapses the plan",
+check("no saved card lapses at once, no grace stamp",
       user["plan"] == "free"
       and user["plan_paid_through"] is None
       and user["plan_paid_via"] is None
-      and user["plan_grace_until"] is None
+      and "plan_grace_until" not in user
       and len(scalls["charges"]) == 2)
+settle(user)
+check("a lapsed plan is never settled again",
+      user["plan"] == "free" and len(scalls["charges"]) == 2)
 
 user = crypto_user(plan_paid_through=NOW_BOX["t"] + 1000)
 settle(user)
@@ -578,24 +572,22 @@ charge_script["result"] = ("declined", None, None)
 user = crypto_user(id="u-ren-dec",
                    plan_paid_through=NOW_BOX["t"] - 60)
 settle(user)
-check("a declined renewal opens grace, not a lapse",
-      user["plan"] == "creator"
-      and user["plan_grace_until"]
-      == NOW_BOX["t"] - 60 + 3 * DAY
+check("a declined renewal lapses at once",
+      user["plan"] == "free"
+      and user["plan_paid_through"] is None
+      and "plan_grace_until" not in user
       and len(scalls["charges"]) == 3)
 settle(user)
 check("a declined card is never pulled twice in a period",
-      len(scalls["charges"]) == 3 and user["plan"] == "creator")
-NOW_BOX["t"] = user["plan_grace_until"] + 60
-settle(user)
-check("grace over after a decline lapses the plan",
-      user["plan"] == "free" and len(scalls["charges"]) == 3)
+      len(scalls["charges"]) == 3 and user["plan"] == "free")
 
 charge_script["result"] = ("error", None, None)
 user = crypto_user(id="u-ren-err")
 settle(user)
 check("a rail error never lapses the plan",
       user["plan"] == "creator" and len(scalls["charges"]) == 4)
+check("a rail error freezes the account while it waits",
+      user.get("past_due") is True)
 settle(user)
 check("a rail error is not retried within the day",
       len(scalls["charges"]) == 4)
@@ -604,10 +596,15 @@ charge_script["result"] = ("ok", None, "card")
 settle(user)
 check("the renewal retries after a day and lands",
       user["plan"] == "creator" and len(scalls["charges"]) == 5
-      and user["plan_paid_through"] > NOW_BOX["t"])
-check("each grace entry emailed exactly once",
-      [e[0] for e in grace_emails]
-      == ["u-ren-off", "u-ren-nocard", "u-ren-dec"])
+      and user.get("past_due") is False)
+check("a late success extends from the original stamp, "
+      "gap days unforgiven",
+      user["plan_paid_through"] == FAKE_NOW + MONTH
+      and user["plan_paid_through"] != NOW_BOX["t"] + MONTH)
+check("the grace mechanism is gone from the source",
+      "plan_grace_until" not in SRC
+      and "_plan_grace_email" not in SRC
+      and "three grace days" not in SRC)
 
 # The charge step itself, for real: three honest answers.
 class RenewalPI:
@@ -738,14 +735,14 @@ check("the panel carries the plan status line",
       'id="plan-note"' in panel
       and "Creator renews from your balance. Keep $20 "
       "in it and it never lapses." in SRC
-      and "Creator could not renew. Top up $20 or pay "
-      "again before " in SRC)
-check("the Terms carry the balance renewal and grace",
+      and "Creator could not renew" not in SRC)
+check("the Terms carry the balance renewal and the "
+      "immediate end",
       "renews the same way from your balance while it"
-      in SRC and "three grace days to pay before" in SRC)
+      in SRC and "the plan ends at the paid-through"
+      in SRC and "three grace days" not in SRC)
 check("public_user exposes the plan note state",
       '"plan_paid_via": user.get("plan_paid_via")' in SRC
-      and '"plan_grace_until": user.get("plan_grace_until")'
-      in SRC)
+      and '"plan_grace_until"' not in SRC)
 
 print("check_nowpayments: all ok")

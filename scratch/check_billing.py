@@ -96,8 +96,10 @@ check("the renewal charge pulls the saved card off session",
       "off_session=True" in charge
       and '"creator_renewal"' in charge)
 # Route E (Jack, 2026-11-27): the renewal money order is
-# the balance first, and the settler allows three grace
-# days before the lapse.
+# the balance first. Grace removal (Jack, 2026-11-28):
+# no grace anywhere; a definitive failure lapses on the
+# settle, a late success extends from the original stamp,
+# and a rail error freezes dispatch while it waits.
 check("the renewal charge draws the balance before the "
       "card",
       charge.index("balance_cents")
@@ -110,9 +112,15 @@ check("the renewal charge never pulls the owner's card",
       "is_owner(user)" in charge
       and charge.index("is_owner(user)")
       < charge.index("stripe_client()"))
-check("the settler allows grace before it lapses",
-      "plan_grace_until" in settler
-      and "3 * 24 * 3600" in settler)
+check("the settler has no grace mechanism left",
+      "plan_grace_until" not in settler
+      and "_plan_grace_email" not in SRC
+      and "3 * 24 * 3600" not in settler)
+check("the settler extends from the original stamp",
+      'plan_paid_through"] = through' in settler
+      and "through, _now())" not in settler)
+check("a rail error freezes the account while it waits",
+      'user["past_due"] = True' in settler)
 
 # Exercise the reversal helper for real.
 seg = fn("_reverse_stripe_money")
