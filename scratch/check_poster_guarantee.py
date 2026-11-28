@@ -187,8 +187,47 @@ try:
           "ensure_job_poster must return None for a file-less job")
     check(app.ensure_gallery_thumb(ghost) is None,
           "ensure_gallery_thumb must return None for a file-less job")
+    # The pinposter.mp4 above is silent (a lavfi color source
+    # has no audio track): clipping.probe refuses it, which is
+    # why silent house renders carried no duration and their
+    # cards showed (?s). The finishing funnel's stamp reads
+    # the same file with the tolerant probe.
+    dur_job = {"id": "pindur", "kind": "generation"}
+    (tmp / "pindur.mp4").write_bytes(
+        (tmp / "pinposter.mp4").read_bytes())
+    app._stamp_job_duration(dur_job)
+    check(bool(dur_job.get("duration_seconds"))
+          and 0.5 < dur_job["duration_seconds"] < 1.5,
+          "a silent finished video gets no duration stamp: "
+          "its card label shows (?s)")
 finally:
     pass
+
+# -- the fallback swap is sized like the thumbnail it replaces --------------
+
+check(".job video.thumb{width:140px" in SRC,
+      "the fallback video on a job card is unsized and "
+      "balloons past the 140px thumbnail")
+check(".libcard video.thumb" in SRC,
+      "the fallback video on a picker card is unsized and "
+      "renders at the video's intrinsic size")
+
+# -- the duration stamp and the display fallback ----------------------------
+
+check("_stamp_job_duration" in inspect.getsource(
+        app.classify_job_output),
+      "the finishing funnel no longer stamps a missing "
+      "duration: finished silent jobs show (?s) again")
+pub = src_slice("def public_job", "def _api_job_params")
+check("result_duration" in pub and "billed_seconds" in pub,
+      "the public job view no longer falls back to the "
+      "reported or billed length when the stamp is missing")
+comfy_file = src_slice(
+    '@web.post("/api/worker/comfy/jobs/{job_id}/file")',
+    '@web.post("/api/worker/comfy/jobs/{job_id}/fail")')
+check("probe_media" in comfy_file,
+      "the house worker upload lost its tolerant-probe "
+      "fallback: silent renders land with no duration again")
 
 if failures:
     print("check_poster_guarantee: FAIL")

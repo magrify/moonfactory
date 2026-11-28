@@ -631,6 +631,29 @@ pub = func_src("public_job")
 for label in ('"Source video"', '"Hook"', '"Character"'):
     check(label in pub, f"public_job has no {label} label")
 
+# -- library picker copy control (restored, 2026-11-27) ---------------------
+# The Clone library grid's cards show the prompt as their
+# label; the job cards and gallery tiles carry a Copy prompt
+# control beside theirs and this grid did not.
+
+def ec_js_slice(start, end="\nfunction "):
+    i = SRC.find(start)
+    if i < 0:
+        return ""
+    j = SRC.find(end, i + len(start))
+    return SRC[i:] if j < 0 else SRC[i:j]
+
+
+eclib = ec_js_slice("function ecRenderLibrary")
+check("dataset.libcopy" in eclib and "card._prompt" in eclib
+      and "Copy prompt" in eclib,
+      "the Clone library card carries no Copy prompt control "
+      "or no full prompt to copy")
+ecgrid = ec_js_slice("$('ec-library-grid').onclick", "\n};")
+check("libCopyTarget(e)" in ecgrid,
+      "the Clone library grid lets a copy tap also pick the "
+      "card")
+
 if failures:
     print("FAIL check_editclone_section")
     for f in failures:

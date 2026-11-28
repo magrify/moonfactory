@@ -303,6 +303,54 @@ try:
 except ValueError:
     check(True, "the render refuses one clip")
 
+# -- picker card presentation (regression fix, 2026-11-27) ------------------
+# Jack's screenshots of the assemble step: the grid rendered
+# as giant full width cards, rows whose thumbnails fell back
+# to the video itself collapsed to bare prompt labels with
+# play badges floating between them, the one picked row was
+# boxed by an inline outline, and the prompt labels had no
+# copy control while the job cards and gallery tiles did.
+
+def js_slice(start, end="\nfunction "):
+    i = SRC.find(start)
+    if i < 0:
+        return ""
+    j = SRC.find(end, i + len(start))
+    return SRC[i:] if j < 0 else SRC[i:j]
+
+
+check("minmax(104px,1fr)" in html,
+      "the picker grid's tracks are not compact: at 150px "
+      "the grid fell to one giant column inside the padded "
+      "studio card on a phone")
+check(".libcard .vidbox{display:block;aspect-ratio:9/16" in html,
+      "the picker card lost its fixed frame: a card can "
+      "collapse to a floating badge or balloon with its media")
+check(".libcard img.thumb,.libcard video.thumb{width:100%;"
+      "height:100%;object-fit:cover" in html,
+      "the poster fallback's video swap is unsized on picker "
+      "cards and renders at the video's intrinsic size")
+check(".libcard.picked{outline:2px solid var(--accent)" in html,
+      "the assemble pick has no clear selected state")
+mfcard = js_slice("function mfLibCard")
+check("dataset.libcopy" in mfcard and "card._prompt" in mfcard
+      and "Copy prompt" in mfcard,
+      "the movie picker card carries no Copy prompt control "
+      "or no full prompt to copy")
+check("function libCopyPrompt" in SRC
+      and "navigator.clipboard.writeText" in js_slice(
+          "async function libCopyPrompt", "\nfunction "),
+      "the picker copy control does not copy the full prompt")
+assemble = js_slice("function mfRenderAssembly")
+check("classList.add('picked')" in assemble
+      and "style.outline" not in assemble,
+      "the assemble render does not mark picks with the "
+      "picked class")
+wire = js_slice("function mfWireFlow")
+check(wire.count("libCopyTarget(e)") >= 2,
+      "a movie grid click handler lets a copy tap also pick "
+      "the card")
+
 if failures:
     print("FAIL check_movie_flow")
     for f in failures:

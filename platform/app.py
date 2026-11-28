@@ -1635,6 +1635,35 @@ def _classifier_file_scores(path) -> list:
     return []
 
 
+def _stamp_job_duration(job: dict, path=None) -> None:
+    """Record a finished video job's real length when its
+    record carries none (duration fix, 2026-11-27): the house
+    lanes' silent renders never got one, because the worker
+    upload path measured them with clipping.probe, which
+    refuses a file with no audio track; the card labels then
+    showed (?s) for a finished job whose file has a perfectly
+    readable length. probe_media is the tolerant twin the
+    Edit/Clone sources are measured with. Best-effort, like
+    the poster guarantee it rides beside in the finishing
+    funnel: it stamps once, and a stamped job never
+    re-probes."""
+    try:
+        if job.get("duration_seconds"):
+            return
+        if path is None:
+            path = FILES_DIR / f"{job['id']}.mp4"
+        p = Path(path)
+        if ".web." in p.name or not p.is_file():
+            return
+        info = clipping.probe_media(p)
+        if info.get("duration"):
+            job["duration_seconds"] = round(
+                float(info["duration"]), 2)
+            jobs[job["id"]] = job
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def classify_job_output(job: dict, path=None) -> None:
     """Stamp the output classifier's verdict onto a finished
     job's record: output_nsfw_score (the worst probability the
@@ -1706,6 +1735,8 @@ def classify_job_output(job: dict, path=None) -> None:
             ensure_gallery_thumb(job, path)
             if job.get("kind") != "image":
                 ensure_job_poster(job, path)
+                if not job.get("duration_seconds"):
+                    _stamp_job_duration(job, path)
         except Exception:  # noqa: BLE001
             pass
 
@@ -13181,7 +13212,15 @@ document.getElementById('go').onclick = async () => {{
                 else MODEL_LABELS.get(job.get("model") or DEFAULT_MODEL, "Wan 2.2")
             ),
             "model_id": job.get("model") or DEFAULT_MODEL,
-            "duration_seconds": job.get("duration_seconds"),
+            # The display duration (duration fix, 2026-11-27):
+            # the stamped length when the record carries one,
+            # else the length the provider reported or the
+            # settlement billed, so a finished job whose own
+            # stamp is missing still shows its real length
+            # instead of (?s).
+            "duration_seconds": job.get("duration_seconds")
+            or job.get("result_duration")
+            or job.get("billed_seconds"),
             "resolution": job.get("resolution"),
             "prompt": job["prompt"],
             "user_prompt": job.get("user_prompt") or job["prompt"],
@@ -22220,7 +22259,18 @@ document.getElementById('go').onclick = async () => {{
             info = clipping.probe(out_path)
             job["duration_seconds"] = round(float(info["duration"]), 2)
         except Exception:
-            pass
+            # probe() is the transcription probe: it refuses a
+            # file with no audio track, and a silent house
+            # render is exactly that, so its length used to be
+            # lost here and the finished job showed (?s)
+            # (duration fix, 2026-11-27). The tolerant probe
+            # reads the same length from the same file.
+            try:
+                info = clipping.probe_media(out_path)
+                job["duration_seconds"] = round(
+                    float(info["duration"]), 2)
+            except Exception:
+                pass
         render_seconds = request.headers.get("x-comfy-render-seconds")
         if render_seconds is not None:
             try:
@@ -26311,6 +26361,12 @@ _CSS = """
   .tile .report:disabled{color:var(--faint);cursor:default}
   .job video{max-width:360px}
   .job img.thumb{width:140px;border-radius:10px}
+  /* The poster guarantee's fallback swaps a failed thumbnail
+     for the video itself (thumbImgFail); the swap carries the
+     thumb class, so it takes the thumbnail's size too, never
+     the video's own (regression fix, 2026-11-27: fallback
+     videos rendered at intrinsic size and ballooned cards). */
+  .job video.thumb{width:140px;border-radius:10px}
   /* Full prompt on cards (Jack, 2026-11-27): the card keeps
      its short snippet; the whole prompt opens in this bounded,
      scrollable box so even a 15,000 character prompt cannot
@@ -26326,13 +26382,23 @@ _CSS = """
   .vidbox .playbadge{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:32px;line-height:1;color:#fff;text-shadow:0 1px 10px rgba(0,0,0,.65);pointer-events:none}
   .tile .frame .vidbox{display:block;width:100%;height:100%}
   img.thumb[data-open]{cursor:pointer}
-  .libgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:14px;margin-top:10px}
+  .libgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:10px;margin-top:10px}
   .libcard{cursor:pointer}
-  .libcard .vidbox{display:block}
-  .libcard img.thumb{width:100%;border-radius:10px;display:block}
+  /* Picker cards hold a fixed frame, the gallery tile's
+     shape: at 150px tracks the grid fell to one giant column
+     inside the padded studio card on a phone, and a card
+     whose thumbnail fell back to the video itself rendered
+     at the video's intrinsic size or collapsed to a floating
+     play badge (regression fix, 2026-11-27). The frame holds
+     its shape and the media fills it, thumbnail, poster or
+     fallback video alike. */
+  .libcard .vidbox{display:block;aspect-ratio:9/16;border-radius:10px;overflow:hidden;background:var(--inset)}
+  .libcard img.thumb,.libcard video.thumb{width:100%;height:100%;object-fit:cover;border-radius:10px;display:block}
+  .libcard.picked{outline:2px solid var(--accent);outline-offset:2px;border-radius:12px}
   .libcard-label{display:block;margin-top:6px;font-size:13px;word-break:break-word}
+  .libcard-copy{margin-top:4px;padding:5px 12px;font-size:12.5px}
   .libpicked{display:flex;align-items:center;gap:12px;margin:2px 0 10px}
-  .libpicked img.thumb{width:84px;border-radius:9px;flex:none}
+  .libpicked img.thumb,.libpicked video.thumb{width:84px;border-radius:9px;flex:none}
   .libpicked .libcard-label{margin-top:0;flex:1}
   /* One quiet tappable text row (Clone step 1's library
      pick, 2026-11-27): the same dress as the details.more
@@ -31432,6 +31498,37 @@ async function mfQuoteClip(p) {
     }
   } catch (e) { line.textContent = ''; }
 }
+// Copy prompt on the picker cards (restored, 2026-11-27):
+// the job cards and gallery tiles carry a Copy prompt
+// control beside their prompt text; the library picker
+// cards showed the prompt as their label with no way to
+// copy it. The full text rides on the card element, never
+// in the markup, exactly as on the job cards.
+async function libCopyPrompt(btn) {
+  const card = btn.closest('.libcard');
+  const text = (card && card._prompt) || '';
+  if (!text) return;
+  let ok = false;
+  try { await navigator.clipboard.writeText(text); ok = true; }
+  catch (err) {}
+  if (!ok) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    try { ok = document.execCommand('copy'); } catch (err) {}
+    ta.remove();
+  }
+  btn.textContent = ok ? 'Copied' : 'Copy failed';
+  setTimeout(() => { btn.textContent = 'Copy prompt'; }, 1600);
+}
+function libCopyTarget(e) {
+  const cp = e.target.closest('[data-libcopy]');
+  if (!cp) return false;
+  e.stopPropagation();
+  libCopyPrompt(cp);
+  return true;
+}
 function mfLibCard(j, dataAttr) {
   const card = document.createElement('div');
   card.className = 'libcard';
@@ -31459,6 +31556,15 @@ function mfLibCard(j, dataAttr) {
   label.textContent = mfShortLabel(j);
   card.appendChild(box);
   card.appendChild(label);
+  if (j.prompt) {
+    const cp = document.createElement('button');
+    cp.type = 'button';
+    cp.className = 'btn secondary libcard-copy';
+    cp.dataset.libcopy = j.id;
+    cp.textContent = 'Copy prompt';
+    card.appendChild(cp);
+  }
+  card._prompt = j.prompt || '';
   return card;
 }
 function mfRenderProductGrid(p) {
@@ -31483,7 +31589,7 @@ function mfRenderAssembly(p) {
   }
   for (const j of jobs) {
     const card = mfLibCard(j, 'mfpick');
-    if (st.picks.includes(j.id)) card.style.outline = '2px solid #888';
+    if (st.picks.includes(j.id)) card.classList.add('picked');
     grid.appendChild(card);
   }
   const box = $(p + '-assemble-picks');
@@ -31683,6 +31789,7 @@ function mfWireFlow(p) {
     } catch (e) { mfMsg(p, 'That image could not be read.', 'err'); }
   });
   $(p + '-product-grid').onclick = e => {
+    if (libCopyTarget(e)) return;
     const card = e.target.closest('[data-mfproduct]');
     if (!card) return;
     mfState[p].productJobId = card.dataset.mfproduct;
@@ -31696,6 +31803,7 @@ function mfWireFlow(p) {
   $(p + '-resolution').addEventListener('change', () => mfQuoteClip(p));
   $(p + '-clip-gen').onclick = () => mfGenerateClip(p);
   $(p + '-assemble-grid').onclick = e => {
+    if (libCopyTarget(e)) return;
     const card = e.target.closest('[data-mfpick]');
     if (!card) return;
     const id = card.dataset.mfpick;
@@ -32753,6 +32861,15 @@ function ecRenderLibrary() {
     label.textContent = ecShortLabel(j);
     card.appendChild(box);
     card.appendChild(label);
+    if (j.prompt) {
+      const cp = document.createElement('button');
+      cp.type = 'button';
+      cp.className = 'btn secondary libcard-copy';
+      cp.dataset.libcopy = j.id;
+      cp.textContent = 'Copy prompt';
+      card.appendChild(cp);
+    }
+    card._prompt = j.prompt || '';
     grid.appendChild(card);
   }
   ecRenderLibraryPicked();
@@ -32797,6 +32914,7 @@ $('ec-library-clear').onclick = () => {
   ecRenderLibraryPicked();
 };
 $('ec-library-grid').onclick = e => {
+  if (libCopyTarget(e)) return;
   const card = e.target.closest('[data-libpick]');
   if (card) ecPickLibrary(card.dataset.libpick);
 };
