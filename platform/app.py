@@ -9517,6 +9517,12 @@ def api():
             "avatar_url": avatar_url(user),
             "gallery_opt_out": bool(user.get("gallery_opt_out")),
             "past_due": user.get("past_due", False),
+            # How the current Creator month was paid and any
+            # renewal grace it is sitting in (Route E,
+            # 2026-11-27): the Billing plan note reads these to
+            # tell the customer the truth about their renewal.
+            "plan_paid_via": user.get("plan_paid_via"),
+            "plan_grace_until": user.get("plan_grace_until"),
             "balance_cents": user.get("balance_cents", 0),
             "has_password": bool(user.get("pw")),
             "has_saved_card": bool(user.get("stripe_customer_id")
@@ -24783,20 +24789,36 @@ document.getElementById('go').onclick = async () => {{
             return plain_detail + ", and the reload did not go through"
         return plain_detail
 
-    def _plan_renewal_charge(user: dict, amount_cents: int):
-        """The one money step of a plan renewal (Jack,
-        2026-11-27 round 2): pull the amount from the saved
-        card, off session, once. Returns (result, payment
-        intent, paid_via): "ok" when Stripe confirms the money,
-        "declined" when the card itself answered no, and
-        "error" when the charge could not even be attempted
-        (payments unconfigured, the rail unreachable), so the
-        settler can tell a card that said no from a rail that
-        never answered. This step is the only place a renewal
-        touches money, and it reports how the month was paid:
-        a renewal drawn from the balance instead plugs in here,
-        behind the same three answers and its own paid_via,
-        and the settler never changes."""
+    def _plan_renewal_charge(user: dict, amount_cents: int,
+                             card_ok: bool = True):
+        """The one money step of a plan renewal. Returns
+        (result, payment intent, paid_via), and the money has
+        an order (Route E, Jack, 2026-11-27: crypto recurring
+        solved through the balance the crypto top ups already
+        land in). First the account balance: when it covers
+        the full amount it is debited, never partially and
+        never below zero, and the answer is "ok" with paid_via
+        "balance" and no payment intent; the draw is free and
+        instant, and the money was already counted toward the
+        cost ceiling when it topped up, so the settler counts
+        it again never. Second, when the balance is short and
+        card_ok, the saved card is pulled off session once:
+        "ok" when Stripe confirms the money, "declined" when
+        the card itself answered no, and "error" when the
+        charge could not even be attempted (payments
+        unconfigured, the rail unreachable), so the settler
+        can tell a card that said no from a rail that never
+        answered. When neither source can pay (balance short
+        and no card pull allowed) the answer is "unpaid".
+        This step is the only place a renewal touches money,
+        and it reports how the month was paid."""
+        amount = int(amount_cents)
+        if int(user.get("balance_cents", 0)) >= amount:
+            user["balance_cents"] = \
+                int(user.get("balance_cents", 0)) - amount
+            return "ok", None, "balance"
+        if not card_ok:
+            return "unpaid", None, None
         stripe, err = stripe_client()
         if err:
             return "error", None, None
@@ -24821,35 +24843,78 @@ document.getElementById('go').onclick = async () => {{
             return "declined", pi, None
         return "ok", pi, "card"
 
+    def _plan_grace_email(user: dict, grace_until: float) -> None:
+        """The one grace notice (Route E design, 2026-11-27):
+        sent once, when a renewal first fails and the grace
+        days start, with the way back in one line. The link
+        lands on the studio, where Billing's Creator checkout
+        mints a fresh crypto invoice or takes a card; no
+        invoice exists until the customer asks for one. Never
+        raises: mail is a courtesy on top of the Billing note,
+        not part of the settlement."""
+        try:
+            to = user.get("email")
+            if not to:
+                return
+            base = os.environ.get("PUBLIC_BASE_URL") or \
+                "https://magrify--moonfactory-api.us-east.modal.run"
+            when = datetime.datetime.fromtimestamp(
+                grace_until, datetime.timezone.utc
+            ).strftime("%B %d, %Y")
+            _send_email(
+                to,
+                "Your Moonfactory Creator renews in 3 days",
+                "Your Creator month ended and the renewal could "
+                "not be paid from your balance or a saved card. "
+                "Top up or pay again by " + when + " to keep "
+                "Creator: " + base + "/app")
+        except Exception:
+            pass
+
     def settle_plan_renewal(user: dict) -> None:
         """Renewal for stamp-paid Creator months (Jack,
-        2026-11-27 round 2: "why not renew on its own?"). A
+        2026-11-27 round 2: "why not renew on its own?", and
+        Route E the same night: the balance pays first). A
         Creator month paid with crypto has no subscription
         behind it; its grant wrote a paid-through stamp and
         recorded how the month was paid. When the stamp passes,
-        this settler is the renewal: with auto reload on and a
-        saved card it charges the Creator price once through
-        _plan_renewal_charge and extends the plan a month with
-        the same grant the payment itself made (included budget
-        reset, the money counted toward the ceiling, the stamp
+        this settler is the renewal: it runs the money order in
+        _plan_renewal_charge (the balance first, then auto
+        reload's saved card when it is on and the card has not
+        already answered for this period) and on success
+        extends the plan a month with the same grant the
+        payment itself made (included budget reset, the stamp
         advanced and re-marked with how the new month was
-        paid); with no saved card or auto reload off, or a card
-        that answers no, the plan lapses to free. Card months
-        carry no stamp (the Stripe subscription renews them),
-        and an account with a live Stripe subscription is never
-        settled here. The settler is method-agnostic: it reads
-        only the stamp, never the paid_via, and only the charge
-        step knows where a renewal's money comes from. It runs
-        lazily on the account's own authenticated traffic
-        (require_user), the same self-heal-on-read pattern as
-        the usage period rollover, and it can never break a
-        request: every failure path leaves the record as it
-        found it, except the lapse itself, which is the
-        designed outcome. One claim per paid-through period in
-        meta keeps two containers from ever charging the same
-        month twice; a rail error claims the period for a day
-        before it may be retried, and never lapses a plan on
-        its own."""
+        paid; a card month counts its money toward the ceiling
+        and records the charge for refund reversal, a balance
+        month counts nothing again, its money was counted when
+        it topped up). When neither source can pay, the plan
+        does not lapse at once: it gets three grace days from
+        the paid-through date (plan_grace_until), the customer
+        is emailed once and told in Billing, and every later
+        settle inside grace runs the money order again, so a
+        top up mid-grace renews on its own; only a settle that
+        still cannot pay after the grace days lapses the plan
+        to free. No catch-up charges: a renewal that lands
+        late starts the new month from the landing, never from
+        the old stamp. Card months carry no stamp (the Stripe
+        subscription renews them), and an account with a live
+        Stripe subscription is never settled here. The settler
+        is method-agnostic: it reads only the stamp, never the
+        paid_via, and only the charge step knows where a
+        renewal's money comes from. It runs lazily on the
+        account's own authenticated traffic (require_user),
+        the same self-heal-on-read pattern as the usage period
+        rollover, and it can never break a request: every
+        failure path leaves the record as it found it, except
+        the lapse itself, which is the designed outcome. One
+        claim per paid-through period in meta
+        (plan_renewal_claims) covers every money path, the
+        balance draw included, so no period can ever be paid
+        twice; a rail error claims the period for a day before
+        it may be retried, and never lapses a plan on its own;
+        a card that answered no is never pulled again for the
+        same period (the claim remembers the attempt)."""
         try:
             if user.get("plan") != "creator":
                 return
@@ -24861,8 +24926,7 @@ document.getElementById('go').onclick = async () => {{
             claims = meta.get("plan_renewal_claims") or {}
             claim_key = f"{user['id']}:{int(through)}"
             claim = claims.get(claim_key) or {}
-            if claim.get("result") in ("charged", "lapsed",
-                                       "declined"):
+            if claim.get("result") in ("charged", "lapsed"):
                 return
             if claim.get("result") == "error" \
                     and _now() - float(claim.get("at") or 0) \
@@ -24873,50 +24937,79 @@ document.getElementById('go').onclick = async () => {{
                 cfg.get("enabled") and cfg.get("explicit")
                 and user.get("stripe_customer_id")
                 and user.get("stripe_payment_method_id"))
-            if not can_pull:
-                user["plan"] = "free"
-                user["plan_paid_through"] = None
-                user["plan_paid_via"] = None
-                claims[claim_key] = {"result": "lapsed",
-                                     "at": _now()}
-                meta["plan_renewal_claims"] = claims
-                save_user(user)
-                return
+            card_ok = can_pull and not claim.get("card_attempted")
             result, pi, paid_via = _plan_renewal_charge(
-                user, pricing.CREATOR_PRICE_CENTS)
+                user, pricing.CREATOR_PRICE_CENTS, card_ok)
             if result == "error":
-                claims[claim_key] = {"result": "error",
-                                     "at": _now()}
+                claims[claim_key] = dict(
+                    claim, result="error", at=_now())
                 meta["plan_renewal_claims"] = claims
                 return
-            if result == "declined":
-                user["plan"] = "free"
-                user["plan_paid_through"] = None
-                user["plan_paid_via"] = None
-                claims[claim_key] = {"result": "declined",
-                                     "at": _now()}
+            if result == "ok":
+                # The money landed: the same grant the payment
+                # itself made, one more month.
+                user["past_due"] = False
+                user["plan_paid_via"] = paid_via
+                user["plan_paid_through"] = max(
+                    through, _now()) \
+                    + pricing.CREATOR_MONTH_SECONDS
+                user["plan_grace_until"] = None
+                u = user.get("usage") or {}
+                u["included_seconds"] = 0.0
+                u["included_cost_cents"] = 0.0
+                user["usage"] = u
+                if paid_via == "card":
+                    add_net_paid(user,
+                                 pricing.CREATOR_PRICE_CENTS)
+                    if pi is not None:
+                        _record_stripe_credit(
+                            f"pi:{pi.id}", user, 0,
+                            pricing.CREATOR_PRICE_CENTS, pi=pi.id)
+                claims[claim_key] = {
+                    "result": "charged", "at": _now(),
+                    "pi": getattr(pi, "id", None),
+                    "paid_via": paid_via,
+                    "amount_cents": pricing.CREATOR_PRICE_CENTS}
                 meta["plan_renewal_claims"] = claims
                 save_user(user)
                 return
-            # The money landed: the same grant the payment
-            # itself made, one more month.
-            user["past_due"] = False
-            user["plan_paid_via"] = paid_via
-            user["plan_paid_through"] = max(
-                through, _now()) + pricing.CREATOR_MONTH_SECONDS
-            u = user.get("usage") or {}
-            u["included_seconds"] = 0.0
-            u["included_cost_cents"] = 0.0
-            user["usage"] = u
-            add_net_paid(user, pricing.CREATOR_PRICE_CENTS)
-            if pi is not None:
-                _record_stripe_credit(
-                    f"pi:{pi.id}", user, 0,
-                    pricing.CREATOR_PRICE_CENTS, pi=pi.id)
-            claims[claim_key] = {"result": "charged",
-                                 "at": _now(),
-                                 "pi": getattr(pi, "id", None),
-                                 "paid_via": paid_via}
+            # The money order failed for this attempt: the
+            # card answered no, or no source could pay. A card
+            # that answered no is not pulled again this period.
+            if result == "declined":
+                claim = dict(claim, card_attempted=True)
+            grace_until = float(user.get("plan_grace_until")
+                                or 0)
+            if not grace_until:
+                grace_until = through + 3 * 24 * 3600
+                user["plan_grace_until"] = grace_until
+                claims[claim_key] = dict(
+                    claim, result="grace", at=_now(),
+                    grace_until=grace_until)
+                meta["plan_renewal_claims"] = claims
+                save_user(user)
+                if grace_until > _now():
+                    _plan_grace_email(user, grace_until)
+                    return
+                # The stamp is already more than the grace
+                # days past (a long-absent account): the grace
+                # is spent, so fall through to the lapse with
+                # no notice to send.
+            if _now() < grace_until:
+                if claim.get("result") != "grace":
+                    claims[claim_key] = dict(
+                        claim, result="grace", at=_now(),
+                        grace_until=grace_until)
+                    meta["plan_renewal_claims"] = claims
+                return
+            # The grace days are over and the renewal still
+            # cannot pay: the plan lapses to free.
+            user["plan"] = "free"
+            user["plan_paid_through"] = None
+            user["plan_paid_via"] = None
+            user["plan_grace_until"] = None
+            claims[claim_key] = {"result": "lapsed",
+                                 "at": _now()}
             meta["plan_renewal_claims"] = claims
             save_user(user)
         except Exception:
@@ -25155,6 +25248,7 @@ document.getElementById('go').onclick = async () => {{
                     # subscription itself, so they carry the
                     # method and no paid-through stamp.
                     user["plan_paid_via"] = "card"
+                    user["plan_grace_until"] = None
                     user["stripe_customer_id"] = obj.get("customer")
                     user["stripe_subscription_id"] = obj.get("subscription")
                     try:
@@ -25298,6 +25392,7 @@ document.getElementById('go').onclick = async () => {{
                     user["plan"] = "free"
                     user["stripe_subscription_id"] = None
                     user["plan_paid_via"] = None
+                    user["plan_grace_until"] = None
                     save_user(user)
         elif etype == "setup_intent.succeeded":
             uid = (obj.get("metadata") or {}).get("user_id")
@@ -25602,6 +25697,9 @@ document.getElementById('go').onclick = async () => {{
             user["plan_paid_through"] = max(
                 _now(), float(user.get("plan_paid_through") or 0)
             ) + pricing.CREATOR_MONTH_SECONDS
+            # A fresh paid month ends any renewal grace the
+            # old stamp was sitting in (Route E, 2026-11-27).
+            user["plan_grace_until"] = None
             u = user.get("usage") or {}
             u["included_seconds"] = 0.0
             u["included_cost_cents"] = 0.0
@@ -27071,8 +27169,10 @@ balance is restored in credits. Refunds are issued in credits, not
 cash, except where the law requires otherwise.</li>
 <li>Creator renews monthly until cancelled. Cancelling stops the
 next renewal. It does not refund the current month. A Creator month
-paid with crypto renews the same way while auto reload is on with a
-saved card; without one it ends with the month it paid for.</li>
+paid with crypto renews the same way from your balance while it
+covers the price, with auto reload covering a shortfall when it is
+on; if neither covers it, there are three grace days to pay before
+it ends.</li>
 <li>Balances and credits have no cash value, are not transferable,
 and are forfeited if your account is closed for violating these
 Terms.</li>
@@ -29180,6 +29280,7 @@ APP_HTML = (
       <div class="plan-row">
         <button class="amount-card" type="button" id="amount-creator" aria-pressed="false"><span class="amount-big">$20</span><span class="amount-sub">Creator, monthly</span></button>
       </div>
+      <p class="muted" id="plan-note" style="display:none"></p>
       <p class="group-label">Payment method</p>
       <div class="method-grid">
         <button class="method-card on" type="button" id="method-card" aria-pressed="true"><svg class="method-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="2.5" y="5" width="19" height="14" rx="2.5"/><line x1="2.5" y1="9.5" x2="21.5" y2="9.5"/></svg>Card</button>
@@ -30387,6 +30488,7 @@ function showStudio(u) {
   $('account-handle').textContent = u.handle;
   renderAvatar(u);
   renderAutoReload(u);
+  renderPlanNote(u);
   renderCryptoBilling();
   const paidSurface = isPaidSurface();
   $('composer-heading').textContent = 'Create';
@@ -31326,13 +31428,13 @@ function billSync() {
   // rule; the Auto reload section below states only its own
   // state), Creator by card renews monthly on its own,
   // crypto carries its landing fact, and Creator by crypto
-  // renews through auto reload's saved card (Jack,
-  // 2026-11-27 round 2) or covers one month without it.
+  // renews from the balance, with auto reload covering a
+  // shortfall when it is on (Route E, Jack, 2026-11-27).
   const note = $('method-note');
   let text = '';
   if (billMethod === 'crypto') {
     text = planOn
-      ? 'Creator paid with crypto renews on its own while auto reload is on with a saved card. Otherwise it covers one month.'
+      ? 'Creator paid with crypto renews on its own from your balance while it covers $20. Auto reload covers a shortfall when it is on.'
       : 'Crypto checkout runs through NOWPayments. Your credit lands in your balance when the payment confirms, usually within the hour.';
   } else if (planOn) {
     text = 'Creator by card is a subscription. It renews monthly on its own.';
@@ -31377,6 +31479,28 @@ $('pay-continue').onclick = async () => {
     else await startTopup(cents);
   } catch (e) { msg('pay-msg', e.message, 'err'); }
 };
+// The plan's own status line (Route E, 2026-11-27): one
+// short line under the Plan row, only for stamp-paid
+// Creator months. It says the renewal truth for the
+// account as it stands: the balance renews it, or the
+// grace days are running and here is the date they end.
+function renderPlanNote(s) {
+  const el = $('plan-note');
+  if (!el) return;
+  let text = '';
+  if (s && s.plan === 'creator'
+      && (s.plan_paid_via === 'crypto' || s.plan_paid_via === 'balance')) {
+    const grace = Number(s.plan_grace_until || 0);
+    if (grace && grace > Date.now() / 1000) {
+      text = 'Creator could not renew. Top up $20 or pay again before '
+        + new Date(grace * 1000).toLocaleDateString() + ' to keep it.';
+    } else {
+      text = 'Creator renews from your balance. Keep $20 in it and it never lapses.';
+    }
+  }
+  el.textContent = text;
+  el.style.display = text ? '' : 'none';
+}
 function renderAutoReload(s) {
   if (!$('save-card')) return;
   const has = !!s.has_saved_card;

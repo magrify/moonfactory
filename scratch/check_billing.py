@@ -95,6 +95,17 @@ charge = fn("_plan_renewal_charge")
 check("the renewal charge pulls the saved card off session",
       "off_session=True" in charge
       and '"creator_renewal"' in charge)
+# Route E (Jack, 2026-11-27): the renewal money order is
+# the balance first, and the settler allows three grace
+# days before the lapse.
+check("the renewal charge draws the balance before the "
+      "card",
+      charge.index("balance_cents")
+      < charge.index("stripe_client()")
+      and '"balance"' in charge and '"unpaid"' in charge)
+check("the settler allows grace before it lapses",
+      "plan_grace_until" in settler
+      and "3 * 24 * 3600" in settler)
 
 # Exercise the reversal helper for real.
 seg = fn("_reverse_stripe_money")
