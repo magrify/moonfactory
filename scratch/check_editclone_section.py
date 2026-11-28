@@ -11,6 +11,23 @@ Pins the tab's shape so a later edit cannot quietly break it:
   the Clone card with its link, upload and library inputs,
   the hook and character controls, the character picker, the
   model picker and the clone button;
+- the flow stands as four numbered steps visible from the
+  first paint (2026-11-27 redesign): 1 Add a video,
+  2 Choose your character, 3 Trim the hook, 4 Model and
+  price, in that order, with nothing hidden behind the old
+  ec-source container: the character picker stands in
+  step 2 from the start, the two controls that need the
+  source (hook, clone the character) start disabled with a
+  note saying what they wait for, no message line carries
+  text in the served HTML and the pick-one-first error
+  exists only inside the Add click handler, both file
+  picks wear the site's .drop zone over hidden inputs, the
+  model options carry each model's own $/s rate from the
+  same catalog figure Create's picker reads, the quote
+  speaks Create's exact price words with the video's
+  length in it, the Clone button carries the price, and
+  the free steps and the rights line read in one short
+  line each where they belong;
 - the clone prompt is prefilled with Jack's template word for
   word: the served textarea, the CLONE_PROMPT_TEMPLATE
   constant and this file's own copy must all three agree;
@@ -149,6 +166,100 @@ for el in ("ec-url", "ec-file", "ec-library", "ec-add", "ec-hook",
            "ec-clone", "botcheck4"):
     check(f'id="{el}"' in html,
           f"the Clone control {el} is missing")
+
+# -- the four steps stand visible from the first paint -------------------
+# (2026-11-27 redesign: the whole journey on the page, in
+# order, nothing appearing out of nowhere later.)
+for step in ("ec-step1", "ec-step2", "ec-step3", "ec-step4"):
+    check(f'id="{step}"' in html, f"the Clone step {step} is missing")
+check(html.index('id="ec-step1"') < html.index('id="ec-step2"')
+      < html.index('id="ec-step3"') < html.index('id="ec-step4"')
+      < html.index('id="ec-clone"'),
+      "the Clone steps are not 1, 2, 3, 4 in order before the button")
+for title in ("Add a video", "Choose your character",
+              "Trim the hook", "Model and price"):
+    check(f"<h3>{title}</h3>" in html,
+          f"the Clone step title {title!r} is missing")
+check('id="ec-source"' not in html,
+      "the steps still hide inside the old ec-source container")
+check(html.index('id="ec-step2"') < html.index('id="ec-character"')
+      < html.index('id="ec-step3"'),
+      "the character picker does not stand in step 2 from the start")
+check("function ecUpdateSteps" in html
+      and "$('ec-hook').disabled" in html
+      and "$('ec-clone-char').disabled" in html,
+      "the step state machinery is missing")
+check('id="ec-hook" type="button" disabled' in html
+      and 'id="ec-clone-char" type="button" disabled' in html,
+      "a source-bound control does not start disabled")
+for note in ("That reads the person out of your video",
+             "That cuts your video from step 1"):
+    check(note in html, f"a waiting note is missing: {note!r}")
+
+# -- no error before an action, messages beside their step ----------------
+
+for el in ("ec-msg", "ec-char-msg", "ec-hook-msg", "ec-clone-msg"):
+    check(f'<p id="{el}"></p>' in html,
+          f"the message line {el} carries text before any action")
+pick_first = "Pick one first: paste a link, upload a file"
+check(html.count(pick_first) == 1
+      and html.index(pick_first) > html.index("$('ec-add').onclick"),
+      "the pick-one-first error lives outside the Add handler")
+check("Paste a link, upload a file, or pick a video from your "
+      "library first." not in html,
+      "the old pre-action error text still renders")
+check("msg('ec-char-msg'" in html and "msg('ec-hook-msg'" in html,
+      "a step's messages do not land beside that step")
+
+# -- the file picks wear the site's dress ---------------------------------
+
+check('class="drop" id="ec-file-drop"' in html
+      and 'class="drop" id="ec-char-drop"' in html,
+      "a file pick is not a styled drop zone")
+check('<input id="ec-file" type="file" accept="video/*" '
+      'style="display:none">' in html
+      and '<input id="ec-char-files" type="file" '
+      'accept="image/png,image/jpeg" multiple '
+      'style="display:none">' in html,
+      "a raw browser file widget still shows")
+clone_card = html[html.index('id="clone-pane"'):
+                  html.index("<h2>Make a movie</h2>")]
+check("Or upload a video file" not in clone_card,
+      "the old raw upload label still renders")
+check("ecWireDrop('ec-file-drop', 'ec-file', ecRenderFileDrop)"
+      in html
+      and "ecWireDrop('ec-char-drop', 'ec-char-files', "
+      "ecRenderCharDrop)" in html,
+      "a drop zone is not wired to its hidden input")
+
+# -- costs like Create: rates in the step, exact total, priced button -----
+
+check("ecRateText(m.rate_cents_per_second)" in html,
+      "the model options do not carry each model's $/s rate")
+check("'Clone the video · $'" in html,
+      "the Clone button does not carry its price like Create's")
+for words in ("'The exact price for your '",
+              "' of your included budget'",
+              "' from your prepaid balance.'",
+              "Nothing is charged to your balance."):
+    check(words in html, f"the quote lost Create's words: {words!r}")
+check("This clone uses $" not in html
+      and "This clone costs $" not in html,
+      "the quote still speaks its old one-off wording")
+
+# -- the short lines, each where it belongs --------------------------------
+
+check("Only clone videos you own or have permission to use."
+      in html,
+      "the rights line is missing from the source step")
+check("Adding a video, trimming the hook and making a "
+      "character are free." in html,
+      "the price honesty line is missing from the create step")
+check("Adding a video is free." in html
+      and "Making a character is free." in html,
+      "a free step is not labeled free")
+check("Only edit and clone content you own" not in html,
+      "the old wall of text still renders")
 
 # -- the library picker: a button and thumbnail panel, no select --------
 # (Jack, 2026-11-27: the option stays, the dropdown of full

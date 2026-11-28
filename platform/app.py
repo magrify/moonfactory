@@ -26181,6 +26181,21 @@ _CSS = """
   .libpicked{display:flex;align-items:center;gap:12px;margin:2px 0 10px}
   .libpicked img.thumb{width:84px;border-radius:9px;flex:none}
   .libpicked .libcard-label{margin-top:0;flex:1}
+  /* Clone steps (2026-11-27 flow redesign): the whole
+     journey stands on the page from the first paint as
+     numbered steps, each with a one line helper. A step
+     whose turn has not come yet still shows everything it
+     will ask for; only the controls that truly need an
+     earlier step sit disabled, with a note saying what
+     they are waiting for. A finished step fills its
+     number with the accent. */
+  .ec-step{border-top:1px solid var(--line);padding-top:20px;margin-top:24px}
+  .ec-step.first{border-top:0;padding-top:2px;margin-top:14px}
+  .ec-step-head{display:flex;align-items:center;gap:10px}
+  .ec-step-num{width:27px;height:27px;border-radius:50%;background:var(--inset);border:1px solid var(--line-strong);color:var(--gray);font-size:13.5px;font-weight:700;display:flex;align-items:center;justify-content:center;flex:none}
+  .ec-step.done .ec-step-num{background:var(--accent);border-color:var(--accent);color:#fff;box-shadow:var(--glow)}
+  .ec-step-head h3{margin:0;font-size:17.5px;letter-spacing:-.01em}
+  .ec-step .helper{color:var(--faint);font-size:14px;line-height:1.55;margin:6px 0 12px}
   /* Footer (layout fix, 2026-11-24): brand on its own line,
      links in a wrapping flex row with even gaps and real tap
      targets, instead of two spans squeezed onto one row. */
@@ -28590,49 +28605,79 @@ APP_HTML = (
     <div class="create-head">
       <h2>Clone</h2>
     </div>
-    <p class="muted">Bring in a video from anywhere, keep just its hook, and clone it with your own AI character standing in for the original.</p>
-    <label>Video link (TikTok, YouTube, X, Instagram, anywhere)</label>
-    <input id="ec-url" type="url" placeholder="Paste a video link">
-    <label>Or upload a video file</label>
-    <input id="ec-file" type="file" accept="video/*">
-    <label>Or pick a video from your library</label>
-    <p><button class="btn secondary" id="ec-library-btn" type="button">Choose from your Moonfactory library</button></p>
-    <input type="hidden" id="ec-library" value="">
-    <div class="libpicked" id="ec-library-picked" style="display:none">
-      <img class="thumb" id="ec-library-picked-thumb" alt="">
-      <span class="libcard-label" id="ec-library-picked-label"></span>
-      <button class="btn secondary" id="ec-library-change" type="button">Change</button>
-      <button class="btn secondary" id="ec-library-clear" type="button">Clear</button>
+    <p class="muted">Bring in a video from anywhere, keep just its hook, and clone it with your own AI character standing in for the original. Four steps, in order.</p>
+    <div class="ec-step first" id="ec-step1">
+      <div class="ec-step-head"><span class="ec-step-num">1</span><h3>Add a video</h3></div>
+      <p class="helper">Paste a link, upload a file, or pick a video you already have. Adding a video is free.</p>
+      <label for="ec-url">Video link</label>
+      <input id="ec-url" type="url" placeholder="Paste a link from TikTok, YouTube, X, Instagram, anywhere">
+      <label>Upload a video file</label>
+      <div class="drop" id="ec-file-drop" tabindex="0" role="button" aria-label="Upload a video file">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#9c9ca6" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M10 9.2l5 2.8-5 2.8z"/></svg>
+        <div class="big">Upload a video file</div>
+        <div class="small">Click to browse, or drop the file here.</div>
+      </div>
+      <input id="ec-file" type="file" accept="video/*" style="display:none">
+      <label>Pick from your library</label>
+      <p><button class="btn secondary" id="ec-library-btn" type="button" style="width:100%">Choose from your Moonfactory library</button></p>
+      <input type="hidden" id="ec-library" value="">
+      <div class="libpicked" id="ec-library-picked" style="display:none">
+        <img class="thumb" id="ec-library-picked-thumb" alt="">
+        <span class="libcard-label" id="ec-library-picked-label"></span>
+        <button class="btn secondary" id="ec-library-change" type="button">Change</button>
+        <button class="btn secondary" id="ec-library-clear" type="button">Clear</button>
+      </div>
+      <p><button class="btn" id="ec-add" type="button">Add this video</button></p>
+      <div id="ec-source-line-wrap" style="display:none">
+        <p class="group-label">Your video</p>
+        <p class="muted" id="ec-source-line"></p>
+      </div>
+      <div id="botcheck4"></div>
+      <p id="ec-msg"></p>
+      <p class="muted">Only clone videos you own or have permission to use.</p>
     </div>
-    <p><button class="btn secondary" id="ec-add" type="button">Add this video</button></p>
-    <div id="botcheck4"></div>
-    <p id="ec-msg"></p>
-    <div id="ec-source" style="display:none">
-      <p class="group-label">Your source</p>
-      <p class="muted" id="ec-source-line"></p>
-      <p class="group-label">Hook</p>
-      <p class="muted">Keep only the opening hook, the first 5 seconds, as its own clip in your library.</p>
-      <p><button class="btn secondary" id="ec-hook" type="button">Keep only the hook</button></p>
-      <p class="group-label">Character</p>
-      <label>Character name</label>
+    <div class="ec-step" id="ec-step2">
+      <div class="ec-step-head"><span class="ec-step-num">2</span><h3>Choose your character</h3></div>
+      <p class="helper">Your character stands in for the person in the video. Pick one you already have, or make a new one. Making a character is free.</p>
+      <label for="ec-character">Your characters</label>
+      <select id="ec-character"><option value="">Choose a character</option></select>
+      <label for="ec-char-name">New character name</label>
       <input id="ec-char-name" type="text" maxlength="60" placeholder="Name this character">
-      <p><button class="btn secondary" id="ec-clone-char" type="button">Clone the character from this video</button></p>
-      <label>Or make a character from your own pictures</label>
-      <input id="ec-char-files" type="file" accept="image/png,image/jpeg" multiple>
+      <p><button class="btn secondary" id="ec-clone-char" type="button" disabled>Clone the character from this video</button></p>
+      <p class="muted" id="ec-clone-char-note">That reads the person out of your video, so it needs the video from step 1 first.</p>
+      <label>Or make one from your own pictures</label>
+      <div class="drop" id="ec-char-drop" tabindex="0" role="button" aria-label="Add pictures of your character">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#9c9ca6" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5-9 9"/></svg>
+        <div class="big">Add pictures of your character</div>
+        <div class="small">Click to browse, or drop them here. Up to 10 pictures.</div>
+      </div>
+      <input id="ec-char-files" type="file" accept="image/png,image/jpeg" multiple style="display:none">
       <p><button class="btn secondary" id="ec-make-char" type="button">Make character from my pictures</button></p>
-      <p class="group-label">Clone the video</p>
-      <label>Model</label>
+      <p id="ec-char-msg"></p>
+    </div>
+    <div class="ec-step" id="ec-step3">
+      <div class="ec-step-head"><span class="ec-step-num">3</span><h3>Trim the hook</h3></div>
+      <p class="helper">Keep just the first 5 seconds, the hook, as its own clip in your library. Free, and optional.</p>
+      <p><button class="btn secondary" id="ec-hook" type="button" disabled>Keep only the hook</button></p>
+      <p class="muted" id="ec-hook-note">That cuts your video from step 1, so add it first.</p>
+      <p id="ec-hook-msg"></p>
+    </div>
+    <div class="ec-step" id="ec-step4">
+      <div class="ec-step-head"><span class="ec-step-num">4</span><h3>Model and price</h3></div>
+      <p class="helper">Pick the model that makes your clone. Each model shows its price per second, and the exact total for your video shows here before you create.</p>
+      <label for="ec-model">Model</label>
       <select id="ec-model"></select>
       <p class="muted" id="ec-feed"></p>
-      <label>Character to put in (Image1)</label>
-      <select id="ec-character"><option value="">Choose a character</option></select>
-      <label>Clone prompt</label>
-      <textarea id="ec-prompt" rows="5">Recreate Video1, replace only the original character with Image1. Strictly preserve 100% of Image1's face, hair, body, clothing and details. Match Video1's movements, expressions, camera angles, framing, lighting, background, timing and pacing. Seamless, photorealistic character replacement. No other changes.</textarea>
-      <p class="under" id="ec-quote"></p>
+      <details class="more">
+        <summary>Clone prompt</summary>
+        <label for="ec-prompt">Clone prompt</label>
+        <textarea id="ec-prompt" rows="5">Recreate Video1, replace only the original character with Image1. Strictly preserve 100% of Image1's face, hair, body, clothing and details. Match Video1's movements, expressions, camera angles, framing, lighting, background, timing and pacing. Seamless, photorealistic character replacement. No other changes.</textarea>
+      </details>
+      <p class="under" id="ec-quote">Add a video in step 1 and pick a character in step 2, and the exact price for your video shows here.</p>
+      <p class="muted">Adding a video, trimming the hook and making a character are free. The clone itself is charged at the model's normal price, shown above before you create it.</p>
       <button class="btn gen" id="ec-clone" type="button">Clone the video</button>
       <p id="ec-clone-msg"></p>
     </div>
-    <p class="muted">Only edit and clone content you own or have permission to use. Clone is a paid feature. Adding a video, cutting its hook and making a character are free. The clone itself is charged at the model's normal price, shown before you create it.</p>
   </div>
 
   <div class="card" style="max-width:640px;margin:18px auto 0">
@@ -32208,6 +32253,17 @@ $('make-clips').onclick = async () => {
 // the lane's clone adaptation from the server, and the feed
 // line under the picker says in plain words how the clone
 // will be fed for the picked model.
+// The flow stands as four numbered steps, all visible from
+// the first paint (2026-11-27 redesign, pinned in
+// check_editclone_section): 1 Add a video, 2 Choose your
+// character, 3 Trim the hook, 4 Model and price. Nothing
+// waits hidden for the source; the controls that need it
+// start disabled with a note, each step's messages land in
+// that step, and no message exists before an action. Costs
+// read like Create: each model option carries its $/s rate
+// from the same catalog figure, the quote line speaks
+// Create's exact price words for this video's length, and
+// the Clone button carries the price.
 const EC_FEED_LINES = {
   both: 'Sends your video and your character picture to ',
   frames: 'Sends frames from your video plus your character picture to ',
@@ -32215,6 +32271,15 @@ const EC_FEED_LINES = {
   motion: 'Uses your character picture as the subject and your video as the motion guide on ',
   text: 'Sends your prompt only to ',
 };
+// The model's price the way the studio prices read
+// everywhere: dollars per second, from the same catalog
+// rate Create's picker sorts and tiers by. The exact total
+// for the user's own video still comes from the quote.
+function ecRateText(rateCents) {
+  const d = rateCents / 100;
+  return '$' + (d >= 0.1 ? d.toFixed(2)
+    : String(parseFloat(d.toFixed(3)))) + '/s';
+}
 function ecUpdateFeed() {
   const sel = $('ec-model');
   const line = $('ec-feed');
@@ -32257,7 +32322,16 @@ function buildEditCloneModels() {
     const add = m => {
       const o = document.createElement('option');
       o.value = m.id;
-      o.textContent = m.label + (m.available ? '' : ' (unavailable)');
+      // The price rides the option itself (Jack, 2026-11-27:
+      // the Clone model step shows its costs like Create):
+      // the model's own name, then its rate per second from
+      // the same catalog figure Create's picker reads, so
+      // the picked model's price is on screen in the step
+      // even before any quote runs.
+      o.textContent = m.label
+        + (m.rate_cents_per_second != null
+          ? ' · ' + ecRateText(m.rate_cents_per_second) : '')
+        + (m.available ? '' : ' (unavailable)');
       o.dataset.adaptation = m.clone_adaptation;
       o.dataset.label = m.label;
       group.appendChild(o);
@@ -32282,15 +32356,38 @@ function buildEditCloneModels() {
 }
 let ecSource = null;
 let ecJobsCache = [];
+let ecHookDone = false;
+// The steps stand on the page from the first paint; this
+// only moves their state: a finished step fills its
+// number, and the two controls that truly need the source
+// (cutting its hook, reading its character) wake up when
+// the source lands and their waiting notes step aside.
+function ecUpdateSteps() {
+  $('ec-step1').classList.toggle('done', !!ecSource);
+  $('ec-step2').classList.toggle('done', !!$('ec-character').value);
+  $('ec-step3').classList.toggle('done', ecHookDone);
+}
 function ecSetSource(job) {
   ecSource = job || null;
-  const box = $('ec-source');
-  if (!job) { box.style.display = 'none'; return; }
-  box.style.display = '';
-  $('ec-source-line').textContent =
-    (job.source_title || job.prompt || 'Video') + ' · ' +
-    (job.duration_seconds || '?') + 's' +
-    (job.status !== 'done' ? ' · ' + (job.stage || job.status) : '');
+  const wrap = $('ec-source-line-wrap');
+  if (!job) {
+    wrap.style.display = 'none';
+    $('ec-hook').disabled = true;
+    $('ec-clone-char').disabled = true;
+    $('ec-hook-note').style.display = '';
+    $('ec-clone-char-note').style.display = '';
+  } else {
+    wrap.style.display = '';
+    $('ec-source-line').textContent =
+      (job.source_title || job.prompt || 'Video') + ' · ' +
+      (job.duration_seconds || '?') + 's' +
+      (job.status !== 'done' ? ' · ' + (job.stage || job.status) : '');
+    $('ec-hook').disabled = false;
+    $('ec-clone-char').disabled = false;
+    $('ec-hook-note').style.display = 'none';
+    $('ec-clone-char-note').style.display = 'none';
+  }
+  ecUpdateSteps();
   ecQuoteClone();
 }
 async function ecRefreshCharacters() {
@@ -32306,6 +32403,7 @@ async function ecRefreshCharacters() {
       sel.appendChild(o);
     }
     sel.value = keep;
+    ecUpdateSteps();
   } catch (e) { /* refreshed again on the next action */ }
 }
 // The library source picker (Jack, 2026-11-27): a button and
@@ -32383,6 +32481,61 @@ $('ec-library-grid').onclick = e => {
   const card = e.target.closest('[data-libpick]');
   if (card) ecPickLibrary(card.dataset.libpick);
 };
+// The two file picks wear the site's drop zone dress (the
+// same .drop the Create start image wears), never the raw
+// browser file widget: the real inputs sit hidden behind
+// them, and a picked file shows its name in the zone with
+// a remove of its own. The empty zone markup is captured
+// from the served HTML, so the words live in one place.
+const EC_FILE_DROP_HTML = $('ec-file-drop').innerHTML;
+const EC_CHAR_DROP_HTML = $('ec-char-drop').innerHTML;
+function ecRenderFileDrop() {
+  const dz = $('ec-file-drop');
+  const f = $('ec-file').files[0];
+  if (!f) { dz.classList.remove('filled'); dz.innerHTML = EC_FILE_DROP_HTML; return; }
+  dz.classList.add('filled');
+  dz.innerHTML = '<div><div class="fname"></div>' +
+    '<div class="fmeta">Your video file, ready to add below</div></div>' +
+    '<button type="button" class="remove" aria-label="Remove file">×</button>';
+  dz.querySelector('.fname').textContent = f.name;
+  dz.querySelector('.remove').addEventListener('click', e => {
+    e.stopPropagation();
+    $('ec-file').value = '';
+    ecRenderFileDrop();
+  });
+}
+function ecRenderCharDrop() {
+  const dz = $('ec-char-drop');
+  const files = [...$('ec-char-files').files].slice(0, 10);
+  if (!files.length) { dz.classList.remove('filled'); dz.innerHTML = EC_CHAR_DROP_HTML; return; }
+  dz.classList.add('filled');
+  dz.innerHTML = '<div><div class="fname"></div>' +
+    '<div class="fmeta">Pictures for your new character</div></div>' +
+    '<button type="button" class="remove" aria-label="Remove pictures">×</button>';
+  dz.querySelector('.fname').textContent =
+    files.length === 1 ? files[0].name : files.length + ' pictures picked';
+  dz.querySelector('.remove').addEventListener('click', e => {
+    e.stopPropagation();
+    $('ec-char-files').value = '';
+    ecRenderCharDrop();
+  });
+}
+function ecWireDrop(zoneId, inputId, render) {
+  const dz = $(zoneId), input = $(inputId);
+  input.addEventListener('change', render);
+  dz.addEventListener('click', () => { if (!input.files.length) input.click(); });
+  dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('over'); });
+  dz.addEventListener('dragleave', () => dz.classList.remove('over'));
+  dz.addEventListener('drop', e => {
+    e.preventDefault(); dz.classList.remove('over');
+    if (e.dataTransfer.files && e.dataTransfer.files.length) {
+      try { input.files = e.dataTransfer.files; } catch (err) { /* pick by click instead */ }
+      render();
+    }
+  });
+}
+ecWireDrop('ec-file-drop', 'ec-file', ecRenderFileDrop);
+ecWireDrop('ec-char-drop', 'ec-char-files', ecRenderCharDrop);
 async function ecRefresh() {
   try {
     const r = await api('/api/jobs');
@@ -32395,14 +32548,14 @@ async function ecRefresh() {
   } catch (e) { /* refreshed again on the next action */ }
   ecRefreshCharacters();
 }
-async function ecPollJob(id, onDone) {
+async function ecPollJob(id, onDone, msgId) {
   for (let i = 0; i < 160; i++) {
     await new Promise(r => setTimeout(r, 3000));
     try {
       const j = await api('/api/jobs/' + id);
       if (j.status === 'done') { onDone(j); return; }
       if (j.status === 'error') {
-        msg('ec-msg', j.error || 'that failed', 'err');
+        msg(msgId || 'ec-msg', j.error || 'that failed', 'err');
         return;
       }
     } catch (e) { return; }
@@ -32451,7 +32604,7 @@ $('ec-add').onclick = async () => {
         msg('ec-msg', 'Source picked from your library.', 'ok');
       }
     } else {
-      msg('ec-msg', 'Paste a link, upload a file, or pick a video from your library first.', 'err');
+      msg('ec-msg', 'Pick one first: paste a link, upload a file, or choose a video from your library.', 'err');
     }
   } catch (e) { msg('ec-msg', e.message, 'err'); }
   finally { btnDone(btn); }
@@ -32463,39 +32616,42 @@ $('ec-hook').onclick = async () => {
   try {
     const job = await api('/api/editclone/hook', { method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ source_job_id: ecSource.id }) });
-    msg('ec-msg', 'Cutting the hook...', '');
+    msg('ec-hook-msg', 'Cutting the hook...', '');
     ecPollJob(job.id, () => {
-      msg('ec-msg', 'Your hook is in your library, the first 5 seconds of the source.', 'ok');
+      ecHookDone = true;
+      ecUpdateSteps();
+      msg('ec-hook-msg', 'Your hook is in your library, the first 5 seconds of the source.', 'ok');
       loadJobs();
       ecRefresh();
-    });
-  } catch (e) { msg('ec-msg', e.message, 'err'); }
+    }, 'ec-hook-msg');
+  } catch (e) { msg('ec-hook-msg', e.message, 'err'); }
   finally { btnDone(btn); }
 };
 $('ec-clone-char').onclick = async () => {
   if (!ecSource) return;
   const name = $('ec-char-name').value.trim();
-  if (!name) { msg('ec-msg', 'Name the character first.', 'err'); return; }
+  if (!name) { msg('ec-char-msg', 'Name the character first.', 'err'); return; }
   const btn = $('ec-clone-char');
   btnBusy(btn, 'Reading frames...');
   try {
     const job = await api('/api/editclone/character', { method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ source_job_id: ecSource.id, name }) });
-    msg('ec-msg', 'Reading the character from your video...', '');
+    msg('ec-char-msg', 'Reading the character from your video...', '');
     ecPollJob(job.id, async (done) => {
       await ecRefreshCharacters();
       if (done.made_character_id) $('ec-character').value = done.made_character_id;
-      msg('ec-msg', 'Your character ' + name + ' is saved. Pick it below and clone the video.', 'ok');
+      msg('ec-char-msg', 'Your character ' + name + ' is saved and picked for you.', 'ok');
+      ecUpdateSteps();
       ecQuoteClone();
-    });
-  } catch (e) { msg('ec-msg', e.message, 'err'); }
+    }, 'ec-char-msg');
+  } catch (e) { msg('ec-char-msg', e.message, 'err'); }
   finally { btnDone(btn); }
 };
 $('ec-make-char').onclick = async () => {
   const name = $('ec-char-name').value.trim();
-  if (!name) { msg('ec-msg', 'Name the character first.', 'err'); return; }
+  if (!name) { msg('ec-char-msg', 'Name the character first.', 'err'); return; }
   const files = [...$('ec-char-files').files].slice(0, 10);
-  if (!files.length) { msg('ec-msg', 'Pick at least one picture for the character.', 'err'); return; }
+  if (!files.length) { msg('ec-char-msg', 'Pick at least one picture for the character.', 'err'); return; }
   const btn = $('ec-make-char');
   btnBusy(btn, 'Saving...');
   try {
@@ -32508,32 +32664,73 @@ $('ec-make-char').onclick = async () => {
       body: JSON.stringify({ name, images }) });
     await ecRefreshCharacters();
     $('ec-character').value = c.id;
-    msg('ec-msg', 'Your character ' + c.name + ' is saved. Pick it below and clone the video.', 'ok');
+    msg('ec-char-msg', 'Your character ' + c.name + ' is saved and picked for you.', 'ok');
+    ecUpdateSteps();
     ecQuoteClone();
-  } catch (e) { msg('ec-msg', e.message, 'err'); }
+  } catch (e) { msg('ec-char-msg', e.message, 'err'); }
   finally { btnDone(btn); }
 };
+// The Clone button carries its price the way Create's
+// does (the button is the quote), and the line above it
+// keeps the detail in Create's own words: the exact price
+// for this video's length, and where the money comes
+// from. A quote landing mid submit never stomps the
+// button's working label.
+function ecCloneLabel(cents) {
+  const b = $('ec-clone');
+  if (!b || b.dataset.holds) return;
+  b.textContent = (cents === null || cents === undefined)
+    ? 'Clone the video'
+    : 'Clone the video · $' + (cents / 100).toFixed(2);
+}
 async function ecQuoteClone() {
   const line = $('ec-quote');
   if (!line) return;
-  if (!ecSource || !$('ec-character').value) { line.textContent = ''; return; }
+  if (!ecSource || !$('ec-character').value) {
+    // A standing helper, not an error: until the video and
+    // the character exist there is nothing to price, and
+    // the line says exactly what it is waiting for.
+    line.textContent = 'Add a video in step 1 and pick a character in step 2, and the exact price for your video shows here.';
+    ecCloneLabel(null);
+    return;
+  }
   try {
     const r = await api('/api/editclone/clone/quote', { method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ source_job_id: ecSource.id, character_id: $('ec-character').value, model: $('ec-model').value }) });
-    if (r.lane_paused) { line.textContent = 'That model is paused right now.'; return; }
-    if (r.payment && r.payment.method === 'included') {
-      line.textContent = 'This clone uses $' + ((r.payment.included_debit_cents || 0) / 100).toFixed(2) + ' of your included budget.';
+    if (r.lane_paused) { line.textContent = 'This model is temporarily unavailable.'; ecCloneLabel(null); return; }
+    const secs = ecSource.duration_seconds
+      ? Math.round(ecSource.duration_seconds * 10) / 10 : null;
+    const head = secs
+      ? 'The exact price for your ' + secs + ' second clone is '
+      : 'The exact price is ';
+    const p = r.payment || {};
+    if (p.method === 'included') {
+      const amt = p.included_debit_cents || 0;
+      line.textContent = head + '$' + (amt / 100).toFixed(2) +
+        ' of your included budget' +
+        (p.included_budget_remaining_cents != null
+          ? ', with $' + (p.included_budget_remaining_cents / 100).toFixed(2) + ' left' : '') +
+        '. Nothing is charged to your balance.';
+      ecCloneLabel(amt);
+    } else if (r.ceiling_ok === false) {
+      line.textContent = head + '$' + ((r.balance_debit_cents || 0) / 100).toFixed(2) +
+        '. This clone would exceed the total generation your payments cover.';
+      ecCloneLabel(r.balance_debit_cents || null);
     } else {
-      line.textContent = 'This clone costs $' + ((r.balance_debit_cents || 0) / 100).toFixed(2) + ' from your balance.';
+      const amt = (p.charge_cents != null ? p.charge_cents
+        : r.balance_debit_cents) || 0;
+      line.textContent = head + '$' + (amt / 100).toFixed(2) +
+        ' from your prepaid balance.';
+      ecCloneLabel(amt);
     }
-  } catch (e) { line.textContent = ''; }
+  } catch (e) { line.textContent = ''; ecCloneLabel(null); }
 }
-$('ec-character').addEventListener('change', ecQuoteClone);
+$('ec-character').addEventListener('change', () => { ecUpdateSteps(); ecQuoteClone(); });
 $('ec-model').addEventListener('change', () => { ecUpdateFeed(); ecQuoteClone(); });
 $('ec-clone').onclick = async () => {
-  if (!ecSource) { msg('ec-clone-msg', 'Add a source video first.', 'err'); return; }
+  if (!ecSource) { msg('ec-clone-msg', 'Add a video in step 1 first.', 'err'); return; }
   const characterId = $('ec-character').value;
-  if (!characterId) { msg('ec-clone-msg', 'Pick the character to put in first.', 'err'); return; }
+  if (!characterId) { msg('ec-clone-msg', 'Pick a character in step 2 first.', 'err'); return; }
   const btn = $('ec-clone');
   btnBusy(btn, 'Starting...');
   try {
