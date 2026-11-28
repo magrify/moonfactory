@@ -88,6 +88,7 @@ for route in ('"/api/worker/comfy/heartbeat"',
               '"/api/worker/comfy/jobs/next"',
               '"/api/worker/comfy/jobs/{job_id}/start-image"',
               '"/api/worker/comfy/jobs/{job_id}/end-image"',
+              '"/api/worker/comfy/jobs/{job_id}/source-video"',
               '"/api/worker/comfy/jobs/{job_id}/file"',
               '"/api/worker/comfy/jobs/{job_id}/fail"'):
     check(route in PLATFORM, f"worker endpoint {route} exists")
@@ -248,7 +249,9 @@ g6 = kernel.build_hunyuan_workflow("p", "n", 1, "9:16",
                                    text_only=False, prefix="x")
 g7 = kernel.build_longcat_image_workflow("p", 1, 1024, 1024,
                                          prefix="x")
-for g in (g, g2, g3, g4, g5, g6, g7):
+g8 = kernel.build_animate_workflow("p", "n", 1, "16:9",
+                                   length=65, prefix="x")
+for g in (g, g2, g3, g4, g5, g6, g7, g8):
     for n in g.values():
         for v in n.get("inputs", {}).values():
             if isinstance(v, str) and v.endswith(".safetensors"):
@@ -262,7 +265,8 @@ for name in sorted(named):
               f"manifest pins size and sha256 for {name}")
 families = {e["family"] for e in MANIFEST}
 check(families == {"shared", "draft", "a14b", "camera", "effects",
-                   "image", "klein", "krea2", "hunyuan15", "longcat"},
+                   "image", "klein", "krea2", "hunyuan15", "longcat",
+                   "animate"},
       "the manifest stages by family")
 total = sum(e["size"] for e in MANIFEST)
 check(total > 100 * 1024**3,

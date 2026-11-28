@@ -15,11 +15,13 @@ the Clone picker's default is a motion lane.
 Pinned here, per lane the Clone picker offers:
 
 - every lane's clone adaptation (editclone_clone_adaptation)
-  is one of the five known classes, and each class is
-  classified by whether the source actually reaches the lane:
-  "motion" and "both" send the source video itself, "frames"
-  sends still frames grabbed from the source, "start" and
-  "text" send nothing of the source;
+  is one of the known classes, and each class is classified
+  by whether the source actually reaches the lane:
+  "motion", "both" and "animate" send the source video
+  itself ("animate" down the worker's own claim-bound
+  channel, never a file host), "frames" sends still frames
+  grabbed from the source, "start" and "text" send nothing
+  of the source;
 - the three MOTION_MODELS resolve to "motion";
 - the picker default (EDITCLONE_CLONE_MODEL) resolves to
   "motion": the suite fails if the default ever lands on a
@@ -67,7 +69,7 @@ TREE = ast.parse(SRC)
 
 # -- the classes, classified by whether the source is sent ----------------
 
-SENDS_VIDEO = {"motion", "both"}
+SENDS_VIDEO = {"motion", "both", "animate"}
 SENDS_FRAMES = {"frames"}
 SENDS_NOTHING = {"start", "text"}
 KNOWN = SENDS_VIDEO | SENDS_FRAMES | SENDS_NOTHING
@@ -87,6 +89,21 @@ for model in app.MOTION_MODELS:
     check(adapt(model) == "motion",
           f"{model} is in MOTION_MODELS but resolves to "
           f"{adapt(model)!r}, not 'motion'")
+
+# The house lanes (Spec B, 2026-11-28): Wan 2.2 is the one
+# house lane whose worker runs a true clone model (Wan 2.2
+# Animate), so it classifies "animate", a source-sending
+# class; the other house lanes stay "start" (no frame of
+# the source is ever sent on them).
+check(adapt("wan2.2") == "animate",
+      f"wan2.2 resolves to {adapt('wan2.2')!r}, not 'animate': "
+      "the house Animate lane must classify as source-sending")
+for model in app.HOUSE_MODEL_PRICING_LANE:
+    if model == "wan2.2":
+        continue
+    check(adapt(model) == "start",
+          f"house lane {model} resolves to {adapt(model)!r}, "
+          "not 'start': only wan2.2 has a source channel")
 
 # -- the default must be a true-clone lane --------------------------------
 
@@ -112,6 +129,10 @@ check("Uses your character picture as the subject and your "
       "video as the motion guide" in SRC,
       "the motion feed line no longer states the true shape "
       "(subject image plus driving video)")
+check("Sends your video and your character picture to our "
+      "own worker" in SRC,
+      "the animate feed line no longer discloses that the "
+      "video and the character picture go to our own worker")
 
 # -- drive the real clone body builder ------------------------------------
 # _editclone_clone_body is a closure inside the web layer; the
@@ -213,7 +234,7 @@ check(not body.get("reference_video_urls")
 # The no-source lanes are explicitly no-source in the composed
 # body: that is the shape the feed lines disclose, and the
 # shape that must never again wear the default.
-for model in ("wan2.2", "kling3"):
+for model in ("kling3",):
     body = clone_body(USER, {"source_job_id": "pinsrc",
                              "character_id": "pinchar",
                              "model": model})
@@ -222,6 +243,22 @@ for model in ("wan2.2", "kling3"):
           f"{model} ({adapt(model)}): the composed clone body "
           "carries source material its class says it never sends; "
           "reclassify it above")
+
+# The animate lane's composed body (Spec B): the house shape,
+# character picture as the start image on the production
+# lane, and NO hosted reference URLs: the source never
+# leaves the platform in the body, because the worker pulls
+# it down its own channel at claim time (pinned below).
+body = clone_body(USER, {"source_job_id": "pinsrc",
+                         "character_id": "pinchar",
+                         "model": "wan2.2"})
+check(body.get("start_image_png_b64") == "QUJD"
+      and body.get("lane") == "production"
+      and not body.get("reference_video_urls")
+      and not body.get("reference_image_urls"),
+      "wan2.2 (animate): the composed clone body should carry "
+      "the character as the start image on the production "
+      "lane and no hosted source references")
 
 # -- the motion submits carry subject image + driving video ----------------
 
@@ -251,6 +288,82 @@ uni_keys = dict_keys_under("kling_motion", "submit_unifically_job")
 check({"image_url", "video_url"} <= uni_keys,
       "UnificAlly's kling_motion input no longer carries the "
       f"subject image and the driving video together (keys: {sorted(uni_keys)})")
+
+# -- the animate lane's worker channel (Spec B) -------------------
+# The source reaches the house worker with no file host in
+# the path: create stamps the source job's id on the clone
+# job, the claim payload reads it as has_source_video, and
+# the kernel pulls the file from the claim-bound endpoint.
+
+check('"/api/worker/comfy/jobs/{job_id}/source-video"' in SRC,
+      "the comfy worker source-video endpoint is gone")
+check('"has_source_video": bool(job.get("editclone_source_id"))' in SRC
+      and 'job.get("model") == "wan2.2"' in SRC,
+      "the claim payload no longer reads a wan2.2 job's "
+      "stamped source as has_source_video")
+endpoint_src = func_src("comfy_job_source_video")
+check("_require_claim(job, x_claim_token)" in endpoint_src
+      and "_refuse_finished_source(job)" in endpoint_src,
+      "the source-video endpoint lost its claim token or "
+      "finished-job guards")
+check("FILES_DIR" in endpoint_src
+      and "editclone_source_id" in endpoint_src,
+      "the source-video endpoint no longer serves the "
+      "stamped source's stored file")
+
+KERNEL = (ROOT / "worker-kaggle" / "comfy_kernel_template.py").read_text()
+check("def run_animate_job" in KERNEL
+      and "def build_animate_workflow" in KERNEL
+      and '"animate": ("shared", "animate")' in KERNEL,
+      "the kernel lost its animate path or its model family")
+run_animate = None
+for node in ast.walk(ast.parse(KERNEL)):
+    if isinstance(node, ast.FunctionDef) and node.name == "run_animate_job":
+        run_animate = ast.get_source_segment(KERNEL, node)
+check(run_animate is not None
+      and '"start-image"' in run_animate
+      and "download_job_source_video" in run_animate,
+      "the kernel's animate path no longer downloads both "
+      "the character image and the source video")
+check('f"{PLATFORM}/api/worker/comfy/jobs/{job_id}/source-video"'
+      in KERNEL,
+      "the kernel's source download no longer reads the "
+      "platform's source-video endpoint")
+
+# The animate graph itself: the character picture and the
+# source video both enter it, the source through the two
+# DWPose passes (face, body) into WanAnimateToVideo.
+import json as _json
+graph = _json.loads(
+    (ROOT / "workflows" / "wan_animate.json").read_text())
+by_class = {}
+for nid, node in graph.items():
+    by_class.setdefault(node.get("class_type"), []).append((nid, node))
+animate_nodes = by_class.get("WanAnimateToVideo") or []
+check(len(animate_nodes) == 1,
+      "the animate graph must carry exactly one WanAnimateToVideo")
+if animate_nodes:
+    ainputs = animate_nodes[0][1].get("inputs", {})
+    load_image_ids = {nid for nid, _ in by_class.get("LoadImage", [])}
+    load_video_ids = {nid for nid, _ in by_class.get("LoadVideo", [])}
+    dw_ids = {nid for nid, _ in by_class.get("DWPreprocessor", [])}
+    check(str((ainputs.get("reference_image") or [None])[0])
+          in load_image_ids,
+          "WanAnimateToVideo's reference image is not the "
+          "loaded character picture")
+    face_src = str((ainputs.get("face_video") or [None])[0])
+    pose_src = str((ainputs.get("pose_video") or [None])[0])
+    check(face_src in dw_ids and pose_src in dw_ids
+          and face_src != pose_src,
+          "WanAnimateToVideo's face and pose videos are not "
+          "the two distinct DWPose passes")
+    check(len(load_video_ids) == 1,
+          "the animate graph must load exactly one source video")
+    getcomp = (by_class.get("GetVideoComponents") or [(None, {})])[0][1]
+    check(str((getcomp.get("inputs", {}).get("video") or [None])[0])
+          in load_video_ids,
+          "the animate graph's frames do not come from the "
+          "loaded source video")
 
 if failures:
     print("check_clone_conditioning: FAIL")

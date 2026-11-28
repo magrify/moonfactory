@@ -8614,15 +8614,21 @@ def editclone_clone_adaptation(model: str) -> str:
     - "motion": Wan Motion's own shape: the character picture
       is the subject image and the source is its one driving
       video.
+    - "animate": the house Wan 2.2 lane only (2026-11-28,
+      Clone Spec B): our own Kaggle worker runs Wan 2.2
+      Animate, so the source DOES reach the lane, down the
+      worker's own claim-bound channel, and the character
+      picture is Animate's reference image: the character
+      performs the source's motion. No file host and no
+      provider storage sits in that path.
     - "start": the lane takes a prompt or a start image only
       (TEXT_IMAGE_ONLY_MODELS, the start-image-required lanes,
       and Kling 3.0, whose validator refusal reads the same):
       the character picture becomes the start image. The
-      house lanes land here too: our own worker's dispatch
-      is an image-to-video shape (a start image and a
-      prompt, no reference channel), so the character
-      picture is the start image and no frame of the source
-      is ever sent.
+      other house lanes land here too: their dispatch is an
+      image-to-video shape (a start image and a prompt, no
+      reference channel), so the character picture is the
+      start image and no frame of the source is ever sent.
     - "both": the lane takes a reference video and reference
       images: Video1 and Image1 ride as references together.
     - "frames": the lane takes reference images but no
@@ -8633,7 +8639,10 @@ def editclone_clone_adaptation(model: str) -> str:
       cap entry outside the sets above): the prompt alone
       carries the clone."""
     if model in HOUSE_MODEL_PRICING_LANE:
-        return "start"
+        # Wan 2.2 is the one house lane with a true clone
+        # shape (Wan 2.2 Animate on our own worker, Spec B);
+        # the other house lanes take a start image only.
+        return "animate" if model == "wan2.2" else "start"
     if model in MOTION_MODELS:
         return "motion"
     if model in TEXT_IMAGE_ONLY_MODELS or model == "kling3" \
@@ -21321,10 +21330,17 @@ document.getElementById('go').onclick = async () => {{
             # segment however long the source runs), and
             # create_job prices and settles it on the lane's
             # own segment accounting exactly like a normal
-            # house generation. The house dispatch carries
+            # house generation. The other house lanes carry
             # no reference channel, so no frame of the source
-            # is sent: the prompt template carries the clone,
-            # and the picker's feed line says so plainly.
+            # is sent on them: the prompt template carries
+            # the clone, and the picker's feed line says so
+            # plainly. Wan 2.2 is the exception (2026-11-28,
+            # Clone Spec B): the create endpoint stamps the
+            # source job's id on the created job, the worker
+            # claim reads it as has_source_video, and the
+            # kernel pulls the source down its own channel
+            # and runs Wan 2.2 Animate with this picture as
+            # the reference image.
             if not char_b64:
                 raise HTTPException(
                     status_code=422,
@@ -22787,6 +22803,16 @@ document.getElementById('go').onclick = async () => {{
             "effect": job.get("effect"),
             "has_start_image": bool(job.get("start_image_png_b64")),
             "has_end_image": bool(job.get("end_image_png_b64")),
+            # A Wan 2.2 clone from the Clone tab (2026-11-28,
+            # Clone Spec B): create_editclone_clone stamps the
+            # source job's id on the created job, and a wan2.2
+            # job carrying that stamp is an Animate clone: the
+            # kernel pulls the source itself from the
+            # source-video endpoint below and runs the animate
+            # graph. A plain Create wan2.2 job never carries
+            # the stamp, so it never reads as a clone.
+            "has_source_video": bool(job.get("editclone_source_id"))
+            and job.get("model") == "wan2.2",
             "image_model": job.get("image_model"),
             "image_size": job.get("image_size"),
         }
@@ -22822,6 +22848,34 @@ document.getElementById('go').onclick = async () => {{
                             x_claim_token: str = Header(default="")):
         return _comfy_job_image(job_id, "end_image_png_b64",
                                 x_api_key, x_claim_token)
+
+    @web.get("/api/worker/comfy/jobs/{job_id}/source-video")
+    def comfy_job_source_video(job_id: str,
+                               x_api_key: str = Header(default=""),
+                               x_claim_token: str = Header(default="")):
+        # A clone job's source video, served to the claiming
+        # worker only (2026-11-28, Clone Spec B): the same
+        # guards as the start and end image endpoints (the
+        # COMFY family key, the per-job claim token, no
+        # serving once the job is finished), then the source
+        # file the ingest stored under the source job's id,
+        # the same path the clone frame grabs read. This is
+        # the channel that lets the house Animate lane clone
+        # with no file host anywhere in the path.
+        if not _comfy_worker_ok(x_api_key):
+            raise HTTPException(status_code=401, detail="bad worker key")
+        job = jobs.get(job_id)
+        if not job or job.get("provider") != "kaggle-comfy":
+            raise HTTPException(status_code=404, detail="unknown job")
+        _require_claim(job, x_claim_token)
+        _refuse_finished_source(job)
+        source_id = job.get("editclone_source_id")
+        if not source_id:
+            raise HTTPException(status_code=404, detail="no source video")
+        path = FILES_DIR / f"{source_id}.mp4"
+        if not path.exists():
+            raise HTTPException(status_code=404, detail="no source video")
+        return FileResponse(path, media_type="video/mp4")
 
     @web.post("/api/worker/comfy/jobs/{job_id}/file")
     async def comfy_job_file(job_id: str, request: Request,
@@ -34398,6 +34452,7 @@ const EC_FEED_LINES = {
   frames: 'Sends frames from your video plus your character picture to ',
   start: 'Starts from your character picture and follows your prompt on ',
   motion: 'Uses your character picture as the subject and your video as the motion guide on ',
+  animate: 'Sends your video and your character picture to our own worker, where your character performs your video\u2019s motion on ',
   text: 'Sends your prompt only to ',
 };
 // The model's price the way the studio prices read

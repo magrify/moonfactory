@@ -126,6 +126,7 @@ JOB_FAMILIES = {
     "krea2": ("krea2",),
     "hunyuan15": ("hunyuan15",),
     "longcat": ("longcat",),
+    "animate": ("shared", "animate"),
 }
 # Keep at least this much disk free after staging a family.
 DISK_RESERVE_BYTES = 6 * 1024 ** 3
@@ -456,6 +457,53 @@ def build_hunyuan_workflow(prompt: str, negative: str, seed: int,
             inputs["height"] = height
         elif ct == "SaveVideo":
             inputs["filename_prefix"] = prefix
+    return workflow
+
+
+def build_animate_workflow(prompt: str, negative: str, seed: int,
+                           aspect: str = "9:16", length: int = 81,
+                           prefix: str = ""):
+    # Wan 2.2 Animate (2026-11-28, Clone Spec B): the house
+    # clone lane. The graph is ComfyUI's official Animate
+    # template flattened out of its subgraphs, in Move mode:
+    # the character picture is the reference image, and the
+    # source video drives it through two DWPose passes over
+    # its frames (one face only, one body and hands), both
+    # feeding WanAnimateToVideo. The template's Mix mode
+    # (background_video plus character_mask) is NOT wired:
+    # its mask comes from a SAM2 segmentation seeded by
+    # hand-placed points in an editor node, which a headless
+    # kernel cannot place. The model stack is the template's
+    # own: the KJ fp8 Animate build, the LightX2V rank64
+    # step-distill LoRA and the Animate relight LoRA stacked
+    # at strength 1, ModelSamplingSD3 shift 8, and the
+    # distilled sampler recipe (6 steps, cfg 1, euler,
+    # simple). One graph renders the whole driving video:
+    # length is the source's frame count at 16 fps snapped
+    # to 4n+1, computed by the caller. Dimensions come from
+    # the production lane's table, the lane this job rides.
+    workflow = json.loads(
+        json.dumps(WORKFLOW_TEMPLATES["wan_animate.json"]))
+    width, height = LANE_DIMS["production"][aspect]
+    for node in workflow.values():
+        ct = node.get("class_type")
+        inputs = node.get("inputs", {})
+        if ct == "CLIPTextEncode":
+            if inputs.get("text") == "PLACEHOLDER_POSITIVE_PROMPT":
+                inputs["text"] = prompt
+            elif inputs.get("text") == "PLACEHOLDER_NEGATIVE_PROMPT":
+                inputs["text"] = negative
+        elif ct == "KSampler":
+            inputs["seed"] = seed
+        elif ct == "WanAnimateToVideo":
+            inputs["width"] = width
+            inputs["height"] = height
+            inputs["length"] = length
+        elif ct == "ImageScale":
+            inputs["width"] = width
+            inputs["height"] = height
+        elif ct == "VHS_VideoCombine":
+            inputs["filename_prefix"] = prefix or "sinclip/api_animate"
     return workflow
 
 
@@ -795,6 +843,28 @@ def setup_comfy() -> dict:
         subprocess.run(
             [sys.executable, "-m", "pip", "install", "-q",
              "-r", str(vhs_req)], check=True, timeout=900)
+    # comfyui_controlnet_aux carries the DWPose preprocessor
+    # the Animate lane's pose and face passes run on
+    # (2026-11-28, Clone Spec B). Pinned to the commit the
+    # official Animate template's nodes were authored
+    # against; its own model files (the yolox detector and
+    # the DWPose estimator) download into the pack's ckpts
+    # directory on first use, inside this same clone.
+    aux = COMFY_DIR / "custom_nodes" / "comfyui_controlnet_aux"
+    if not aux.exists():
+        subprocess.run(
+            ["git", "clone",
+             "https://github.com/Fannovel16/comfyui_controlnet_aux.git",
+             str(aux)], check=True, timeout=600)
+        subprocess.run(
+            ["git", "-C", str(aux), "checkout", "-q",
+             "59b027e088c1c8facf7258f6e392d16d204b4d27"],
+            check=True, timeout=300)
+    aux_req = aux / "requirements.txt"
+    if aux_req.exists():
+        subprocess.run(
+            [sys.executable, "-m", "pip", "install", "-q",
+             "-r", str(aux_req)], check=True, timeout=900)
     if not shutil.which("ffmpeg"):
         # The combine nodes shell out to ffmpeg; where the
         # session image lacks it, drop in the static binary
@@ -1046,7 +1116,109 @@ def download_job_image(job_id: str, which: str, claim_token=None):
     return resp.content
 
 
+def download_job_source_video(job_id: str, claim_token=None):
+    """A clone job's source video, served by the platform
+    itself (2026-11-28, Clone Spec B): the kernel pulls the
+    driving video down the same claim-bound worker channel
+    as the start and end images. No file host and no
+    provider storage sits in this path."""
+    resp = requests.get(
+        f"{PLATFORM}/api/worker/comfy/jobs/{job_id}/source-video",
+        headers=job_headers(claim_token), timeout=600)
+    resp.raise_for_status()
+    return resp.content
+
+
+def run_animate_job(job: dict) -> dict:
+    """Wan 2.2 Animate clone (2026-11-28, Clone Spec B): one
+    graph over the whole driving video, no segment chain.
+    The source arrives at whatever frame rate and size the
+    user uploaded; Animate consumes frames at 16 fps at the
+    job's dimensions, so the kernel converts first (frame
+    rate, scale and center crop, the tail padded with the
+    last frame) to exactly the graph's length in frames:
+    the source's 16 fps frame count snapped to 4n+1."""
+    import re
+    import tempfile
+
+    job_id = job["id"]
+    prompt = job.get("prompt") or ""
+    negative = job.get("negative_prompt") or NEGATIVE_PROMPT
+    seed = int(job.get("seed") or 12345)
+    aspect = job.get("aspect_ratio") or "9:16"
+    segments = int(job.get("segments") or 1)
+    if ensure_families(JOB_FAMILIES["animate"]):
+        restart_comfy()
+    if not job.get("has_start_image"):
+        raise RuntimeError(
+            "the animate lane needs the character picture")
+    start_bytes = download_job_image(
+        job_id, "start-image", job.get("claim_token"))
+    source = download_job_source_video(job_id, job.get("claim_token"))
+
+    render_started = time.time()
+    workdir = Path(tempfile.mkdtemp(prefix=f"job_{job_id}_"))
+    raw_path = workdir / "source_raw.mp4"
+    raw_path.write_bytes(source)
+    probe = subprocess.run(
+        ["ffmpeg", "-i", str(raw_path)],
+        capture_output=True, text=True, timeout=60)
+    match = re.search(r"Duration: (\d+):(\d+):([\d.]+)",
+                      probe.stderr or "")
+    if not match:
+        raise RuntimeError(
+            "the source video's length could not be read")
+    duration = (int(match.group(1)) * 3600 + int(match.group(2)) * 60
+                + float(match.group(3)))
+    width, height = LANE_DIMS["production"][aspect]
+    frames = max(1, int(round(duration * 16)))
+    length = max(5, 4 * round((frames - 1) / 4) + 1)
+    conv_path = workdir / "source_16fps.mp4"
+    proc = subprocess.run(
+        ["ffmpeg", "-y", "-i", str(raw_path),
+         "-vf", (f"fps=16,scale={width}:{height}:"
+                 "force_original_aspect_ratio=increase,"
+                 f"crop={width}:{height},"
+                 "tpad=stop_mode=clone:stop_duration=2"),
+         "-frames:v", str(length), "-c:v", "libx264",
+         "-preset", "veryfast", "-crf", "16", "-an",
+         str(conv_path)],
+        capture_output=True, text=True, timeout=600)
+    if proc.returncode != 0 or not conv_path.exists():
+        raise RuntimeError(
+            f"source convert failed: {proc.stderr[-200:]}")
+    workflow = build_animate_workflow(
+        prompt, negative, seed, aspect, length,
+        prefix=f"sinclip/api_animate_{job_id}")
+    video_name = f"job_{job_id}_source.mp4"
+    image_name = f"job_{job_id}_animate.png"
+    for node in workflow.values():
+        if node.get("class_type") == "LoadVideo":
+            node["inputs"]["file"] = video_name
+        elif node.get("class_type") == "LoadImage":
+            node["inputs"]["image"] = image_name
+    check_nodes(workflow)
+    video = run_workflow(workflow, images={
+        video_name: conv_path.read_bytes(),
+        image_name: start_bytes})
+    return {
+        "data": video,
+        "render_seconds": round(time.time() - render_started, 1),
+        "segments_done": segments,
+        "partial": False,
+        "partial_error": "",
+    }
+
+
 def run_video_job(job: dict) -> dict:
+    if job.get("has_source_video"):
+        # A Wan 2.2 clone from the Clone tab (2026-11-28,
+        # Clone Spec B): the platform stamps the source on
+        # the job record and the kernel pulls it down its
+        # own channel. Animate consumes the whole video in
+        # one graph, so this path never enters the segment
+        # chain below.
+        return run_animate_job(job)
     import tempfile
 
     job_id = job["id"]

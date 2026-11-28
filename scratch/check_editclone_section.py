@@ -67,14 +67,16 @@ Pins the tab's shape so a later edit cannot quietly break it:
   lane takes no visual input;
 - the four house lanes (Wan 2.2, Wan 2.2 Uncut, LTX-2.5
   Uncensored, HunyuanVideo 1.5) are in the picker too: the
-  config serves their clone adaptation (start image), the
-  clone body rides the house job path (character picture
-  as the start image, the source's length in house
-  segments, Production named for Wan 2.2, one segment for
-  LTX-2.5 Uncensored), and the quote reads the lane's own
-  segment accounting (job price times segments, or the
-  included rail at the house unit), never the per-second
-  machinery;
+  config serves their clone adaptation (start image, and
+  "animate" for Wan 2.2 since Clone Spec B, 2026-11-28:
+  its worker runs Wan 2.2 Animate on the source it pulls
+  itself), the clone body rides the house job path
+  (character picture as the start image, the source's
+  length in house segments, Production named for Wan 2.2,
+  one segment for LTX-2.5 Uncensored), and the quote reads
+  the lane's own segment accounting (job price times
+  segments, or the included rail at the house unit), never
+  the per-second machinery;
 - the worker finishes its files the platform way (content
   hash, output classification, gallery kept private), the
   mirror fails a stuck Clone job clean, the file route
@@ -568,8 +570,13 @@ for model, lane in HOUSE_CLONE_LANES.items():
           f"{model} no longer settles on its house lane {lane}")
     check(model in app.MODEL_LABELS,
           f"{model} is missing from the picker catalog data")
-    check(adapt(model) == "start",
-          f"{model} should clone from a start image, got {adapt(model)}")
+    # Wan 2.2 clones as "animate" since Spec B (2026-11-28):
+    # its worker runs Wan 2.2 Animate on the source the
+    # kernel pulls itself. The other house lanes still take
+    # a start image only.
+    want = "animate" if model == "wan2.2" else "start"
+    check(adapt(model) == want,
+          f"{model} should clone as {want}, got {adapt(model)}")
 check(all(m["id"] in app.PER_SECOND_MODELS
           or m["id"] in app.HOUSE_MODEL_PRICING_LANE
           for m in app.MODELS),

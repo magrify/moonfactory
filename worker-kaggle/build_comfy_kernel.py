@@ -36,6 +36,7 @@ WORKFLOW_FILES = (
     "hunyuan15_t2v.json",
     "hunyuan15_i2v.json",
     "longcat_t2i.json",
+    "wan_animate.json",
 )
 
 
