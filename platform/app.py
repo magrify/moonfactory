@@ -5725,7 +5725,18 @@ def _wake_comfy_kernel() -> None:
     is the module level twin of the web layer's
     _comfy_maybe_trigger (same meta keys, same discipline), so
     the CPU processors, which run outside the web layer, can
-    nudge the same kernel awake for jobs they queue."""
+    nudge the same kernel awake for jobs they queue.
+
+    Session hygiene (2026-11-28, the census helpers below):
+    before pushing, the wake reads the kernel's own Kaggle
+    session status from the cached census. A session already
+    queued is left alone (a push cannot shorten Kaggle's
+    queue and does not cancel the waiting session; it only
+    stacks another queued session against the same account
+    limit); if that queued session is stuck behind other
+    kernels' dead sessions, hygiene clears them so the queue
+    can move. A push refused with the batch session limit runs
+    hygiene and then retries once."""
     try:
         if _now() - float(meta.get("comfy:heartbeat") or 0) \
                 < COMFY_HEARTBEAT_STALE_SECONDS:
@@ -5736,6 +5747,18 @@ def _wake_comfy_kernel() -> None:
         token = os.environ.get("KAGGLE_API_TOKEN") or ""
         if not token:
             return
+        own = kaggle_own_session_status(token, "comfy")
+        if own == "queued":
+            # Our session is already in Kaggle's queue. If the
+            # account's slots are held by sessions hygiene can
+            # clear, clear them; either way, do not push.
+            census = kaggle_session_census(token)
+            active = (census or {}).get("active") or []
+            others = [s for s in active
+                      if s != COMFY_KERNEL_SLUG]
+            if len(others) >= 2:
+                kaggle_session_hygiene(token, "comfy")
+            return
         script_text = COMFY_WORKER_SCRIPT_PATH.read_text()
         meta["comfy:last_trigger"] = _now()
         ok, detail = kaggle_push(
@@ -5744,6 +5767,17 @@ def _wake_comfy_kernel() -> None:
             datasets=[COMFY_KEY_DATASET], gpu=True)
         if not ok:
             meta["comfy:last_trigger_error"] = detail
+            if "session count" in detail.lower():
+                # The slots are held by someone: name them and
+                # clear the dead ones, then retry the wake
+                # once on the freed slot.
+                kaggle_session_hygiene(token, "comfy")
+                ok, detail = kaggle_push(
+                    token, script_text, slug=COMFY_KERNEL_SLUG,
+                    title="Moonfactory Comfy Worker",
+                    datasets=[COMFY_KEY_DATASET], gpu=True)
+                if not ok:
+                    meta["comfy:last_trigger_error"] = detail
     except Exception:
         pass
 
@@ -5777,6 +5811,10 @@ def _wake_voice_kernel() -> None:
             return
         token = os.environ.get("KAGGLE_API_TOKEN") or ""
         if not token:
+            return
+        if kaggle_own_session_status(token, "voice") == "queued":
+            # Already in Kaggle's queue (session hygiene,
+            # 2026-11-28): a push cannot shorten the wait.
             return
         script_text = VOICE_WORKER_SCRIPT_PATH.read_text()
         meta["voice:last_trigger"] = _now()
@@ -5869,6 +5907,10 @@ def _wake_audio_kernel() -> None:
             return
         token = os.environ.get("KAGGLE_API_TOKEN") or ""
         if not token:
+            return
+        if kaggle_own_session_status(token, "audio") == "queued":
+            # Already in Kaggle's queue (session hygiene,
+            # 2026-11-28): a push cannot shorten the wait.
             return
         script_text = AUDIO_WORKER_SCRIPT_PATH.read_text()
         meta["audio:last_trigger"] = _now()
@@ -7514,6 +7556,393 @@ def kaggle_push(token: str, script_text: str, slug: str,
     if body.get("error"):
         return False, str(body.get("error"))[:200]
     return True, "kernel version pushed"
+
+
+# ---------------------------------------------------------------------------
+# Kaggle session census and hygiene (2026-11-28). Clone proof 2
+# queued ~2 hours because the account's two batch GPU slots were
+# held by sessions nobody could name: the kernel list shapes the
+# proof run tried (mine / userName / group) are all rejected by
+# the current API, so the holders stayed invisible and the job
+# waited for the block to clear on its own. The shapes that DO
+# work, verified live against the account the same day:
+#   GET /api/v1/kernels/list?user=magrify&pageSize=100
+#       every kernel on the account (the field is "user";
+#       "mine" and "userName" answer 400 Invalid field).
+#   GET /api/v1/kernels/status?userName=magrify&kernelSlug=<slug>
+#       the named kernel's latest session status (queued /
+#       running / complete / error / cancelAcknowledged).
+#   GET /api/v1/kernels/quota
+#       weekly GPU time used / reserved by running sessions.
+# And the clear mechanisms, also verified live the same day:
+# Kaggle exposes no cancel call for a batch session. Pushing a
+# new version of a kernel supersedes its RUNNING session, so a
+# running squatter dies the moment a trivial script is pushed
+# over it, and a hung worker session dies when its own current
+# script is pushed over it. But a push does NOT cancel a
+# QUEUED session, and queued sessions count toward the same
+# 2-session limit: two queued sessions of one probe kernel
+# refused every push on the account (a trivial version pushed
+# between them ran to completion while the older queued
+# sleeper stayed queued), and the status endpoint only ever
+# reports a kernel's LATEST session, so older queued sessions
+# are invisible to the census. The one verified way to remove
+# a stuck queued session is deleting its kernel through the
+# RPC service (POST /api/v1/kernels.KernelsApiService/
+# DeleteKernel; the REST delete path answers 400): deleting
+# the probe kernel freed both slots at once, proven by the
+# next push landing immediately. A worker kernel's identity
+# rides entirely in its push payload (slug, title, datasets),
+# so a deleted worker kernel is recreated faithfully by its
+# next wake push.
+#
+# The discipline built on those three facts:
+# - A wake never pushes while its own kernel already has a
+#   session queued on Kaggle (the push cannot shorten Kaggle's
+#   queue and does not cancel the waiting session; it only
+#   stacks another queued session, and queued sessions count
+#   toward the limit, which is how the old every-180-seconds
+#   wake pushes dug a blocked job's hole deeper), and never
+#   while a running session's platform heartbeat is fresh
+#   (that is a live worker).
+# - When a wake is blocked anyway (the push answers the batch
+#   session limit, or our session sits queued while other
+#   sessions hold the slots), hygiene runs the census, names
+#   every active session into meta, and clears the ones that
+#   are provably dead weight: a non-worker kernel whose
+#   session is running (dev and test kernels hold no platform
+#   heartbeat and serve no lane), a worker kernel whose
+#   session is running while its platform heartbeat has been
+#   stale past the dead window (a hung session: the healthy
+#   ones heartbeat every minute and exit on their own caps),
+#   or a queued session whose kernel serves no waiting work
+#   (cleared by deleting the kernel, the only route that
+#   removes a queued session). Live workers, the blocked
+#   family's own sessions, and queued worker sessions whose
+#   family has jobs waiting are never touched.
+# - The census is cached in meta and refreshed at most once
+#   per interval, so read paths can consult it without turning
+#   every status read into Kaggle API traffic.
+# ---------------------------------------------------------------------------
+
+KAGGLE_ACCOUNT_USER = "magrify"
+KAGGLE_WORKER_KERNELS = {
+    "comfy": COMFY_KERNEL_SLUG,
+    "voice": VOICE_KERNEL_SLUG,
+    "audio": AUDIO_KERNEL_SLUG,
+    "hf": HF_KERNEL_SLUG,
+}
+KAGGLE_ACTIVE_STATUSES = ("queued", "running")
+KAGGLE_CENSUS_MIN_INTERVAL_SECONDS = 240
+KAGGLE_HYGIENE_MIN_INTERVAL_SECONDS = 600
+# A worker session Kaggle shows as running whose platform
+# heartbeat is older than this is hung, not working: every
+# healthy worker heartbeats once a minute from a daemon
+# thread that survives its render loop.
+KAGGLE_STALE_HEARTBEAT_SECONDS = 600
+KAGGLE_CLEAR_SCRIPT = (
+    "# Session cleared by Moonfactory's Kaggle session hygiene\n"
+    "# (2026-11-28): this kernel's previous session was holding\n"
+    "# a batch GPU slot with no live worker behind it, so the\n"
+    "# platform pushed this no-op version over it; the push is\n"
+    "# what cancels the in-flight session. The kernel's real\n"
+    "# script can be pushed again at any time.\n"
+    "print('session cleared by moonfactory hygiene')\n"
+)
+
+
+def _kaggle_api_get(token: str, path: str, params: dict = None):
+    """One GET against Kaggle's public API with the platform's
+    bearer token. Returns the parsed JSON body, or None on any
+    failure; never raises and never logs the token."""
+    import requests as _requests
+
+    try:
+        resp = _requests.get(
+            f"https://www.kaggle.com{path}",
+            headers={"Authorization": f"Bearer {token}"},
+            params=params or {}, timeout=30)
+    except Exception:
+        return None
+    if resp.status_code != 200:
+        return None
+    try:
+        return resp.json()
+    except Exception:
+        return None
+
+
+def kaggle_kernel_status(token: str, slug: str):
+    """The latest session status of one kernel (the slug
+    without the account prefix), lowercased, or None when
+    Kaggle cannot be read."""
+    body = _kaggle_api_get(
+        token, "/api/v1/kernels/status",
+        {"userName": KAGGLE_ACCOUNT_USER, "kernelSlug": slug})
+    if isinstance(body, dict) and body.get("status"):
+        return str(body["status"]).lower()
+    return None
+
+
+def kaggle_delete_kernel(token: str, bare_slug: str):
+    """Delete one of the account's kernels through the RPC
+    service, dropping every session it holds, queued ones
+    included (the only verified way to remove a stuck queued
+    session; the REST delete path answers 400). Returns
+    (ok, detail); never raises and never logs the token."""
+    import requests as _requests
+
+    try:
+        resp = _requests.post(
+            "https://www.kaggle.com/api/v1/kernels."
+            "KernelsApiService/DeleteKernel",
+            headers={"Authorization": f"Bearer {token}",
+                     "Content-Type": "application/json"},
+            json={"userName": KAGGLE_ACCOUNT_USER,
+                  "kernelSlug": bare_slug},
+            timeout=30)
+    except Exception as exc:
+        return False, f"delete raised {exc!r}"[:200]
+    if resp.status_code == 200:
+        return True, "kernel deleted"
+    return False, f"HTTP {resp.status_code}: {resp.text[:160]}"
+
+
+def kaggle_session_census(token: str, force: bool = False):
+    """Every kernel on the account with its latest session
+    status: the census that names who holds the batch GPU
+    slots. Cached in meta (kaggle:session_census) and
+    refreshed at most once per census interval unless forced.
+    Returns the census dict, or None when Kaggle cannot be
+    read and no cache exists."""
+    try:
+        cached = meta.get("kaggle:session_census")
+    except Exception:
+        cached = None
+    if not force and cached \
+            and _now() - float(cached.get("at") or 0) \
+            < KAGGLE_CENSUS_MIN_INTERVAL_SECONDS:
+        return cached
+    listing = _kaggle_api_get(
+        token, "/api/v1/kernels/list",
+        {"user": KAGGLE_ACCOUNT_USER, "pageSize": 100})
+    if not isinstance(listing, list):
+        return cached
+    workers = {slug: family for family, slug
+               in KAGGLE_WORKER_KERNELS.items()}
+    kernels = []
+    for entry in listing:
+        if not isinstance(entry, dict):
+            continue
+        ref = str(entry.get("ref") or "")
+        bare = ref.split("/", 1)[-1]
+        if not bare:
+            continue
+        kernels.append({
+            "slug": ref,
+            "bare_slug": bare,
+            "title": str(entry.get("title") or ""),
+            "last_run": str(entry.get("lastRunTime") or ""),
+            "family": workers.get(ref),
+            "status": kaggle_kernel_status(token, bare),
+        })
+    census = {
+        "at": _now(),
+        "kernels": kernels,
+        "active": [k["slug"] for k in kernels
+                   if k["status"] in KAGGLE_ACTIVE_STATUSES],
+        "workers": {k["family"]: k["status"] for k in kernels
+                    if k.get("family")},
+    }
+    try:
+        meta["kaggle:session_census"] = census
+    except Exception:
+        pass
+    return census
+
+
+def _kaggle_family_heartbeat_fresh(family: str) -> bool:
+    try:
+        beat = float(meta.get(f"{family}:heartbeat") or 0)
+    except Exception:
+        beat = 0
+    return _now() - beat < KAGGLE_STALE_HEARTBEAT_SECONDS
+
+
+def _family_has_queued_work(family: str) -> bool:
+    """True when the platform holds queued work for a worker
+    family, which makes that family's queued Kaggle session
+    legitimate and untouchable. A read failure answers True:
+    when in doubt, nothing is deleted."""
+    try:
+        for job in jobs.values():
+            if not isinstance(job, dict):
+                continue
+            if job.get("status") != "queued":
+                continue
+            if family == "comfy" and (
+                    job.get("provider") == "kaggle-comfy"):
+                return True
+            if family == "voice" and (
+                    job.get("provider") == "kaggle-voice"):
+                return True
+            if family == "audio" and (
+                    job.get("kind") == "audio_stage"):
+                return True
+            if family == "hf" and (
+                    job.get("provider") == "hyperframes"):
+                return True
+    except Exception:
+        return True
+    return False
+
+
+def kaggle_session_hygiene(token: str, blocked_family: str) -> dict:
+    """Clear the dead sessions holding the account's batch
+    GPU slots, after a wake for blocked_family was refused or
+    left queued behind them. Runs at most once per hygiene
+    interval; the full census and every action land in
+    meta (kaggle:last_hygiene) so the next blocked run names
+    its blockers instead of guessing. Never raises."""
+    report = {"at": _now(), "blocked_family": blocked_family,
+              "actions": []}
+    try:
+        last = meta.get("kaggle:last_hygiene") or {}
+        if _now() - float(last.get("at") or 0) \
+                < KAGGLE_HYGIENE_MIN_INTERVAL_SECONDS:
+            report["skipped"] = "hygiene ran inside its interval"
+            return report
+        census = kaggle_session_census(token, force=True)
+        if not census:
+            report["skipped"] = "census unavailable"
+            return report
+        report["active_before"] = list(census["active"])
+        cleared = 0
+        for entry in census["kernels"]:
+            if cleared >= 4:
+                break
+            family = entry.get("family")
+            if entry["status"] == "queued":
+                # A queued session holds no GPU yet, but it
+                # counts toward the same 2-session limit, and
+                # no push can cancel it: deleting the kernel
+                # is the only clear. The blocked family's own
+                # queued session is legitimately in line, and
+                # so is a worker family's when jobs wait on it.
+                if family is not None and (
+                        family == blocked_family
+                        or _family_has_queued_work(family)):
+                    continue
+                ok, detail = kaggle_delete_kernel(
+                    token, entry["bare_slug"])
+                report["actions"].append({
+                    "slug": entry["slug"],
+                    "kind": "worker" if family
+                    else "non-worker",
+                    "action": "delete queued kernel", "ok": ok,
+                    "detail": detail})
+                if ok:
+                    cleared += 1
+                continue
+            if entry["status"] != "running":
+                continue
+            if family is not None:
+                if family == blocked_family:
+                    # The blocked family's own hung session is
+                    # the wake push's business (the push
+                    # supersedes it); hygiene leaves it alone.
+                    continue
+                if _kaggle_family_heartbeat_fresh(family):
+                    continue  # a live worker, never touched
+                # A worker session running with a dead
+                # heartbeat is hung: push its own current
+                # script over it, which cancels the corpse
+                # and starts a healthy session in its place.
+                script_path = {
+                    "voice": VOICE_WORKER_SCRIPT_PATH,
+                    "audio": AUDIO_WORKER_SCRIPT_PATH,
+                    "hf": HF_WORKER_SCRIPT_PATH,
+                    "comfy": COMFY_WORKER_SCRIPT_PATH,
+                }[family]
+                datasets = {
+                    "voice": [VOICE_KEY_DATASET],
+                    "audio": [AUDIO_KEY_DATASET],
+                    "hf": [HF_TOOLCHAIN_DATASET, HF_KEY_DATASET],
+                    "comfy": [COMFY_KEY_DATASET],
+                }[family]
+                try:
+                    script_text = script_path.read_text()
+                except Exception:
+                    continue
+                ok, detail = kaggle_push(
+                    token, script_text, slug=entry["slug"],
+                    title=entry["title"] or entry["slug"],
+                    datasets=datasets, gpu=True)
+                action = "repush own script"
+                if not ok:
+                    # The push itself was refused, so the
+                    # account is saturated by sessions the push
+                    # cannot reach: delete the kernel (which
+                    # drops every session it holds) and let
+                    # the repush recreate it with one fresh
+                    # session.
+                    dok, _ddetail = kaggle_delete_kernel(
+                        token, entry["bare_slug"])
+                    if dok:
+                        ok, detail = kaggle_push(
+                            token, script_text,
+                            slug=entry["slug"],
+                            title=entry["title"]
+                            or entry["slug"],
+                            datasets=datasets, gpu=True)
+                        action = "delete and repush own script"
+                report["actions"].append({
+                    "slug": entry["slug"], "kind": "hung worker",
+                    "action": action, "ok": ok,
+                    "detail": detail})
+                if ok:
+                    cleared += 1
+                continue
+            # Not a worker kernel at all: a dev, test, or probe
+            # kernel holding a GPU slot serves no lane and
+            # carries no heartbeat to defend it. A no-op push
+            # supersedes its session and frees the slot.
+            ok, detail = kaggle_push(
+                token, KAGGLE_CLEAR_SCRIPT, slug=entry["slug"],
+                title=entry["title"] or entry["slug"],
+                datasets=[], gpu=True)
+            action = "clear script push"
+            if not ok:
+                # Refused pushes cannot reach a saturated
+                # account; a dev kernel is disposable, so
+                # delete it outright.
+                ok, detail = kaggle_delete_kernel(
+                    token, entry["bare_slug"])
+                action = "delete kernel"
+            report["actions"].append({
+                "slug": entry["slug"], "kind": "non-worker",
+                "action": action, "ok": ok,
+                "detail": detail})
+            if ok:
+                cleared += 1
+        report["cleared"] = cleared
+    except Exception as exc:  # noqa: BLE001 - hygiene never raises
+        report["error"] = f"{type(exc).__name__}: {exc}"[:200]
+    try:
+        meta["kaggle:last_hygiene"] = report
+    except Exception:
+        pass
+    return report
+
+
+def kaggle_own_session_status(token: str, family: str):
+    """One worker family's latest Kaggle session status from
+    the cached census (refreshing it when stale), or None
+    when Kaggle cannot be read."""
+    census = kaggle_session_census(token)
+    if not census:
+        return None
+    return (census.get("workers") or {}).get(family)
 
 
 # Per-model duration bounds in seconds (the global form range is
@@ -13136,11 +13565,34 @@ document.getElementById('go').onclick = async () => {{
             age = _now() - float(job.get("created_at") or _now())
             if job["status"] == "queued":
                 if age > COMFY_QUEUED_LIMIT_SECONDS:
-                    # No kernel ever claimed it (the weekly
-                    # quota was gone, or every wake failed):
-                    # fail clean with everything restored, the
-                    # template lane's no-show behavior.
-                    _fail_stale_job(job)
+                    # Past the plain bound a queued job fails
+                    # clean (no kernel ever claimed it: the
+                    # weekly quota was gone, or every wake
+                    # failed), with everything restored, the
+                    # template lane's no-show behavior. One
+                    # exception, earned by clone proof 2
+                    # (2026-11-28): that clone sat queued ~2h
+                    # behind dead Kaggle sessions and survived
+                    # only because its watcher avoided API
+                    # reads. When the session census proves a
+                    # Comfy session is genuinely in line for
+                    # the job (queued on Kaggle, or running and
+                    # working an earlier claim), the job is not
+                    # abandoned and does not fail; the wake it
+                    # triggers runs hygiene against whatever
+                    # blocks the slots. When the census cannot
+                    # be read at all, the job gets three bounds
+                    # of grace before the same fail.
+                    state = kaggle_own_session_status(
+                        os.environ.get("KAGGLE_API_TOKEN") or "",
+                        "comfy")
+                    if state in KAGGLE_ACTIVE_STATUSES:
+                        _comfy_maybe_trigger()
+                    elif state is None and age \
+                            <= COMFY_QUEUED_LIMIT_SECONDS * 3:
+                        _comfy_maybe_trigger()
+                    else:
+                        _fail_stale_job(job)
                 else:
                     _comfy_maybe_trigger()
             elif job["status"] == "running" and (

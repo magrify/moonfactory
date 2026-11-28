@@ -834,34 +834,68 @@ def setup_comfy() -> dict:
 
 COMFY_LOG = WORKING / "comfyui.log"
 
+# Launch flag sets, tried in order (2026-11-28, the render
+# speed pass). The A14B experts are 14 GB each on a 16 GB
+# card, so every step streams weights from system RAM over
+# PCIe; --lowvram is what makes that fit at all, and
+# --async-offload overlaps the streaming with compute
+# instead of serializing them. The pinned ComfyUI build may
+# predate the flag, and an unknown flag kills the process at
+# startup, so the first set that actually serves the API
+# wins and today's known-good set is the final fallback: a
+# build without the flag boots exactly as it did before.
+COMFY_FLAG_SETS = (
+    ("--lowvram", "--async-offload"),
+    ("--lowvram",),
+)
 
-def start_comfy():
-    global _comfy_proc
-    log_fh = open(COMFY_LOG, "ab")
-    _comfy_proc = subprocess.Popen(
-        [sys.executable, "main.py", "--listen", "127.0.0.1",
-         "--port", "8188", "--lowvram", "--disable-auto-launch"],
-        cwd=str(COMFY_DIR),
-        stdout=log_fh, stderr=subprocess.STDOUT)
-    deadline = time.time() + 600
+
+def _comfy_wait_up(timeout: float) -> bool:
+    """Wait for the ComfyUI API of the process just launched.
+    False when the process died or the window ran out."""
+    deadline = time.time() + timeout
     while time.time() < deadline:
         if _comfy_proc.poll() is not None:
-            tail = ""
-            try:
-                tail = COMFY_LOG.read_bytes()[-3000:].decode(
-                    "utf-8", "replace")
-            except Exception:
-                pass
-            raise RuntimeError(
-                f"ComfyUI exited during startup; log tail: {tail}")
+            return False
         try:
-            r = requests.get(f"{COMFY_BASE}/system_stats", timeout=5)
+            r = requests.get(f"{COMFY_BASE}/system_stats",
+                             timeout=5)
             if r.status_code == 200:
-                log("ComfyUI is up")
-                return
+                return True
         except requests.RequestException:
             pass
         time.sleep(3)
+    return False
+
+
+def start_comfy():
+    global _comfy_proc
+    for flags in COMFY_FLAG_SETS:
+        log_fh = open(COMFY_LOG, "ab")
+        _comfy_proc = subprocess.Popen(
+            [sys.executable, "main.py", "--listen", "127.0.0.1",
+             "--port", "8188", *flags, "--disable-auto-launch"],
+            cwd=str(COMFY_DIR),
+            stdout=log_fh, stderr=subprocess.STDOUT)
+        # A flag the pinned build does not know kills the
+        # process inside seconds; a slow first boot gets the
+        # long window only on the final, known-good set.
+        window = 600 if flags == COMFY_FLAG_SETS[-1] else 120
+        if _comfy_wait_up(window):
+            log(f"ComfyUI is up (flags: {' '.join(flags)})")
+            return
+        tail = ""
+        try:
+            tail = COMFY_LOG.read_bytes()[-3000:].decode(
+                "utf-8", "replace")
+        except Exception:
+            pass
+        log(f"ComfyUI did not come up with flags {flags}; "
+            f"log tail: {tail[-400:]}")
+        try:
+            _comfy_proc.kill()
+        except Exception:
+            pass
     raise RuntimeError("ComfyUI API did not come up in time")
 
 
