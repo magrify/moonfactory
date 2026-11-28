@@ -1691,6 +1691,23 @@ def classify_job_output(job: dict, path=None) -> None:
             pass
         print(f"output classifier failed for job "
               f"{job.get('id')}: {exc}")
+    finally:
+        # Poster guarantee (2026-11-27): every finishing path
+        # funnels through this function, so the guarantee
+        # lives here — a finished job leaves with its gallery
+        # thumb derived and, for a video, its poster frame
+        # cut, whatever the classifier itself did. The verdict
+        # flow above returns early in several states (already
+        # scored, attempts capped, no readable frame) and used
+        # to take the thumb derivation with it; a card with no
+        # picture is the failure this closes. Best-effort: the
+        # thumb and poster routes backfill lazily on serve.
+        try:
+            ensure_gallery_thumb(job, path)
+            if job.get("kind") != "image":
+                ensure_job_poster(job, path)
+        except Exception:  # noqa: BLE001
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -1722,7 +1739,29 @@ def ensure_gallery_thumb(job: dict, path=None):
                 else f"{job['id']}.mp4")
         p = Path(path)
         if ".web." in p.name or not p.is_file():
-            return None
+            # A warm container's volume view can predate the
+            # job's finish (the files were committed by another
+            # container): refresh once and look again before
+            # giving up (poster guarantee, 2026-11-27 — the
+            # stale-view miss the source check in 1ca6ee8 was
+            # fixed for, still open here until now).
+            try:
+                data_volume.reload()
+            except Exception:
+                pass
+            if thumb.exists() and thumb.stat().st_size > 0:
+                return thumb
+            if ".web." in p.name or not p.is_file():
+                # Last source: the poster frame itself. Some
+                # jobs keep only their poster (the character
+                # builder's card picture, a job whose media
+                # file is gone): a derivative of the frame
+                # still beats no picture at all.
+                poster = FILES_DIR / f"{job['id']}.jpg"
+                if poster.is_file() and poster.stat().st_size > 0:
+                    p = poster
+                else:
+                    return None
         FILES_DIR.mkdir(parents=True, exist_ok=True)
         tmp = FILES_DIR / f"{job['id']}.gthumb.tmp.jpg"
         try:
@@ -1730,7 +1769,7 @@ def ensure_gallery_thumb(job: dict, path=None):
         except Exception:
             pass
         cmd = ["ffmpeg", "-y"]
-        if job.get("kind") != "image":
+        if job.get("kind") != "image" and p.suffix.lower() != ".jpg":
             cmd += ["-ss", "0.5"]
         cmd += ["-i", str(p), "-vframes", "1",
                 "-vf", f"scale='min({GALLERY_THUMB_WIDTH},iw)':-2",
@@ -1746,6 +1785,66 @@ def ensure_gallery_thumb(job: dict, path=None):
             return None
         tmp.replace(thumb)
         return thumb
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def ensure_job_poster(job: dict, path=None):
+    """The finished video's poster frame at {job_id}.jpg,
+    cut from the stored file when missing (poster guarantee,
+    2026-11-27). One helper for every kind — generations,
+    ingested sources, clips, shorts, assemblies — so no
+    completion or serve path has to know which producer made
+    the file. A warm container's stale volume view gets one
+    refresh before the file is called missing. Returns the
+    Path, or None when no frame can be cut."""
+    try:
+        if job.get("kind") == "image":
+            return None
+        poster = FILES_DIR / f"{job['id']}.jpg"
+        if poster.exists() and poster.stat().st_size > 0:
+            return poster
+        if path is None:
+            path = FILES_DIR / f"{job['id']}.mp4"
+        p = Path(path)
+        if ".web." in p.name or not p.is_file():
+            try:
+                data_volume.reload()
+            except Exception:
+                pass
+            if poster.exists() and poster.stat().st_size > 0:
+                return poster
+            if ".web." in p.name or not p.is_file():
+                return None
+        FILES_DIR.mkdir(parents=True, exist_ok=True)
+        tmp = FILES_DIR / f"{job['id']}.poster.tmp.jpg"
+        try:
+            tmp.unlink(missing_ok=True)
+        except Exception:
+            pass
+        for seek in ("0.5", None):
+            cmd = ["ffmpeg", "-y"]
+            if seek:
+                cmd += ["-ss", seek]
+            cmd += ["-i", str(p), "-vframes", "1",
+                    "-q:v", "3", str(tmp)]
+            try:
+                proc = subprocess.run(cmd, capture_output=True,
+                                      timeout=120)
+            except Exception:  # noqa: BLE001
+                proc = None
+            if (proc is not None and proc.returncode == 0
+                    and tmp.exists()
+                    and tmp.stat().st_size > 0):
+                break
+            try:
+                tmp.unlink(missing_ok=True)
+            except Exception:
+                pass
+        if not tmp.exists() or tmp.stat().st_size == 0:
+            return None
+        tmp.replace(poster)
+        return poster
     except Exception:  # noqa: BLE001
         return None
 
@@ -19564,6 +19663,14 @@ document.getElementById('go').onclick = async () => {{
                 pass
         if poster_path.exists():
             return poster_path
+        # The plain stored file serves most kinds first
+        # (poster guarantee, 2026-11-27): sources, clips,
+        # shorts and assemblies keep their delivered file
+        # under the job id, so the frame can be cut without
+        # the generation finishing chain below.
+        made = ensure_job_poster(job)
+        if made is not None:
+            return made
         src = ensure_processed(job)
         tmp_path = FILES_DIR / f"{job['id']}.poster.tmp.jpg"
         try:
@@ -23701,6 +23808,18 @@ document.getElementById('go').onclick = async () => {{
                     pass
             thumb = ensure_gallery_thumb(job)
             if thumb is None:
+                # The derivative could not be made; serve the
+                # finished original rather than no picture at
+                # all (poster guarantee, 2026-11-27).
+                try:
+                    src = ensure_image_file(job)
+                except Exception:  # noqa: BLE001
+                    src = None
+                if src is not None and Path(src).exists():
+                    return FileResponse(
+                        src,
+                        media_type=_image_media_type(Path(src)),
+                        headers={"Cache-Control": _media_cache(job)})
                 raise HTTPException(status_code=404,
                                     detail="no thumbnail")
             try:
@@ -23723,16 +23842,21 @@ document.getElementById('go').onclick = async () => {{
             return FileResponse(
                 thumb, media_type="image/jpeg",
                 headers={"Cache-Control": _media_cache(job)})
-        path = FILES_DIR / f"{job_id}.jpg"
-        if not path.exists():
+        # Lazy backfill (poster guarantee, 2026-11-27): a
+        # finished video with no poster gets its frame cut
+        # here, on the serve, from the file it already has —
+        # existing items heal the first time their card is
+        # requested instead of staying black.
+        poster = ensure_job_poster(job)
+        if poster is not None:
             try:
-                data_volume.reload()
+                data_volume.commit()
             except Exception:
                 pass
-        if not path.exists():
-            raise HTTPException(status_code=404, detail="no thumbnail")
-        return FileResponse(path, media_type="image/jpeg",
-                            headers={"Cache-Control": _media_cache(job)})
+            return FileResponse(
+                poster, media_type="image/jpeg",
+                headers={"Cache-Control": _media_cache(job)})
+        raise HTTPException(status_code=404, detail="no thumbnail")
 
     # -- public gallery -----------------------------------------------------
     # Every finished clip is listed by default (Jack, 2026-11-16).
@@ -24274,6 +24398,11 @@ document.getElementById('go').onclick = async () => {{
         if not job or not gallery_visible(job):
             raise HTTPException(status_code=404, detail="not in the gallery")
         thumb = ensure_gallery_thumb(job)
+        if thumb is None:
+            # Same poster fallback the owner's thumb route
+            # has (poster guarantee, 2026-11-27): the grid
+            # never 404s a finished video that has a file.
+            thumb = ensure_job_poster(job)
         if thumb is None:
             raise HTTPException(status_code=404,
                                 detail="no preview picture")
@@ -31200,6 +31329,9 @@ function mfLibCard(j, dataAttr) {
   img.className = 'thumb';
   img.loading = 'lazy';
   img.decoding = 'async';
+  img.dataset.kind = j.kind === 'image' ? 'image' : 'video';
+  img.dataset.fb = j.id;
+  img.addEventListener('error', () => thumbImgFail(img));
   img.src = '/api/jobs/' + j.id + '/thumb';
   img.alt = '';
   box.appendChild(img);
@@ -31305,7 +31437,7 @@ async function mfGeneratePerson(p) {
     mfMsg(p, 'Making your person on Nano Banana Pro...', 'ok');
     const j = await mfPollJob(r.job_id);
     $(p + '-char-preview').innerHTML =
-      '<img class="thumb" src="/api/jobs/' + j.id + '/thumb" alt="" style="max-width:220px">';
+      '<img class="thumb" src="/api/jobs/' + j.id + '/thumb" alt="" style="max-width:220px" data-kind="image" data-fb="' + j.id + '" onerror="thumbImgFail(this)">';
     $(p + '-char-save').style.display = '';
     mfMsg(p, 'Your person is ready. Save them as your model to use them in step 2.', 'ok');
     mfRefresh();
@@ -31364,7 +31496,7 @@ async function mfMakeFrame(p) {
     const j = await mfPollJob(r.job_id);
     mfState[p].frameJobId = j.id;
     $(p + '-frame-preview').innerHTML =
-      '<img class="thumb" src="/api/jobs/' + j.id + '/thumb" alt="" style="max-width:220px">';
+      '<img class="thumb" src="/api/jobs/' + j.id + '/thumb" alt="" style="max-width:220px" data-kind="image" data-fb="' + j.id + '" onerror="thumbImgFail(this)">';
     mfMsg(p, 'Your start frame is ready. Generate clips from it in step 3.', 'ok');
     mfRefresh();
   } catch (e) { mfMsg(p, e.message, 'err'); }
@@ -31443,7 +31575,7 @@ function mfWireFlow(p) {
     mfState[p].productJobId = card.dataset.mfproduct;
     mfState[p].productDataUrl = '';
     $(p + '-product-preview').innerHTML =
-      '<img class="thumb" src="/api/jobs/' + mfState[p].productJobId + '/thumb" alt="" style="max-width:220px">';
+      '<img class="thumb" src="/api/jobs/' + mfState[p].productJobId + '/thumb" alt="" style="max-width:220px" data-kind="image" data-fb="' + mfState[p].productJobId + '" onerror="thumbImgFail(this)">';
   };
   $(p + '-frame-gen').onclick = () => mfMakeFrame(p);
   $(p + '-model').addEventListener('change', () => mfFillClipOpts(p));
@@ -31662,6 +31794,46 @@ function announceJobStates(jobs) {
 // starts the file fetch, so the Photos tap can share the
 // cached file while its own activation is still live.
 const SAVE_ICON = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 14.5V4"/><path d="M7.8 7.6L12 3.4l4.2 4.2"/><path d="M9.5 5.8H6.2A2.2 2.2 0 0 0 4 8v10.8A2.2 2.2 0 0 0 6.2 21h11.6A2.2 2.2 0 0 0 20 18.8V8a2.2 2.2 0 0 0-2.2-2.2h-3.3"/></svg>';
+// Poster guarantee (2026-11-27): a card picture that fails
+// to load never stays black. The poster frame is tried
+// first; a video item then falls back to the video itself,
+// metadata preloaded and seeked a fraction in, so its own
+// first frame paints; a picture item falls back to its
+// full file. Wired onto every card thumbnail the studio
+// renders (job cards, clip results, library pickers,
+// previews). The card markup carries only the job id: the
+// media URLs are built here, at failure time, so listings
+// still reference no media file (the thumbnails-only rule).
+function thumbImgFail(img) {
+  const stage = img.dataset.thumbstage || '';
+  const fid = img.dataset.fb || '';
+  const poster = fid ? '/api/jobs/' + fid + '/poster' : '';
+  const file = fid ? '/api/jobs/' + fid + '/file' : '';
+  if (poster && stage === '') {
+    img.dataset.thumbstage = 'poster';
+    img.src = poster;
+    return;
+  }
+  if (file && img.dataset.kind === 'image' && stage !== 'file') {
+    img.dataset.thumbstage = 'file';
+    img.src = file;
+    return;
+  }
+  if (file && img.dataset.kind !== 'image' && stage !== 'video') {
+    const v = document.createElement('video');
+    v.className = img.className;
+    if (img.id) v.id = img.id;
+    v.muted = true;
+    v.setAttribute('playsinline', '');
+    v.preload = 'metadata';
+    if (poster) v.poster = poster;
+    v.src = file;
+    v.addEventListener('loadedmetadata', () => {
+      try { v.currentTime = Math.min(0.1, (v.duration || 1) / 2); } catch (e) {}
+    });
+    img.replaceWith(v);
+  }
+}
 function saveControlHtml(jobId, kind) {
   return '<span class="save-wrap"><button type="button" class="btn secondary save-btn" data-save="' + jobId + '" data-kind="' + kind + '" aria-haspopup="true" aria-expanded="false">' + SAVE_ICON + 'Save</button>' +
     '<span class="menu save-menu" style="display:none">' +
@@ -31960,14 +32132,14 @@ function jobCardEl(j) {
         '<br><span class="muted">Look ' + Object.values(j.camera_look).join(' · ') + '</span>';
       if (j.has_custom_audio) html +=
         '<br><span class="muted">Music made for this video from its music prompt</span>';
-      if (j.status === 'done' && j.kind === 'image') html += '<br><img class="thumb" loading="lazy" decoding="async" data-open="' + j.id + '" src="/api/jobs/' + j.id + '/thumb" alt="">' +
+      if (j.status === 'done' && j.kind === 'image') html += '<br><img class="thumb" loading="lazy" decoding="async" data-open="' + j.id + '" data-kind="image" data-fb="' + j.id + '" onerror="thumbImgFail(this)" src="/api/jobs/' + j.id + '/thumb" alt="">' +
         '<br>' + saveControlHtml(j.id, 'image');
       // Thumbnails only (Jack, 2026-11-24): the card carries
       // no video element and fetches no media; jobBoxClick
       // builds the player on the click, with the same
       // playsinline and poster the eager player used to
       // carry, pointed at the same file route.
-      if (j.status === 'done' && j.kind !== 'image') html += '<br><span class="vidbox" data-play="' + j.id + '"><img class="thumb" loading="lazy" decoding="async" src="/api/jobs/' + j.id + '/thumb" alt=""><span class="playbadge">▶</span></span>' +
+      if (j.status === 'done' && j.kind !== 'image') html += '<br><span class="vidbox" data-play="' + j.id + '"><img class="thumb" loading="lazy" decoding="async" data-fb="' + j.id + '" onerror="thumbImgFail(this)" src="/api/jobs/' + j.id + '/thumb" alt=""><span class="playbadge">▶</span></span>' +
         '<br>' + saveControlHtml(j.id, 'video');
       if (j.status === 'done' && j.has_gif) html +=
         '<br><a class="btn secondary" href="/api/jobs/' + j.id + '/gif" download>Download GIF</a>';
@@ -32006,7 +32178,7 @@ function renderClipResults(jobs) {
     const d = document.createElement('div'); d.className = 'card';
     let h = '<strong>' + (j.hook || 'Clip') + '</strong> · ' + (j.duration_seconds || '') + 's';
     if (j.score !== null && j.score !== undefined) h += ' · Score ' + j.score;
-    h += '<br><span class="vidbox" data-play="' + j.id + '"><img class="thumb" loading="lazy" decoding="async" src="/api/jobs/' + j.id + '/thumb" alt=""><span class="playbadge">▶</span></span>' +
+    h += '<br><span class="vidbox" data-play="' + j.id + '"><img class="thumb" loading="lazy" decoding="async" data-fb="' + j.id + '" onerror="thumbImgFail(this)" src="/api/jobs/' + j.id + '/thumb" alt=""><span class="playbadge">▶</span></span>' +
       '<br>' + saveControlHtml(j.id, 'video');
     d.innerHTML = h; box.appendChild(d);
   }
@@ -32433,6 +32605,9 @@ function ecRenderLibrary() {
     img.className = 'thumb';
     img.loading = 'lazy';
     img.decoding = 'async';
+    img.dataset.kind = 'video';
+    img.dataset.fb = j.id;
+    img.addEventListener('error', () => thumbImgFail(img));
     img.src = '/api/jobs/' + j.id + '/thumb';
     img.alt = '';
     const badge = document.createElement('span');
@@ -32459,7 +32634,15 @@ function ecRenderLibraryPicked() {
     return;
   }
   box.style.display = '';
-  $('ec-library-picked-thumb').src = '/api/jobs/' + job.id + '/thumb';
+  const picked = $('ec-library-picked-thumb');
+  picked.dataset.kind = 'video';
+  picked.dataset.fb = job.id;
+  picked.dataset.thumbstage = '';
+  if (!picked.dataset.failwired) {
+    picked.dataset.failwired = '1';
+    picked.addEventListener('error', () => thumbImgFail(picked));
+  }
+  picked.src = '/api/jobs/' + job.id + '/thumb';
   $('ec-library-picked-label').textContent = ecShortLabel(job);
 }
 function ecOpenLibrary() {
@@ -33965,6 +34148,43 @@ GALLERY_HTML = (
 </main>
 <footer><span class="foot-brand"><svg width="20" height="20" viewBox="0 0 48 48" aria-hidden="true"><path fill="#818cf8" d="M23.3 8A16 16 0 1 0 32.6 37.5A16.5 16.5 0 0 1 23.3 8Z"/><path fill="#f5d67a" stroke="#f5d67a" stroke-width="1.6" stroke-linejoin="round" d="M24 18.5L24 27.5L31.5 23Z"/></svg>Moonfactory</span><nav class="foot-links"><a href="/app">Studio</a><a href="/help">Help</a><a href="/terms">Terms</a><a href="/privacy">Privacy</a><a href="/acceptable-use">Acceptable use</a><a href="/support">Support</a></nav></footer>
 <script>
+// Poster guarantee (2026-11-27): a tile picture that fails
+// to load never stays black. The poster frame is tried
+// first; a video tile then falls back to the video itself,
+// metadata preloaded and seeked a fraction in, so its own
+// first frame paints; a picture tile falls back to its
+// full file. The tile markup carries only the job id: the
+// media URLs are built here, at failure time.
+function thumbImgFail(img) {
+  const stage = img.dataset.thumbstage || '';
+  const fid = img.dataset.fb || '';
+  const poster = fid ? '/gallery/' + fid + '/poster' : '';
+  const file = fid ? '/gallery/' + fid + '/file' : '';
+  if (poster && stage === '') {
+    img.dataset.thumbstage = 'poster';
+    img.src = poster;
+    return;
+  }
+  if (file && img.dataset.kind === 'image' && stage !== 'file') {
+    img.dataset.thumbstage = 'file';
+    img.src = file;
+    return;
+  }
+  if (file && img.dataset.kind !== 'image' && stage !== 'video') {
+    const v = document.createElement('video');
+    v.className = img.className;
+    if (img.id) v.id = img.id;
+    v.muted = true;
+    v.setAttribute('playsinline', '');
+    v.preload = 'metadata';
+    if (poster) v.poster = poster;
+    v.src = file;
+    v.addEventListener('loadedmetadata', () => {
+      try { v.currentTime = Math.min(0.1, (v.duration || 1) / 2); } catch (e) {}
+    });
+    img.replaceWith(v);
+  }
+}
 async function loadGallery() {
   const box = document.getElementById('items');
   try {
@@ -33980,6 +34200,9 @@ async function loadGallery() {
       const f = document.createElement('div'); f.className = 'frame';
       if (item.kind === 'image') {
         const img = document.createElement('img');
+        img.dataset.kind = 'image';
+        img.dataset.fb = item.id;
+        img.addEventListener('error', () => thumbImgFail(img));
         img.src = item.thumb_url || item.file_url; img.alt = '';
         img.loading = 'lazy'; img.decoding = 'async';
         f.appendChild(img);
@@ -33990,6 +34213,9 @@ async function loadGallery() {
         const ph = document.createElement('span');
         ph.className = 'vidbox';
         const img = document.createElement('img');
+        img.dataset.kind = 'video';
+        img.dataset.fb = item.id;
+        img.addEventListener('error', () => thumbImgFail(img));
         img.src = item.thumb_url || item.poster_url || '';
         img.alt = ''; img.loading = 'lazy'; img.decoding = 'async';
         const badge = document.createElement('span');
