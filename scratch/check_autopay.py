@@ -18,6 +18,11 @@ stands enabled. The charge attempt's own owner guard is a
 separate, older rule (the owner's jobs are never blocked by
 his balance, so a reload is never needed on them) and stays.
 
+Owner charge fix (Jack, 2026-11-28): the $5 minimum covers
+the reload denominations too, so no $1 reload exists, and
+the owner is never charged by his own platform. Arming
+stands; both charge steps refuse him outright.
+
 The helpers are exercised for real below: they are
 AST-extracted from app.py and run against plain dicts with a
 fake Stripe and the repo's own pricing module.
@@ -85,8 +90,9 @@ check("a $7 custom top up starts the reload amount at $5",
 
 user = payer()
 arm(user, 100)
-check("a $1 top up starts the reload amount at $1",
-      user["auto_reload"]["amount_cents"] == 100)
+check("a hint under the $5 floor starts the reload amount "
+      "at the $10 default",
+      user["auto_reload"]["amount_cents"] == 1000)
 
 user = payer(auto_reload={"enabled": False, "explicit": True,
                           "amount_cents": 2000})
@@ -116,8 +122,8 @@ exec(fn("_auto_reload_charge_cents"), ns)
 size = ns["_auto_reload_charge_cents"]
 check("no need known charges the configured amount",
       size(1000, 0, None) == 1000)
-check("a $3 shortfall rounds up to the $5 denomination",
-      size(100, 0, 300) == 500)
+check("an $8 shortfall steps up to the $10 denomination",
+      size(500, 0, 800) == 1000)
 check("the configured amount is the floor",
       size(2000, 0, 300) == 2000)
 check("a shortfall past the largest denomination rounds up "

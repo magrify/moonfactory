@@ -46,9 +46,9 @@ def func_src(name):
 # Presets are $5, $10, $20, $50, $100, $250; a custom field
 # takes any amount at or above the $5 minimum (raised from
 # $1 in round 2), refused in plain words under it, in the
-# form and on the server both. Auto reload keeps its own
-# amount list, $1 option included: a separate mechanism the
-# minimum never governed.
+# form and on the server both. The $5 minimum covers auto
+# reload too (Jack, 2026-11-28): the reload denominations
+# start at $5, and no $1 reload exists anywhere.
 
 check(pricing.TOPUP_PACKS_CENTS == [500, 1000, 2000, 5000, 10000, 25000],
       f"pack list drifted: {pricing.TOPUP_PACKS_CENTS}")
@@ -110,8 +110,21 @@ check('<p class="muted">The plan is optional.' in SRC,
 check('<p class="muted">The free plan is Wan 2.2 Draft clips' in SRC
       and '<p class="muted">Any payment opens the paid studio' in SRC,
       "the paywall info paragraphs lost the muted note styling")
-check('<option value="100">$1</option>' in SRC,
-      "auto reload amount picker has no $1 option")
+check('<option value="100">$1</option>' not in SRC,
+      "auto reload amount picker still offers a $1 option")
+check(pricing.RELOAD_AMOUNTS_CENTS == [500, 1000, 2000],
+      f"reload denominations drifted: {pricing.RELOAD_AMOUNTS_CENTS}")
+check(min(pricing.RELOAD_AMOUNTS_CENTS) >= pricing.TOPUP_MIN_CENTS,
+      "a reload denomination sits under the $5 minimum")
+# The autoreload endpoint enforces the same $5 floor in the
+# same plain words (Jack, 2026-11-28).
+_endpoint = func_src("billing_autoreload")
+check("the smallest reload is $5" in _endpoint,
+      "the autoreload endpoint does not refuse under $5 in "
+      "plain words")
+check("pick a reload amount of $5, $10, or $20" in _endpoint
+      and "$1, $5, $10, or $20" not in SRC,
+      "the autoreload endpoint still offers the $1 amount")
 
 # -- ceiling_allows, exercised for real -----------------------------------
 
@@ -191,10 +204,31 @@ body = func_src("_quote_for")
 check("or is_owner(user)" in body, "per second quote has no owner rail")
 
 # Auto reload itself still refuses amounts outside its own
-# amount list, which keeps its $1 option.
+# amount list, whose floor is now the same $5.
 body = func_src("attempt_auto_reload")
 check("amount not in pricing.RELOAD_AMOUNTS_CENTS" in body,
       "auto reload lost its amount validation")
+
+# The owner is never charged by his own platform (Jack,
+# 2026-11-28): both money paths that can pull a card refuse
+# him before Stripe is reached. His auto reload stands
+# enabled (round 2 arming), but the charge steps are closed
+# to him; his jobs and renewals settle at cost from his
+# balance and included budget, and a renewal his balance
+# cannot cover reads unpaid and takes the grace route.
+body = func_src("attempt_auto_reload")
+check("if is_owner(user):" in body
+      and body.index("if is_owner(user):")
+      < body.index("PaymentIntent.create"),
+      "auto reload can still charge the owner")
+body = func_src("_plan_renewal_charge")
+check("is_owner(user)" in body
+      and body.index("balance_cents")
+      < body.index("is_owner(user)")
+      < body.index("stripe_client()"),
+      "the renewal charge can still pull the owner's card")
+check('return "unpaid", None, None' in body,
+      "the renewal charge lost its unpaid answer")
 
 # Pricing rule pins (Jack's restatement, 2026-11-19, with the
 # 2026-11-27 beat-Higgsfield amendment): the owner pays raw

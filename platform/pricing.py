@@ -85,13 +85,14 @@ CREATOR_MONTH_SECONDS = 30 * 24 * 3600
 # a custom amount field beside them. The smallest top up is
 # $5, preset or custom, and the full picked or typed amount
 # is what lands in the balance, exactly as top ups have
-# always credited. Auto reload keeps its own smaller amount
-# list: a reload is a standing instruction picked once, not
-# a panel preset, and its amounts are a separate mechanism
-# whose $1 option stays valid regardless of this minimum.
+# always credited. The $5 minimum covers auto reload too
+# (Jack, 2026-11-28, restating the round 2 order): the
+# reload denominations start at $5, so no $1 reload exists
+# anywhere, not in the panel picker, not at the endpoint,
+# and not in a stored config that can still fire.
 TOPUP_PACKS_CENTS = [500, 1000, 2000, 5000, 10000, 25000]
 TOPUP_MIN_CENTS = 500
-RELOAD_AMOUNTS_CENTS = [100, 500, 1000, 2000]
+RELOAD_AMOUNTS_CENTS = [500, 1000, 2000]
 # Autopay charge ceiling (Jack, 2026-11-27): one automatic
 # top up triggered by a blocked job never exceeds $50. When
 # a job needs more than that on top of the balance, no charge

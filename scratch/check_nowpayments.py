@@ -647,7 +647,9 @@ def renewal_stripe_client():
     return rholder["stripe"], None
 
 
-charge_ns = {"stripe_client": renewal_stripe_client}
+charge_ns = {"stripe_client": renewal_stripe_client,
+             "is_owner": lambda user: bool(
+                 user and user.get("is_owner"))}
 exec(fn("_plan_renewal_charge"), charge_ns)
 renewal_charge = charge_ns["_plan_renewal_charge"]
 payee = {"id": "u-ren", "stripe_customer_id": "cus_9",
@@ -701,6 +703,26 @@ result, pi, via = renewal_charge(payee_short, 2000, True)
 check("a short balance falls through to the card whole",
       result == "ok" and via == "card"
       and payee_short["balance_cents"] == 1999)
+
+# The owner is never charged by his own platform (Jack,
+# 2026-11-28): his renewal draws his balance when it covers
+# and reads unpaid when it does not, with the card step
+# never reached even when a card pull is allowed.
+rholder["stripe"] = RenewalStripe("succeeded")
+owner_bal = dict(payee, is_owner=True, balance_cents=5000)
+result, pi, via = renewal_charge(owner_bal, 2000)
+check("an owner renewal draws his covering balance",
+      result == "ok" and via == "balance" and pi is None
+      and owner_bal["balance_cents"] == 3000)
+check("the owner's balance draw never touches Stripe",
+      getattr(rholder["stripe"], "kwargs", None) is None)
+owner_short = dict(payee, is_owner=True, balance_cents=1999)
+check("an owner renewal short of balance reads unpaid, "
+      "never a card pull",
+      renewal_charge(owner_short, 2000, True)
+      == ("unpaid", None, None)
+      and owner_short["balance_cents"] == 1999
+      and getattr(rholder["stripe"], "kwargs", None) is None)
 
 # Route E copy: the panel note, the plan status line and
 # the Terms tell the balance truth; the round 2 note that

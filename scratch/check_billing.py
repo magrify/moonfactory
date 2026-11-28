@@ -103,6 +103,13 @@ check("the renewal charge draws the balance before the "
       charge.index("balance_cents")
       < charge.index("stripe_client()")
       and '"balance"' in charge and '"unpaid"' in charge)
+# The owner is never charged by his own platform (Jack,
+# 2026-11-28): the renewal charge refuses his card step
+# outright, before the rail is even built.
+check("the renewal charge never pulls the owner's card",
+      "is_owner(user)" in charge
+      and charge.index("is_owner(user)")
+      < charge.index("stripe_client()"))
 check("the settler allows grace before it lapses",
       "plan_grace_until" in settler
       and "3 * 24 * 3600" in settler)

@@ -24640,8 +24640,10 @@ document.getElementById('go').onclick = async () => {{
         other payer (Jack, 2026-11-27 round 2: the earlier
         owner exclusion is reversed for auto reload; the owner
         experiences the platform as a paid user at cost, so his
-        auto reload is on and his saved card is the one it would
-        use). An existing valid reload amount is kept; a first
+        auto reload stands on like any payer's). Arming is all
+        that reaches him: the charge steps never pull his card
+        (Jack, 2026-11-28: the owner is never charged by his
+        own platform). An existing valid reload amount is kept; a first
         arming starts at the amount the Terms promise: the
         largest reload denomination not larger than a top up's
         credit, or $10 for a plan payment."""
@@ -24722,6 +24724,12 @@ document.getElementById('go').onclick = async () => {{
         numbers."""
         if state.get("tried"):
             return bool(state.get("ok"))
+        # The owner is never charged by his own platform
+        # (Jack, 2026-11-28): auto reload stands enabled on
+        # his account as the paid user experience he ordered,
+        # but no charge ever leaves his card. His jobs settle
+        # at cost from his balance and included budget, which
+        # is also why a reload is never needed on them.
         if is_owner(user):
             return False
         cfg = user.get("auto_reload") or {}
@@ -24802,7 +24810,11 @@ document.getElementById('go').onclick = async () => {{
         instant, and the money was already counted toward the
         cost ceiling when it topped up, so the settler counts
         it again never. Second, when the balance is short and
-        card_ok, the saved card is pulled off session once:
+        card_ok, the saved card is pulled off session once,
+        never for the owner account: the owner is never
+        charged by his own platform (Jack, 2026-11-28), so a
+        short balance on his renewal reads "unpaid" below and
+        the settler takes its grace route:
         "ok" when Stripe confirms the money, "declined" when
         the card itself answered no, and "error" when the
         charge could not even be attempted (payments
@@ -24817,7 +24829,7 @@ document.getElementById('go').onclick = async () => {{
             user["balance_cents"] = \
                 int(user.get("balance_cents", 0)) - amount
             return "ok", None, "balance"
-        if not card_ok:
+        if not card_ok or is_owner(user):
             return "unpaid", None, None
         stripe, err = stripe_client()
         if err:
@@ -25166,10 +25178,14 @@ document.getElementById('go').onclick = async () => {{
         enabled = bool(body.get("enabled"))
         amount = int(body.get("amount_cents") or 0)
         if enabled:
+            if amount < pricing.TOPUP_MIN_CENTS:
+                raise HTTPException(
+                    status_code=422,
+                    detail="the smallest reload is $5")
             if amount not in pricing.RELOAD_AMOUNTS_CENTS:
                 raise HTTPException(
                     status_code=422,
-                    detail="pick a reload amount of $1, $5, $10, or $20")
+                    detail="pick a reload amount of $5, $10, or $20")
             if not (user.get("stripe_customer_id")
                     and user.get("stripe_payment_method_id")):
                 raise HTTPException(
@@ -29303,7 +29319,6 @@ APP_HTML = (
         </div>
         <label>Reload amount</label>
         <select id="autoreload-amount">
-          <option value="100">$1</option>
           <option value="500">$5</option>
           <option value="1000" selected>$10</option>
           <option value="2000">$20</option>
