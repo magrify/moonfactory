@@ -42,31 +42,50 @@ def func_src(name):
     return ""
 
 
-# -- top up amounts (Jack, 2026-11-19) -----------------------------------
-# Presets are $5, $10, $20, $50, $100; a custom field takes
-# any amount at or above the $1 minimum, refused in plain
-# words under it, in the form and on the server both.
+# -- top up amounts (Jack, 2026-11-19; round 2, 2026-11-27) ---------------
+# Presets are $5, $10, $20, $50, $100, $250; a custom field
+# takes any amount at or above the $5 minimum (raised from
+# $1 in round 2), refused in plain words under it, in the
+# form and on the server both. Auto reload keeps its own
+# amount list, $1 option included: a separate mechanism the
+# minimum never governed.
 
-check(pricing.TOPUP_PACKS_CENTS == [500, 1000, 2000, 5000, 10000],
+check(pricing.TOPUP_PACKS_CENTS == [500, 1000, 2000, 5000, 10000, 25000],
       f"pack list drifted: {pricing.TOPUP_PACKS_CENTS}")
 pub = pricing.public_pricing()
-check(pub["topup_packs_cents"] == [500, 1000, 2000, 5000, 10000],
+check(pub["topup_packs_cents"] == [500, 1000, 2000, 5000, 10000, 25000],
       "public pricing does not expose the preset packs")
 check('data-topup="100"' not in SRC, "the $1 preset button survives")
-check('data-topup="5000"' in SRC and 'data-topup="10000"' in SRC,
-      "Billing panel is missing a new preset button")
+check('data-topup="5000"' in SRC and 'data-topup="10000"' in SRC
+      and 'data-topup="25000"' in SRC,
+      "Billing panel is missing a preset button")
 check('id="topup-custom"' in SRC and 'id="topup-custom-btn"' in SRC,
       "Billing panel has no custom top up field")
-check(pricing.TOPUP_MIN_CENTS == 100, "the top up minimum is not $1")
-check(pricing.valid_topup_cents(100)
+check(pricing.TOPUP_MIN_CENTS == 500, "the top up minimum is not $5")
+check(pricing.valid_topup_cents(500)
       and pricing.valid_topup_cents(12345)
-      and not pricing.valid_topup_cents(99)
+      and pricing.valid_topup_cents(25000)
+      and not pricing.valid_topup_cents(499)
+      and not pricing.valid_topup_cents(100)
       and not pricing.valid_topup_cents(0),
-      "custom top up amounts do not validate at the $1 minimum")
-check("the smallest top up is $1" in SRC,
-      "the server does not refuse a top up under $1 in plain words")
-check("The smallest top up is $1. Type an amount of $1 or more." in SRC,
-      "the form does not refuse a custom top up under $1 in plain words")
+      "custom top up amounts do not validate at the $5 minimum")
+check("the smallest top up is $5" in SRC,
+      "the server does not refuse a top up under $5 in plain words")
+check("The smallest top up is $5. Type an amount of $5 or more." in SRC,
+      "the form does not refuse a custom top up under $5 in plain words")
+# Plans and top up amounts are separate sections (Jack,
+# round 2): the Creator card stands in its own Plan row,
+# after the amount grid and its optional line, never inside
+# the grid.
+check(SRC.index('id="amount-grid"')
+      < SRC.index('<p class="group-label">Plan</p>')
+      < SRC.index('id="amount-creator"')
+      < SRC.index('<p class="group-label">Payment method</p>'),
+      "the Creator card is not in its own Plan section")
+_grid = SRC[SRC.index('id="amount-grid"'):]
+_grid = _grid[:_grid.index("</div>")]
+check('id="amount-creator"' not in _grid,
+      "the Creator card sits inside the amount grid")
 # The Billing panel must say plainly that the Creator plan is
 # optional (Jack, 2026-11-19): the line sits in its own
 # paragraph under the amount choices. (The panel was rebuilt

@@ -74,16 +74,23 @@ MEASURED_COST_CENTS = {
 
 CREATOR_PRICE_CENTS = 2000  # $20/mo
 
-# Top-up packs (Jack, 2026-11-19): the Billing panel presets
-# are $5, $10, $20, $50, and $100, with a custom amount field
-# beside them. The smallest top up is $1, preset or custom,
-# and the full picked or typed amount is what lands in the
-# balance, exactly as top ups have always credited. Auto
-# reload keeps its own smaller amount list: a reload is a
-# standing instruction picked once, not a panel preset, and
-# its $1 option stays valid under the same minimum.
-TOPUP_PACKS_CENTS = [500, 1000, 2000, 5000, 10000]
-TOPUP_MIN_CENTS = 100
+# One Creator month, in seconds: the paid-through stamp a
+# crypto plan payment writes, and the step each renewal
+# extends it by (30 days, the same month the price names).
+CREATOR_MONTH_SECONDS = 30 * 24 * 3600
+
+# Top-up packs (Jack, 2026-11-19; $250 pack and the $5
+# custom minimum, Jack, 2026-11-27 round 2): the Billing
+# panel presets are $5, $10, $20, $50, $100, and $250, with
+# a custom amount field beside them. The smallest top up is
+# $5, preset or custom, and the full picked or typed amount
+# is what lands in the balance, exactly as top ups have
+# always credited. Auto reload keeps its own smaller amount
+# list: a reload is a standing instruction picked once, not
+# a panel preset, and its amounts are a separate mechanism
+# whose $1 option stays valid regardless of this minimum.
+TOPUP_PACKS_CENTS = [500, 1000, 2000, 5000, 10000, 25000]
+TOPUP_MIN_CENTS = 500
 RELOAD_AMOUNTS_CENTS = [100, 500, 1000, 2000]
 # Autopay charge ceiling (Jack, 2026-11-27): one automatic
 # top up triggered by a blocked job never exceeds $50. When
@@ -94,7 +101,7 @@ AUTOPAY_MAX_CHARGE_CENTS = 5000
 
 def valid_topup_cents(amount) -> bool:
     """A top up amount the checkout accepts: any whole cent
-    amount at or above the $1 minimum (the presets are simply
+    amount at or above the $5 minimum (the presets are simply
     the panel's one tap versions of valid amounts)."""
     try:
         cents = int(amount)

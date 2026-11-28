@@ -9174,6 +9174,11 @@ def api():
         user = current_user(request, mf_session)
         if not user:
             raise HTTPException(status_code=401, detail="sign in required")
+        # A stamp-paid Creator month renews or lapses on the
+        # account's own traffic (see settle_plan_renewal); the
+        # settler is a no-op for every other account and can
+        # never break the request it rides.
+        settle_plan_renewal(user)
         return user
 
     def save_user(user: dict):
@@ -24625,14 +24630,15 @@ document.getElementById('go').onclick = async () => {{
         re-enable is the rule, and the payment flows say so in
         plain words before the customer pays. Arming needs a
         saved payment method on the record (a payment that saved
-        no card arms nothing), and it never touches the owner
-        account, whose balance is not real money. An existing
-        valid reload amount is kept; a first arming starts at
-        the amount the Terms promise: the largest reload
-        denomination not larger than a top up's credit, or $10
-        for a plan payment."""
-        if is_owner(user):
-            return
+        no card arms nothing). The owner account arms like any
+        other payer (Jack, 2026-11-27 round 2: the earlier
+        owner exclusion is reversed for auto reload; the owner
+        experiences the platform as a paid user at cost, so his
+        auto reload is on and his saved card is the one it would
+        use). An existing valid reload amount is kept; a first
+        arming starts at the amount the Terms promise: the
+        largest reload denomination not larger than a top up's
+        credit, or $10 for a plan payment."""
         if not (user.get("stripe_customer_id")
                 and user.get("stripe_payment_method_id")):
             return
@@ -24777,6 +24783,145 @@ document.getElementById('go').onclick = async () => {{
             return plain_detail + ", and the reload did not go through"
         return plain_detail
 
+    def _plan_renewal_charge(user: dict, amount_cents: int):
+        """The one money step of a plan renewal (Jack,
+        2026-11-27 round 2): pull the amount from the saved
+        card, off session, once. Returns (result, payment
+        intent, paid_via): "ok" when Stripe confirms the money,
+        "declined" when the card itself answered no, and
+        "error" when the charge could not even be attempted
+        (payments unconfigured, the rail unreachable), so the
+        settler can tell a card that said no from a rail that
+        never answered. This step is the only place a renewal
+        touches money, and it reports how the month was paid:
+        a renewal drawn from the balance instead plugs in here,
+        behind the same three answers and its own paid_via,
+        and the settler never changes."""
+        stripe, err = stripe_client()
+        if err:
+            return "error", None, None
+        try:
+            pi = stripe.PaymentIntent.create(
+                amount=int(amount_cents),
+                currency="usd",
+                customer=user["stripe_customer_id"],
+                payment_method=user["stripe_payment_method_id"],
+                off_session=True,
+                confirm=True,
+                statement_descriptor_suffix="MOONFACTORY",
+                metadata={"user_id": user["id"],
+                          "kind": "creator_renewal",
+                          "paid_via": "card"},
+            )
+        except Exception as exc:
+            if type(exc).__name__ == "CardError":
+                return "declined", None, None
+            return "error", None, None
+        if getattr(pi, "status", None) != "succeeded":
+            return "declined", pi, None
+        return "ok", pi, "card"
+
+    def settle_plan_renewal(user: dict) -> None:
+        """Renewal for stamp-paid Creator months (Jack,
+        2026-11-27 round 2: "why not renew on its own?"). A
+        Creator month paid with crypto has no subscription
+        behind it; its grant wrote a paid-through stamp and
+        recorded how the month was paid. When the stamp passes,
+        this settler is the renewal: with auto reload on and a
+        saved card it charges the Creator price once through
+        _plan_renewal_charge and extends the plan a month with
+        the same grant the payment itself made (included budget
+        reset, the money counted toward the ceiling, the stamp
+        advanced and re-marked with how the new month was
+        paid); with no saved card or auto reload off, or a card
+        that answers no, the plan lapses to free. Card months
+        carry no stamp (the Stripe subscription renews them),
+        and an account with a live Stripe subscription is never
+        settled here. The settler is method-agnostic: it reads
+        only the stamp, never the paid_via, and only the charge
+        step knows where a renewal's money comes from. It runs
+        lazily on the account's own authenticated traffic
+        (require_user), the same self-heal-on-read pattern as
+        the usage period rollover, and it can never break a
+        request: every failure path leaves the record as it
+        found it, except the lapse itself, which is the
+        designed outcome. One claim per paid-through period in
+        meta keeps two containers from ever charging the same
+        month twice; a rail error claims the period for a day
+        before it may be retried, and never lapses a plan on
+        its own."""
+        try:
+            if user.get("plan") != "creator":
+                return
+            if user.get("stripe_subscription_id"):
+                return
+            through = float(user.get("plan_paid_through") or 0)
+            if not through or _now() < through:
+                return
+            claims = meta.get("plan_renewal_claims") or {}
+            claim_key = f"{user['id']}:{int(through)}"
+            claim = claims.get(claim_key) or {}
+            if claim.get("result") in ("charged", "lapsed",
+                                       "declined"):
+                return
+            if claim.get("result") == "error" \
+                    and _now() - float(claim.get("at") or 0) \
+                    < 24 * 3600:
+                return
+            cfg = user.get("auto_reload") or {}
+            can_pull = bool(
+                cfg.get("enabled") and cfg.get("explicit")
+                and user.get("stripe_customer_id")
+                and user.get("stripe_payment_method_id"))
+            if not can_pull:
+                user["plan"] = "free"
+                user["plan_paid_through"] = None
+                user["plan_paid_via"] = None
+                claims[claim_key] = {"result": "lapsed",
+                                     "at": _now()}
+                meta["plan_renewal_claims"] = claims
+                save_user(user)
+                return
+            result, pi, paid_via = _plan_renewal_charge(
+                user, pricing.CREATOR_PRICE_CENTS)
+            if result == "error":
+                claims[claim_key] = {"result": "error",
+                                     "at": _now()}
+                meta["plan_renewal_claims"] = claims
+                return
+            if result == "declined":
+                user["plan"] = "free"
+                user["plan_paid_through"] = None
+                user["plan_paid_via"] = None
+                claims[claim_key] = {"result": "declined",
+                                     "at": _now()}
+                meta["plan_renewal_claims"] = claims
+                save_user(user)
+                return
+            # The money landed: the same grant the payment
+            # itself made, one more month.
+            user["past_due"] = False
+            user["plan_paid_via"] = paid_via
+            user["plan_paid_through"] = max(
+                through, _now()) + pricing.CREATOR_MONTH_SECONDS
+            u = user.get("usage") or {}
+            u["included_seconds"] = 0.0
+            u["included_cost_cents"] = 0.0
+            user["usage"] = u
+            add_net_paid(user, pricing.CREATOR_PRICE_CENTS)
+            if pi is not None:
+                _record_stripe_credit(
+                    f"pi:{pi.id}", user, 0,
+                    pricing.CREATOR_PRICE_CENTS, pi=pi.id)
+            claims[claim_key] = {"result": "charged",
+                                 "at": _now(),
+                                 "pi": getattr(pi, "id", None),
+                                 "paid_via": paid_via}
+            meta["plan_renewal_claims"] = claims
+            save_user(user)
+        except Exception:
+            pass
+
     # -- stripe -------------------------------------------------------------
 
     def stripe_mode() -> str:
@@ -24870,12 +25015,12 @@ document.getElementById('go').onclick = async () => {{
         except (TypeError, ValueError):
             pack = 0
         # Presets and custom amounts ride the same path (Jack,
-        # 2026-11-19): anything at or above the $1 minimum is a
+        # 2026-11-19): anything at or above the $5 minimum is a
         # real top up, charged as typed and credited in full to
         # the balance by the webhook, as top ups always have.
         if not pricing.valid_topup_cents(pack):
             raise HTTPException(
-                status_code=422, detail="the smallest top up is $1")
+                status_code=422, detail="the smallest top up is $5")
         base = base_url(request)
         price_id = os.environ.get(f"STRIPE_PRICE_TOPUP_{pack}", "")
         if price_id:
@@ -25004,6 +25149,12 @@ document.getElementById('go').onclick = async () => {{
                 elif obj.get("mode") == "subscription":
                     user["plan"] = "creator"
                     user["past_due"] = False
+                    # How the current month was paid rides the
+                    # record (Jack, 2026-11-27 round 2): card
+                    # months renew through the Stripe
+                    # subscription itself, so they carry the
+                    # method and no paid-through stamp.
+                    user["plan_paid_via"] = "card"
                     user["stripe_customer_id"] = obj.get("customer")
                     user["stripe_subscription_id"] = obj.get("subscription")
                     try:
@@ -25146,6 +25297,7 @@ document.getElementById('go').onclick = async () => {{
                 if user and user.get("stripe_customer_id") == customer:
                     user["plan"] = "free"
                     user["stripe_subscription_id"] = None
+                    user["plan_paid_via"] = None
                     save_user(user)
         elif etype == "setup_intent.succeeded":
             uid = (obj.get("metadata") or {}).get("user_id")
@@ -25364,7 +25516,7 @@ document.getElementById('go').onclick = async () => {{
             pack = 0
         if not pricing.valid_topup_cents(pack):
             raise HTTPException(
-                status_code=422, detail="the smallest top up is $1")
+                status_code=422, detail="the smallest top up is $5")
         url = _nowpayments_create_invoice(
             user, "topup", pack, base_url(request))
         return {"url": url}
@@ -25436,8 +25588,20 @@ document.getElementById('go').onclick = async () => {{
             # The same grant a Stripe plan purchase makes:
             # Creator on, past due cleared, the included budget
             # reset, and the money counted toward the ceiling.
+            # Crypto carries no subscription behind it, so the
+            # grant also writes the paid-through stamp (Jack,
+            # 2026-11-27 round 2): one month from the later of
+            # now and any month already paid for, with how this
+            # month was paid recorded beside it. The renewal
+            # settler reads the stamp; card months are driven
+            # by the Stripe subscription instead and carry no
+            # stamp.
             user["plan"] = "creator"
             user["past_due"] = False
+            user["plan_paid_via"] = "crypto"
+            user["plan_paid_through"] = max(
+                _now(), float(user.get("plan_paid_through") or 0)
+            ) + pricing.CREATOR_MONTH_SECONDS
             u = user.get("usage") or {}
             u["included_seconds"] = 0.0
             u["included_cost_cents"] = 0.0
@@ -26284,9 +26448,20 @@ _CSS = """
   .amount-sub{font-size:12px;color:var(--faint);font-weight:600}
   .amount-card.on .amount-sub{color:var(--accent-bright)}
   .method-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:2px 0 4px}
-  .method-card{padding:15px 10px;border-radius:999px;background:rgba(255,255,255,.03);border:1px solid var(--line-strong);color:var(--ink);font:inherit;font-size:15.5px;font-weight:600;cursor:pointer;transition:background .18s,border-color .18s,box-shadow .18s}
+  .method-card{display:flex;align-items:center;justify-content:center;gap:9px;padding:15px 10px;border-radius:999px;background:rgba(255,255,255,.03);border:1px solid var(--line-strong);color:var(--ink);font:inherit;font-size:15.5px;font-weight:600;cursor:pointer;transition:background .18s,border-color .18s,box-shadow .18s}
   .method-card:hover{background:rgba(255,255,255,.06);border-color:#54545f}
   .method-card.on{border-color:var(--accent);background:rgba(99,91,255,.12);box-shadow:0 0 0 1px var(--accent)}
+  .method-icon{width:22px;height:22px;flex:none}
+  .btc-badge{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:#f7931a;color:#fff;font-size:13px;font-weight:700;flex:none}
+  .plan-row{display:grid;grid-template-columns:1fr;margin:2px 0 4px}
+  .toggle-row{display:flex;align-items:center;gap:10px;margin:2px 0 10px;font-weight:600}
+  .switch{position:relative;display:inline-block;width:46px;height:26px;flex:none}
+  .switch input{position:absolute;opacity:0;width:0;height:0}
+  .switch-track{position:absolute;inset:0;border-radius:999px;background:rgba(255,255,255,.10);border:1px solid var(--line-strong);cursor:pointer;transition:background .18s,border-color .18s}
+  .switch-track:before{content:"";position:absolute;left:3px;top:50%;transform:translateY(-50%);width:18px;height:18px;border-radius:50%;background:#8b8b96;transition:left .18s,background .18s}
+  .switch input:checked + .switch-track{background:rgba(99,91,255,.25);border-color:var(--accent)}
+  .switch input:checked + .switch-track:before{left:23px;background:var(--accent)}
+  .switch input:disabled + .switch-track{opacity:.45;cursor:default}
   .btn:disabled{opacity:.45;cursor:default;box-shadow:none;transform:none}
   .btn.gen{width:100%;margin-top:24px;border-radius:999px;font-size:17px;font-weight:700;padding:17px;letter-spacing:-.01em}
   .card{background:var(--card);border:1px solid var(--line);border-radius:24px;padding:26px;margin:18px 0;box-shadow:var(--card-shadow)}
@@ -26871,16 +27046,18 @@ account. Free clips are watermarked. A platform-wide free budget
 also applies.</li>
 <li>Paid access comes two ways: the Creator plan at $20 per month
 with an included generation budget, or one-time top-ups of $5, $10,
-$20, $50, or $100, or your own amount of $1 or more, that you spend
-per video. Payments are processed by Stripe. We never see or store
-your full card number.</li>
+$20, $50, $100, or $250, or your own amount of $5 or more, that you
+spend per video. Payments are processed by Stripe. We never see or
+store your full card number.</li>
 <li>The exact price of a generation is shown before it runs. Starting
 a generation authorizes the charge or balance debit shown.</li>
 <li>Failed generations caused by our pipeline are re-run or the
 balance is restored in credits. Refunds are issued in credits, not
 cash, except where the law requires otherwise.</li>
 <li>Creator renews monthly until cancelled. Cancelling stops the
-next renewal. It does not refund the current month.</li>
+next renewal. It does not refund the current month. A Creator month
+paid with crypto renews the same way while auto reload is on with a
+saved card; without one it ends with the month it paid for.</li>
 <li>Balances and credits have no cash value, are not transferable,
 and are forfeited if your account is closed for violating these
 Terms.</li>
@@ -27354,9 +27531,9 @@ and you can delete your own clips at any time.</p>
 <li>The free tier is 5 clips per account, total.</li>
 <li>The Creator plan is $20 a month and opens everything, with an
 included monthly budget for Moonfactory's own lane.</li>
-<li>A top up is a single payment of $5, $10, $20, $50, or $100, or
-your own amount of $1 or more, added to your balance. Balance never
-expires.</li>
+<li>A top up is a single payment of $5, $10, $20, $50, $100, or
+$250, or your own amount of $5 or more, added to your balance.
+Balance never expires.</li>
 <li>Frontier models are priced per second of video. The exact
 price for your exact settings shows on the Create button before
 anything runs.</li>
@@ -28975,25 +29152,29 @@ APP_HTML = (
   <div class="overlay" id="panel-billing" style="display:none">
     <div class="panel" role="dialog" aria-label="Billing">
       <div class="panel-head"><h2>Billing</h2><button type="button" class="panel-close" data-close-panel aria-label="Close">×</button></div>
-      <p class="group-label">Amount</p>
+      <p class="group-label">Top up</p>
       <div class="amount-grid" id="amount-grid">
         <button class="amount-card" type="button" data-topup="500" aria-pressed="false"><span class="amount-big">$5</span></button>
         <button class="amount-card" type="button" data-topup="1000" aria-pressed="false"><span class="amount-big">$10</span></button>
         <button class="amount-card" type="button" data-topup="2000" aria-pressed="false"><span class="amount-big">$20</span></button>
         <button class="amount-card" type="button" data-topup="5000" aria-pressed="false"><span class="amount-big">$50</span></button>
         <button class="amount-card" type="button" data-topup="10000" aria-pressed="false"><span class="amount-big">$100</span></button>
-        <button class="amount-card" type="button" id="amount-creator" aria-pressed="false"><span class="amount-big">$20</span><span class="amount-sub">Creator, monthly</span></button>
+        <button class="amount-card" type="button" data-topup="25000" aria-pressed="false"><span class="amount-big">$250</span></button>
       </div>
-      <label for="topup-custom">Your own amount, $1 or more, in dollars</label>
+      <label for="topup-custom">Your own amount, $5 or more, in dollars</label>
       <div class="topup-grid">
-        <input id="topup-custom" type="number" min="1" step="1" inputmode="numeric" placeholder="25">
+        <input id="topup-custom" type="number" min="5" step="1" inputmode="numeric" placeholder="25">
         <button class="btn secondary" id="topup-custom-btn" type="button">Use this amount</button>
       </div>
       <p class="muted">The plan is optional. You can skip it and just top up credits and pay per video instead. Your balance never expires.</p>
+      <p class="group-label">Plan</p>
+      <div class="plan-row">
+        <button class="amount-card" type="button" id="amount-creator" aria-pressed="false"><span class="amount-big">$20</span><span class="amount-sub">Creator, monthly</span></button>
+      </div>
       <p class="group-label">Payment method</p>
       <div class="method-grid">
-        <button class="method-card on" type="button" id="method-card" aria-pressed="true">Card</button>
-        <button class="method-card" type="button" id="method-crypto" aria-pressed="false" style="display:none">Crypto</button>
+        <button class="method-card on" type="button" id="method-card" aria-pressed="true"><svg class="method-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="2.5" y="5" width="19" height="14" rx="2.5"/><line x1="2.5" y1="9.5" x2="21.5" y2="9.5"/></svg>Card</button>
+        <button class="method-card" type="button" id="method-crypto" aria-pressed="false" style="display:none"><span class="btc-badge" aria-hidden="true">₿</span>Crypto</button>
       </div>
       <p class="muted" id="method-note" style="display:none"></p>
       <p>
@@ -29006,6 +29187,10 @@ APP_HTML = (
         <button class="btn secondary" id="save-card" type="button">Save a card</button>
       </p>
       <div id="autoreload-controls" style="display:none">
+        <div class="toggle-row">
+          <label class="switch"><input type="checkbox" id="autoreload-toggle"><span class="switch-track"></span></label>
+          <span>Auto reload</span>
+        </div>
         <label>Reload amount</label>
         <select id="autoreload-amount">
           <option value="100">$1</option>
@@ -29014,8 +29199,7 @@ APP_HTML = (
           <option value="2000">$20</option>
         </select>
         <p>
-          <button class="btn secondary" id="autoreload-save" type="button">Save auto reload</button>
-          <button class="btn secondary" id="autoreload-off" type="button" style="display:none">Turn auto reload off</button>
+          <button class="btn secondary" id="autoreload-save" type="button">Save reload amount</button>
         </p>
       </div>
       <p id="pay-msg"></p>
@@ -31097,6 +31281,12 @@ async function refreshMe() {
 // card top ups and custom amounts ride /api/checkout/
 // topup, Creator by card rides /api/checkout/subscription,
 // crypto rides /api/checkout/crypto/topup and /plan.
+// Round 2 (Jack, same night): the plan and the top up
+// amounts are separate sections (Creator stands in its own
+// Plan row, never inside the amount grid), the grid's
+// sixth card is the $250 pack, the custom minimum is $5,
+// the method pills carry the card and ₿ symbols, and auto
+// reload has its explicit switch back.
 let billAmount = null;
 let billMethod = 'card';
 async function startCreatorCard() {
@@ -31121,17 +31311,22 @@ function billSync() {
   cryptoBtn.classList.toggle('on', !cardOn);
   cryptoBtn.setAttribute('aria-pressed', cardOn ? 'false' : 'true');
   // One short note under the method row, carrying only
-  // the fact that belongs to the picked method: paying by
-  // card saves the card and arms auto reload (the panel's
-  // one statement of that rule; the Auto reload section
-  // below states only its own state), and crypto carries
-  // its landing or one month fact.
+  // the fact that belongs to the picked method and what is
+  // being bought: paying by card for a top up saves the card
+  // and arms auto reload (the panel's one statement of that
+  // rule; the Auto reload section below states only its own
+  // state), Creator by card renews monthly on its own,
+  // crypto carries its landing fact, and Creator by crypto
+  // renews through auto reload's saved card (Jack,
+  // 2026-11-27 round 2) or covers one month without it.
   const note = $('method-note');
   let text = '';
   if (billMethod === 'crypto') {
     text = planOn
-      ? 'The Creator plan paid with crypto covers one month and does not renew on its own.'
+      ? 'Creator paid with crypto renews on its own while auto reload is on with a saved card. Otherwise it covers one month.'
       : 'Crypto checkout runs through NOWPayments. Your credit lands in your balance when the payment confirms, usually within the hour.';
+  } else if (planOn) {
+    text = 'Creator by card is a subscription. It renews monthly on its own.';
   } else {
     text = 'Paying saves your card and turns auto reload on, so your work never stops over balance. You can turn it off below at any time.';
   }
@@ -31164,8 +31359,8 @@ $('pay-continue').onclick = async () => {
     let cents = billAmount.cents;
     if (billAmount.custom) {
       cents = Math.round(Number($('topup-custom').value) * 100);
-      if (!(cents >= 100)) {
-        msg('pay-msg', 'The smallest top up is $1. Type an amount of $1 or more.', 'err');
+      if (!(cents >= 500)) {
+        msg('pay-msg', 'The smallest top up is $5. Type an amount of $5 or more.', 'err');
         return;
       }
     }
@@ -31188,13 +31383,31 @@ function renderAutoReload(s) {
       : '';
   }
   if (s.auto_reload_amount_cents) $('autoreload-amount').value = String(s.auto_reload_amount_cents);
-  $('autoreload-off').style.display = s.auto_reload_enabled ? '' : 'none';
+  // The switch is the on/off control (restored, Jack,
+  // 2026-11-27 round 2): it shows the state at a glance,
+  // and flipping it posts through the same endpoint the
+  // old Save / Turn off buttons used.
+  $('autoreload-toggle').checked = !!s.auto_reload_enabled;
   $('autoreload-note').textContent = !has
     ? 'Auto reload is off. Save a card to turn it on.'
     : s.auto_reload_enabled
       ? 'Auto reload is on. If your balance cannot cover a job, your saved card is charged once to cover it and the job goes ahead.'
-      : 'Auto reload is off. Pick an amount and save to turn it on. It also turns on by itself the next time you pay.';
+      : 'Auto reload is off. Flip the switch to turn it on. It also turns on by itself the next time you pay.';
 }
+$('autoreload-toggle').addEventListener('change', async () => {
+  const on = $('autoreload-toggle').checked;
+  try {
+    const r = await api('/api/billing/autoreload', { method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(on
+        ? { enabled: true, amount_cents: Number($('autoreload-amount').value) }
+        : { enabled: false }) });
+    renderAutoReload(r);
+    msg('pay-msg', on ? 'Auto reload is on.' : 'Auto reload is off.', 'ok');
+  } catch (e) {
+    $('autoreload-toggle').checked = !on;
+    msg('pay-msg', e.message, 'err');
+  }
+});
 $('save-card').onclick = async () => {
   try { const r = await api('/api/billing/setup-card', { method: 'POST' }); location.href = r.url; }
   catch (e) { msg('pay-msg', e.message, 'err'); }
@@ -31204,15 +31417,7 @@ $('autoreload-save').onclick = async () => {
     const r = await api('/api/billing/autoreload', { method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ enabled: true, amount_cents: Number($('autoreload-amount').value) }) });
     renderAutoReload(r);
-    msg('pay-msg', 'Auto reload is on.', 'ok');
-  } catch (e) { msg('pay-msg', e.message, 'err'); }
-};
-$('autoreload-off').onclick = async () => {
-  try {
-    const r = await api('/api/billing/autoreload', { method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ enabled: false }) });
-    renderAutoReload(r);
-    msg('pay-msg', 'Auto reload is off.', 'ok');
+    msg('pay-msg', 'Reload amount saved. Auto reload is on.', 'ok');
   } catch (e) { msg('pay-msg', e.message, 'err'); }
 };
 async function startTopup(cents) {
@@ -31220,8 +31425,9 @@ async function startTopup(cents) {
     body: JSON.stringify({ pack_cents: cents }) });
   location.href = r.url;
 }
-// A custom top up (Jack, 2026-11-19): any amount of $1 or
-// more, checked here before anything is sent and again on
+// A custom top up (Jack, 2026-11-19): any amount of $5 or
+// more (the minimum rose from $1, Jack, 2026-11-27 round
+// 2), checked here before anything is sent and again on
 // the server. The full typed amount lands in the balance,
 // the same as a preset. In the rebuilt panel the typed
 // amount is a selection like any other: typing a valid
@@ -31234,7 +31440,7 @@ function billCustomCents() {
 }
 $('topup-custom').addEventListener('input', () => {
   const cents = billCustomCents();
-  if (cents >= 100) {
+  if (cents >= 500) {
     billAmount = { kind: 'topup', cents, custom: true };
   } else if (billAmount && billAmount.custom) {
     billAmount = null;
@@ -31243,8 +31449,8 @@ $('topup-custom').addEventListener('input', () => {
 });
 $('topup-custom-btn').onclick = () => {
   const cents = billCustomCents();
-  if (!(cents >= 100)) {
-    msg('pay-msg', 'The smallest top up is $1. Type an amount of $1 or more.', 'err');
+  if (!(cents >= 500)) {
+    msg('pay-msg', 'The smallest top up is $5. Type an amount of $5 or more.', 'err');
     return;
   }
   billAmount = { kind: 'topup', cents, custom: true };

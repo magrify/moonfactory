@@ -10,6 +10,14 @@ after Stripe confirms, and the job proceeds. Autopay off, a
 failed charge, or a shortfall past the ceiling all leave the
 old refusal untouched, and the owner is never charged.
 
+Round 2 (Jack, 2026-11-27): the arming exclusion for the
+owner account is reversed. The owner experiences the
+platform as a paid user at cost, so a payment arms his auto
+reload exactly like any other payer's, and his stored config
+stands enabled. The charge attempt's own owner guard is a
+separate, older rule (the owner's jobs are never blocked by
+his balance, so a reload is never needed on them) and stays.
+
 The helpers are exercised for real below: they are
 AST-extracted from app.py and run against plain dicts with a
 fake Stripe and the repo's own pricing module.
@@ -90,8 +98,12 @@ check("a later payment re-enables autopay after a manual off "
 
 user = payer(is_owner=True)
 arm(user, 5000)
-check("a payment never arms the owner account",
-      "auto_reload" not in user)
+check("a payment arms the owner like any other payer "
+      "(round 2: the owner exclusion is reversed for "
+      "auto reload)",
+      user["auto_reload"] == {"enabled": True,
+                              "explicit": True,
+                              "amount_cents": 2000})
 
 user = payer(stripe_payment_method_id=None)
 arm(user, 5000)
@@ -303,6 +315,13 @@ check("the billing panel shows the saved card and the rule",
       and "turns auto reload on, so your work never stops "
           "over balance" in SRC
       and "turns on by itself the next time you pay" in SRC)
+check("the panel carries the explicit auto reload switch "
+      "(restored in round 2)",
+      'id="autoreload-toggle"' in SRC
+      and "$('autoreload-toggle').checked = "
+          "!!s.auto_reload_enabled" in SRC
+      and "$('autoreload-toggle').addEventListener("
+          "'change'" in SRC)
 check("the terms describe the sized charge",
       "up to $50" in SRC)
 

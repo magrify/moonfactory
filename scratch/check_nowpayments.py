@@ -69,7 +69,7 @@ check("billing panel has the crypto method card",
 # These pins keep any amount from ever appearing twice.
 panel = SRC[SRC.index('id="panel-billing"')
             :SRC.index('id="panel-api"')]
-for cents in ("500", "1000", "2000", "5000", "10000"):
+for cents in ("500", "1000", "2000", "5000", "10000", "25000"):
     check(f"the ${int(cents) // 100} amount appears exactly "
           "once in the panel",
           panel.count(f'data-topup="{cents}"') == 1)
@@ -85,8 +85,16 @@ check("the panel has exactly one Continue button",
 check("the panel has the two method cards",
       'id="method-card"' in panel
       and 'id="method-crypto"' in panel)
-check("Creator is a selectable card in the amount grid",
-      'id="amount-creator"' in panel)
+check("Creator stands in its own Plan section, out of the "
+      "amount grid (round 2)",
+      'id="amount-creator"' in panel
+      and panel.index('id="amount-grid"')
+      < panel.index('<p class="group-label">Plan</p>')
+      < panel.index('id="amount-creator"'))
+_grid = panel[panel.index('id="amount-grid"'):]
+_grid = _grid[:_grid.index("</div>")]
+check("no plan card sits inside the amount grid",
+      'id="amount-creator"' not in _grid)
 check("Continue dispatches the plan by method",
       "await startCryptoPlan()" in SRC
       and "await startCreatorCard()" in SRC)
@@ -227,6 +235,26 @@ try:
 except HTTPException as e:
     check("a too small top up is still refused",
           e.status_code == 422)
+# The custom minimum is $5 since round 2: the old $1 amount
+# is refused, and $5 itself goes through.
+try:
+    asyncio.run(topup_ep(
+        FakeCheckoutRequest({"pack_cents": 100}), ""))
+    check("a $1 crypto top up is refused at the $5 minimum",
+          False)
+except HTTPException as e:
+    check("a $1 crypto top up is refused at the $5 minimum",
+          e.status_code == 422)
+r = asyncio.run(topup_ep(
+    FakeCheckoutRequest({"pack_cents": 500}), ""))
+check("a $5 crypto top up is accepted at the minimum",
+      r == {"url": "https://nowpayments.example/invoice/1"}
+      and invoice_calls[-1] == ("u-plain", "topup", 500))
+r = asyncio.run(topup_ep(
+    FakeCheckoutRequest({"pack_cents": 25000}), ""))
+check("the $250 pack rides the crypto top up",
+      r == {"url": "https://nowpayments.example/invoice/1"}
+      and invoice_calls[-1] == ("u-plain", "topup", 25000))
 
 # -- the IPN handler, for real -----------------------------------
 
@@ -273,11 +301,13 @@ def save_user(user):
 
 IPN_NAME = "NOWPAYMENTS_" + "IPN_SECRET"
 os.environ[IPN_NAME] = NPKEY
+FAKE_NOW = 1_700_000_000.0
 handler_ns = {
     "os": os, "json": json, "Request": object,
     "HTTPException": HTTPException, "web": WebStub(),
     "nowpayments_signature_ok": sig_ok,
     "_np_ipn_name": IPN_NAME,
+    "_now": lambda: FAKE_NOW, "pricing": pricing,
     "meta": meta, "users": users,
     "credit_topup": credit_topup, "add_net_paid": add_net_paid,
     "arm_autopay_on_payment": arm_autopay_on_payment,
@@ -346,6 +376,11 @@ check("the plan money counted toward the ceiling",
       calls["add_net_paid"] == [("u-plain", 2000)])
 check("autopay arming ran for the plan",
       ("u-plain", None) in calls["arm"])
+check("the plan grant wrote the paid-through stamp",
+      users["id:u-plain"].get("plan_paid_through")
+      == FAKE_NOW + pricing.CREATOR_MONTH_SECONDS)
+check("the stamp records the month was paid with crypto",
+      users["id:u-plain"].get("plan_paid_via") == "crypto")
 
 # Partially paid, failed and expired payments credit nothing.
 for status in ("partially_paid", "failed", "expired", "waiting"):
@@ -365,5 +400,184 @@ r = run_ipn({"order_id": "ord-nope", "payment_id": 504,
 check("an unknown order is acknowledged without credit",
       r.get("unknown_order") is True
       and len(calls["credit_topup"]) == 1)
+
+# -- the renewal settler, for real -------------------------------
+# Round 2: a stamp-paid Creator month renews on its own.
+# With auto reload on and a saved card, the settler charges
+# the Creator price once through the charge step and extends
+# the plan a month; without them, or on a decline, the plan
+# lapses; a rail error never lapses and retries after a day.
+MONTH = pricing.CREATOR_MONTH_SECONDS
+NOW_BOX = {"t": FAKE_NOW + MONTH + 60}
+settle_meta = {}
+scalls = {"charges": [], "net_paid": []}
+charge_script = {"result": ("ok", None, "card")}
+
+
+def fake_charge(user, amount_cents):
+    scalls["charges"].append((user["id"], amount_cents))
+    return charge_script["result"]
+
+
+settle_ns = {
+    "pricing": pricing, "meta": settle_meta,
+    "_now": lambda: NOW_BOX["t"],
+    "_plan_renewal_charge": fake_charge,
+    "add_net_paid": lambda u, g: scalls["net_paid"].append(
+        (u["id"], g)),
+    "_record_stripe_credit": lambda *a, **k: None,
+    "save_user": lambda u: None,
+}
+exec(fn("settle_plan_renewal"), settle_ns)
+settle = settle_ns["settle_plan_renewal"]
+
+
+def crypto_user(**over):
+    user = {"id": "u-ren", "plan": "creator",
+            "plan_paid_via": "crypto",
+            "plan_paid_through": FAKE_NOW,
+            "stripe_customer_id": "cus_9",
+            "stripe_payment_method_id": "pm_9",
+            "auto_reload": {"enabled": True, "explicit": True,
+                            "amount_cents": 1000},
+            "usage": {"included_seconds": 42.0}}
+    user.update(over)
+    return user
+
+
+user = crypto_user()
+settle(user)
+check("a due stamp renews through the charge step, once, "
+      "at the Creator price",
+      scalls["charges"] == [("u-ren",
+                             pricing.CREATOR_PRICE_CENTS)])
+check("the renewal keeps Creator and advances the stamp",
+      user["plan"] == "creator"
+      and user["plan_paid_through"] == NOW_BOX["t"] + MONTH)
+check("the stamp records the renewal month was paid by card",
+      user["plan_paid_via"] == "card")
+check("the renewal resets the included budget and counts "
+      "the money",
+      user["usage"]["included_seconds"] == 0.0
+      and scalls["net_paid"] == [("u-ren",
+                                  pricing.CREATOR_PRICE_CENTS)])
+settle(user)
+check("a settled month is never charged twice",
+      len(scalls["charges"]) == 1)
+
+user = crypto_user(id="u-ren-off",
+                   auto_reload={"enabled": False,
+                                "explicit": True,
+                                "amount_cents": 1000})
+settle(user)
+check("auto reload off lapses the plan at the stamp",
+      user["plan"] == "free"
+      and user["plan_paid_through"] is None
+      and user["plan_paid_via"] is None
+      and len(scalls["charges"]) == 1)
+
+user = crypto_user(id="u-ren-nocard",
+                   stripe_payment_method_id=None)
+settle(user)
+check("no saved card lapses the plan at the stamp",
+      user["plan"] == "free" and len(scalls["charges"]) == 1)
+
+user = crypto_user(plan_paid_through=NOW_BOX["t"] + 1000)
+settle(user)
+check("a stamp still in the future is untouched",
+      user["plan"] == "creator" and len(scalls["charges"]) == 1)
+
+user = crypto_user(stripe_subscription_id="sub_1")
+settle(user)
+check("a Stripe subscription is never settled here",
+      user["plan"] == "creator" and len(scalls["charges"]) == 1)
+
+charge_script["result"] = ("declined", None, None)
+user = crypto_user(id="u-ren-dec")
+settle(user)
+check("a declined renewal lapses the plan",
+      user["plan"] == "free" and len(scalls["charges"]) == 2)
+
+charge_script["result"] = ("error", None, None)
+user = crypto_user(id="u-ren-err")
+settle(user)
+check("a rail error never lapses the plan",
+      user["plan"] == "creator" and len(scalls["charges"]) == 3)
+settle(user)
+check("a rail error is not retried within the day",
+      len(scalls["charges"]) == 3)
+NOW_BOX["t"] += 25 * 3600
+charge_script["result"] = ("ok", None, "card")
+settle(user)
+check("the renewal retries after a day and lands",
+      user["plan"] == "creator" and len(scalls["charges"]) == 4
+      and user["plan_paid_through"] > NOW_BOX["t"])
+
+# The charge step itself, for real: three honest answers.
+class RenewalPI:
+    def __init__(self, status):
+        self.id = "pi_ren_1"
+        self.status = status
+
+
+class CardError(Exception):
+    pass
+
+
+class RenewalStripe:
+    def __init__(self, mode):
+        self.mode = mode
+        outer = self
+
+        class PaymentIntent:
+            @staticmethod
+            def create(**kwargs):
+                outer.kwargs = kwargs
+                if outer.mode == "raise_card":
+                    raise CardError("the card was declined")
+                if outer.mode == "raise_other":
+                    raise RuntimeError("rail down")
+                return RenewalPI(outer.mode)
+
+        self.PaymentIntent = PaymentIntent
+
+
+rholder = {"stripe": RenewalStripe("succeeded")}
+
+
+def renewal_stripe_client():
+    if rholder["stripe"] is None:
+        return None, "payments are not configured yet"
+    return rholder["stripe"], None
+
+
+charge_ns = {"stripe_client": renewal_stripe_client}
+exec(fn("_plan_renewal_charge"), charge_ns)
+renewal_charge = charge_ns["_plan_renewal_charge"]
+payee = {"id": "u-ren", "stripe_customer_id": "cus_9",
+         "stripe_payment_method_id": "pm_9",
+         "plan_paid_via": "crypto"}
+result, pi, via = renewal_charge(payee, 2000)
+check("the charge step confirms a paid month",
+      result == "ok" and via == "card"
+      and pi.id == "pi_ren_1")
+check("the charge step pulls the saved card off session",
+      rholder["stripe"].kwargs.get("off_session") is True
+      and rholder["stripe"].kwargs.get("confirm") is True
+      and rholder["stripe"].kwargs.get("amount") == 2000
+      and rholder["stripe"].kwargs.get(
+          "payment_method") == "pm_9")
+rholder["stripe"] = RenewalStripe("requires_payment_method")
+check("an unconfirmed intent reads as a decline",
+      renewal_charge(payee, 2000)[0] == "declined")
+rholder["stripe"] = RenewalStripe("raise_card")
+check("a card error reads as a decline",
+      renewal_charge(payee, 2000)[0] == "declined")
+rholder["stripe"] = RenewalStripe("raise_other")
+check("a rail error reads as an error, not a decline",
+      renewal_charge(payee, 2000)[0] == "error")
+rholder["stripe"] = None
+check("no payments rail reads as an error",
+      renewal_charge(payee, 2000)[0] == "error")
 
 print("check_nowpayments: all ok")

@@ -69,6 +69,33 @@ attempt = fn("attempt_auto_reload")
 check("attempt_auto_reload requires the explicit stamp",
       'cfg.get("explicit")' in attempt)
 
+# Billing round 2 (Jack, 2026-11-27): the Auto reload
+# section carries an explicit on/off switch again (the
+# rebuild had folded it into state text and buttons), the
+# method pills carry the card and crypto symbols, and the
+# crypto plan renewal settler rides require_user.
+check("the panel carries the auto reload switch",
+      'id="autoreload-toggle"' in SRC
+      and 'class="switch"' in SRC)
+check("the switch flips auto reload through the endpoint",
+      "$('autoreload-toggle').addEventListener('change'"
+      in SRC and "api('/api/billing/autoreload'" in SRC)
+check("the method pills carry the card and crypto symbols",
+      'class="method-icon"' in SRC and "₿" in SRC
+      and 'class="btc-badge"' in SRC)
+check("require_user settles stamp-paid plan renewals",
+      "settle_plan_renewal(user)" in fn("require_user"))
+settler = fn("settle_plan_renewal")
+check("the settler never settles a Stripe subscription",
+      'user.get("stripe_subscription_id")' in settler)
+check("the settler lapses a plan it cannot renew",
+      'user["plan"] = "free"' in settler
+      and '"lapsed"' in settler)
+charge = fn("_plan_renewal_charge")
+check("the renewal charge pulls the saved card off session",
+      "off_session=True" in charge
+      and '"creator_renewal"' in charge)
+
 # Exercise the reversal helper for real.
 seg = fn("_reverse_stripe_money")
 ns = {"pricing": pricing}
