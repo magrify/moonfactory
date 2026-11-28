@@ -947,15 +947,26 @@ def process_clip_job(job_id: str):
 # it sends to the picked lane (editclone_clone_adaptation,
 # below): a lane never has to natively take a reference video
 # and a reference image together. EDITCLONE_CLONE_MODEL is
-# only the picker's default, the cheapest sensible option
-# (Seedance 2.0 Mini: its Kie reference-to-video submit
-# forwards image_urls and video_urls together at $0.019/s).
+# only the picker's default, and the default must be a lane
+# that actually clones: a motion lane, which receives the
+# source as its driving video and the character as its
+# subject (Jack's call, 2026-11-28, option C after the clone
+# diagnosis: Kling motion now, house Animate next). The old
+# default, Seedance 2.0 Mini, only ever took the source as a
+# loose reference, and the house lane it replaced as default
+# before that never received the source at all, so two
+# end-to-end "proofs" delivered videos that were not clones.
+# Kling 2.6 Motion Control is the cheapest true-clone lane
+# (720p at 6.3c/s provider, $0.080/s customer);
+# scratch/check_clone_conditioning.py fails the suite if
+# this default ever resolves to a lane that does not send
+# the source.
 # ---------------------------------------------------------------------------
 
 EDITCLONE_MAX_SOURCE_SECONDS = 600        # a viral source is short
 EDITCLONE_MAX_UPLOAD_BYTES = 1024 ** 3    # 1 GiB, link or upload
 EDITCLONE_HOOK_SECONDS = 5                # the hook: the first 5s
-EDITCLONE_CLONE_MODEL = "seedance2_mini"
+EDITCLONE_CLONE_MODEL = "kling26_motion"
 EDITCLONE_STAGES = ("Getting your video", "Working")
 EDITCLONE_POLL_LIMIT_SECONDS = 3900
 # Link reads from Modal egress are a per-container draw

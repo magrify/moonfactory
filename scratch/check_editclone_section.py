@@ -57,7 +57,7 @@ Pins the tab's shape so a later edit cannot quietly break it:
 - the clone dispatches through the normal creation path
   (create_job) on the model the user picks in the section's
   own picker, which is built from the same config catalog as
-  the Create picker and defaults to seedance2_mini; the
+  the Create picker and defaults to kling26_motion; the
   platform adapts the inputs to the picked lane from the
   lane capability data (editclone_clone_adaptation): both
   references where the lane takes them, Image1 plus source
@@ -477,8 +477,10 @@ check("await api('/api/characters'" in app.APP_HTML,
 
 # -- the clone: any picked model, inputs adapted by capability ------------
 
-check(app.EDITCLONE_CLONE_MODEL == "seedance2_mini",
-      "the clone picker default moved off seedance2_mini")
+check(app.EDITCLONE_CLONE_MODEL == "kling26_motion",
+      "the clone picker default moved off kling26_motion "
+      "(Jack's 2026-11-28 call: the default is a motion lane, "
+      "pinned further in check_clone_conditioning.py)")
 check(app.EDITCLONE_CLONE_MODEL in app.PER_SECOND_MODELS,
       "the clone picker default is not a per-second model")
 check(all(m in app.MODEL_LABELS for m in app.PER_SECOND_MODELS),
@@ -517,7 +519,7 @@ check(all(adapt(m) in branches for m in app.PER_SECOND_MODELS),
 
 caps = app.ref_caps_for("seedance2_mini")
 check(caps[0] >= 1 and caps[1] >= 1,
-      "the default lane no longer takes a reference image and video")
+      "seedance2_mini no longer takes a reference image and video")
 check(app.provider_for("seedance2_mini", "480p") == "unifically",
       "seedance2_mini no longer routes to UnificAlly "
       "(it moved off Kie in the 2026-11-27 catalog audit; "
