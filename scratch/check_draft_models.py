@@ -56,7 +56,7 @@ for g in ("free", "regular", "uncensored"):
 groups = {}
 for m in MODELS:
     groups[m["group"]] = groups.get(m["group"], 0) + 1
-check(groups == {"free": 7, "regular": 9, "uncensored": 28},
+check(groups == {"free": 11, "regular": 9, "uncensored": 24},
       f"group sizes drifted: {groups}")
 check([m["id"] for m in MODELS[:3]] == [
     "openrouter:nvidia/nemotron-3-ultra-550b-a55b:free",

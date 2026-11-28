@@ -463,30 +463,40 @@ DRAFT_MODELS = [
     {"id": "kimi-k3.1-pro-uncensored",
      "label": "Kimi K3.1 Pro", "provider": "silk",
      "group": "uncensored"},
-    # Uncensored, Numes route (2026-11-21): the uncensored
+    # Uncensored builds, Numes route (2026-11-21), filed
+    # under Free Models (2026-11-28): the uncensored
     # builds Numes serves at $0 under the same launch
-    # promo. They sit in the Uncensored group (their
-    # nature) with no price record, so they band at tier
-    # 0 like the free picks; the promo caveat on the
-    # provider record above applies to them in full.
+    # promo. They used to sit in the Uncensored group
+    # (their nature) with no price record, banding at
+    # tier 0 above that group's $ separator, which left
+    # the writer pickers grouped unlike the Create
+    # pickers. Jack, 2026-11-28: every picker groups the
+    # same way, free specified as free, so a $0 route
+    # files under Free Models whatever its nature, and
+    # the $ separators head paid tiers only. The entries
+    # stay at the registry tail beside the Numes provider
+    # record they ride; only the group field moved. The
+    # promo caveat on the provider record above applies
+    # to them in full: if the promo ends, a price record
+    # or a group change lands the same day.
     {"id": "numes:dealignai/deepseek-v4.1-flash-uncensored-fp8:free",
      "label": "DeepSeek V4.1 Flash Uncensored FP8",
      "provider": "numes",
      "model": "dealignai/deepseek-v4.1-flash-uncensored-fp8:free",
-     "group": "uncensored"},
+     "group": "free"},
     {"id": "numes:dealignai/glm-5.3-uncensored-fp8:free",
      "label": "GLM 5.3 Uncensored FP8", "provider": "numes",
      "model": "dealignai/glm-5.3-uncensored-fp8:free",
-     "group": "uncensored"},
+     "group": "free"},
     {"id": "numes:dealignai/glm-5.3-flash-uncensored-fp8:free",
      "label": "GLM 5.3 Flash Uncensored FP8",
      "provider": "numes",
      "model": "dealignai/glm-5.3-flash-uncensored-fp8:free",
-     "group": "uncensored"},
+     "group": "free"},
     {"id": "numes:uniboshi/kimi-k3-abliterated-v1:free",
      "label": "Kimi K3 Abliterated", "provider": "numes",
      "model": "uniboshi/kimi-k3-abliterated-v1:free",
-     "group": "uncensored"},
+     "group": "free"},
 ]
 
 
