@@ -56,10 +56,40 @@ def check(label, cond):
 # -- source shape ------------------------------------------------
 for route in ("/api/checkout/crypto/topup",
               "/api/checkout/crypto/plan",
-              "/api/nowpayments/ipn"):
+              "/api/checkout/crypto/plan/funding",
+              "/api/billing/crypto-subscription",
+              "/api/nowpayments/ipn",
+              "/api/nowpayments/subscription-ipn"):
     check(f"route {route} exists", f'"{route}"' in SRC)
 check("config carries the crypto flag",
       '"crypto_payments_configured": nowpayments_configured()' in SRC)
+check("config carries the crypto plan flag",
+      '"crypto_plan_configured":' in SRC
+      and "nowpayments_custody_configured()" in SRC)
+# Crypto Creator is a custody subscription now (Jack,
+# 2026-11-28): the plan checkout creates the sub-account
+# and the subscription and answers a funding step; it
+# never creates a one-month invoice, and it fails closed
+# when the custody side is not configured.
+plan_ep_src = fn("checkout_crypto_plan")
+check("the crypto plan checkout sells a subscription, "
+      "not an invoice",
+      "_nowpayments_create_invoice" not in plan_ep_src
+      and "_np_ensure_subscription" in plan_ep_src
+      and "nowpayments_custody_configured" in plan_ep_src
+      and "Creator by crypto is not available yet."
+      in plan_ep_src)
+check("the panel carries the crypto funding box",
+      'id="crypto-sub-box"' in SRC
+      and 'id="crypto-sub-address"' in SRC
+      and 'id="crypto-sub-fund"' in SRC
+      and "renderCryptoSub" in SRC
+      and "refreshCryptoSub" in SRC)
+check("the settler lapses a subscription month with no "
+      "money order",
+      fn("settle_plan_renewal").index('== "crypto_sub"')
+      < fn("settle_plan_renewal").index(
+          "result, pi, paid_via = _plan_renewal_charge"))
 check("billing panel has the crypto method card",
       'id="method-crypto"' in SRC)
 # -- the rebuilt Billing panel (Jack, 2026-11-27): one
@@ -213,21 +243,68 @@ checkout_ns = {
     "_nowpayments_create_invoice": fake_invoice,
     "base_url": lambda request: "https://example.test",
 }
-for endpoint in ("checkout_crypto_topup", "checkout_crypto_plan"):
-    exec(fn(endpoint), checkout_ns)
+exec(fn("checkout_crypto_topup"), checkout_ns)
 topup_ep = checkout_ns["checkout_crypto_topup"]
-plan_ep = checkout_ns["checkout_crypto_plan"]
 
 r = asyncio.run(topup_ep(
     FakeCheckoutRequest({"pack_cents": 1000}), ""))
 check("an unstamped account creates a top up checkout",
       r == {"url": "https://nowpayments.example/invoice/1"}
       and invoice_calls == [("u-plain", "topup", 1000)])
+
+# The plan checkout, for real (Custody subscriptions,
+# 2026-11-28): unconfigured, it fails closed with the
+# plain line and creates nothing; configured, it ensures
+# the subscription and answers the funding step, and no
+# invoice is ever created for a plan again.
+custody = {"configured": False, "ensured": [], "funding": []}
+
+
+def fake_ensure_subscription(user, base):
+    custody["ensured"].append(user["id"])
+    user["np_subscription_id"] = "sub-1"
+    return "sub-1"
+
+
+def fake_funding_payment(user, currency, base):
+    custody["funding"].append((user["id"], currency))
+    return {"payment_id": "fp-1", "pay_address": "TAddr123",
+            "pay_amount": None, "pay_currency": currency}
+
+
+plan_ns = {
+    "Request": object, "Cookie": Cookie,
+    "HTTPException": HTTPException,
+    "require_user": require_user, "pricing": pricing,
+    "base_url": lambda request: "https://example.test",
+    "nowpayments_custody_configured":
+        lambda: custody["configured"],
+    "_np_ensure_subscription": fake_ensure_subscription,
+    "_np_create_funding_payment": fake_funding_payment,
+    "_np_refresh_sub_balance": lambda user: 25.0,
+}
+exec(fn("checkout_crypto_plan"), plan_ns)
+plan_ep = plan_ns["checkout_crypto_plan"]
+try:
+    asyncio.run(plan_ep(FakeCheckoutRequest({}), ""))
+    check("an unconfigured custody side fails closed", False)
+except HTTPException as e:
+    check("an unconfigured custody side fails closed",
+          e.status_code == 503
+          and e.detail
+          == "Creator by crypto is not available yet."
+          and custody["ensured"] == [])
+custody["configured"] = True
 r = asyncio.run(plan_ep(FakeCheckoutRequest({}), ""))
-check("an unstamped account creates a plan checkout",
-      r == {"url": "https://nowpayments.example/invoice/1"}
-      and invoice_calls[-1]
-      == ("u-plain", "plan", pricing.CREATOR_PRICE_CENTS))
+check("a configured plan checkout starts the subscription "
+      "and answers the funding step",
+      r["subscription"] is True
+      and r["pay_address"] == "TAddr123"
+      and r["funded_usd"] == 25.0 and r["price_usd"] == 20
+      and custody["ensured"] == ["u-plain"]
+      and custody["funding"] == [("u-plain", "usdttrc20")])
+check("the plan checkout created no invoice",
+      all(c[1] != "plan" for c in invoice_calls))
 try:
     asyncio.run(topup_ep(
         FakeCheckoutRequest({"pack_cents": 50}), ""))
@@ -302,6 +379,15 @@ def save_user(user):
 IPN_NAME = "NOWPAYMENTS_" + "IPN_SECRET"
 os.environ[IPN_NAME] = NPKEY
 FAKE_NOW = 1_700_000_000.0
+refresh_calls = []
+
+
+def fake_refresh_sub(user):
+    refresh_calls.append(user["id"])
+    user["np_sub_usd"] = 42.0
+    return 42.0
+
+
 handler_ns = {
     "os": os, "json": json, "Request": object,
     "HTTPException": HTTPException, "web": WebStub(),
@@ -312,7 +398,9 @@ handler_ns = {
     "credit_topup": credit_topup, "add_net_paid": add_net_paid,
     "arm_autopay_on_payment": arm_autopay_on_payment,
     "save_user": save_user,
+    "_np_refresh_sub_balance": fake_refresh_sub,
 }
+exec(fn("_grant_creator_paid_month"), handler_ns)
 exec(ipn_src, handler_ns)
 ipn = handler_ns["nowpayments_ipn"]
 
@@ -400,6 +488,114 @@ r = run_ipn({"order_id": "ord-nope", "payment_id": 504,
 check("an unknown order is acknowledged without credit",
       r.get("unknown_order") is True
       and len(calls["credit_topup"]) == 1)
+
+# A funding deposit into a custody sub-account is not a
+# top up (2026-11-28): it refreshes the NOWPayments
+# balance snapshot once and credits nothing here — the
+# money waits at NOWPayments for the subscription.
+meta["np_funding_payments"] = {
+    "9001": {"user_id": "u-plain", "subpartner_id": "sp-1",
+             "status": "created", "credited": False},
+}
+r = run_ipn({"payment_id": 9001,
+             "payment_status": "finished"})
+check("a finished funding deposit is acknowledged as "
+      "funding",
+      r == {"received": True, "funding": True})
+check("the funding deposit refreshed the balance snapshot",
+      refresh_calls == ["u-plain"]
+      and users["id:u-plain"].get("np_sub_usd") == 42.0)
+check("the funding deposit credited no Moonfactory "
+      "balance",
+      len(calls["credit_topup"]) == 1)
+r = run_ipn({"payment_id": 9001,
+             "payment_status": "finished"})
+check("a duplicate funding IPN refreshes nothing twice",
+      r == {"received": True, "funding": True}
+      and refresh_calls == ["u-plain"])
+
+# -- the subscription IPN handler, for real ----------------
+# Custodial recurring debits arrive on their own endpoint
+# with the small documented body. A FINISHED debit grants
+# the month through the shared grant helper, marked
+# crypto_sub, idempotent on the debit id; an unattributable
+# debit is recorded and grants nothing.
+sub_meta = {"np_subpartners": {"sp-1": "u-sub"}}
+sub_users = {"id:u-sub": {"id": "u-sub", "plan": "free",
+                           "usage": {}}}
+sub_calls = {"net_paid": []}
+resolver = {"found": None}
+sub_ns = {
+    "os": os, "json": json, "Request": object,
+    "HTTPException": HTTPException, "web": WebStub(),
+    "nowpayments_signature_ok": sig_ok,
+    "_now": lambda: FAKE_NOW, "pricing": pricing,
+    "meta": sub_meta, "users": sub_users,
+    "add_net_paid": lambda u, g: sub_calls["net_paid"].append(
+        (u["id"], g)),
+    "save_user": lambda u: None,
+    "_np_find_recurring_subpartner":
+        lambda eid: resolver["found"],
+}
+exec(fn("_grant_creator_paid_month"), sub_ns)
+exec(fn("nowpayments_subscription_ipn"), sub_ns)
+sub_ipn = sub_ns["nowpayments_subscription_ipn"]
+
+
+def run_sub_ipn(payload, sign=True):
+    sig = signature(payload, NPKEY) if sign else "0" * 128
+    return asyncio.run(sub_ipn(FakeRequest(payload, sig)))
+
+
+MONTH_S = pricing.CREATOR_MONTH_SECONDS
+try:
+    run_sub_ipn({"id": "rp-1", "status": "FINISHED"},
+                sign=False)
+    check("a forged subscription IPN is refused", False)
+except HTTPException as e:
+    check("a forged subscription IPN is refused",
+          e.status_code == 400)
+r = run_sub_ipn({"id": "rp-1", "status": "FINISHED",
+                 "currency": "usdttrc20", "amount": "20.1",
+                 "sub_partner_id": "sp-1"})
+check("a finished debit is received", r == {"received": True})
+check("the debit granted Creator as a subscription month",
+      sub_users["id:u-sub"]["plan"] == "creator"
+      and sub_users["id:u-sub"]["plan_paid_via"]
+      == "crypto_sub"
+      and sub_users["id:u-sub"]["plan_paid_through"]
+      == FAKE_NOW + MONTH_S
+      and sub_calls["net_paid"]
+      == [("u-sub", pricing.CREATOR_PRICE_CENTS)])
+r = run_sub_ipn({"id": "rp-1", "status": "FINISHED",
+                 "currency": "usdttrc20", "amount": "20.1",
+                 "sub_partner_id": "sp-1"})
+check("a replayed debit grants nothing twice",
+      r.get("duplicate") is True
+      and sub_users["id:u-sub"]["plan_paid_through"]
+      == FAKE_NOW + MONTH_S
+      and len(sub_calls["net_paid"]) == 1)
+r = run_sub_ipn({"id": "rp-2", "status": "FINISHED",
+                 "currency": "trx", "amount": "310"})
+check("an unattributable debit is recorded, grants "
+      "nothing",
+      r.get("unresolved") is True
+      and len(sub_calls["net_paid"]) == 1
+      and "rp-2" in sub_meta["np_subscription_events"])
+resolver["found"] = "sp-1"
+r = run_sub_ipn({"id": "rp-3", "status": "FINISHED",
+                 "currency": "trx", "amount": "310"})
+check("a debit resolved through the recurring list "
+      "grants the next month",
+      r == {"received": True}
+      and sub_users["id:u-sub"]["plan_paid_through"]
+      == FAKE_NOW + 2 * MONTH_S
+      and len(sub_calls["net_paid"]) == 2)
+r = run_sub_ipn({"id": "rp-4", "status": "FAILED"})
+check("a failed debit grants nothing and is only "
+      "recorded",
+      r == {"received": True}
+      and len(sub_calls["net_paid"]) == 2)
 
 # -- the renewal settler, for real -------------------------------
 # Round 2: a stamp-paid Creator month renews on its own.
@@ -606,6 +802,26 @@ check("the grace mechanism is gone from the source",
       and "_plan_grace_email" not in SRC
       and "three grace days" not in SRC)
 
+# A month the custody subscription paid is settled by
+# NOWPayments alone (2026-11-28): due with no debit
+# landed, it lapses at the date — the money order never
+# runs, and a rich balance is not drawn.
+_before = (len(scalls["charges"]), len(scalls["draws"]))
+user = crypto_user(id="u-ren-sub",
+                   plan_paid_via="crypto_sub",
+                   plan_paid_through=NOW_BOX["t"] - 60,
+                   balance_cents=99999)
+settle(user)
+check("a due subscription month lapses with no money "
+      "order",
+      user["plan"] == "free"
+      and user["plan_paid_through"] is None
+      and user["plan_paid_via"] is None
+      and "plan_grace_until" not in user
+      and user["balance_cents"] == 99999
+      and (len(scalls["charges"]), len(scalls["draws"]))
+      == _before)
+
 # The charge step itself, for real: three honest answers.
 class RenewalPI:
     def __init__(self, status):
@@ -721,13 +937,23 @@ check("an owner renewal short of balance reads unpaid, "
       and owner_short["balance_cents"] == 1999
       and getattr(rholder["stripe"], "kwargs", None) is None)
 
-# Route E copy: the panel note, the plan status line and
-# the Terms tell the balance truth; the round 2 note that
-# renewed only through the saved card is gone.
-check("the crypto Creator note names the balance first",
-      "renews on its own from your balance while it "
-      "covers $20. Auto reload covers a shortfall when "
-      "it is on." in SRC)
+# Copy: the panel note tells the subscription truth for
+# Creator by crypto (2026-11-28) and fails closed in
+# words when custody is not configured; the plan status
+# line keeps the legacy balance truth for stamp-paid
+# months and gains the NOWPayments line for subscription
+# months; the round 2 note that renewed only through the
+# saved card is gone.
+check("the crypto Creator note names the NOWPayments "
+      "subscription",
+      "Creator renews on its own from the crypto you "
+      "keep in your NOWPayments balance. Keep at least "
+      "$20 there." in SRC
+      and "Creator by crypto is not available yet." in SRC)
+check("the Route E panel note survives only in the "
+      "Terms, for legacy months",
+      "Creator paid with crypto renews on its own from "
+      "your balance while it covers $20" not in SRC)
 check("the round 2 renewal note is gone",
       "while auto reload is on with a saved card. "
       "Otherwise it covers one month" not in SRC)
@@ -735,12 +961,19 @@ check("the panel carries the plan status line",
       'id="plan-note"' in panel
       and "Creator renews from your balance. Keep $20 "
       "in it and it never lapses." in SRC
+      and "Creator renews from your NOWPayments balance. "
+      "Keep at least $20 of crypto there." in SRC
       and "Creator could not renew" not in SRC)
 check("the Terms carry the balance renewal and the "
       "immediate end",
       "renews the same way from your balance while it"
       in SRC and "the plan ends at the paid-through"
       in SRC and "three grace days" not in SRC)
+check("the Terms carry the crypto subscription",
+      "A Creator plan started with crypto is a "
+      "subscription at" in SRC
+      and "if that balance cannot cover the price on "
+      "the renewal" in SRC)
 check("public_user exposes the plan note state",
       '"plan_paid_via": user.get("plan_paid_via")' in SRC
       and '"plan_grace_until"' not in SRC)

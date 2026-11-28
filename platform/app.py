@@ -9521,6 +9521,13 @@ def api():
             # E, 2026-11-27): the Billing plan note reads it
             # to tell the customer the truth about renewal.
             "plan_paid_via": user.get("plan_paid_via"),
+            # The crypto subscription state (Custody Billing
+            # Service, 2026-11-28): the Billing funding line
+            # reads whether a NOWPayments subscription stands
+            # and the last balance snapshot taken for it.
+            "np_subscription": bool(
+                user.get("np_subscription_id")),
+            "np_funded_usd": user.get("np_sub_usd"),
             "balance_cents": user.get("balance_cents", 0),
             "has_password": bool(user.get("pw")),
             "has_saved_card": bool(user.get("stripe_customer_id")
@@ -9861,6 +9868,14 @@ def api():
             # renderCryptoBilling); the checkout endpoints
             # likewise take any signed in account.
             "crypto_payments_configured": nowpayments_configured(),
+            # Crypto Creator subscriptions (Custody Billing
+            # Service, 2026-11-28): the studio reads this to
+            # tell the truth on the Creator + Crypto method
+            # note before anyone taps Continue; the checkout
+            # endpoint fails closed on its own when the
+            # custody side is not configured.
+            "crypto_plan_configured":
+                nowpayments_custody_configured(),
             "default_model": DEFAULT_MODEL,
             "clone_default_model": EDITCLONE_CLONE_MODEL,
             "house_lanes": {
@@ -24881,10 +24896,15 @@ document.getElementById('go').onclick = async () => {{
         never from the landing, so the clock never stops for
         a non-payer. Card months carry no stamp (the Stripe
         subscription renews them), and an account with a live
-        Stripe subscription is never settled here. The settler
-        is method-agnostic: it reads only the stamp, never the
-        paid_via, and only the charge step knows where a
-        renewal's money comes from. It runs lazily on the
+        Stripe subscription is never settled here. One
+        paid_via is read, as an exclusion: a month paid by
+        the NOWPayments custody subscription (crypto_sub) is
+        renewed by NOWPayments alone, so the settler never
+        runs the money order for it and lapses it at the
+        stamp with no grace when no debit landed (Jack,
+        2026-11-28). For every other stamp the settler stays
+        method-agnostic, and only the charge step knows
+        where a renewal's money comes from. It runs lazily on the
         account's own authenticated traffic (require_user),
         the same self-heal-on-read pattern as the usage period
         rollover, and it can never break a request: every
@@ -24909,6 +24929,24 @@ document.getElementById('go').onclick = async () => {{
             claim_key = f"{user['id']}:{int(through)}"
             claim = claims.get(claim_key) or {}
             if claim.get("result") in ("charged", "lapsed"):
+                return
+            if user.get("plan_paid_via") == "crypto_sub":
+                # A month the NOWPayments custody
+                # subscription paid is renewed by NOWPayments
+                # alone: its debit IPN advances the stamp, and
+                # when the stamp passes with no debit landed
+                # (the customer's NOWPayments balance could
+                # not cover it), the plan lapses at the date.
+                # The balance draw and the card pull never run
+                # for these months, and there is no grace
+                # (Jack, 2026-11-28: "top up or fuck off").
+                user["plan"] = "free"
+                user["plan_paid_through"] = None
+                user["plan_paid_via"] = None
+                claims[claim_key] = {"result": "lapsed",
+                                     "at": _now()}
+                meta["plan_renewal_claims"] = claims
+                save_user(user)
                 return
             if claim.get("result") == "error" \
                     and _now() - float(claim.get("at") or 0) \
@@ -25514,6 +25552,378 @@ document.getElementById('go').onclick = async () => {{
     def nowpayments_configured() -> bool:
         return bool(os.environ.get("NOWPAYMENTS_API_KEY", ""))
 
+    # -- nowpayments custody subscriptions (Billing Service) --
+    #
+    # Real crypto auto-renewal (Jack, 2026-11-28: the
+    # balance-draw workaround was "convoluted bullshit";
+    # crypto must renew with crypto). NOWPayments' Custody
+    # "Billing Service" is the native pull: the platform
+    # holds a deposit sub-account per customer at
+    # NOWPayments, the customer funds it with crypto, and a
+    # subscription on the $20 / 30-day plan makes
+    # NOWPayments debit that balance on its own each period.
+    # Custody calls ride a short-lived JWT from POST /auth
+    # with the account login, so the flow is configured only
+    # when the deployment carries that login
+    # (NOWPAYMENTS_CUSTODY_EMAIL / NOWPAYMENTS_CUSTODY_PASSWORD
+    # in the platform secret, added once Custody is activated
+    # on the account). Until then, and whenever NOWPayments
+    # refuses a custody call, the crypto Creator flow fails
+    # closed with one plain line; it never falls back to
+    # selling a one-month invoice under subscription wording.
+    # Crypto top ups keep riding the invoice flow above,
+    # untouched.
+
+    np_jwt_cache = {"token": None, "exp": 0.0}
+
+    def nowpayments_custody_configured() -> bool:
+        return bool(
+            os.environ.get("NOWPAYMENTS_CUSTODY_EMAIL", "")
+            .strip()
+            and os.environ.get("NOWPAYMENTS_CUSTODY_PASSWORD",
+                               "").strip())
+
+    def _np_api_base() -> str:
+        # The custody calls share one base so the same code
+        # can be pointed at the NOWPayments sandbox
+        # (https://api-sandbox.nowpayments.io/v1) by the
+        # deployment; production is the default.
+        return (os.environ.get("NOWPAYMENTS_API_BASE", "")
+                .strip().rstrip("/")
+                or "https://api.nowpayments.io/v1")
+
+    def _np_custody_token() -> str:
+        """The account JWT for custody calls (about five
+        minutes of life; cached for four). A missing login or
+        a refused login is the fail-closed answer, never a
+        fallback."""
+        if np_jwt_cache["token"] \
+                and np_jwt_cache["exp"] > _now() + 30:
+            return np_jwt_cache["token"]
+        email = os.environ.get(
+            "NOWPAYMENTS_CUSTODY_EMAIL", "").strip()
+        password = os.environ.get(
+            "NOWPAYMENTS_CUSTODY_PASSWORD", "").strip()
+        if not email or not password:
+            raise HTTPException(
+                status_code=503,
+                detail="Creator by crypto is not available yet.")
+        try:
+            resp = requests.post(
+                f"{_np_api_base()}/auth",
+                json={"email": email, "password": password},
+                timeout=30)
+            data = resp.json()
+        except Exception:
+            raise HTTPException(
+                status_code=502,
+                detail="the crypto subscription service could "
+                       "not be reached")
+        token = data.get("token") if isinstance(data, dict) \
+            else None
+        if resp.status_code != 200 or not token:
+            raise HTTPException(
+                status_code=503,
+                detail="Creator by crypto is not available "
+                       "yet.")
+        np_jwt_cache["token"] = token
+        np_jwt_cache["exp"] = _now() + 240
+        return token
+
+    def _np_custody_call(method, path, body=None, jwt=True):
+        """One custody API call. Returns the decoded body on
+        a 2xx; raises the fail-closed 503 on any refusal (a
+        custody side that is not activated answers these
+        calls with errors, and the crypto Creator flow sells
+        nothing in that state) and a 502 when the service
+        cannot be reached at all. A 401 drops the cached
+        token and retries once, since tokens live minutes."""
+        key = os.environ.get("NOWPAYMENTS_API_KEY", "").strip()
+        for attempt in (0, 1):
+            headers = {"Content-Type": "application/json"}
+            if key:
+                headers["x-api-key"] = key
+            if jwt:
+                headers["Authorization"] = \
+                    f"Bearer {_np_custody_token()}"
+            try:
+                resp = requests.request(
+                    method, f"{_np_api_base()}{path}",
+                    headers=headers, json=body, timeout=30)
+            except Exception:
+                raise HTTPException(
+                    status_code=502,
+                    detail="the crypto subscription service "
+                           "could not be reached")
+            if resp.status_code == 401 and jwt and attempt == 0:
+                np_jwt_cache["token"] = None
+                np_jwt_cache["exp"] = 0.0
+                continue
+            try:
+                data = resp.json()
+            except Exception:
+                data = None
+            if 200 <= resp.status_code < 300:
+                return data
+            raise HTTPException(
+                status_code=503,
+                detail="Creator by crypto is not available "
+                       "yet.")
+        raise HTTPException(
+            status_code=503,
+            detail="Creator by crypto is not available yet.")
+
+    def _np_pick_id(data):
+        """The id of a created custody object, wherever the
+        response nests it (top level, under result, or under
+        data)."""
+        if isinstance(data, (str, int)):
+            return str(data)
+        if not isinstance(data, dict):
+            return None
+        for holder in (data, data.get("result"),
+                       data.get("data")):
+            if isinstance(holder, dict) and holder.get("id"):
+                return str(holder["id"])
+            if isinstance(holder, (str, int)) and holder:
+                return str(holder)
+        return None
+
+    def _np_custody_plan_id(base):
+        """The one $20 / 30-day Creator plan at NOWPayments,
+        created on first use and remembered in meta. Its
+        callback URL is the subscription IPN endpoint, so
+        recurring debits never mix with invoice payments."""
+        plan_id = meta.get("np_custody_plan_id")
+        if plan_id:
+            return plan_id
+        data = _np_custody_call(
+            "POST", "/subscriptions/plans", {
+                "title": "Moonfactory Creator",
+                "interval_day": 30,
+                "amount": pricing.CREATOR_PRICE_CENTS / 100,
+                "currency": "usd",
+                "ipn_callback_url":
+                    f"{base}/api/nowpayments/subscription-ipn",
+                "success_url": f"{base}/app?checkout=success",
+                "cancel_url": f"{base}/app?checkout=cancel",
+            })
+        plan_id = _np_pick_id(data)
+        if not plan_id:
+            raise HTTPException(
+                status_code=503,
+                detail="Creator by crypto is not available "
+                       "yet.")
+        meta["np_custody_plan_id"] = plan_id
+        return plan_id
+
+    def _np_ensure_subpartner(user):
+        """The customer's deposit sub-account at
+        NOWPayments, created on first use. The name is the
+        platform user id under an mf- prefix: unique, well
+        inside the 30 character limit, and never an email."""
+        existing = user.get("np_subpartner_id")
+        if existing:
+            return existing
+        name = f"mf-{user['id']}"[:30]
+        data = None
+        try:
+            data = _np_custody_call(
+                "POST", "/sub-partner/balance", {"name": name})
+        except HTTPException:
+            # A create that failed because the account
+            # already exists (an earlier attempt landed it)
+            # falls through to the lookup below.
+            data = None
+        sub_id = _np_pick_id(data)
+        if not sub_id:
+            listed = _np_custody_call(
+                "GET", "/sub-partner?limit=100&offset=0",
+                jwt=True)
+            rows = listed if isinstance(listed, list) else (
+                (listed or {}).get("result")
+                or (listed or {}).get("data") or [])
+            for row in rows:
+                if isinstance(row, dict) \
+                        and row.get("name") == name \
+                        and row.get("id"):
+                    sub_id = str(row["id"])
+                    break
+        if not sub_id:
+            raise HTTPException(
+                status_code=503,
+                detail="Creator by crypto is not available "
+                       "yet.")
+        user["np_subpartner_id"] = sub_id
+        subs = meta.get("np_subpartners") or {}
+        subs[sub_id] = user["id"]
+        meta["np_subpartners"] = subs
+        save_user(user)
+        return sub_id
+
+    def _np_ensure_subscription(user, base):
+        """The customer's subscription on the Creator plan,
+        created on first use. NOWPayments debits their
+        sub-account on the plan's schedule from here on."""
+        existing = user.get("np_subscription_id")
+        if existing:
+            return existing
+        sub_partner = _np_ensure_subpartner(user)
+        plan_id = _np_custody_plan_id(base)
+        data = _np_custody_call(
+            "POST", "/subscriptions", {
+                "subscription_plan_id": plan_id,
+                "sub_partner_id": sub_partner,
+            })
+        sub_id = _np_pick_id(data)
+        if not sub_id:
+            raise HTTPException(
+                status_code=503,
+                detail="Creator by crypto is not available "
+                       "yet.")
+        user["np_subscription_id"] = sub_id
+        user["np_plan_id"] = plan_id
+        subs = meta.get("np_subscriptions") or {}
+        subs[sub_id] = user["id"]
+        meta["np_subscriptions"] = subs
+        save_user(user)
+        return sub_id
+
+    def _np_create_funding_payment(user, currency, base):
+        """A fresh deposit payment into the customer's
+        sub-account: the address the customer sends crypto
+        to. Recorded in meta first, so the funding IPN that
+        lands on the standard payment endpoint can be told
+        apart from a top up and never credits the Moonfactory
+        balance."""
+        sub_partner = _np_ensure_subpartner(user)
+        data = _np_custody_call(
+            "POST", "/sub-partner/payment", {
+                "sub_partner_id": sub_partner,
+                "currency": currency,
+                "ipn_callback_url": f"{base}/api/nowpayments/ipn",
+            })
+        payment = data.get("result") if isinstance(
+            data, dict) and isinstance(
+            data.get("result"), dict) else data
+        if not isinstance(payment, dict) \
+                or not payment.get("pay_address"):
+            raise HTTPException(
+                status_code=503,
+                detail="Creator by crypto is not available "
+                       "yet.")
+        payment_id = str(payment.get("payment_id")
+                         or payment.get("id") or "")
+        if payment_id:
+            funding = meta.get("np_funding_payments") or {}
+            funding[payment_id] = {
+                "user_id": user["id"],
+                "subpartner_id": sub_partner,
+                "status": "created",
+                "credited": False,
+                "created_at": _now(),
+            }
+            meta["np_funding_payments"] = funding
+        return {
+            "payment_id": payment_id,
+            "pay_address": payment.get("pay_address"),
+            "pay_amount": payment.get("pay_amount"),
+            "pay_currency": payment.get("pay_currency")
+            or currency,
+        }
+
+    def _np_sub_balance_rows(data):
+        """Normalize a sub-account balance read into a list
+        of (currency, amount) pairs, whatever envelope the
+        answer arrived in."""
+        rows = data
+        if isinstance(rows, dict):
+            rows = rows.get("result") or rows.get("data") \
+                or rows.get("balances") or rows.get("balance")
+        out = []
+        if isinstance(rows, dict):
+            rows = [{"currency": k, "balance": v}
+                    for k, v in rows.items()]
+        if isinstance(rows, list):
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                cur = row.get("currency") or row.get("ticker")
+                amt = row.get("balance")
+                if amt is None:
+                    amt = row.get("amount")
+                try:
+                    amt = float(amt)
+                except (TypeError, ValueError):
+                    continue
+                if cur and amt:
+                    out.append((str(cur).lower(), amt))
+        return out
+
+    def _np_refresh_sub_balance(user):
+        """The customer's NOWPayments balance in USD, read
+        live and snapshotted on the record (the Billing
+        funding line reads the snapshot). Stablecoins count
+        at par; anything else is priced through the estimate
+        endpoint. Best effort: a failed read returns the
+        last snapshot, and the snapshot is what the panel
+        shows either way."""
+        sub_partner = user.get("np_subpartner_id")
+        if not sub_partner:
+            return float(user.get("np_sub_usd") or 0)
+        if _now() - float(user.get("np_sub_usd_at") or 0) < 120:
+            return float(user.get("np_sub_usd") or 0)
+        try:
+            data = _np_custody_call(
+                "GET", f"/sub-partner/balance/{sub_partner}",
+                jwt=False)
+        except HTTPException:
+            return float(user.get("np_sub_usd") or 0)
+        total = 0.0
+        key = os.environ.get("NOWPAYMENTS_API_KEY", "").strip()
+        for cur, amt in _np_sub_balance_rows(data):
+            if cur == "usd" or cur.startswith(("usdt", "usdc",
+                                                "dai")):
+                total += amt
+                continue
+            try:
+                est = requests.get(
+                    f"{_np_api_base()}/estimate",
+                    headers={"x-api-key": key},
+                    params={"price_amount": amt,
+                            "price_currency": cur,
+                            "pay_currency": "usd"},
+                    timeout=20)
+                total += float(
+                    est.json().get("estimated_amount") or 0)
+            except Exception:
+                pass
+        user["np_sub_usd"] = round(total, 2)
+        user["np_sub_usd_at"] = _now()
+        save_user(user)
+        return user["np_sub_usd"]
+
+    def _grant_creator_paid_month(user, via, gross_cents):
+        """The Creator grant every paid month lands through
+        (the Stripe plan purchase makes the same shape by
+        its own path): Creator on, past due cleared, the
+        included budget reset, the paid-through stamp
+        advanced one month from the later of now and any
+        month already paid for, and how the month was paid
+        recorded beside it. Counting the money toward the
+        ceiling is the caller's step, because it differs by
+        rail."""
+        user["plan"] = "creator"
+        user["past_due"] = False
+        user["plan_paid_via"] = via
+        user["plan_paid_through"] = max(
+            _now(), float(user.get("plan_paid_through") or 0)
+        ) + pricing.CREATOR_MONTH_SECONDS
+        u = user.get("usage") or {}
+        u["included_seconds"] = 0.0
+        u["included_cost_cents"] = 0.0
+        user["usage"] = u
+
     def _nowpayments_create_invoice(user, kind, amount_cents,
                                     base):
         """Create a NOWPayments invoice for one order and record
@@ -25598,11 +26008,96 @@ document.getElementById('go').onclick = async () => {{
 
     @web.post("/api/checkout/crypto/plan")
     async def checkout_crypto_plan(request: Request, mf_session: str = Cookie(default="")):
+        """Creator by crypto is a NOWPayments custody
+        subscription now (Jack, 2026-11-28): the customer's
+        sub-account and their subscription on the $20 /
+        30-day plan are created (or reused), and the answer
+        is a funding step, not a redirect: the deposit
+        address for the currency they picked, and how much
+        their NOWPayments balance holds. NOWPayments takes
+        the first $20 from that balance itself and renews
+        the same way every month; the subscription IPN
+        endpoint grants the months. The one-month invoice
+        this endpoint used to create is gone. When the
+        custody side is not configured or NOWPayments
+        refuses, the endpoint fails closed with the plain
+        not-available line and sells nothing."""
         user = require_user(request, mf_session)
-        url = _nowpayments_create_invoice(
-            user, "plan", pricing.CREATOR_PRICE_CENTS,
-            base_url(request))
-        return {"url": url}
+        if not nowpayments_custody_configured():
+            raise HTTPException(
+                status_code=503,
+                detail="Creator by crypto is not available yet.")
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        currency = str((body or {}).get("currency")
+                       or "usdttrc20").lower()
+        currency = "".join(
+            ch for ch in currency if ch.isalnum())[:16] \
+            or "usdttrc20"
+        base = base_url(request)
+        _np_ensure_subscription(user, base)
+        funding = _np_create_funding_payment(user, currency,
+                                             base)
+        funded = _np_refresh_sub_balance(user)
+        return {
+            "subscription": True,
+            "pay_address": funding["pay_address"],
+            "pay_amount": funding["pay_amount"],
+            "pay_currency": funding["pay_currency"],
+            "funded_usd": funded,
+            "price_usd": pricing.CREATOR_PRICE_CENTS / 100,
+        }
+
+    @web.post("/api/checkout/crypto/plan/funding")
+    async def checkout_crypto_plan_funding(request: Request, mf_session: str = Cookie(default="")):
+        """A fresh deposit address for an existing crypto
+        subscription (the customer topping their
+        NOWPayments balance up before a renewal). Same
+        fail-closed rule as the plan checkout."""
+        user = require_user(request, mf_session)
+        if not nowpayments_custody_configured() \
+                or not user.get("np_subscription_id"):
+            raise HTTPException(
+                status_code=503,
+                detail="Creator by crypto is not available yet.")
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        currency = str((body or {}).get("currency")
+                       or "usdttrc20").lower()
+        currency = "".join(
+            ch for ch in currency if ch.isalnum())[:16] \
+            or "usdttrc20"
+        funding = _np_create_funding_payment(
+            user, currency, base_url(request))
+        return {
+            "subscription": True,
+            "pay_address": funding["pay_address"],
+            "pay_amount": funding["pay_amount"],
+            "pay_currency": funding["pay_currency"],
+            "funded_usd": _np_refresh_sub_balance(user),
+            "price_usd": pricing.CREATOR_PRICE_CENTS / 100,
+        }
+
+    @web.get("/api/billing/crypto-subscription")
+    async def crypto_subscription_status(request: Request, mf_session: str = Cookie(default="")):
+        """The Billing funding line's read: whether this
+        account carries a crypto subscription, and how much
+        its NOWPayments balance holds right now."""
+        user = require_user(request, mf_session)
+        if not user.get("np_subpartner_id"):
+            return {"active": False,
+                    "available":
+                        nowpayments_custody_configured()}
+        return {
+            "active": bool(user.get("np_subscription_id")),
+            "available": nowpayments_custody_configured(),
+            "funded_usd": _np_refresh_sub_balance(user),
+            "price_usd": pricing.CREATOR_PRICE_CENTS / 100,
+        }
 
     @web.post("/api/nowpayments/ipn")
     async def nowpayments_ipn(request: Request):
@@ -25623,6 +26118,31 @@ document.getElementById('go').onclick = async () => {{
         if not nowpayments_signature_ok(body, sig, ipn_secret):
             raise HTTPException(status_code=400,
                                 detail="bad signature")
+        # A funding deposit into a custody sub-account is
+        # not a top up and never credits the Moonfactory
+        # balance: the money waits at NOWPayments for the
+        # subscription to debit. Its only effect here is a
+        # fresh balance snapshot for the Billing funding
+        # line, taken once the deposit finishes.
+        funding = meta.get("np_funding_payments") or {}
+        frec = funding.get(str(body.get("payment_id"))) \
+            if body.get("payment_id") else None
+        if frec is not None:
+            status = body.get("payment_status")
+            frec["last_status"] = status
+            if status in ("finished", "confirmed") \
+                    and not frec.get("credited"):
+                frec["credited"] = True
+                fuser = users.get(f"id:{frec['user_id']}")
+                if fuser:
+                    try:
+                        _np_refresh_sub_balance(fuser)
+                    except Exception:
+                        pass
+                    save_user(fuser)
+            funding[str(body.get("payment_id"))] = frec
+            meta["np_funding_payments"] = funding
+            return {"received": True, "funding": True}
         order_id = body.get("order_id")
         orders = meta.get("nowpayments_orders") or {}
         order = orders.get(order_id) if order_id else None
@@ -25660,27 +26180,20 @@ document.getElementById('go').onclick = async () => {{
         orders[order_id] = order
         meta["nowpayments_orders"] = orders
         if order["kind"] == "plan":
-            # The same grant a Stripe plan purchase makes:
-            # Creator on, past due cleared, the included budget
-            # reset, and the money counted toward the ceiling.
-            # Crypto carries no subscription behind it, so the
-            # grant also writes the paid-through stamp (Jack,
-            # 2026-11-27 round 2): one month from the later of
-            # now and any month already paid for, with how this
-            # month was paid recorded beside it. The renewal
-            # settler reads the stamp; card months are driven
-            # by the Stripe subscription instead and carry no
-            # stamp.
-            user["plan"] = "creator"
-            user["past_due"] = False
-            user["plan_paid_via"] = "crypto"
-            user["plan_paid_through"] = max(
-                _now(), float(user.get("plan_paid_through") or 0)
-            ) + pricing.CREATOR_MONTH_SECONDS
-            u = user.get("usage") or {}
-            u["included_seconds"] = 0.0
-            u["included_cost_cents"] = 0.0
-            user["usage"] = u
+            # Legacy one-month plan invoices (the crypto
+            # plan checkout sold these until the custody
+            # subscription replaced it on 2026-11-28; any
+            # invoice still in flight lands here). The same
+            # grant a Stripe plan purchase makes, through the
+            # shared helper: Creator on, past due cleared,
+            # the included budget reset, the paid-through
+            # stamp advanced a month with how the month was
+            # paid recorded beside it, and the money counted
+            # toward the ceiling. The renewal settler reads
+            # the stamp for these months; subscription
+            # months arrive on their own endpoint instead.
+            _grant_creator_paid_month(user, "crypto",
+                                      order["gross_cents"])
             add_net_paid(user, order["gross_cents"])
             arm_autopay_on_payment(user)
         else:
@@ -25688,6 +26201,133 @@ document.getElementById('go').onclick = async () => {{
                          order["gross_cents"])
             arm_autopay_on_payment(user, order["credit_cents"])
         save_user(user)
+        return {"received": True}
+
+    def _np_find_recurring_subpartner(event_id):
+        """Resolve a custodial recurring payment id to the
+        sub-account it debited, through the recurring
+        payments list. The custodial IPN body itself carries
+        only the payment id, status, currency and amount, so
+        the list is the bridge from a debit to a customer.
+        Returns the sub-partner id or None."""
+        try:
+            data = _np_custody_call(
+                "GET",
+                "/subscriptions?limit=100&offset=0")
+        except HTTPException:
+            return None
+        rows = data if isinstance(data, list) else (
+            (data or {}).get("result")
+            or (data or {}).get("data") or [])
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            if str(row.get("id")) != str(event_id):
+                continue
+            for key in ("sub_partner_id", "subPartnerId",
+                        "sub_partner", "customer_id"):
+                if row.get(key):
+                    return str(row[key])
+        return None
+
+    @web.post("/api/nowpayments/subscription-ipn")
+    async def nowpayments_subscription_ipn(request: Request):
+        """Custodial recurring payment notifications (the
+        plan's own callback URL points here, so these never
+        mix with invoice payments). The documented body is
+        small: an id, a status (FINISHED on a landed debit),
+        the currency and amount debited, and timestamps,
+        signed with the same HMAC scheme as every
+        NOWPayments callback. A FINISHED debit grants the
+        Creator month through the same helper the invoice
+        grant uses, marked as paid by the crypto
+        subscription; the grant is idempotent on the debit
+        id, so NOWPayments' retries never grant twice. A
+        debit that cannot be resolved to a customer is
+        recorded and acknowledged, never guessed at. A
+        failed or unfunded period sends nothing grantable:
+        the plan simply is not extended, and the renewal
+        settler ends it at the paid-through date with no
+        grace (Jack, 2026-11-28)."""
+        _np_ipn_name = "NOW" + "PAYMENTS_" + "IPN" + "_SECRET"
+        ipn_secret = os.environ.get(_np_ipn_name, "").strip()
+        if not ipn_secret:
+            raise HTTPException(
+                status_code=503,
+                detail="crypto payments are not configured")
+        raw = await request.body()
+        try:
+            body = json.loads(raw)
+        except Exception:
+            raise HTTPException(status_code=400, detail="bad body")
+        if not isinstance(body, dict):
+            raise HTTPException(status_code=400, detail="bad body")
+        sig = request.headers.get("x-nowpayments-sig", "")
+        if not nowpayments_signature_ok(body, sig, ipn_secret):
+            raise HTTPException(status_code=400,
+                                detail="bad signature")
+        event_id = str(body.get("id") or "")
+        status = str(body.get("status") or "").upper()
+        events = meta.get("np_subscription_events") or {}
+        event = events.get(event_id) or {
+            "status": status,
+            "currency": body.get("currency"),
+            "amount": body.get("amount"),
+            "at": _now(),
+            "user_id": None,
+        }
+        event["status"] = status
+        event["last_at"] = _now()
+        events[event_id] = event
+        while len(events) > 200:
+            events.pop(next(iter(events)))
+        meta["np_subscription_events"] = events
+        if status != "FINISHED" or not event_id:
+            return {"received": True}
+        credits = meta.get("np_subscription_credits") or {}
+        if event_id in credits:
+            return {"received": True, "duplicate": True}
+        # Resolve the debit to a customer: a subscription or
+        # sub-partner id riding the body wins, then the maps
+        # written when the subscription was created, then
+        # the recurring payments list.
+        user = None
+        sub_partner = body.get("sub_partner_id") \
+            or body.get("subPartnerId")
+        sub_id = body.get("subscription_id")
+        subs = meta.get("np_subscriptions") or {}
+        partners = meta.get("np_subpartners") or {}
+        user_id = None
+        if sub_id and str(sub_id) in subs:
+            user_id = subs[str(sub_id)]
+        if not user_id and sub_partner \
+                and str(sub_partner) in partners:
+            user_id = partners[str(sub_partner)]
+        if not user_id:
+            found = _np_find_recurring_subpartner(event_id)
+            if found and found in partners:
+                sub_partner = found
+                user_id = partners[found]
+        if user_id:
+            user = users.get(f"id:{user_id}")
+        if not user:
+            # Recorded above for reconciliation; a debit we
+            # cannot attribute grants nothing.
+            return {"received": True, "unresolved": True}
+        event["user_id"] = user["id"]
+        events[event_id] = event
+        meta["np_subscription_events"] = events
+        _grant_creator_paid_month(
+            user, "crypto_sub", pricing.CREATOR_PRICE_CENTS)
+        add_net_paid(user, pricing.CREATOR_PRICE_CENTS)
+        save_user(user)
+        credits[event_id] = {
+            "user_id": user["id"],
+            "currency": body.get("currency"),
+            "amount": body.get("amount"),
+            "at": _now(),
+        }
+        meta["np_subscription_credits"] = credits
         return {"received": True}
 
     # -- per-second lane completion callback ----------------------------
@@ -27149,7 +27789,10 @@ next renewal. It does not refund the current month. A Creator month
 paid with crypto renews the same way from your balance while it
 covers the price, with auto reload covering a shortfall when it is
 on; if neither covers it, the plan ends at the paid-through
-date.</li>
+date. A Creator plan started with crypto is a subscription at
+NOWPayments: it renews on its own from the crypto balance you keep
+there, and if that balance cannot cover the price on the renewal
+date, the plan ends.</li>
 <li>Balances and credits have no cash value, are not transferable,
 and are forfeited if your account is closed for violating these
 Terms.</li>
@@ -29264,6 +29907,14 @@ APP_HTML = (
         <button class="method-card" type="button" id="method-crypto" aria-pressed="false" style="display:none"><span class="btc-badge" aria-hidden="true">₿</span>Crypto</button>
       </div>
       <p class="muted" id="method-note" style="display:none"></p>
+      <div id="crypto-sub-box" style="display:none">
+        <p class="muted" id="crypto-sub-line"></p>
+        <p><code id="crypto-sub-address" style="word-break:break-all"></code></p>
+        <p class="muted" id="crypto-sub-funded"></p>
+        <p>
+          <button class="btn secondary" id="crypto-sub-fund" type="button">Get a deposit address</button>
+        </p>
+      </div>
       <p>
         <button class="btn gen" id="pay-continue" type="button">Continue to payment</button>
       </p>
@@ -30466,6 +31117,7 @@ function showStudio(u) {
   renderAutoReload(u);
   renderPlanNote(u);
   renderCryptoBilling();
+  refreshCryptoSub(u);
   const paidSurface = isPaidSurface();
   $('composer-heading').textContent = 'Create';
   $('composer-note').textContent = paidSurface
@@ -31404,13 +32056,17 @@ function billSync() {
   // rule; the Auto reload section below states only its own
   // state), Creator by card renews monthly on its own,
   // crypto carries its landing fact, and Creator by crypto
-  // renews from the balance, with auto reload covering a
-  // shortfall when it is on (Route E, Jack, 2026-11-27).
+  // is a NOWPayments subscription that renews from the
+  // crypto balance kept there (Jack, 2026-11-28) — or says
+  // plainly that it is not available when the custody side
+  // is not configured, before anyone taps Continue.
   const note = $('method-note');
   let text = '';
   if (billMethod === 'crypto') {
     text = planOn
-      ? 'Creator paid with crypto renews on its own from your balance while it covers $20. Auto reload covers a shortfall when it is on.'
+      ? (cfg.crypto_plan_configured
+          ? 'Creator renews on its own from the crypto you keep in your NOWPayments balance. Keep at least $20 there.'
+          : 'Creator by crypto is not available yet.')
       : 'Crypto checkout runs through NOWPayments. Your credit lands in your balance when the payment confirms, usually within the hour.';
   } else if (planOn) {
     text = 'Creator by card is a subscription. It renews monthly on its own.';
@@ -31466,6 +32122,9 @@ function renderPlanNote(s) {
   if (!el) return;
   let text = '';
   if (s && s.plan === 'creator'
+      && s.plan_paid_via === 'crypto_sub') {
+    text = 'Creator renews from your NOWPayments balance. Keep at least $20 of crypto there.';
+  } else if (s && s.plan === 'creator'
       && (s.plan_paid_via === 'crypto' || s.plan_paid_via === 'balance')) {
     text = 'Creator renews from your balance. Keep $20 in it and it never lapses.';
   }
@@ -31589,9 +32248,49 @@ async function startCryptoTopup(cents) {
   location.href = r.url;
 }
 async function startCryptoPlan() {
-  const r = await api('/api/checkout/crypto/plan', { method: 'POST' });
-  location.href = r.url;
+  // Creator by crypto is a subscription, not a redirect
+  // (Custody Billing Service, 2026-11-28): the answer is
+  // the funding step, rendered in the panel — the deposit
+  // address and the balance standing. NOWPayments takes
+  // the first $20 from that balance itself and renews the
+  // same way every month.
+  const r = await api('/api/checkout/crypto/plan', { method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ currency: 'usdttrc20' }) });
+  renderCryptoSub(r);
+  msg('pay-msg', 'Your crypto subscription is set up. Fund it at the address below.', 'ok');
 }
+function renderCryptoSub(r) {
+  const box = $('crypto-sub-box');
+  if (!box || !r) return;
+  box.style.display = '';
+  if (r.pay_address) {
+    $('crypto-sub-line').textContent = 'Send USDT on the TRON network to your NOWPayments deposit address:';
+    $('crypto-sub-address').textContent = r.pay_address;
+    $('crypto-sub-address').style.display = '';
+  } else {
+    $('crypto-sub-line').textContent = 'Your Creator subscription renews from your NOWPayments balance.';
+    $('crypto-sub-address').style.display = 'none';
+  }
+  $('crypto-sub-funded').textContent = 'Your NOWPayments balance: $'
+    + Number(r.funded_usd || 0).toFixed(2)
+    + ' of the $20 a month needs.';
+}
+async function refreshCryptoSub(s) {
+  const box = $('crypto-sub-box');
+  if (!box) return;
+  if (!s || !s.np_subscription) { box.style.display = 'none'; return; }
+  try {
+    const r = await api('/api/billing/crypto-subscription');
+    if (r && r.active) renderCryptoSub(r);
+  } catch (e) { /* the snapshot in the account read stands */ }
+}
+$('crypto-sub-fund').onclick = async () => {
+  try {
+    const r = await api('/api/checkout/crypto/plan/funding', { method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ currency: 'usdttrc20' }) });
+    renderCryptoSub(r);
+  } catch (e) { msg('pay-msg', e.message, 'err'); }
+};
 // -- the guided movie flow (Jack, 2026-11-27) ----------------------
 // One implementation in two homes: the same four steps render
 // in the Create tab and in the Clone tab, alongside the Clone
