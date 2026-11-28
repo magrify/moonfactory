@@ -19683,13 +19683,72 @@ document.getElementById('go').onclick = async () => {{
             return False
         return mdat == -1 or moov < mdat
 
+    def _web_codecs(path: Path):
+        """The (video, audio) codec names of a stored file,
+        probed with ffprobe's stream list — the same tool the
+        duration and size probes already use. (None, None)
+        when the file cannot be probed at all."""
+        try:
+            proc = subprocess.run(
+                ["ffprobe", "-v", "error", "-show_entries",
+                 "stream=codec_type,codec_name", "-of", "json",
+                 str(path)],
+                capture_output=True, text=True, timeout=60)
+            streams = json.loads(
+                proc.stdout or "{}").get("streams") or []
+        except Exception:  # noqa: BLE001
+            return None, None
+        vcodec = acodec = None
+        for stream in streams:
+            if stream.get("codec_type") == "video" \
+                    and vcodec is None:
+                vcodec = stream.get("codec_name")
+            elif stream.get("codec_type") == "audio" \
+                    and acodec is None:
+                acodec = stream.get("codec_name")
+        return vcodec, acodec
+
+    def _web_playable(path: Path) -> bool:
+        """True when phone browsers can decode the file as it
+        stands: H.264 picture, and AAC sound or no sound at
+        all. A file ffprobe cannot read counts as playable —
+        ignorance never triggers a re-encode of a healthy
+        file; the conversion in ensure_web_file is reserved
+        for files proven foreign."""
+        vcodec, acodec = _web_codecs(path)
+        if vcodec is None:
+            return True
+        return vcodec == "h264" and acodec in (None, "aac")
+
     def ensure_web_file(job: dict, src: Path) -> Path:
-        """The copy of a finished video the players are served:
-        the delivered file itself when its index is already up
-        front, else a one time stream copy remux with the index
-        moved to the front, cached beside it. No re-encode, the
-        picture and sound are byte identical streams."""
-        if _moov_first(src):
+        """The copy of a finished video the players are
+        served: always one phone browsers can actually play —
+        H.264 picture, AAC sound, index (moov) up front. The
+        delivered file itself when it already qualifies; else
+        a one time conversion cached beside it, and the
+        delivered file is never rewritten. Two shapes need
+        the conversion (playable guarantee, 2026-11-28):
+
+        - Only the layout is wrong (the streams are already
+          H.264/AAC, the index sits at the end): a stream
+          copy remux moves the index up front, the picture
+          and sound byte identical — the original 2026-11-21
+          fix, unchanged.
+        - The streams themselves are foreign. The link
+          ingest routes hand back whatever the source site
+          served — for YouTube Shorts, AV1 picture with Opus
+          sound in an mp4 wrapper — and ensure_processed
+          stores it untouched on the "exactly as it should
+          play back" assumption. iPhone browsers cannot
+          decode AV1 or Opus in an mp4 at all, so every
+          player and every fallback video for such a file
+          sat black while its poster and thumbnail (cut
+          server side by ffmpeg, which decodes AV1 fine)
+          painted perfectly — the black ingested source
+          card that survived both poster fixes. Those files
+          are transcoded once, to H.264/AAC faststart, and
+          the transcode is what players are served."""
+        if _web_playable(src) and _moov_first(src):
             return src
         web_path = FILES_DIR / f"{job['id']}.web.mp4"
         if not web_path.exists():
@@ -19697,18 +19756,34 @@ document.getElementById('go').onclick = async () => {{
                 data_volume.reload()
             except Exception:
                 pass
-        if web_path.exists() and _moov_first(web_path):
+        if web_path.exists() and _web_playable(web_path) \
+                and _moov_first(web_path):
             return web_path
         tmp_path = FILES_DIR / f"{job['id']}.web.tmp.mp4"
         try:
             tmp_path.unlink(missing_ok=True)
         except Exception:
             pass
+        vcodec, acodec = _web_codecs(src)
+        foreign = vcodec is not None and (
+            vcodec != "h264" or acodec not in (None, "aac"))
+        if not foreign:
+            cmd = ["ffmpeg", "-y", "-i", str(src), "-c", "copy",
+                   "-movflags", "+faststart", str(tmp_path)]
+            timeout = 600
+        else:
+            cmd = ["ffmpeg", "-y", "-i", str(src),
+                   "-map", "0:v:0", "-map", "0:a:0?"]
+            cmd += (["-c:v", "copy"] if vcodec == "h264" else
+                    ["-c:v", "libx264", "-preset", "veryfast",
+                     "-crf", "20", "-pix_fmt", "yuv420p"])
+            cmd += (["-c:a", "copy"] if acodec in (None, "aac")
+                    else ["-c:a", "aac", "-b:a", "160k"])
+            cmd += ["-movflags", "+faststart", str(tmp_path)]
+            timeout = 1800
         try:
-            subprocess.run(
-                ["ffmpeg", "-y", "-i", str(src), "-c", "copy",
-                 "-movflags", "+faststart", str(tmp_path)],
-                check=True, capture_output=True, timeout=600)
+            subprocess.run(cmd, check=True, capture_output=True,
+                           timeout=timeout)
             tmp_path.replace(web_path)
             data_volume.commit()
         except Exception:
