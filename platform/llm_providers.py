@@ -126,6 +126,7 @@ Provider state at wiring time (2026-11-17):
 
 import json
 import os
+import socket
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -704,19 +705,44 @@ class DraftModelUnavailable(RuntimeError):
     empty. Under the model choice rule a pick is never
     silently replaced by another model, so the drafting
     flows surface this as a clean failure that names the
-    pick. Carries the pick's plain label."""
+    pick. Carries the pick's plain label, and timed_out when
+    the call died on time, so a caller can say that instead
+    of the plainer did not answer (2026-11-28)."""
 
-    def __init__(self, label: str):
+    def __init__(self, label: str, timed_out: bool = False):
         super().__init__(f"{label} did not answer")
         self.label = label
+        self.timed_out = timed_out
+
+
+# One chat call's socket budget when the caller names none.
+# The long form drafting flows (a script from a topic, a
+# drama storyboard) keep this; the interactive prompt help
+# call passes a far shorter one, because a person is staring
+# at a Writing spinner while it runs (2026-11-28: a free
+# route took 103 seconds to answer and another never
+# answered at all, so one click hung for the full 120).
+CHAT_TIMEOUT_SECONDS = 120
+
+
+def _is_timeout(exc) -> bool:
+    """True when a provider call died on time: a bare socket
+    timeout, or a URLError whose reason is one."""
+    if isinstance(exc, (TimeoutError, socket.timeout)):
+        return True
+    return isinstance(
+        getattr(exc, "reason", None),
+        (TimeoutError, socket.timeout))
 
 
 def _provider_chat(prompt: str, provider_id: str,
-                   api_key: str, model: str) -> str:
+                   api_key: str, model: str,
+                   timeout: float = None) -> str:
     """One OpenAI compatible chat call to a registry
     provider, returning the raw text (drafting wants prose
     or the drama JSON, not a parsed shape). Raises on any
-    failure or an empty answer."""
+    failure or an empty answer. The timeout is the call's
+    socket budget; none reads as CHAT_TIMEOUT_SECONDS."""
     p = _provider(provider_id)
     url = p["base_url"].rstrip("/") + "/chat/completions"
     body = {
@@ -732,7 +758,9 @@ def _provider_chat(prompt: str, provider_id: str,
         },
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=120) as resp:
+    with urllib.request.urlopen(
+            req, timeout=CHAT_TIMEOUT_SECONDS
+            if timeout is None else timeout) as resp:
         data = json.loads(resp.read())
     text = data["choices"][0]["message"]["content"] or ""
     if not text.strip():
@@ -740,16 +768,21 @@ def _provider_chat(prompt: str, provider_id: str,
     return text
 
 
-def _silk_chat(prompt: str, api_key: str, model: str) -> str:
+def _silk_chat(prompt: str, api_key: str, model: str,
+               timeout: float = None) -> str:
     """One chat call to Silk Compute (kept as the named seam
     the first draft build's checks stub)."""
-    return _provider_chat(prompt, "silk", api_key, model)
+    return _provider_chat(prompt, "silk", api_key, model,
+                          timeout=timeout)
 
 
-def _gemini_chat(prompt: str, api_key: str, model: str) -> str:
+def _gemini_chat(prompt: str, api_key: str, model: str,
+                 timeout: float = None) -> str:
     """One Google Gemini call for exactly the named model,
     in the same request shape shorts._gemini_text uses.
-    Raises on any failure or an empty answer."""
+    Raises on any failure or an empty answer. The timeout
+    is the call's socket budget; none reads as
+    CHAT_TIMEOUT_SECONDS."""
     url = (
         "https://generativelanguage.googleapis.com/v1beta/models/"
         f"{model}:generateContent?key="
@@ -764,7 +797,9 @@ def _gemini_chat(prompt: str, api_key: str, model: str) -> str:
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=120) as resp:
+    with urllib.request.urlopen(
+            req, timeout=CHAT_TIMEOUT_SECONDS
+            if timeout is None else timeout) as resp:
         data = json.loads(resp.read())
     text = data["candidates"][0]["content"]["parts"][0]["text"]
     if not text or not text.strip():
@@ -772,38 +807,48 @@ def _gemini_chat(prompt: str, api_key: str, model: str) -> str:
     return text
 
 
-def draft_text(prompt: str, draft_model: str) -> str:
+def draft_text(prompt: str, draft_model: str,
+               timeout: float = None) -> str:
     """The picked draft model's text, from exactly that
     model. Raises DraftModelUnavailable when the pick is
     unknown, its route is not configured, the call fails,
     or the answer is empty: under the model choice rule a
     user pick is never silently substituted with another
     model, so the caller turns this into a clean failure
-    that names the pick."""
+    that names the pick. The timeout, when named, is the
+    provider call's socket budget; a call that dies on it
+    raises with timed_out set. No timeout named keeps the
+    call's shape exactly as it was, so the long form
+    drafting flows and their checks are untouched."""
     entry = draft_model_entry(draft_model)
     if entry is None:
         raise DraftModelUnavailable(
             draft_model_label(draft_model))
     label = entry["label"]
     model = entry.get("model") or entry["id"]
+    chat_kw = {} if timeout is None else {"timeout": timeout}
     try:
         if entry["provider"] == "gemini":
             api_key = os.environ.get("GEMINI_API_KEY")
             if not api_key:
                 raise DraftModelUnavailable(label)
-            return _gemini_chat(prompt, api_key, model)
+            return _gemini_chat(prompt, api_key, model,
+                                **chat_kw)
         p = _provider(entry["provider"])
         api_key = os.environ.get(p["key_env"])
         if not api_key or not p["base_url"]:
             raise DraftModelUnavailable(label)
         if entry["provider"] == "silk":
-            return _silk_chat(prompt, api_key, model)
+            return _silk_chat(prompt, api_key, model,
+                              **chat_kw)
         return _provider_chat(
-            prompt, entry["provider"], api_key, model)
+            prompt, entry["provider"], api_key, model,
+            **chat_kw)
     except DraftModelUnavailable:
         raise
-    except Exception:  # noqa: BLE001 - the pick failed, cleanly
-        raise DraftModelUnavailable(label)
+    except Exception as exc:  # noqa: BLE001 - the pick failed, cleanly
+        raise DraftModelUnavailable(
+            label, timed_out=_is_timeout(exc))
 
 
 def silk_draft_text(prompt: str, draft_model: str):

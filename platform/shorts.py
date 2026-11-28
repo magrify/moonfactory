@@ -373,17 +373,21 @@ def _openrouter_text(prompt: str) -> str:
     raise RuntimeError(f"free script writing unavailable: {last_exc}")
 
 
-def _picked_draft_text(prompt: str, draft_model: str) -> str:
+def _picked_draft_text(prompt: str, draft_model: str,
+                       timeout: float = None) -> str:
     """The picked draft model's text, from exactly that model
     (the draft picker lives in llm_providers). Under Jack's
     model choice rule (2026-11-20) a pick is never silently
     substituted: when the picked model cannot answer, this
     raises llm_providers.DraftModelUnavailable and the caller
-    turns it into a clean failure that names the pick."""
+    turns it into a clean failure that names the pick. The
+    timeout, when named, is the provider call's socket
+    budget, passed through untouched."""
     import llm_providers
 
     return llm_providers.draft_text(
-        prompt, llm_providers.normalize_draft_model(draft_model))
+        prompt, llm_providers.normalize_draft_model(draft_model),
+        timeout=timeout)
 
 
 def script_routes_configured() -> bool:
@@ -552,7 +556,8 @@ def _clean_helped_magi2(text: str) -> str:
 
 def improve_prompt(text: str, draft_model: str = None,
                    kind: str = "video",
-                   language: str = "en") -> str:
+                   language: str = "en",
+                   timeout: float = None) -> str:
     """Improve one generative prompt with the picked draft
     model (2026-11-20 expansion: every text to image and text
     to video prompt field in Create carries the draft picker).
@@ -564,7 +569,10 @@ def improve_prompt(text: str, draft_model: str = None,
     to the script box's own cap) and keeps its line breaks.
     The magi2 kind (2026-11-26) rewrites into the MAGI-2
     structure at the lane's own cap, in Chinese when the
-    language pick says so, and keeps its section lines."""
+    language pick says so, and keeps its section lines. The
+    timeout, when named, is the provider call's socket
+    budget: the endpoint names a short one, because a person
+    is waiting on the answer (2026-11-28)."""
     text = (text or "").strip()
     if not text:
         raise ValueError("write a prompt first")
@@ -575,7 +583,8 @@ def improve_prompt(text: str, draft_model: str = None,
                 f"under {MAGI2_HELP_MAX_CHARS} characters")
         prompt = magi2_help_instruction(text, language)
         return _clean_helped_magi2(
-            _picked_draft_text(prompt, draft_model))
+            _picked_draft_text(prompt, draft_model,
+                               timeout=timeout))
     if kind == "script":
         if len(text) > SHORTS_MAX_SCRIPT_CHARS:
             raise ValueError(
@@ -583,14 +592,16 @@ def improve_prompt(text: str, draft_model: str = None,
                 f"under {SHORTS_MAX_SCRIPT_CHARS} characters")
         prompt = prompt_help_instruction(text, kind)
         return _clean_helped_script(
-            _picked_draft_text(prompt, draft_model))
+            _picked_draft_text(prompt, draft_model,
+                               timeout=timeout))
     if len(text) > 1000:
         raise ValueError(
             "that prompt is too long to help with, keep it "
             "under 1000 characters")
     prompt = prompt_help_instruction(text, kind)
     return _clean_helped_prompt(
-        _picked_draft_text(prompt, draft_model))
+        _picked_draft_text(prompt, draft_model,
+                           timeout=timeout))
 
 
 def help_unchanged(text: str, improved: str, kind: str) -> bool:

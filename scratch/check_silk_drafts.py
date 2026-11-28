@@ -320,8 +320,9 @@ check(SRC.count("except llm_providers.DraftModelUnavailable") == 3,
 check("api.silkcompute.com" not in SRC,
       "no hosting detail leaks into the studio source")
 check('"/api/prompt-help"' in SRC, "the prompt help endpoint exists")
-check("shorts.improve_prompt(\n                text, draft_model, kind, language)" in SRC,
-      "the endpoint passes the pick to the help writer")
+check("run_in_threadpool(\n                    shorts.improve_prompt, text, draft_model,\n                    kind, language," in SRC,
+      "the endpoint passes the pick to the help writer, "
+      "off the event loop under its time budget (2026-11-28)")
 check("async function promptHelp(" in SRC, "the help action exists")
 check(SRC.count("promptHelp('") == 4,
       "all three prompt fields and the shorts script wire "

@@ -160,8 +160,9 @@ finally:
 
 check('"unchanged": shorts.help_unchanged(' in SRC,
       "the prompt help endpoint returns the unchanged flag")
-check("shorts.improve_prompt(\n                text, draft_model, kind, language)" in SRC,
-      "the endpoint still improves through shorts.improve_prompt")
+check("run_in_threadpool(\n                    shorts.improve_prompt, text, draft_model,\n                    kind, language," in SRC,
+      "the endpoint still improves through shorts.improve_prompt, "
+      "off the event loop under its time budget (2026-11-28)")
 
 fn = SRC.split("async function promptHelp(", 1)[1]
 fn = fn.split("$('prompt-help-btn')", 1)[0]

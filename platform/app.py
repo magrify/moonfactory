@@ -9569,6 +9569,8 @@ def nowpayments_signature_ok(body_obj, sig, ipn_secret) -> bool:
 
 @modal.asgi_app()
 def api():
+    import asyncio
+
     import requests
     from fastapi import Cookie, FastAPI, File, Header, HTTPException, Request, UploadFile
     from fastapi.concurrency import run_in_threadpool
@@ -23021,6 +23023,24 @@ document.getElementById('go').onclick = async () => {{
     # silent fallback, per the model choice rule). No job is
     # created. Drafting calls cost API tokens, so drafting is
     # not presented as a free feature (Jack, 2026-11-20).
+    #
+    # The time budget (2026-11-28, after Jack watched a click
+    # hang on Writing for two minutes and then fail): measured
+    # live that morning, the picked free route's provider call
+    # ran the full 120 second socket timeout without answering
+    # (its own edge answered a raw call with a 524 at 125
+    # seconds), a second free route took 103 seconds to answer,
+    # and because the handler called the blocking provider call
+    # inline, the single web container's event loop served
+    # nothing else meanwhile (a plain /api/me took 117.69
+    # seconds during one improve, against a 0.36 second
+    # baseline). So one click now gets ONE provider call with
+    # a 20 second socket budget, run in the threadpool so the
+    # loop never waits on it, under a 25 second wall clock cap
+    # for the whole request: an improved prompt or a plain
+    # failure that names the pick, in seconds, never minutes.
+    PROMPT_HELP_CALL_TIMEOUT = 20
+    PROMPT_HELP_BUDGET_SECONDS = 25
 
     @web.post("/api/prompt-help")
     async def prompt_help(request: Request, mf_session: str = Cookie(default="")):
@@ -23067,14 +23087,30 @@ document.getElementById('go').onclick = async () => {{
         enforce_prompt_gate(
             user, "prompt-help", client_ip(request), text)
         try:
-            improved = shorts.improve_prompt(
-                text, draft_model, kind, language)
+            improved = await asyncio.wait_for(
+                run_in_threadpool(
+                    shorts.improve_prompt, text, draft_model,
+                    kind, language,
+                    timeout=PROMPT_HELP_CALL_TIMEOUT),
+                timeout=PROMPT_HELP_BUDGET_SECONDS)
+        except (asyncio.TimeoutError, TimeoutError):
+            # The wall clock cap fired: the pick gets named
+            # with the plain too long failure, and the user's
+            # words stay exactly as they were.
+            raise HTTPException(
+                status_code=503,
+                detail=f"{llm_providers.draft_model_label(draft_model)} took too long to answer, so your prompt was not changed. Try again, or pick a different model.")
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc))
         except llm_providers.DraftModelUnavailable as exc:
             # The picked model did not answer and no other
             # model may take its place (the model choice
-            # rule): the failure names the pick.
+            # rule): the failure names the pick. A call that
+            # died on its socket budget says so plainly.
+            if exc.timed_out:
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"{exc.label} took too long to answer, so your prompt was not changed. Try again, or pick a different model.")
             raise HTTPException(
                 status_code=503,
                 detail=f"{exc.label} did not answer, so your prompt was not changed. Pick another draft model and try again.")
@@ -35227,6 +35263,24 @@ function restoreMagi2Refs(b) {
   if (videos.length && b.reference_video_seconds) videos[0].seconds = String(b.reference_video_seconds);
   renderMagi2Refs();
 }
+// One prompt help call under a client side deadline
+// (2026-11-28). The server answers inside its own budget
+// or fails plainly, and its failures print through the
+// studio's one error voice (errText) like every other
+// surface. This abort is the backstop for a connection
+// that dies without answering at all, so the Writing
+// button never spins past it; the rejection lands in
+// api() as the plain offline sentence, never the
+// browser's raw words.
+async function promptHelpCall(body) {
+  const ctl = new AbortController();
+  const killer = setTimeout(() => ctl.abort(), 40000);
+  try {
+    return await api('/api/prompt-help', { method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body), signal: ctl.signal });
+  } finally { clearTimeout(killer); }
+}
+
 async function promptHelpMagi2(btn) {
   const ta = $('prompt');
   const text = ta.value.trim();
@@ -35234,8 +35288,7 @@ async function promptHelpMagi2(btn) {
   if (!currentUser) { msg('prompt-help-msg', 'Sign in to use prompt help.', 'err'); return; }
   btnBusy(btn, 'Writing...');
   try {
-    const r = await api('/api/prompt-help', { method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ text, kind: 'magi2', language: $('prompt-help-zh').checked ? 'zh' : 'en', draft_model: $('prompt-draft-model').value }) });
+    const r = await promptHelpCall({ text, kind: 'magi2', language: $('prompt-help-zh').checked ? 'zh' : 'en', draft_model: $('prompt-draft-model').value });
     if (r.unchanged) {
       msg('prompt-help-msg', 'That model sent your prompt back unchanged. Try another model or add more to your prompt first.');
       return;
@@ -35255,8 +35308,7 @@ async function promptHelp(textId, modelId, kind, msgId, btn, noun) {
   if (!currentUser) { msg(msgId, 'Sign in to use prompt help.', 'err'); return; }
   btnBusy(btn, 'Writing...');
   try {
-    const r = await api('/api/prompt-help', { method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ text, kind, draft_model: $(modelId).value }) });
+    const r = await promptHelpCall({ text, kind, draft_model: $(modelId).value });
     if (r.unchanged) {
       // The pick sent the words back untouched (Jack,
       // 2026-11-21): say so plainly, never call it an
