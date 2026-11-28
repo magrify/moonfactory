@@ -40,8 +40,10 @@ need('"-movflags", "+faststart"' in SRC,
      "web remux moves the index up front")
 need(SRC.count("ensure_web_file(job, out_path)") == 2,
      "both file routes (own library and gallery) serve the web copy")
-need(SRC.count('resp.headers["content-disposition"]') == 2,
-     "both file routes serve inline, not attachment")
+need(SRC.count('resp.headers["content-disposition"]') == 3,
+     "the file routes (own library, gallery, and the hosted "
+     "provider route added by the 2026-11-28 clone hosting "
+     "fix) serve inline, not attachment")
 need('"/api/jobs/{job_id}/poster"' in SRC,
      "authed poster route for own jobs exists")
 need('preload="metadata"' not in SRC,

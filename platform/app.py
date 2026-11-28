@@ -1069,6 +1069,98 @@ def _worker_fal_upload(data: bytes, content_type: str, file_name: str):
         return None
 
 
+# ---------------------------------------------------------------------------
+# Self-hosted provider URLs (2026-11-28, clone hosting fix).
+# The reference lanes (the Clone motion/both/frames classes,
+# the character trainer, lip sync) take public URLs, never
+# bytes, and until now the only host the platform had was fal
+# storage. fal's account is locked at $0 ("User is locked.
+# Reason: Exhausted balance"), so every clone on a
+# source-sending lane died at quote/create with a 503 before
+# any provider submit — the platform could not prepare its
+# own source video. The app already serves its files over
+# HTTPS from its own address, so the clone path hosts on the
+# platform itself: a file on the data volume is registered
+# under an unguessable token in the meta Dict and served by
+# the /hosted/{token} route with no session — the token is
+# the whole credential, the same capability shape as a
+# signed URL, and an unknown token is a plain 404. fal
+# storage stays on as the fallback at each call site, for
+# the case a self-host mint ever fails outright.
+# ---------------------------------------------------------------------------
+
+HOSTED_MEDIA_TYPES = {
+    ".mp4": "video/mp4",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+}
+
+
+def _public_base_url() -> str:
+    """This app's own public address: the PUBLIC_BASE_URL
+    override when the deployment sets one, else the
+    production address the API docs print."""
+    return (os.environ.get("PUBLIC_BASE_URL")
+            or "https://magrify--moonfactory-api.us-east.modal.run"
+            ).rstrip("/")
+
+
+def _hosted_url_for(rel_name: str) -> str:
+    """Register one file from the data volume's files dir
+    under a fresh unguessable token and return the public
+    URL this app serves it at. The mapping lives in the
+    meta Dict, so any container can mint and any container
+    can serve. The file's suffix rides on the URL for
+    fetchers that sniff extensions; the lookup ignores it."""
+    token = pysecrets.token_hex(24)
+    meta[f"hosted:{token}"] = rel_name
+    return f"{_public_base_url()}/hosted/{token}{Path(rel_name).suffix}"
+
+
+def _hosted_image_rel(data: bytes) -> str:
+    """Persist image bytes content-addressed in the files
+    dir and return their volume-relative name: identical
+    bytes host once, under a name no record has to
+    bookkeep."""
+    if data.startswith(b"\x89PNG"):
+        ext = ".png"
+    elif data.startswith(b"\xff\xd8"):
+        ext = ".jpg"
+    elif data.startswith(b"RIFF") and data[8:12] == b"WEBP":
+        ext = ".webp"
+    else:
+        ext = ".png"
+    rel = f"ecimg-{hashlib.sha256(data).hexdigest()[:24]}{ext}"
+    path = FILES_DIR / rel
+    if not path.exists():
+        path.write_bytes(data)
+    return rel
+
+
+def _worker_host_source(job_id: str, data: bytes):
+    """The ingest-time host stamp for a clone source: the
+    self-hosted URL first, fal storage as the fallback it
+    always was. Returns the hosted URL or None."""
+    try:
+        return _hosted_url_for(f"{job_id}.mp4")
+    except Exception:
+        pass
+    return _worker_fal_upload(data, "video/mp4", f"{job_id}.mp4")
+
+
+def _worker_host_image(data: bytes):
+    """The ingest-time host stamp for a character frame:
+    the self-hosted URL first, fal storage as the
+    fallback. Returns the hosted URL or None."""
+    try:
+        return _hosted_url_for(_hosted_image_rel(data))
+    except Exception:
+        pass
+    return _worker_fal_upload(data, "image/jpeg", "frame.jpg")
+
+
 def _save_user_record(user: dict) -> None:
     """Write a user record back under every index it carries,
     mirroring the web app's save_user for the module-level
@@ -1265,10 +1357,11 @@ def process_editclone_job(job_id: str):
             classify_job_output(job, dest)
             # The clone dispatch needs the source at a public URL
             # (the reference lanes take URLs, never bytes). Host
-            # it now; if the host refuses, the clone endpoint
-            # retries the upload at create time instead.
-            job["hosted_url"] = _worker_fal_upload(
-                dest.read_bytes(), "video/mp4", f"{job_id}.mp4")
+            # it now, on this app's own host (clone hosting fix,
+            # 2026-11-28); if hosting fails outright, the clone
+            # endpoint retries at create time instead.
+            job["hosted_url"] = _worker_host_source(
+                job_id, dest.read_bytes())
             job["stage"] = "Done"
             job["status"] = "done"
             jobs[job_id] = job
@@ -1318,8 +1411,7 @@ def process_editclone_job(job_id: str):
                 data = fp.read_bytes()
                 raw = base64.b64encode(data).decode()
                 _validate_image_b64(raw, "character image")
-                hosted = _worker_fal_upload(
-                    data, "image/jpeg", fp.name)
+                hosted = _worker_host_image(data)
                 if not hosted:
                     raise RuntimeError("character image hosting failed")
                 stored.append({"b64": raw, "fal_url": hosted})
@@ -21160,18 +21252,50 @@ document.getElementById('go').onclick = async () => {{
         process_editclone_job.spawn(job["id"])
         return JSONResponse(public_job(job), status_code=202)
 
+    def _host_image_url(data: bytes):
+        """One image at a public URL on this app's own host
+        (clone hosting fix, 2026-11-28): the bytes persist
+        content-addressed on the volume, committed so any
+        container can serve them, and the URL is the token
+        address the hosted route serves. None on any
+        failure, so callers keep their fal fallback."""
+        try:
+            rel = _hosted_image_rel(data)
+            data_volume.commit()
+            return _hosted_url_for(rel)
+        except Exception:
+            return None
+
     def _editclone_hosted_source(src: dict) -> str:
         """The source video at a public URL: the reference
         branches send Video1 to the lane, and lanes take URLs,
         not bytes. The ingest hosts the source as it lands; a
         source that predates that (or whose hosting failed) is
-        hosted now, at create time, from its library file."""
+        hosted now, at create time, from its library file —
+        on this app's own host (clone hosting fix,
+        2026-11-28): fal storage was the only route before,
+        and its locked account 503'd every source-sending
+        clone at quote/create. fal stays as the fallback for
+        the one case self-hosting cannot cover, a mint that
+        fails outright."""
         hosted = src.get("hosted_url")
         if hosted:
             return hosted
-        hosted = _fal_upload_bytes(
-            (FILES_DIR / f"{src['id']}.mp4").read_bytes(),
-            "video/mp4", f"{src['id']}.mp4")
+        path = FILES_DIR / f"{src['id']}.mp4"
+        if not path.exists():
+            try:
+                data_volume.reload()
+            except Exception:
+                pass
+        hosted = None
+        if path.exists():
+            try:
+                hosted = _hosted_url_for(f"{src['id']}.mp4")
+            except Exception:
+                hosted = None
+            if not hosted:
+                hosted = _fal_upload_bytes(
+                    path.read_bytes(), "video/mp4", f"{src['id']}.mp4")
         if not hosted:
             raise HTTPException(
                 status_code=503,
@@ -21194,7 +21318,8 @@ document.getElementById('go').onclick = async () => {{
                     data = base64.b64decode(im["b64"])
                 except Exception:
                     continue
-                url = _fal_upload_bytes(data, "image/png", "character.png")
+                url = _host_image_url(data) or _fal_upload_bytes(
+                    data, "image/png", "character.png")
                 if url:
                     return url
         return None
@@ -21226,10 +21351,32 @@ document.getElementById('go').onclick = async () => {{
             if refusal:
                 raise HTTPException(
                     status_code=400, detail=refusal)
+            # Hosted on this app's own host (clone hosting
+            # fix, 2026-11-28): the frames persist beside the
+            # source on the volume and ride the same token
+            # route as the source video; fal storage is the
+            # per-frame fallback it always was.
+            rels = []
+            for i, blob in enumerate(blobs):
+                rel = f"{src['id']}.ecframe{i}.jpg"
+                dest = FILES_DIR / rel
+                if not dest.exists():
+                    dest.write_bytes(blob)
+                rels.append(rel)
+            try:
+                data_volume.commit()
+            except Exception:
+                pass
             urls = []
-            for fp, blob in zip(frames, blobs):
-                url = _fal_upload_bytes(
-                    blob, "image/jpeg", fp.name)
+            for fp, blob, rel in zip(frames, blobs, rels):
+                url = None
+                try:
+                    url = _hosted_url_for(rel)
+                except Exception:
+                    url = None
+                if not url:
+                    url = _fal_upload_bytes(
+                        blob, "image/jpeg", fp.name)
                 if not url:
                     raise HTTPException(
                         status_code=503,
@@ -25112,6 +25259,44 @@ document.getElementById('go').onclick = async () => {{
         if head.startswith(b"GIF8"):
             return "image/gif"
         return "image/png"
+
+    @web.get("/hosted/{token}")
+    def hosted_file(token: str):
+        # A capability URL (clone hosting fix, 2026-11-28):
+        # the reference lanes take public URLs, never bytes,
+        # and the platform hosts those files itself since fal
+        # storage's account locked. The token is 48 hex chars
+        # minted per file and recorded in the meta Dict;
+        # knowing it is the whole credential, an unknown
+        # token is a plain 404 that confirms nothing, and the
+        # stored name is one this app generated itself, never
+        # a path a caller can steer. The suffix on the URL
+        # (".mp4", ".jpg") is decoration for fetchers that
+        # sniff extensions; the lookup strips and ignores it.
+        for suffix in (".mp4", ".jpg", ".jpeg", ".png", ".webp"):
+            if token.endswith(suffix):
+                token = token[: -len(suffix)]
+                break
+        rel = meta.get(f"hosted:{token}")
+        if not rel or "/" in rel or "\\" in rel \
+                or rel.startswith("."):
+            raise HTTPException(status_code=404, detail="not found")
+        path = FILES_DIR / rel
+        if not path.exists():
+            try:
+                data_volume.reload()
+            except Exception:
+                pass
+        if not path.exists():
+            raise HTTPException(status_code=404, detail="not found")
+        resp = FileResponse(
+            path,
+            media_type=HOSTED_MEDIA_TYPES.get(
+                path.suffix.lower(), "application/octet-stream"),
+            filename=rel)
+        resp.headers["content-disposition"] = (
+            f'inline; filename="{rel}"')
+        return resp
 
     @web.get("/gallery/{job_id}/file")
     def gallery_file(job_id: str):
