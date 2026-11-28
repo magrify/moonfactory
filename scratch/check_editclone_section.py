@@ -31,11 +31,19 @@ Pins the tab's shape so a later edit cannot quietly break it:
 - the clone prompt is prefilled with Jack's template word for
   word: the served textarea, the CLONE_PROMPT_TEMPLATE
   constant and this file's own copy must all three agree;
-- the library source is picked through a Choose from your
-  Moonfactory library button and a thumbnail panel headed
-  Your Moonfactory library (Jack, 2026-11-27), never a
-  dropdown of full prompts; the picked job id rides the
-  hidden ec-library input into the same Add flow;
+- the library source is picked through one quiet Pick from
+  your library row and a thumbnail panel headed Your
+  Moonfactory library (Jack, 2026-11-27), never a dropdown
+  of full prompts and never a giant pill competing with the
+  step's primary; the picked job id rides the hidden
+  ec-library input into the same Add flow;
+- step 1 is polished (Jack, 2026-11-27): the library pick
+  is that single quiet row with the word library appearing
+  once in the block, Add this video starts disabled with a
+  waiting note and wakes only when a link is typed, a file
+  is picked, or a library video is chosen, and Upload a
+  video file is said once, as the drop zone's own heading,
+  not again as a label above it;
 - ingest takes any public video site through the yt-dlp guard
   (TikTok, YouTube, X, Instagram pass; non-http schemes,
   localhost and private address literals are refused), with
@@ -270,8 +278,12 @@ check('<select id="ec-library">' not in html,
 check("Choose a video you already have" not in html,
       "the old select heading still renders")
 check('id="ec-library-btn"' in html
-      and "Choose from your Moonfactory library" in html,
-      "the Choose from your Moonfactory library button is missing")
+      and "Pick from your library" in html,
+      "the Pick from your library row is missing")
+check("Choose from your Moonfactory library" not in html,
+      "the giant library pill still renders")
+check("<label>Pick from your library</label>" not in html,
+      "the library pick still wears its old stacked label")
 check("<h2>Your Moonfactory library</h2>" in html,
       "the library picker panel does not name the Moonfactory library")
 check('<input type="hidden" id="ec-library" value="">' in html,
@@ -301,6 +313,50 @@ check("const libId = $('ec-library').value" in html
       and "ecJobsCache.find(j => j.id === libId)" in html
       and "ecSetSource(job)" in html,
       "the Add flow no longer resolves the picked id to the source job")
+
+# -- step 1 polish: quiet library row, Add earns its place,
+# one upload label (Jack, 2026-11-27) -----------------------------------
+# The library pick is one understated row in the quiet text
+# dress, not a label stacked over a full-width pill; the
+# word library is said once in the block. Add this video
+# starts disabled with its waiting note and wakes only when
+# one of the three routes holds something. Upload a video
+# file is the drop zone's own heading, never a label above
+# it as well (the count of two is that heading plus the
+# zone's aria-label).
+
+step1 = html[html.index('id="ec-step1"'):html.index('id="ec-step2"')]
+check('class="librow" id="ec-library-btn"' in step1,
+      "the library pick is not one quiet row")
+check(step1.count("Pick from your library") == 1,
+      "the library pick is not said exactly once in step 1")
+check('id="ec-add" type="button" disabled' in step1,
+      "Add this video does not start disabled over an empty step")
+check('id="ec-add-note"' in step1
+      and "It wakes up as soon as you give it a video above."
+      in step1,
+      "the Add button carries no waiting note")
+check("function ecUpdateAdd" in html
+      and "$('ec-add').disabled = !ready" in html
+      and "$('ec-add-note').style.display" in html,
+      "nothing re-derives the Add button's state from the inputs")
+check("$('ec-url').addEventListener('input', ecUpdateAdd)" in html,
+      "typing a link does not wake the Add button")
+file_drop_fn = html[html.index("function ecRenderFileDrop"):
+                    html.index("function ecRenderCharDrop")]
+check("ecUpdateAdd();" in file_drop_fn,
+      "picking or removing a file does not update the Add button")
+picked_fn = html[html.index("function ecRenderLibraryPicked"):
+                 html.index("function ecOpenLibrary")]
+check(picked_fn.count("ecUpdateAdd();") == 2,
+      "picking or clearing a library video does not update "
+      "the Add button on both of the picked render's paths")
+check("finally { btnDone(btn); ecUpdateAdd(); }" in html,
+      "a finished Add attempt does not re-derive the button state")
+check("<label>Upload a video file</label>" not in html
+      and '<div class="big">Upload a video file</div>' in step1
+      and step1.count("Upload a video file") == 2,
+      "Upload a video file is still said twice in step 1")
 
 # -- the model picker: same catalog as Create, feed line ------------------
 

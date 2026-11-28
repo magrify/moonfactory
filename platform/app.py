@@ -26327,6 +26327,12 @@ _CSS = """
   .libpicked{display:flex;align-items:center;gap:12px;margin:2px 0 10px}
   .libpicked img.thumb{width:84px;border-radius:9px;flex:none}
   .libpicked .libcard-label{margin-top:0;flex:1}
+  /* One quiet tappable text row (Clone step 1's library
+     pick, 2026-11-27): the same dress as the details.more
+     summary, a plain line of text that opens a picker,
+     never a button competing with the step's primary. */
+  .librow{display:block;background:none;border:0;padding:4px 0;cursor:pointer;color:var(--gray);font-size:14.5px;font-weight:600;text-align:left}
+  .librow:hover{color:var(--ink)}
   /* Clone steps (2026-11-27 flow redesign): the whole
      journey stands on the page from the first paint as
      numbered steps, each with a one line helper. A step
@@ -28757,15 +28763,13 @@ APP_HTML = (
       <p class="helper">Paste a link, upload a file, or pick a video you already have. Adding a video is free.</p>
       <label for="ec-url">Video link</label>
       <input id="ec-url" type="url" placeholder="Paste a link from TikTok, YouTube, X, Instagram, anywhere">
-      <label>Upload a video file</label>
       <div class="drop" id="ec-file-drop" tabindex="0" role="button" aria-label="Upload a video file">
         <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#9c9ca6" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M10 9.2l5 2.8-5 2.8z"/></svg>
         <div class="big">Upload a video file</div>
         <div class="small">Click to browse, or drop the file here.</div>
       </div>
       <input id="ec-file" type="file" accept="video/*" style="display:none">
-      <label>Pick from your library</label>
-      <p><button class="btn secondary" id="ec-library-btn" type="button" style="width:100%">Choose from your Moonfactory library</button></p>
+      <button class="librow" id="ec-library-btn" type="button">Pick from your library</button>
       <input type="hidden" id="ec-library" value="">
       <div class="libpicked" id="ec-library-picked" style="display:none">
         <img class="thumb" id="ec-library-picked-thumb" alt="">
@@ -28773,7 +28777,8 @@ APP_HTML = (
         <button class="btn secondary" id="ec-library-change" type="button">Change</button>
         <button class="btn secondary" id="ec-library-clear" type="button">Clear</button>
       </div>
-      <p><button class="btn" id="ec-add" type="button">Add this video</button></p>
+      <p><button class="btn" id="ec-add" type="button" disabled>Add this video</button></p>
+      <p class="muted" id="ec-add-note">It wakes up as soon as you give it a video above.</p>
       <div id="ec-source-line-wrap" style="display:none">
         <p class="group-label">Your video</p>
         <p class="muted" id="ec-source-line"></p>
@@ -32670,6 +32675,19 @@ function ecSetSource(job) {
   ecUpdateSteps();
   ecQuoteClone();
 }
+// Step 1's Add button earns its place (Jack, 2026-11-27):
+// no live primary over an empty step. It sits disabled,
+// with its waiting note showing, and wakes the moment any
+// of the three routes has something in it: a link typed,
+// a file picked, or a library video chosen. The file and
+// library render paths call this, and the link field calls
+// it on every keystroke.
+function ecUpdateAdd() {
+  const ready = !!($('ec-file').files[0]
+    || $('ec-url').value.trim() || $('ec-library').value);
+  $('ec-add').disabled = !ready;
+  $('ec-add-note').style.display = ready ? 'none' : '';
+}
 async function ecRefreshCharacters() {
   try {
     const r = await api('/api/characters');
@@ -32739,6 +32757,7 @@ function ecRenderLibraryPicked() {
   if (!job) {
     box.style.display = 'none';
     if (id) $('ec-library').value = '';
+    ecUpdateAdd();
     return;
   }
   box.style.display = '';
@@ -32752,6 +32771,7 @@ function ecRenderLibraryPicked() {
   }
   picked.src = '/api/jobs/' + job.id + '/thumb';
   $('ec-library-picked-label').textContent = ecShortLabel(job);
+  ecUpdateAdd();
 }
 function ecOpenLibrary() {
   ecRenderLibrary();
@@ -32763,6 +32783,7 @@ function ecPickLibrary(id) {
   closePanels();
 }
 $('ec-library-btn').onclick = ecOpenLibrary;
+$('ec-url').addEventListener('input', ecUpdateAdd);
 $('ec-library-change').onclick = ecOpenLibrary;
 $('ec-library-clear').onclick = () => {
   $('ec-library').value = '';
@@ -32781,6 +32802,7 @@ $('ec-library-grid').onclick = e => {
 const EC_FILE_DROP_HTML = $('ec-file-drop').innerHTML;
 const EC_CHAR_DROP_HTML = $('ec-char-drop').innerHTML;
 function ecRenderFileDrop() {
+  ecUpdateAdd();
   const dz = $('ec-file-drop');
   const f = $('ec-file').files[0];
   if (!f) { dz.classList.remove('filled'); dz.innerHTML = EC_FILE_DROP_HTML; return; }
@@ -32898,7 +32920,7 @@ $('ec-add').onclick = async () => {
       msg('ec-msg', 'Pick one first: paste a link, upload a file, or choose a video from your library.', 'err');
     }
   } catch (e) { msg('ec-msg', e.message, 'err'); }
-  finally { btnDone(btn); }
+  finally { btnDone(btn); ecUpdateAdd(); }
 };
 $('ec-hook').onclick = async () => {
   if (!ecSource) return;
