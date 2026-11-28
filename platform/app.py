@@ -30545,12 +30545,9 @@ APP_HTML = (
   <div class="overlay" id="panel-api" style="display:none">
     <div class="panel" role="dialog" aria-label="API">
       <div class="panel-head"><h2>API</h2><button type="button" class="panel-close" data-close-panel aria-label="Close">×</button></div>
-      <p class="muted">The Moonfactory API lets your own software create video and image jobs on this account, charged to the same balance as the website. There is no separate API wallet and no separate top up.</p>
-      <p class="group-label">Base address</p>
-      <p style="word-break:break-all;margin:0 0 6px">https://magrify--moonfactory-api.us-east.modal.run</p>
-      <p class="muted" style="margin:0 0 6px">Every call starts from that address, with the endpoints under /api/v1. <a href="/api-docs">Read the API docs</a></p>
+      <p class="muted">The Moonfactory API lets your own software create video and image jobs on this account. API jobs charge to the same balance you top up here. There is no separate API wallet.</p>
       <p class="group-label">API keys</p>
-      <p class="muted" style="margin:0 0 6px">Keys let your own software create jobs on this account, charged to the same balance as the website. A key shows in full one time only, at the moment you create it.</p>
+      <p class="muted" style="margin:0 0 6px">A key shows in full one time only, at the moment you create it.</p>
       <div id="api-keys-list"></div>
       <div class="handle-row">
         <input id="api-key-name" maxlength="60" placeholder="Key name">
@@ -30558,6 +30555,7 @@ APP_HTML = (
       </div>
       <p id="api-key-new" style="display:none;word-break:break-all"></p>
       <p id="api-key-msg"></p>
+      <p class="muted" style="font-size:13px;margin:12px 0 0">Base URL: <span style="word-break:break-all">https://magrify--moonfactory-api.us-east.modal.run</span> <button class="btn secondary" id="api-base-copy" type="button" style="padding:2px 10px;font-size:12.5px;margin-left:4px">Copy</button> <a href="/api-docs" style="margin-left:8px">Read the API docs</a></p>
     </div>
   </div>
 
@@ -32623,6 +32621,23 @@ $('api-key-create').onclick = async () => {
     msg('api-key-msg', '', 'ok');
     loadApiKeys();
   } catch (e) { msg('api-key-msg', errText(e), 'err'); }
+};
+$('api-base-copy').onclick = async () => {
+  const btn = $('api-base-copy');
+  const text = 'https://magrify--moonfactory-api.us-east.modal.run';
+  let ok = false;
+  try { await navigator.clipboard.writeText(text); ok = true; }
+  catch (err) {}
+  if (!ok) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    try { ok = document.execCommand('copy'); } catch (err) {}
+    ta.remove();
+  }
+  btn.textContent = ok ? 'Copied' : 'Copy failed';
+  setTimeout(() => { btn.textContent = 'Copy'; }, 1600);
 };
 $('gallery-optout').addEventListener('change', async () => {
   try {

@@ -292,6 +292,29 @@ for needle, what in (
          "the base address"),
         ('href="/api-docs"', "the link to the API docs")):
     check(needle in api_panel, f"the API panel is missing {what}")
+# -- panel copy: each fact once, plainly (Jack, 2026-11-28) --
+# The panel used to state the one-balance rule twice in nearly the
+# same words ("charged to the same balance as the website" in the
+# intro and again under API keys) and splashed the base address
+# across a headed block. Now the intro says the balance fact once,
+# the keys section keeps only the one-time-display fact, and the
+# base address is one quiet line with a copy button.
+check("API jobs charge to the same balance you top up here."
+      in api_panel,
+      "the API panel intro does not state the one balance rule")
+check(api_panel.count("same balance") == 1,
+      "the API panel states the balance fact more than once")
+check("A key shows in full one time only, at the moment you create it."
+      in api_panel,
+      "the API keys section lost the one time display fact")
+check("as the website" not in api_panel,
+      "the API panel still says 'as the website'")
+check("Base address" not in api_panel
+      and "Every call starts from that address" not in api_panel,
+      "the API panel still features the base address block")
+check("Base URL:" in api_panel and 'id="api-base-copy"' in api_panel
+      and "$('api-base-copy').onclick" in SRC,
+      "the API panel lost the quiet base URL line or its copy button")
 check("open Account, then find the API keys section"
       not in app.API_DOCS_HTML,
       "the docs still send readers to the Account panel for keys")
