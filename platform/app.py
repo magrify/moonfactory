@@ -1880,6 +1880,44 @@ def ensure_job_poster(job: dict, path=None):
         return None
 
 
+def job_has_thumb(job: dict) -> bool:
+    """Whether the job's card has a picture: the truth the
+    thumb and poster routes serve by, read off the volume
+    instead of off the record's has_thumb stamp (flag fix,
+    2026-11-28). The stamp is written by hand in a few
+    finishing paths (the Edit/Clone actions, the assembly
+    finisher) and forgotten by the rest: a generation job —
+    an Edit/Clone clone included — finishes through
+    classify_job_output, whose finally block derives the
+    real {job_id}.gthumb.jpg and {job_id}.jpg and discards
+    the results, so its record never carried the stamp
+    while both routes served real frames (the clone proof 2
+    job b6b3cea548f24875 read has_thumb false with a 46 KB
+    poster and a 10 KB thumb live). The routes' own test is
+    what a card can paint: the derived thumb, the poster
+    frame, or the finished media file both are cut from on
+    demand, so a finished job holding any of the three
+    serves a picture. The stamp still counts on its own:
+    the finisher that set it had just made the poster, and
+    a warm container's volume view can lag the commit
+    behind it."""
+    try:
+        if job.get("has_thumb"):
+            return True
+        if job.get("status") != "done":
+            return False
+        jid = job.get("id") or ""
+        if not jid:
+            return False
+        for suffix in (".gthumb.jpg", ".jpg", ".mp4", ".png"):
+            p = FILES_DIR / f"{jid}{suffix}"
+            if p.is_file() and p.stat().st_size > 0:
+                return True
+        return False
+    except Exception:  # noqa: BLE001
+        return bool(job.get("has_thumb"))
+
+
 # ---------------------------------------------------------------------------
 # Input classifier (Jack, 2026-11-24): the output classifier's
 # model also judges the still pictures a job takes IN at
@@ -13285,7 +13323,7 @@ document.getElementById('go').onclick = async () => {{
             "source_minutes": job.get("source_minutes"),
             "clip_ids": job.get("clip_ids") or [],
             "assembly_sources": job.get("assembly_sources") or [],
-            "has_thumb": bool(job.get("has_thumb")),
+            "has_thumb": job_has_thumb(job),
             "pick_mode": job.get("pick_mode"),
             "aspect_ratio": job.get("aspect_ratio") or "9:16",
             "segments_total": int(job.get("segments_total") or 1),
