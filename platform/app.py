@@ -35415,7 +35415,15 @@ async function fireImage(d) {
   }
   msg('job-msg', 'Still working. Your image will appear in your library below when it lands.', 'ok');
 }
-fetch('/api/config').then(r => r.json()).then(c => { cfg = c; catalogCfg = c; renderBotChecks(); applyOAuthProviders(); buildCatalog(); mfOnConfig(); });
+// The config landing re-runs the crypto method gate
+// (2026-11-28): renderCryptoBilling reads cfg and is
+// called from showStudio, but refreshMe() below races
+// this fetch, and when /api/me lands first the gate runs
+// against the default cfg (no crypto flag) and hides the
+// Crypto pill for the whole session. Whichever of the
+// two lands second must complete the gate, so the
+// config handler calls it too.
+fetch('/api/config').then(r => r.json()).then(c => { cfg = c; catalogCfg = c; renderBotChecks(); applyOAuthProviders(); buildCatalog(); mfOnConfig(); renderCryptoBilling(); });
 // The pricing payload is account aware (the owner's own
 // session sees raw costs), so it is fetched once at page
 // load and again whenever a studio session starts: an in

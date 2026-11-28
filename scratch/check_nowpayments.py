@@ -146,6 +146,112 @@ check("the studio render does not consult the adult stamp",
       "adult_confirmed" not in render_src)
 check("the invoice carries the callback URL per invoice",
       '"ipn_callback_url": f"{base}/api/nowpayments/ipn"' in SRC)
+# -- the render gate, exercised (2026-11-28 regression) -----
+# The Crypto pill vanished from the live panel even though
+# /api/config said crypto was configured and the button was
+# in the markup. Cause: renderCryptoBilling reads cfg, but
+# it was only ever called from showStudio, and the config
+# fetch's own handler never re-called it. The boot fires
+# refreshMe() (/api/me) and the /api/config fetch back to
+# back; when /api/me lands first, showStudio runs the gate
+# against the default cfg literal (no crypto flag), the
+# pill hides, and nothing ever shows it again that session.
+# String pins cannot see an ordering bug, so this section
+# extracts the real render function and the real studio
+# config-fetch statement from the source and runs them in
+# node against a stub DOM, in both landing orders.
+import shutil  # noqa: E402
+import subprocess  # noqa: E402
+import tempfile  # noqa: E402
+
+
+def _js_fn(src, name):
+    start = src.index(f"function {name}(")
+    brace = src.index("{", start)
+    depth = 0
+    for i in range(brace, len(src)):
+        if src[i] == "{":
+            depth += 1
+        elif src[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return src[start:i + 1]
+    raise AssertionError(f"function {name} not closed")
+
+
+render_fn_src = _js_fn(SRC, "renderCryptoBilling")
+fetch_stmt = next(
+    ln.strip() for ln in SRC.splitlines()
+    if "fetch('/api/config')" in ln and "catalogCfg" in ln)
+HARNESS = """
+'use strict';
+const els = {};
+function $(id) {
+  if (!els[id]) els[id] = { style: { display: 'none' } };
+  return els[id];
+}
+let cfg = { pow_required: true, pow_difficulty_bits: 18,
+            turnstile_site_key: null };
+let catalogCfg = null;
+let currentUser = null;
+let billMethod = 'card';
+function billSync() {}
+function renderBotChecks() {}
+function applyOAuthProviders() {}
+function buildCatalog() {}
+function mfOnConfig() {}
+let resolveFetch;
+const fetchPromise = new Promise(r => { resolveFetch = r; });
+function fetch(url) { return fetchPromise; }
+__RENDER_FN__
+__FETCH_STMT__
+(async () => {
+  const mode = process.argv[2];
+  const configured = process.argv[3] === 'true';
+  const el = $('method-crypto');
+  const land = () => resolveFetch(
+    { json: async () => ({ crypto_payments_configured: configured }) });
+  if (mode === 'me-first') {
+    currentUser = { id: 'u1' };
+    renderCryptoBilling();
+    land();
+    await new Promise(r => setTimeout(r, 10));
+  } else if (mode === 'config-first') {
+    land();
+    await new Promise(r => setTimeout(r, 10));
+    currentUser = { id: 'u1' };
+    renderCryptoBilling();
+  } else if (mode === 'guest') {
+    land();
+    await new Promise(r => setTimeout(r, 10));
+    renderCryptoBilling();
+  }
+  console.log(el.style.display === '' ? 'SHOWN' : 'HIDDEN');
+})();
+"""
+_node = shutil.which("node")
+if _node:
+    harness = (HARNESS.replace("__RENDER_FN__", render_fn_src)
+               .replace("__FETCH_STMT__", fetch_stmt))
+    with tempfile.NamedTemporaryFile(
+            "w", suffix=".js", delete=False) as fh:
+        fh.write(harness)
+        harness_path = fh.name
+    for mode, configured, want in (
+            ("me-first", "true", "SHOWN"),
+            ("config-first", "true", "SHOWN"),
+            ("me-first", "false", "HIDDEN"),
+            ("guest", "true", "HIDDEN")):
+        proc = subprocess.run(
+            [_node, harness_path, mode, configured],
+            capture_output=True, text=True, timeout=30)
+        check(f"crypto render gate: {mode} with configured="
+              f"{configured} ends {want}",
+              proc.returncode == 0
+              and proc.stdout.strip() == want)
+else:
+    print("note: node not found, crypto render gate "
+          "exercise skipped")
 ipn_src = fn("nowpayments_ipn")
 check("the IPN handler verifies the signature before anything",
       "nowpayments_signature_ok" in ipn_src
