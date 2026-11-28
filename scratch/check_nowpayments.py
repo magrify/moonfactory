@@ -5,8 +5,9 @@ payment option. It first shipped for the 18+ side only, and
 Jack widened it the same day: "make crypto an option for
 everyone not just 18+." So the checkout endpoints take any
 signed in account (no adult confirmation stamp), and the
-Billing panel renders the crypto section for every signed in
-account. The 18+ stamp still gates the uncensored lanes and
+Billing panel offers the Crypto method card to every signed
+in account (the panel was rebuilt the same day into one
+amount set, one method choice, and one Continue button). The 18+ stamp still gates the uncensored lanes and
 content; it does not gate this payment method. The IPN
 callback verifies the
 HMAC SHA-512 signature over the key-sorted body, credits only
@@ -59,9 +60,44 @@ for route in ("/api/checkout/crypto/topup",
     check(f"route {route} exists", f'"{route}"' in SRC)
 check("config carries the crypto flag",
       '"crypto_payments_configured": nowpayments_configured()' in SRC)
-check("billing panel has the crypto section",
-      'id="crypto-billing"' in SRC and "Pay with crypto" in SRC
-      and "data-topup-crypto" in SRC)
+check("billing panel has the crypto method card",
+      'id="method-crypto"' in SRC)
+# -- the rebuilt Billing panel (Jack, 2026-11-27): one
+# amount set, one method choice, one Continue. The first
+# crypto build duplicated every amount as its own crypto
+# button grid; Jack's verdict was to remove the clutter.
+# These pins keep any amount from ever appearing twice.
+panel = SRC[SRC.index('id="panel-billing"')
+            :SRC.index('id="panel-api"')]
+for cents in ("500", "1000", "2000", "5000", "10000"):
+    check(f"the ${int(cents) // 100} amount appears exactly "
+          "once in the panel",
+          panel.count(f'data-topup="{cents}"') == 1)
+check("no per-method amount buttons survive",
+      "data-topup-crypto" not in SRC
+      and "with crypto" not in panel
+      and 'id="buy-creator"' not in SRC
+      and 'id="buy-creator-crypto"' not in SRC
+      and 'id="crypto-billing"' not in SRC)
+check("the panel has exactly one Continue button",
+      panel.count('id="pay-continue"') == 1
+      and "Continue to payment" in panel)
+check("the panel has the two method cards",
+      'id="method-card"' in panel
+      and 'id="method-crypto"' in panel)
+check("Creator is a selectable card in the amount grid",
+      'id="amount-creator"' in panel)
+check("Continue dispatches the plan by method",
+      "await startCryptoPlan()" in SRC
+      and "await startCreatorCard()" in SRC)
+check("Continue dispatches top ups by method",
+      "await startCryptoTopup(cents)" in SRC
+      and "await startTopup(cents)" in SRC)
+check("the crypto starters keep their endpoints and "
+      "payloads",
+      "api('/api/checkout/crypto/topup'" in SRC
+      and "body: JSON.stringify({ pack_cents: cents })" in SRC
+      and "api('/api/checkout/crypto/plan'" in SRC)
 render_start = SRC.index("function renderCryptoBilling()")
 render_src = SRC[render_start:render_start + 400]
 check("the studio renders the section for every signed in "

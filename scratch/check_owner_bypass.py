@@ -68,17 +68,21 @@ check("the smallest top up is $1" in SRC,
 check("The smallest top up is $1. Type an amount of $1 or more." in SRC,
       "the form does not refuse a custom top up under $1 in plain words")
 # The Billing panel must say plainly that the Creator plan is
-# optional (Jack, 2026-11-19): the line sits inside the Monthly
-# plan block, before the Credits block, in its own paragraph.
+# optional (Jack, 2026-11-19): the line sits in its own
+# paragraph under the amount choices. (The panel was rebuilt
+# 2026-11-27 into one amount grid and one method choice, so
+# the old Monthly plan / Credits blocks it used to sit
+# between no longer exist; the line and its place next to
+# the amounts are what the rule guards.)
 OPTIONAL_LINE = ("The plan is optional. You can skip it and just "
                  "top up credits and pay per video instead.")
 check(OPTIONAL_LINE in SRC,
       "Billing panel lost the plan is optional line")
 if OPTIONAL_LINE in SRC:
-    check(SRC.index('<p class="group-label">Monthly plan</p>')
+    check(SRC.index('id="amount-grid"')
           < SRC.index(OPTIONAL_LINE)
-          < SRC.index('<p class="group-label">Credits</p>'),
-          "plan is optional line is not inside the Monthly plan block")
+          < SRC.index('<p class="group-label">Payment method</p>'),
+          "plan is optional line is not under the amount grid")
 # Info text is one muted gray everywhere (Jack, 2026-11-19):
 # the optional line and the paywall paragraphs take the same
 # muted styling as the panel's other info lines.

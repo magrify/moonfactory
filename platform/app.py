@@ -26213,6 +26213,23 @@ _CSS = """
   .btn.secondary:hover{background:rgba(255,255,255,.06);border-color:#54545f;box-shadow:none}
   .topup-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:2px 0 4px}
   .topup-grid .btn{width:100%;text-align:center;padding-left:8px;padding-right:8px}
+  /* Billing rebuild (2026-11-27): one amount grid of
+     selectable cards and one payment method row of pill
+     cards, in the auth screens' own language (inset cards,
+     indigo selected state, full width rounded Continue).
+     An amount or a method is picked, never bought, until
+     the single Continue button is pressed. */
+  .amount-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin:2px 0 10px}
+  .amount-card{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:16px 6px;border-radius:16px;background:var(--inset);border:1px solid var(--line);color:var(--ink);font:inherit;cursor:pointer;transition:border-color .15s,background .15s,box-shadow .15s}
+  .amount-card:hover{border-color:#54545f}
+  .amount-card.on{border-color:var(--accent);background:rgba(99,91,255,.10);box-shadow:0 0 0 1px var(--accent),0 4px 14px -4px rgba(99,91,255,.55)}
+  .amount-big{font-size:21px;font-weight:800;letter-spacing:-.02em}
+  .amount-sub{font-size:12px;color:var(--faint);font-weight:600}
+  .amount-card.on .amount-sub{color:var(--accent-bright)}
+  .method-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:2px 0 4px}
+  .method-card{padding:15px 10px;border-radius:999px;background:rgba(255,255,255,.03);border:1px solid var(--line-strong);color:var(--ink);font:inherit;font-size:15.5px;font-weight:600;cursor:pointer;transition:background .18s,border-color .18s,box-shadow .18s}
+  .method-card:hover{background:rgba(255,255,255,.06);border-color:#54545f}
+  .method-card.on{border-color:var(--accent);background:rgba(99,91,255,.12);box-shadow:0 0 0 1px var(--accent)}
   .btn:disabled{opacity:.45;cursor:default;box-shadow:none;transform:none}
   .btn.gen{width:100%;margin-top:24px;border-radius:999px;font-size:17px;font-weight:700;padding:17px;letter-spacing:-.01em}
   .card{background:var(--card);border:1px solid var(--line);border-radius:24px;padding:26px;margin:18px 0;box-shadow:var(--card-shadow)}
@@ -28880,42 +28897,30 @@ APP_HTML = (
   <div class="overlay" id="panel-billing" style="display:none">
     <div class="panel" role="dialog" aria-label="Billing">
       <div class="panel-head"><h2>Billing</h2><button type="button" class="panel-close" data-close-panel aria-label="Close">×</button></div>
-      <p class="muted">Paying saves your card and turns auto reload on, so your work never stops over balance. You can turn it off below at any time.</p>
-      <p class="group-label">Monthly plan</p>
-      <p class="muted">The plan is optional. You can skip it and just top up credits and pay per video instead.</p>
-      <p>
-        <button class="btn" id="buy-creator">Get Creator, $20/month</button>
-      </p>
-      <p class="muted">Creator opens every model and includes a monthly budget for making videos.</p>
-      <p class="group-label">Credits</p>
-      <div class="topup-grid">
-        <button class="btn secondary" data-topup="500">Top up $5</button>
-        <button class="btn secondary" data-topup="1000">Top up $10</button>
-        <button class="btn secondary" data-topup="2000">Top up $20</button>
-        <button class="btn secondary" data-topup="5000">Top up $50</button>
-        <button class="btn secondary" data-topup="10000">Top up $100</button>
+      <p class="group-label">Amount</p>
+      <div class="amount-grid" id="amount-grid">
+        <button class="amount-card" type="button" data-topup="500" aria-pressed="false"><span class="amount-big">$5</span></button>
+        <button class="amount-card" type="button" data-topup="1000" aria-pressed="false"><span class="amount-big">$10</span></button>
+        <button class="amount-card" type="button" data-topup="2000" aria-pressed="false"><span class="amount-big">$20</span></button>
+        <button class="amount-card" type="button" data-topup="5000" aria-pressed="false"><span class="amount-big">$50</span></button>
+        <button class="amount-card" type="button" data-topup="10000" aria-pressed="false"><span class="amount-big">$100</span></button>
+        <button class="amount-card" type="button" id="amount-creator" aria-pressed="false"><span class="amount-big">$20</span><span class="amount-sub">Creator, monthly</span></button>
       </div>
       <label for="topup-custom">Your own amount, $1 or more, in dollars</label>
       <div class="topup-grid">
         <input id="topup-custom" type="number" min="1" step="1" inputmode="numeric" placeholder="25">
-        <button class="btn secondary" id="topup-custom-btn" type="button">Top up</button>
+        <button class="btn secondary" id="topup-custom-btn" type="button">Use this amount</button>
       </div>
-      <p class="muted">Top up once and pay per video from your balance. Your balance never expires.</p>
-      <div id="crypto-billing" style="display:none">
-        <p class="group-label">Pay with crypto</p>
-        <p class="muted">Crypto checkout runs through NOWPayments. Your credit lands in your balance when the payment confirms, usually within the hour.</p>
-        <div class="topup-grid">
-          <button class="btn secondary" data-topup-crypto="500" type="button">Top up $5 with crypto</button>
-          <button class="btn secondary" data-topup-crypto="1000" type="button">Top up $10 with crypto</button>
-          <button class="btn secondary" data-topup-crypto="2000" type="button">Top up $20 with crypto</button>
-          <button class="btn secondary" data-topup-crypto="5000" type="button">Top up $50 with crypto</button>
-          <button class="btn secondary" data-topup-crypto="10000" type="button">Top up $100 with crypto</button>
-        </div>
-        <p>
-          <button class="btn secondary" id="buy-creator-crypto" type="button">Get Creator, $20/month with crypto</button>
-        </p>
-        <p class="muted">The Creator plan paid with crypto covers one month and does not renew on its own.</p>
+      <p class="muted">The plan is optional. You can skip it and just top up credits and pay per video instead. Your balance never expires.</p>
+      <p class="group-label">Payment method</p>
+      <div class="method-grid">
+        <button class="method-card on" type="button" id="method-card" aria-pressed="true">Card</button>
+        <button class="method-card" type="button" id="method-crypto" aria-pressed="false" style="display:none">Crypto</button>
       </div>
+      <p class="muted" id="method-note" style="display:none"></p>
+      <p>
+        <button class="btn gen" id="pay-continue" type="button">Continue to payment</button>
+      </p>
       <p class="group-label">Auto reload</p>
       <p class="muted" id="autoreload-note"></p>
       <p class="muted" id="autoreload-card" style="display:none"></p>
@@ -28936,7 +28941,6 @@ APP_HTML = (
         </p>
       </div>
       <p id="pay-msg"></p>
-      <p class="muted">Any payment unlocks every model, custom music, and hiding your clips from the gallery.</p>
     </div>
   </div>
 
@@ -31004,9 +31008,92 @@ async function refreshMe() {
   try { const u = await api('/api/me'); await afterSignIn(u); }
   catch (e) { showGuestStudio(); }
 }
-$('buy-creator').onclick = async () => {
-  try { const r = await api('/api/checkout/subscription', { method: 'POST' }); location.href = r.url; }
-  catch (e) { msg('pay-msg', e.message, 'err'); }
+// -- billing: one amount, one method, one Continue
+// (rebuild, 2026-11-27). The panel used to carry every
+// amount twice, once per payment method, each copy its
+// own buy button. Now the amount is picked once (a pack
+// card, the Creator card, or a custom amount), the method
+// is picked once (Card or Crypto), and the single
+// Continue button starts the same checkout the old
+// per-method buttons started, with the same payloads:
+// card top ups and custom amounts ride /api/checkout/
+// topup, Creator by card rides /api/checkout/subscription,
+// crypto rides /api/checkout/crypto/topup and /plan.
+let billAmount = null;
+let billMethod = 'card';
+async function startCreatorCard() {
+  const r = await api('/api/checkout/subscription', { method: 'POST' });
+  location.href = r.url;
+}
+function billSync() {
+  document.querySelectorAll('[data-topup]').forEach(b => {
+    const on = !!billAmount && billAmount.kind === 'topup'
+      && Number(b.dataset.topup) === billAmount.cents;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+  const planOn = !!billAmount && billAmount.kind === 'plan';
+  const creator = $('amount-creator');
+  creator.classList.toggle('on', planOn);
+  creator.setAttribute('aria-pressed', planOn ? 'true' : 'false');
+  const cardOn = billMethod === 'card';
+  $('method-card').classList.toggle('on', cardOn);
+  $('method-card').setAttribute('aria-pressed', cardOn ? 'true' : 'false');
+  const cryptoBtn = $('method-crypto');
+  cryptoBtn.classList.toggle('on', !cardOn);
+  cryptoBtn.setAttribute('aria-pressed', cardOn ? 'false' : 'true');
+  // One short note under the method row, carrying only
+  // the fact that belongs to the picked method: paying by
+  // card saves the card and arms auto reload (the panel's
+  // one statement of that rule; the Auto reload section
+  // below states only its own state), and crypto carries
+  // its landing or one month fact.
+  const note = $('method-note');
+  let text = '';
+  if (billMethod === 'crypto') {
+    text = planOn
+      ? 'The Creator plan paid with crypto covers one month and does not renew on its own.'
+      : 'Crypto checkout runs through NOWPayments. Your credit lands in your balance when the payment confirms, usually within the hour.';
+  } else {
+    text = 'Paying saves your card and turns auto reload on, so your work never stops over balance. You can turn it off below at any time.';
+  }
+  note.textContent = text;
+  note.style.display = text ? '' : 'none';
+}
+document.querySelectorAll('[data-topup]').forEach(b => b.onclick = () => {
+  billAmount = { kind: 'topup', cents: Number(b.dataset.topup), custom: false };
+  msg('pay-msg', '', 'ok');
+  billSync();
+});
+$('amount-creator').onclick = () => {
+  billAmount = { kind: 'plan' };
+  msg('pay-msg', '', 'ok');
+  billSync();
+};
+$('method-card').onclick = () => { billMethod = 'card'; billSync(); };
+$('method-crypto').onclick = () => { billMethod = 'crypto'; billSync(); };
+$('pay-continue').onclick = async () => {
+  if (!billAmount) {
+    msg('pay-msg', 'Pick an amount first.', 'err');
+    return;
+  }
+  try {
+    if (billAmount.kind === 'plan') {
+      if (billMethod === 'crypto') await startCryptoPlan();
+      else await startCreatorCard();
+      return;
+    }
+    let cents = billAmount.cents;
+    if (billAmount.custom) {
+      cents = Math.round(Number($('topup-custom').value) * 100);
+      if (!(cents >= 100)) {
+        msg('pay-msg', 'The smallest top up is $1. Type an amount of $1 or more.', 'err');
+        return;
+      }
+    }
+    if (billMethod === 'crypto') await startCryptoTopup(cents);
+    else await startTopup(cents);
+  } catch (e) { msg('pay-msg', e.message, 'err'); }
 };
 function renderAutoReload(s) {
   if (!$('save-card')) return;
@@ -31025,7 +31112,7 @@ function renderAutoReload(s) {
   if (s.auto_reload_amount_cents) $('autoreload-amount').value = String(s.auto_reload_amount_cents);
   $('autoreload-off').style.display = s.auto_reload_enabled ? '' : 'none';
   $('autoreload-note').textContent = !has
-    ? 'Pay once and your card is saved and auto reload turns on. You can also save a card now and turn it on yourself.'
+    ? 'Auto reload is off. Save a card to turn it on.'
     : s.auto_reload_enabled
       ? 'Auto reload is on. If your balance cannot cover a job, your saved card is charged once to cover it and the job goes ahead.'
       : 'Auto reload is off. Pick an amount and save to turn it on. It also turns on by itself the next time you pay.';
@@ -31055,54 +31142,68 @@ async function startTopup(cents) {
     body: JSON.stringify({ pack_cents: cents }) });
   location.href = r.url;
 }
-document.querySelectorAll('[data-topup]').forEach(b => b.onclick = async () => {
-  try { await startTopup(Number(b.dataset.topup)); }
-  catch (e) { msg('pay-msg', e.message, 'err'); }
-});
 // A custom top up (Jack, 2026-11-19): any amount of $1 or
 // more, checked here before anything is sent and again on
 // the server. The full typed amount lands in the balance,
-// the same as a preset.
-$('topup-custom-btn').onclick = async () => {
-  const dollars = Number($('topup-custom').value);
-  const cents = Math.round(dollars * 100);
-  if (!dollars || !(cents >= 100)) {
+// the same as a preset. In the rebuilt panel the typed
+// amount is a selection like any other: typing a valid
+// amount picks it (a matching preset card lights up),
+// the button picks it explicitly, and Continue pays it
+// through whichever method is picked, re-reading the
+// field so what is charged is what is typed.
+function billCustomCents() {
+  return Math.round(Number($('topup-custom').value) * 100);
+}
+$('topup-custom').addEventListener('input', () => {
+  const cents = billCustomCents();
+  if (cents >= 100) {
+    billAmount = { kind: 'topup', cents, custom: true };
+  } else if (billAmount && billAmount.custom) {
+    billAmount = null;
+  }
+  billSync();
+});
+$('topup-custom-btn').onclick = () => {
+  const cents = billCustomCents();
+  if (!(cents >= 100)) {
     msg('pay-msg', 'The smallest top up is $1. Type an amount of $1 or more.', 'err');
     return;
   }
-  try { await startTopup(cents); }
-  catch (e) { msg('pay-msg', e.message, 'err'); }
+  billAmount = { kind: 'topup', cents, custom: true };
+  msg('pay-msg', '', 'ok');
+  billSync();
 };
-// Pay with crypto (NOWPayments, 2026-11-27): the crypto
-// section of the Billing panel shows for every signed in
-// account, and only when this deployment is configured for
-// crypto payments. (It first shipped for the 18+ side only;
-// Jack widened it to everyone the same day. The 18+ stamp
-// still gates the uncensored lanes and content, not this
-// payment method.) The checkout endpoints require sign in,
-// so hiding the section is presentation, not the control.
+// Pay with crypto (NOWPayments, 2026-11-27): the Crypto
+// method card in the Billing panel shows for every signed
+// in account, and only when this deployment is configured
+// for crypto payments. (It first shipped for the 18+ side
+// only; Jack widened it to everyone the same day. The 18+
+// stamp still gates the uncensored lanes and content, not
+// this payment method.) The checkout endpoints require
+// sign in, so hiding the card is presentation, not the
+// control. A method that cannot answer never ships: when
+// crypto is not configured the card stays hidden and a
+// picked crypto method falls back to card.
 function renderCryptoBilling() {
-  const box = $('crypto-billing');
-  if (!box) return;
+  const el = $('method-crypto');
+  if (!el) return;
   const show = !!(cfg.crypto_payments_configured
     && currentUser);
-  box.style.display = show ? '' : 'none';
+  el.style.display = show ? '' : 'none';
+  if (!show && billMethod === 'crypto') {
+    billMethod = 'card';
+    billSync();
+  }
 }
 async function startCryptoTopup(cents) {
   const r = await api('/api/checkout/crypto/topup', { method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({ pack_cents: cents }) });
   location.href = r.url;
 }
-document.querySelectorAll('[data-topup-crypto]').forEach(b => b.onclick = async () => {
-  try { await startCryptoTopup(Number(b.dataset.topupCrypto)); }
-  catch (e) { msg('pay-msg', e.message, 'err'); }
-});
-$('buy-creator-crypto').onclick = async () => {
-  try {
-    const r = await api('/api/checkout/crypto/plan', { method: 'POST' });
-    location.href = r.url;
-  } catch (e) { msg('pay-msg', e.message, 'err'); }
-};
+async function startCryptoPlan() {
+  const r = await api('/api/checkout/crypto/plan', { method: 'POST' });
+  location.href = r.url;
+}
 // -- the guided movie flow (Jack, 2026-11-27) ----------------------
 // One implementation in two homes: the same four steps render
 // in the Create tab and in the Clone tab, alongside the Clone
@@ -32348,10 +32449,17 @@ function showTab(which) {
 $('tab-create').onclick = () => showTab('create');
 $('tab-clip').onclick = () => showTab('clip');
 $('tab-clone').onclick = () => showTab('clone');
-$('upgrade-creator').onclick = () => $('buy-creator').click();
-$('upgrade-topup').onclick = () => {
-  const b = document.querySelector('[data-topup="1000"]');
-  if (b) b.click();
+// The upgrade pane's two buttons start the same card
+// checkouts they always started; they used to click the
+// Billing panel's own buttons, which the rebuilt panel no
+// longer carries, so they call the starters directly.
+$('upgrade-creator').onclick = async () => {
+  try { await startCreatorCard(); }
+  catch (e) { msg('pay-msg', e.message, 'err'); }
+};
+$('upgrade-topup').onclick = async () => {
+  try { await startTopup(1000); }
+  catch (e) { msg('pay-msg', e.message, 'err'); }
 };
 function clipChargeLine(q) {
   if (!q) { $('clip-charge').textContent = ''; return; }
